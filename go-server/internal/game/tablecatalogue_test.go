@@ -135,6 +135,7 @@ func TestADatabaseRowsFiguresReachTheTableAndItsCard(t *testing.T) {
 		TurnTimeout: 40 * time.Second, MaxBetRounds: 5, PotLimitMultiplier: 64, MaxRaiseSteps: 3, MaxPot: 7000000,
 		MaxBlindMoves: 2, MaxMissedTurns: 2, SideshowTimeout: 9 * time.Second, SideshowMinPlayers: 2,
 		NextHandDelay: 2 * time.Second, UnfundedGrace: 5 * time.Second, MissileRevealExtra: time.Second,
+		WinnerTax: true, WinnerTaxMinWinnings: 5000000,
 		ChatMaxHistory: chat.MaxHistory, ChatMaxLength: chat.MaxLength,
 	}
 	if got := blind.Config(); got != want {
@@ -161,7 +162,7 @@ func TestADatabaseRowsFiguresReachTheTableAndItsCard(t *testing.T) {
 
 	// The card is the table.
 	o := f.rooms.LobbyOptions()
-	if e := lobbyEntry(t, o, "blind", 5000); e.MaxPot != 7000000 || e.MaxBlindMoves != 2 || e.MaxChips != 50000000 {
+	if e := lobbyEntry(t, o, "blind", 5000); e.MaxPot != 7000000 || e.MaxBlindMoves != 2 || e.MaxChips != 200000000 {
 		t.Errorf("blind 5000 card %+v", e)
 	}
 	if e := lobbyEntry(t, o, "seen", 200); e.MaxPot != 0 {
@@ -238,47 +239,49 @@ func TestAPrivateCreateOfACategoryWithNoTemplateFoldsToSeen(t *testing.T) {
 // it always was.
 func TestInDatabaseModeTheEntryCapIsTheBand(t *testing.T) {
 	f := newRoomsFixture(t, dbCatalogue(t, nil))
-	if e := lobbyEntry(t, f.rooms.LobbyOptions(), "blind", 200); e.MaxChips != 500000 {
+	// The seeded cap: 20 Lakh (owner, 27 Sep 2026: "for blind 200 keep the
+	// entry upto 20 lakh").
+	if e := lobbyEntry(t, f.rooms.LobbyOptions(), "blind", 200); e.MaxChips != 2000000 {
 		t.Fatalf("the cap is the card's band: %+v", e)
 	}
-	_, err := f.rooms.QuickJoin(f.player("Rich", 600000), game.QuickJoinOptions{BootAmount: 200, Category: "blind"})
+	_, err := f.rooms.QuickJoin(f.player("Rich", 2000001), game.QuickJoinOptions{BootAmount: 200, Category: "blind"})
 	expectCode(t, err, game.CodeOverEntryCap)
-	if !strings.Contains(err.Error(), "more than 500,000 chips") {
+	if !strings.Contains(err.Error(), "more than 2,000,000 chips") {
 		t.Errorf("message %q", err.Error())
 	}
-	f.mustQuickJoin(f.player("AtTheCap", 500000), 200, "blind")
+	f.mustQuickJoin(f.player("AtTheCap", 2000000), 200, "blind")
 
 	raised := newRoomsFixture(t, dbCatalogue(t, func(cat *config.TableCatalogue) {
-		catalogueRow(t, cat, "blind:200").MaxChips = 1000000
+		catalogueRow(t, cat, "blind:200").MaxChips = 3000000
 	}))
-	if e := lobbyEntry(t, raised.rooms.LobbyOptions(), "blind", 200); e.MaxChips != 1000000 {
+	if e := lobbyEntry(t, raised.rooms.LobbyOptions(), "blind", 200); e.MaxChips != 3000000 {
 		t.Fatalf("the row's band is the card's: %+v", e)
 	}
-	table := raised.mustQuickJoin(raised.player("Rich", 600000), 200, "blind")
-	if _, err := raised.rooms.JoinByCode(raised.player("AlsoRich", 900000), table.Code()); err != nil {
+	table := raised.mustQuickJoin(raised.player("Rich", 2500000), 200, "blind")
+	if _, err := raised.rooms.JoinByCode(raised.player("AlsoRich", 2900000), table.Code()); err != nil {
 		t.Fatalf("join by code under the row's band: %v", err)
 	}
-	_, err = raised.rooms.QuickJoin(raised.player("TooRich", 1000001), game.QuickJoinOptions{BootAmount: 200, Category: "blind"})
+	_, err = raised.rooms.QuickJoin(raised.player("TooRich", 3000001), game.QuickJoinOptions{BootAmount: 200, Category: "blind"})
 	expectCode(t, err, game.CodeOverEntryCap)
-	if !strings.Contains(err.Error(), "more than 1,000,000 chips") {
+	if !strings.Contains(err.Error(), "more than 3,000,000 chips") {
 		t.Errorf("message %q", err.Error())
 	}
 
 	env := newRoomsFixture(t, func(g *config.GameConfig, _ *game.RoomManagerOptions) {
 		for i := range g.LobbyTables {
 			if g.LobbyTables[i].Category == "blind" && g.LobbyTables[i].BootAmount == 200 {
-				g.LobbyTables[i].MaxChips = 1000000
+				g.LobbyTables[i].MaxChips = 3000000
 			}
 		}
 	})
-	_, err = env.rooms.QuickJoin(env.player("Rich", 600000), game.QuickJoinOptions{BootAmount: 200, Category: "blind"})
+	_, err = env.rooms.QuickJoin(env.player("Rich", 2500000), game.QuickJoinOptions{BootAmount: 200, Category: "blind"})
 	expectCode(t, err, game.CodeOverEntryCap)
 }
 
 // TestANewTableRowIsJoinableAtItsOwnBoot: DEPLOY.md's "new table" recipe in
 // full — ONE table_configs row, blind:1000 copied from blind:200, with
 // table_settings.stakes left as the seed wrote it ([200, 5000, 50000,
-// 1000000]). The card appears, its boot is advertised among the stakes, and
+// 2000000]). The card appears, its boot is advertised among the stakes, and
 // quick-join and a public room:create both reach it: a table's own boot is an
 // allowed stake (config.TableCatalogue.Validate), so AssertStakeAllowed, which
 // runs before the menu check, no longer refuses the card it put in the lobby.
@@ -293,7 +296,7 @@ func TestANewTableRowIsJoinableAtItsOwnBoot(t *testing.T) {
 	if e := lobbyEntry(t, o, "blind", 1000); e.MaxChips != 0 {
 		t.Errorf("the new card %+v", e)
 	}
-	eq(t, reflect.DeepEqual(o.Stakes, []int64{200, 5000, 50000, 1000000, 1000}), true, "the stakes advertised")
+	eq(t, reflect.DeepEqual(o.Stakes, []int64{200, 5000, 50000, 2000000, 1000}), true, "the stakes advertised")
 	eq(t, reflect.DeepEqual(f.rooms.TableConfig().Stakes, o.Stakes), true, "GET /api/tables says the same")
 
 	table := f.mustQuickJoin(f.player("A", rmStart), 1000, "blind")
@@ -786,7 +789,7 @@ func TestTheTableConfigPayloadIsTheLobbyAndItsVersionIsItsOwnHash(t *testing.T) 
 	}
 	first, _ := json.Marshal(p.Tables[0])
 	eq(t, string(first), `{"category":"seen","bootAmount":200,"maxPot":2000000,"maxBlindMoves":4,"minChips":0,"maxChips":0,`+
-		`"key":"seen:200","engine":"teen_patti","isPrivate":false,"sortOrder":10,"maxRaiseSteps":2,"maxBetRounds":7,"potLimitMultiplier":1024,`+
+		`"winnerTax":true,"winnerTaxMinWinnings":5000000,"key":"seen:200","engine":"teen_patti","isPrivate":false,"sortOrder":10,"maxRaiseSteps":2,"maxBetRounds":7,"potLimitMultiplier":1024,`+
 		`"turnTimeoutMs":25000,"maxMissedTurns":3,"sideshowTimeoutMs":6000,"sideshowMinPlayers":3,"nextHandDelayMs":4000,`+
 		`"unfundedGraceMs":0,"missileRevealExtraMs":3000,"variationSelectTimeoutMs":0,"fiveCardPickTimeoutMs":0}`, "seen 200")
 	holdem := payloadEntry(t, p.Tables, "texas_holdem:50000")

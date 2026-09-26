@@ -676,7 +676,7 @@ func TestASettlementTheLedgerRefusesIsPaidInMemoryAndRetried(t *testing.T) {
 		return &captureLedger{inner: inner, settle: func(r SettleRequest) (SettleResult, error) {
 			settleCalls = append(settleCalls, r.HandID)
 			if failSettle {
-				return nil, errors.New("settle down")
+				return SettleResult{}, errors.New("settle down")
 			}
 			return inner.Settle(context.Background(), r)
 		}}
@@ -732,9 +732,9 @@ func TestASettleRetryRefusedAsDuplicateActionCountsAsSuccess(t *testing.T) {
 			}
 			switch attempts[r.HandID] {
 			case 1:
-				return nil, errors.New("timeout after commit")
+				return SettleResult{}, errors.New("timeout after commit")
 			case 2:
-				return nil, NewGameError(CodeDuplicateAction, "That move has already been applied")
+				return SettleResult{}, NewGameError(CodeDuplicateAction, "That move has already been applied")
 			}
 			return inner.Settle(context.Background(), r)
 		}}
@@ -830,11 +830,11 @@ func TestARefusedSettlementIsReportedOwedOnceAndSettledOnceAfterItsWrite(t *test
 						defer mu.Unlock()
 						attempts++
 						if tc.refusals < 0 || attempts <= tc.refusals {
-							return nil, errors.New("settle down")
+							return SettleResult{}, errors.New("settle down")
 						}
 						written = true
 						if tc.duplicate {
-							return nil, NewGameError(CodeDuplicateAction, MsgDuplicateAction)
+							return SettleResult{}, NewGameError(CodeDuplicateAction, MsgDuplicateAction)
 						}
 						return SettleResult{}, nil
 					}}

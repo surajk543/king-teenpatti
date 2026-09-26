@@ -85,6 +85,29 @@ end
 return count
 `)
 
+// addPlayTimeScript is PlayClock.AddPlayTime: a player's active play in their
+// XP window, read and written in one script so two hand ends adding together
+// each see the other's play once. The record counts one window — the
+// database's, by its epoch-ms start — and is replaced when a call names
+// another (the window rolled).
+//
+//	KEYS[1] = kt:xpplay:<userId>
+//	ARGV    = windowStart, playMs, ttlMs
+//
+// Returns {before, after}, the window's play in ms before and after the call.
+var addPlayTimeScript = redis.NewScript(`
+local before = 0
+if redis.call('HGET', KEYS[1], 'w') == ARGV[1] then
+  before = tonumber(redis.call('HGET', KEYS[1], 'ms') or '0') or 0
+end
+local add = tonumber(ARGV[2]) or 0
+if add < 0 then add = 0 end
+local after = before + add
+redis.call('HSET', KEYS[1], 'w', ARGV[1], 'ms', after)
+redis.call('PEXPIRE', KEYS[1], ARGV[3])
+return {before, after}
+`)
+
 // OpenRedis connects to Redis and returns the production Store. It pings
 // once and fails fast with a clear error when the server is unreachable.
 func OpenRedis(ctx context.Context, opts Options) (Store, error) {
@@ -153,8 +176,30 @@ func (r *Redis) keyPlaying(userID string) string { return r.prefix + "playing:" 
 func (r *Redis) keyOnline() string               { return r.prefix + "online" }
 func (r *Redis) keyResume(userID string) string  { return r.prefix + "resume:" + userID }
 func (r *Redis) keySummary(roomID string) string { return r.prefix + "summary:" + roomID }
+func (r *Redis) keyXPPlay(userID string) string  { return r.prefix + "xpplay:" + userID }
 func (r *Redis) keyLobby(category string, bootAmount int64) string {
 	return r.prefix + "lobby:" + lobbyBucket(category, bootAmount)
+}
+
+// ---- XP play time --------------------------------------------------------
+
+var _ PlayClock = (*Redis)(nil)
+
+// AddPlayTime implements PlayClock (one Lua round trip, see
+// addPlayTimeScript). The record's ttl is at least a millisecond: PEXPIRE of
+// 0 would delete it outright.
+func (r *Redis) AddPlayTime(ctx context.Context, userID string, windowStart int64, play, ttl time.Duration) (time.Duration, time.Duration, error) {
+	ctx, cancel := r.bound(ctx)
+	defer cancel()
+	vals, err := addPlayTimeScript.Run(ctx, r.client, []string{r.keyXPPlay(userID)},
+		windowStart, max(play.Milliseconds(), 0), max(ttl.Milliseconds(), 1)).Int64Slice()
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(vals) != 2 {
+		return 0, 0, fmt.Errorf("live: add play time for %s: %d values back, want 2", userID, len(vals))
+	}
+	return time.Duration(vals[0]) * time.Millisecond, time.Duration(vals[1]) * time.Millisecond, nil
 }
 
 // ---- live table state ----------------------------------------------------

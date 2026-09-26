@@ -33,6 +33,7 @@ class EmojiArt extends StatefulWidget {
     required this.size,
     this.animate = true,
     this.semanticLabel,
+    this.fit = BoxFit.contain,
   });
 
   /// Absolute — the caller has made a server-relative path loadable
@@ -47,6 +48,10 @@ class EmojiArt extends StatefulWidget {
 
   /// What a screen reader calls it — the emoji's name.
   final String? semanticLabel;
+
+  /// How the canvas meets the square: whole (an emoji), or cropped to it —
+  /// a badge whose 16:9 canvas holds its art in the middle (Royal Ace).
+  final BoxFit fit;
 
   @override
   State<EmojiArt> createState() => _EmojiArtState();
@@ -112,7 +117,7 @@ class _EmojiArtState extends State<EmojiArt> {
             bytes,
             width: size,
             height: size,
-            fit: BoxFit.contain,
+            fit: widget.fit,
             animate: widget.animate,
             repeat: widget.animate,
             frameBuilder: (_, child, composition) =>

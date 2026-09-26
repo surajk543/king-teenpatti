@@ -56,6 +56,43 @@ type TableSummary struct {
 	Instance   string `json:"instance"`  // which server process owns the table
 }
 
+// PlayClock is the live store's XP play time (owner, 26 Sep 2026: "game
+// duration will be stored in redis not in postgres"): per player, the active
+// play in their current XP window, and nothing else — never PostgreSQL's
+// business. The window itself is the database's (player_xp.window_start,
+// opened by the first hand a player completes in a day), and so is every
+// claim of the daily XP the play earns (player_xp_claims, owner, 27 Sep 2026:
+// "Play 15 active minutes +3 XP … 1 time"): the store only counts. A store
+// that implements it is where a server keeps the play time the PLAY_TIME XP is
+// earned by; a store that does not keeps none, and those sources are then
+// never earned. Memory and Redis implement it; PlayClockOf finds it behind a
+// WithHooks wrapper.
+type PlayClock interface {
+	// AddPlayTime adds play to userID's active play in the XP window that
+	// opened at windowStart (epoch ms) and returns the window's play before
+	// and after the call. A record kept for any other window is replaced —
+	// the window has rolled, and its play starts from nothing — and the
+	// record lasts ttl from the call. Atomic: of calls that add together,
+	// each sees the others' play once. A play of 0 or less adds nothing.
+	AddPlayTime(ctx context.Context, userID string, windowStart int64, play, ttl time.Duration) (before, after time.Duration, err error)
+}
+
+// PlayClockOf is s's PlayClock — s itself, or the store a WithHooks wrapper
+// (anything with Unwrap() Store) decorates — and whether it has one.
+func PlayClockOf(s Store) (PlayClock, bool) {
+	for s != nil {
+		if pc, ok := s.(PlayClock); ok {
+			return pc, true
+		}
+		u, ok := s.(interface{ Unwrap() Store })
+		if !ok {
+			return nil, false
+		}
+		s = u.Unwrap()
+	}
+	return nil, false
+}
+
 // ResumeOffer is the table a lapsed seat is offered back (session:ready.resume).
 type ResumeOffer struct {
 	RoomID     string `json:"roomId"`

@@ -33,6 +33,15 @@ type Memory struct {
 	summaries map[string]*memSummary // roomID → lobby summary
 	lobby     map[string]map[string]struct{}
 	// lobby: bucket "<category>:<boot>" → public room ids published there
+	xpDays map[string]*memXPDay // userID → XP play-time window (PlayClock)
+}
+
+// memXPDay is one player's XP play-time record: the window it counts in (its
+// epoch-ms start), the play in it, and when the record is gone.
+type memXPDay struct {
+	windowStart int64
+	play        time.Duration
+	expiresAt   time.Time
 }
 
 type memTable struct {
@@ -85,9 +94,35 @@ func NewMemoryWithClock(now func() time.Time) Store {
 		offers:    make(map[string]memOffer),
 		summaries: make(map[string]*memSummary),
 		lobby:     make(map[string]map[string]struct{}),
+		xpDays:    make(map[string]*memXPDay),
 	}
 	m.lastSweep = now()
 	return m
+}
+
+var _ PlayClock = (*Memory)(nil)
+
+// AddPlayTime implements PlayClock under the one mutex.
+func (m *Memory) AddPlayTime(ctx context.Context, userID string, windowStart int64, play, ttl time.Duration) (time.Duration, time.Duration, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.enter(ctx); err != nil {
+		return 0, 0, err
+	}
+	day := m.xpDays[userID]
+	if day != nil && (!day.expiresAt.After(m.now()) || day.windowStart != windowStart) {
+		day = nil
+	}
+	if day == nil {
+		day = &memXPDay{windowStart: windowStart}
+		m.xpDays[userID] = day
+	}
+	before := day.play
+	if play > 0 {
+		day.play += play
+	}
+	day.expiresAt = m.now().Add(ttl)
+	return before, day.play, nil
 }
 
 // Kind implements Store.
@@ -155,6 +190,11 @@ func (m *Memory) sweep(now time.Time) {
 	for id, s := range m.summaries {
 		if !s.expiresAt.After(now) {
 			m.dropSummary(id, s)
+		}
+	}
+	for id, d := range m.xpDays {
+		if !d.expiresAt.After(now) {
+			delete(m.xpDays, id)
 		}
 	}
 }

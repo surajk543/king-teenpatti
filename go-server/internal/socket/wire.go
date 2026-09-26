@@ -81,6 +81,11 @@ const (
 	// Nothing is sent for a reject, a removal or a refusal.
 	EvFriendRequest  = "friend:request"  // the request's recipient: auth.FriendRequestItem (Player: the sender)
 	EvFriendAccepted = "friend:accepted" // the request's sender: auth.FriendAccepted (Player: the accepter)
+	// EvPlayerLevel is a player's own standing — {playerLevel, badges,
+	// taxBps} (db.Standing, the user object's three keys of the same names) —
+	// sent to that account's live socket alone after an XP award that changed
+	// their XP has committed (owner, 26 Sep 2026; Go only).
+	EvPlayerLevel = "player:level"
 )
 
 // Messages the socket layer itself puts on the wire.

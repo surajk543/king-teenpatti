@@ -277,8 +277,10 @@ func (t *Table) onFenced(err *game.FencedError) {
 	t.hooks.OnRoomError(t, err)
 }
 
-func (t *Table) onSettleLanded(req game.SettleRequest, balances game.SettleResult) {
-	for userID, balance := range balances {
+// onSettleLanded adopts a landed retry's balances onto seats not in a hand.
+// A poker room never taxes its winners, so the result's TaxBps is not read.
+func (t *Table) onSettleLanded(req game.SettleRequest, result game.SettleResult) {
+	for userID, balance := range result.Balances {
 		s := t.findSeat(userID)
 		if s != nil && !s.inHand() {
 			s.chips = balance

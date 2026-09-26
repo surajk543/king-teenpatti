@@ -168,6 +168,7 @@ var catalogue = []struct {
 	{NameKicksTotal, "counter", "Players removed from a table by the server, by reason.", []string{"reason"}},
 	{NameChatMessagesTotal, "counter", "Chat messages posted to a table.", nil},
 	{NamePotSettledTotal, "counter", "Chips paid out to hand winners since the process started.", nil},
+	{NameTableTaxTotal, "counter", "Chips taken as winning tax from hand winners at the tables that tax them, by category.", []string{"category"}},
 	{NameMoveDuration, "histogram", "Time to validate a move, commit it to the database and update the table, by action.", []string{"action"}},
 	{NameCreationDuration, "histogram", "Time to create a table (lobby quick-join that opened a new one, or a private room).", nil},
 	{NameJoinDuration, "histogram", "Time from a join request to the player being seated and sent the table, by entry route.", []string{"route"}},
@@ -203,6 +204,7 @@ func touch(m *Metrics) {
 	m.MovesTotal.WithLabelValues("chaal").Inc()
 	m.InvalidMovesTotal.WithLabelValues("unknown_action").Inc()
 	m.KicksTotal.WithLabelValues("idle").Inc()
+	m.TableTaxTotal.WithLabelValues("blind").Add(200000)
 	m.MoveDuration.WithLabelValues("see").Observe(0.002)
 	m.CreationDuration.Observe(0.0001)
 	m.JoinDuration.WithLabelValues(RouteQuickJoin).Observe(0.01)
@@ -236,8 +238,8 @@ func TestCatalogueCoversEveryGameFamily(t *testing.T) {
 			t.Errorf("%s is exposed but not catalogued", name)
 		}
 	}
-	if len(catalogue) != 41 {
-		t.Errorf("catalogue has %d entries, want 41 (35 from Node + 6 live-state)", len(catalogue))
+	if len(catalogue) != 42 {
+		t.Errorf("catalogue has %d entries, want 42 (35 from Node + 6 live-state + the winning tax)", len(catalogue))
 	}
 }
 

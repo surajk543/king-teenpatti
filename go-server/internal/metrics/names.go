@@ -63,6 +63,9 @@ const (
 	NameKicksTotal          = "game_kicks_total" // {reason}
 	NameChatMessagesTotal   = "game_chat_messages_total"
 	NamePotSettledTotal     = "game_pot_settled_chips_total"
+	// NameTableTaxTotal is the winning tax taken from hand winners at the
+	// tables that tax them (owner, 26 Sep 2026) — chips that left the game.
+	NameTableTaxTotal = "game_table_tax_chips_total" // {category}
 )
 
 // Latency histograms (buckets LatencyBuckets).

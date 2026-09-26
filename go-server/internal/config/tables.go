@@ -46,6 +46,7 @@ func TableEnvKeys() []string {
 		"NEXT_HAND_DELAY_MS", "UNFUNDED_GRACE_MS", "MISSILE_REVEAL_EXTRA_MS",
 		"VARIATION_SELECT_TIMEOUT_MS", "VARIATION_MAX_POT_BOOTS", "FIVE_CARD_PICK_TIMEOUT_MS",
 		"POKER_TURN_TIMEOUT_MS", "POKER_MIN_BUYIN_BOOTS", "POKER_MAX_DISCARDS",
+		"WINNER_TAX_MIN_WINNINGS",
 	}
 }
 
@@ -216,6 +217,20 @@ type TableSpec struct {
 	VariationSelectTimeout time.Duration
 	FiveCardPickTimeout    time.Duration
 
+	// WinnerTax (Teen Patti only; owner, 26 Sep 2026): the table TAXES ITS
+	// WINNERS — the one winner of each hand pays a share of what they won, the
+	// pot less their own contribution, at the rate they pay (their level's, or
+	// a badge's; game.TableTax) — on winnings of WinnerTaxMinWinnings or more
+	// and never on less (owner, 27 Sep 2026: "Apply this tax rule on all the
+	// tables, blind, seen, variation", then "30 lakh is the limit on winning
+	// amount not on pot limit", raised the same day: "no tax for winning
+	// amount less than 50 Lakh"). By default every public Seen, Blind and
+	// Variation table does, from winnings of 50,00,000; no private table or
+	// poker room does. Both always zero on a poker spec: figures its family
+	// does not read.
+	WinnerTax            bool
+	WinnerTaxMinWinnings int64
+
 	// Poker only: the smallest stack that may sit (absolute chips) and
 	// 5-Card Draw's exchange limit (carried by every poker spec, as the env
 	// composition always gave every variant POKER_MAX_DISCARDS; only a draw
@@ -374,6 +389,15 @@ func (g GameConfig) composeSpec(category string, bootAmount int64, private bool)
 		spec.VariationSelectTimeout = g.VariationSelectTimeout
 		spec.FiveCardPickTimeout = g.FiveCardPickTimeout
 	}
+	// Whether it taxes its winners is the menu entry's own ("tax=1"), and only
+	// a public table's: a private template has no menu entry to carry it. The
+	// smallest winnings it taxes are the table-wide WINNER_TAX_MIN_WINNINGS.
+	if !private {
+		spec.WinnerTax = g.menuWinnerTaxFor(category, rules.BootAmount)
+		if spec.WinnerTax {
+			spec.WinnerTaxMinWinnings = g.WinnerTaxMinWinnings
+		}
+	}
 	g.fillIdentity(&spec)
 	return spec
 }
@@ -476,7 +500,8 @@ func (c *TableCatalogue) clone() TableCatalogue {
 // WithCatalogue returns a copy of g that plays by cat (db mode). Every field
 // an existing check reads is taken from it, so none of those checks changes:
 // LobbyTables (public rows, in order: category, boot and the OWN band — MaxPot
-// left 0 because every pot figure is read through Spec), TableStakes and the
+// and WinnerTax left 0 and false because every pot and tax figure is read
+// through Spec), TableStakes and the
 // advertised scalars (settings), the entry cap (settings) and the private
 // figures (the private seen template: what the Flutter app creates). cat must
 // have been through Validate.
@@ -727,6 +752,10 @@ func (spec TableSpec) normalised(s TableSettings) (TableSpec, error) {
 		spec.MaxPot, spec.MaxRaiseSteps, spec.MaxBetRounds, spec.PotLimitMultiplier, spec.MaxBlindMoves = 0, 0, 0, 0, 0
 		spec.SideshowTimeout, spec.SideshowMinPlayers, spec.MissileRevealExtra = 0, 0, 0
 		spec.VariationSelectTimeout, spec.FiveCardPickTimeout = 0, 0
+		// A poker room never taxes its winners (owner, 26 Sep 2026: the taxed
+		// tables are Teen Patti's), so winner_tax on a poker row is a figure
+		// its family does not read.
+		spec.WinnerTax, spec.WinnerTaxMinWinnings = false, 0
 		return spec, nil
 	}
 	if spec.MaxPot < 0 || spec.MaxRaiseSteps < 0 || spec.MaxBetRounds < 0 || spec.PotLimitMultiplier < 0 ||
@@ -739,6 +768,14 @@ func (spec TableSpec) normalised(s TableSettings) (TableSpec, error) {
 		return TableSpec{}, fmt.Errorf("boot_amount × pot_limit_multiplier overflows")
 	}
 	spec.MinBuyIn, spec.MaxDiscards = 0, 0
+	// The winner's tax: a public table's alone, and its smallest taxed pot
+	// only where it taxes (a figure nothing else reads).
+	if spec.WinnerTaxMinWinnings < 0 {
+		return TableSpec{}, fmt.Errorf("negative tax_min_winnings")
+	}
+	if spec.Private || !spec.WinnerTax {
+		spec.WinnerTax, spec.WinnerTaxMinWinnings = false, 0
+	}
 	if spec.Category == CategoryVariation {
 		if spec.VariationSelectTimeout <= 0 || spec.FiveCardPickTimeout <= 0 {
 			return TableSpec{}, fmt.Errorf("a variation table needs variation_select_timeout_ms and five_card_pick_timeout_ms above 0")
@@ -766,6 +803,9 @@ func (spec TableSpec) describe() string {
 // asks it of every table restored from the live store: one whose frozen rules
 // the current configuration would no longer open is drained (never matched
 // into) rather than left to take players the lobby card describes differently.
+// Whether a table taxes its winners is one of the figures compared: a table
+// restored from before the switch changed goes on playing as its players sat
+// down to it, and is drained.
 func (a TableSpec) SameRules(b TableSpec) bool {
 	a.Key, b.Key = "", ""
 	a.Engine, b.Engine = "", ""

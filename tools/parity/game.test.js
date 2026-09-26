@@ -832,8 +832,11 @@ test('leaving mid-hand is a pack: the stake stays in the pot, the last player st
   const leaverEntry = ended.summary.find((e) => e.userId === onTurnUser.id);
   assert.equal(leaverEntry.contributed, bootAmount * 2);
   assert.equal(leaverEntry.status, 'packed');
-  assertOrder(waiting.eventsSince(mark), ['chat:message', 'game:action', 'game:handEnded', 'room:state'], 'remaining player');
   const view = await waiting.waitNext('room:state', (s) => occupied(s).length === 1 && s.state === 'waiting', 4000, mark);
+  // Checked once the snapshot after the hand's end has arrived: the order is
+  // the server's, the moment a frame is read is the socket's (a player:level
+  // push, the winner's XP, may come between the pack and the hand's end).
+  assertOrder(waiting.eventsSince(mark), ['chat:message', 'game:action', 'game:handEnded', 'room:state'], 'remaining player');
   assert.equal(view.you.chips, profile.welcomeChips - bootAmount + pot, 'the pot is credited');
 
   await eventually(async () => {

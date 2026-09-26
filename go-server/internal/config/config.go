@@ -263,13 +263,21 @@ type LobbyTable struct {
 	// nothing else — the ladder and the rounds stay the category's — and a
 	// private table never reads it.
 	MaxPot int64
+	// WinnerTax ("tax=1"; owner, 26 Sep 2026) makes this table TAX ITS
+	// WINNERS: the one winner of every hand pays a share of what they won —
+	// the pot less their own contribution — at the rate they pay (their
+	// level's, or a badge's; game.TableTax), on winnings of
+	// WINNER_TAX_MIN_WINNINGS or more. A rule figure like MaxPot, read through
+	// Spec by the PUBLIC Teen Patti table of this category and boot and by
+	// nothing else: a private table and a poker room never read it.
+	WinnerTax bool
 }
 
 // GameConfig ← config.game. Durations replace Node's *Ms integers; convert
 // with .Milliseconds() wherever the value goes on the wire (turnTimeoutMs,
 // sideshowTimeoutMs, …) — see PORT_PLAN.md §Time.
 type GameConfig struct {
-	WelcomeChips int64 // WELCOME_CHIPS 300000 (requirement 5; 2 lakh until 14 Sep 2026, owner)
+	WelcomeChips int64 // WELCOME_CHIPS 1000000 (requirement 5; owner, 27 Sep 2026: "every new user will get 1 missile 20 Hammers and 10Lakh coin" — 3 lakh from 14 Sep 2026, 2 lakh before)
 	BootAmount   int64 // BOOT_AMOUNT 200 — the default stake
 
 	// TableStakes is TABLE_STAKES (200,5000): the stakes quick-join accepts.
@@ -311,7 +319,7 @@ type GameConfig struct {
 	// Requirement 30: entry cap on the cheapest blind table.
 	EntryCapBoot     int64  // ENTRY_CAP_BOOT 200
 	EntryCapCategory string // ENTRY_CAP_CATEGORY "blind"
-	EntryCapMaxChips int64  // ENTRY_CAP_MAX_CHIPS 500000 (0 disables)
+	EntryCapMaxChips int64  // ENTRY_CAP_MAX_CHIPS 2000000 (0 disables; owner, 27 Sep 2026: "for blind 200 keep the entry upto 20 lakh" — 5 lakh before)
 
 	// Requirement 31: consecutive timed-out turns before the seat is given up.
 	MaxMissedTurns int // MAX_MISSED_TURNS 3
@@ -370,11 +378,19 @@ type GameConfig struct {
 	// which is the default. It is a count of boots and not a figure because a
 	// variation table is offered at four stakes: a deployment that does want a
 	// cap cannot use one number for them — the seen table's fixed 20 Lakh is
-	// two boots at the 10 Lakh table, and every hand there would be dealt
+	// a single boot at the 20 Lakh table, and every hand there would be dealt
 	// straight into the POT_LIMIT showdown. A variation table still takes the
 	// seen table's ladder and its rounds (SeenMaxRaiseSteps, SeenMaxBetRounds),
 	// so a hand ends at the forced showdown whatever the pot has grown to.
 	VariationMaxPotBoots int64
+	// WinnerTaxMinWinnings is WINNER_TAX_MIN_WINNINGS 5000000 (Go only; owner,
+	// 27 Sep 2026: "30 lakh is the limit on winning amount not on pot limit",
+	// then "no tax for winning amount less than 50 Lakh"):
+	// the smallest WINNINGS — the pot less the winner's own contribution — a
+	// table that taxes its winners (LobbyTable.WinnerTax) taxes; smaller
+	// winnings are paid out whole. 0 taxes any winnings. In db mode each row
+	// carries its own (table_configs.tax_min_winnings).
+	WinnerTaxMinWinnings int64
 	// FiveCardPickTimeout is FIVE_CARD_PICK_TIMEOUT_MS 8000 (Go only, owner
 	// 19 Sep 2026: "give only 8 second window to pick"): the EXTRA time a
 	// player gets, once their five cards are in
@@ -510,31 +526,40 @@ func Defaults() *Config {
 			LedgerPurgeAfter:    10 * time.Minute,
 		},
 		Game: GameConfig{
-			WelcomeChips: 300000,
+			WelcomeChips: 1000000,
 			BootAmount:   200,
-			TableStakes:  []int64{200, 5000, 50000, 1000000},
+			TableStakes:  []int64{200, 5000, 50000, 2000000},
 			// The blind ladder is banded by stack as well as by stake, so a
 			// player sits where their money belongs: outgrow a table and it
 			// closes behind you, and the top one opens only once you could
 			// lose a hand there and still be playing. Indian numbering, since
 			// that is how these were specified: 5 Cr = 5,00,00,000.
 			LobbyTables: []LobbyTable{
-				{Category: "seen", BootAmount: 200},
-				{Category: "blind", BootAmount: 200},
-				{Category: "blind", BootAmount: 5000, MaxChips: 50000000},     // over 5 Cr must move up
-				{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},  // over 100 Cr must move up
-				{Category: "blind", BootAmount: 1000000, MinChips: 500000000}, // 50 Cr or more to enter
+				// Every Teen Patti table taxes its winners (owner, 26 Sep 2026,
+				// and 27 Sep 2026: "Apply this tax rule on all the tables,
+				// blind, seen, variation"): a share of the winnings at the
+				// winner's rate, on winnings of WinnerTaxMinWinnings (50 Lakh)
+				// or more.
+				{Category: "seen", BootAmount: 200, WinnerTax: true},
+				{Category: "blind", BootAmount: 200, WinnerTax: true},
+				{Category: "blind", BootAmount: 5000, MaxChips: 200000000, WinnerTax: true},   // over 20 Cr must move up (owner, 27 Sep 2026; 5 Cr before)
+				{Category: "blind", BootAmount: 50000, MaxChips: 2000000000, WinnerTax: true}, // over 200 Cr must move up (owner, 27 Sep 2026; 100 Cr before)
+				// 50 Cr or more to enter. A 20 Lakh boot (owner, 27 Sep 2026:
+				// "Change 10 Lakh boot table to 20Lakh boot table"; 10 Lakh
+				// before).
+				{Category: "blind", BootAmount: 2000000, MinChips: 500000000, WinnerTax: true},
 				// Variation Teen Patti (owner, 18 Sep 2026). Last, so the five
 				// entries before it keep their places on every client's rail.
 				// Two tables only — "in variation keep only two tables, 50000
-				// and 10 Lakh" — behind the stack bands blind's tables of the
-				// same stakes have.
-				{Category: "variation", BootAmount: 50000, MaxChips: 1000000000},
-				{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
+				// and 10 Lakh", the second at 20 Lakh since 27 Sep 2026 —
+				// behind the stack bands blind's tables of the same stakes
+				// have.
+				{Category: "variation", BootAmount: 50000, MaxChips: 2000000000, WinnerTax: true},
+				{Category: "variation", BootAmount: 2000000, MinChips: 500000000, WinnerTax: true},
 				// A second seen table (owner, 19 Sep 2026): boot 50,000, a pot
 				// limit of 5 Crore, open to all. Last in the list like every
 				// later addition; the lobby files it under Seen by category.
-				{Category: "seen", BootAmount: 50000, MaxPot: 50000000},
+				{Category: "seen", BootAmount: 50000, MaxPot: 50000000, WinnerTax: true},
 				// The Poker family (owner, 19 Sep 2026; POKER_PLAN.md): the boot
 				// is the big blind (Hold'em, Omaha) or the ante (3-Card Poker,
 				// 5-Card Draw), the buy-in POKER_MIN_BUYIN_BOOTS of it. Last, so
@@ -570,7 +595,7 @@ func Defaults() *Config {
 			MaxBlindMoves:           4,
 			EntryCapBoot:            200,
 			EntryCapCategory:        "blind",
-			EntryCapMaxChips:        500000,
+			EntryCapMaxChips:        2000000,
 			MaxMissedTurns:          3,
 			SideshowTimeout:         6 * time.Second,
 			SideshowMinPlayers:      3,
@@ -585,6 +610,7 @@ func Defaults() *Config {
 			VariationSelectTimeout:  10 * time.Second,
 			VariationMaxPotBoots:    0,
 			FiveCardPickTimeout:     8 * time.Second,
+			WinnerTaxMinWinnings:    5000000,
 			Poker: PokerConfig{
 				TurnTimeout:   0, // the table's TURN_TIMEOUT_MS
 				MinBuyInBoots: 10,
@@ -796,6 +822,10 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	g.VariationSelectTimeout = r.millis("VARIATION_SELECT_TIMEOUT_MS", g.VariationSelectTimeout)
 	g.VariationMaxPotBoots = r.int64("VARIATION_MAX_POT_BOOTS", g.VariationMaxPotBoots)
 	g.FiveCardPickTimeout = r.millis("FIVE_CARD_PICK_TIMEOUT_MS", g.FiveCardPickTimeout)
+	g.WinnerTaxMinWinnings = r.int64("WINNER_TAX_MIN_WINNINGS", g.WinnerTaxMinWinnings)
+	if raw, _ := lookup("WINNER_TAX_MIN_WINNINGS"); g.WinnerTaxMinWinnings < 0 {
+		r.fail("WINNER_TAX_MIN_WINNINGS", raw, "must be 0 (any winnings are taxed) or more")
+	}
 	// A cap that does not fit an int64 would wrap to a small or negative pot
 	// limit and end every hand at the deal, so it is a boot failure instead —
 	// checked against every boot this lobby can open a variation table at.
@@ -1060,6 +1090,20 @@ func (g GameConfig) menuPotFor(category string, bootAmount int64) int64 {
 		}
 	}
 	return 0
+}
+
+// menuWinnerTaxFor is whether the LOBBY_TABLES entry for this category and
+// boot taxes its winners ("tax=1"; owner, 26 Sep 2026): false when there is no
+// such entry or it says nothing. The first entry for the pair, as menuPotFor
+// reads it. Only a public Teen Patti spec asks (composeSpec).
+func (g GameConfig) menuWinnerTaxFor(category string, bootAmount int64) bool {
+	category = NormalizeCategory(category)
+	for _, entry := range g.LobbyTables {
+		if NormalizeCategory(entry.Category) == category && entry.BootAmount == bootAmount {
+			return entry.WinnerTax
+		}
+	}
+	return false
 }
 
 // VariationMaxPot is a public variation table's pot cap at bootAmount:

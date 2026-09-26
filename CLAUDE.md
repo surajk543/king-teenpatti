@@ -804,6 +804,68 @@ house), **`five_card_draw`**, **`texas_holdem`** and **`omaha`**. `Category.Game
 
 ---
 
+### 6.6 The winning tax, player levels, badges and the daily XP (table-tax branch; owner, 26–27 Sep 2026)
+**Fresh deployment, no migration logic** (owner: "we will do fresh deploymnet, so we don't need migration logic"): every table
+and column below is in `V1.0.0__baseline.sql`'s CREATE TABLEs and every row in `V1.0.1__seed.sql`; nothing ALTERs anything.
+- **The tax** (`game/tabletax.go`): at a table that TAXES ITS WINNERS (`TableConfig.WinnerTax`; `table_configs.winner_tax`, a
+  `LOBBY_TABLES` entry's `tax=1`) — **every public Seen, Blind and Variation table** (owner: "Apply this tax rule on all the
+  tables, blind, seen, variation"); never a private table or a poker room — the ONE winner of a hand pays their rate of their
+  **winnings** (`WinnerWinnings` = the pot less the winner's own contribution; owner: "tax will be on total pot amount - amount
+  player contributed") and only when those winnings are **50 Lakh or more** (`WinnerTaxMinWinnings`, `table_configs.tax_min_winnings`,
+  env `WINNER_TAX_MIN_WINNINGS` 5000000; "no tax for winning amount less than 50 Lakh" — 30 Lakh at first: "30 lakh is the limit on
+  winning amount not on pot limit"). `TableTax` floors, overflow-safe.
+  The seat is credited the pot less the tax; the ledger writes the win GROSS and the tax as its own **`table_tax`** row (action
+  `<handId>:tax:<userId>`), so a hand's `hand_*` rows still sum to 0. The rate is captured when a seat sits down
+  (`NewPlayer.TaxBps`) and refreshed from every hand-end settle (`SettleResult.TaxBps`); a hand pays the rate it was dealt with.
+  Wire: `room:state.winnerTax` + `winnerTaxMinWinnings`, `you.taxBps` (the viewer's own; no seat carries another's), and
+  `game:handEnded.tax`/`taxBps` — all ABSENT on an untaxed table, whose bytes are unchanged; menu entries carry `winnerTax` and
+  `winnerTaxMinWinnings`. Metric `game_table_tax_chips_total{category}`.
+- **Levels** (`player_levels`, `db/levels.go`): 50 levels by XP alone, each with a title, an emoji and a rate — the owner's
+  bracket, **20% at Level 1 down to 6% at Level 50** (round(2000 − (L−1)·1400/49) bps). Levels and XP NEVER expire; XP never
+  grants a badge ("VIP Tag is not granted by XP"). A steeper slab — 30% at Level 1, 20% at Level 5, 2% at Level 50 — was asked
+  for on 27 Sep 2026 and withdrawn the same hour ("don't apply new tax slab rate") once it was pointed out that, with every
+  player holding Regular at 20% and the LOWEST rate charged, Levels 1–4 would never apply.
+- **Badges** (`badges`, `user_badges`, `badge_purchases`): held BESIDE the level, many per player, each grant with an
+  `expires_at` filled from `validity_days` by the `user_badges_expiry` trigger (0 = for ever). The rate a player pays is the
+  **lowest of their level's and every unexpired badge's** (`playerLevelJoins`, the one statement of the rule; `db.Standing`,
+  embedded in `db.User`, so `user.playerLevel` / `user.badges` / `user.taxBps`). The seeded catalogue: **Regular** — every player's
+  by default (`is_default`), 20%, lifetime, ₹0, a Lottie, never in the store; and the **Royal Ace / King / Master /
+  Emperor / Legend / King of Kings** — 0% for 7/15/30/45/60/90 days at **₹499 / 999 / 1,799 / 2,499 / 3,299 / 4,499**, each the
+  owner's Drive Lottie (`asset_url`/`asset_format`). **Prices are always whole rupees** (`price_inr`, "price in badges will always
+  be in inr currency"). The store LISTS a badge iff it is not default and has a price. A badge with a `play_product_id` is sold
+  through Play (`POST /api/purchases/google` → `db.BadgeForProduct` → `db.CreditBadgePurchase`: one transaction, replay-guarded
+  by the purchase token in `badge_purchases`, a running grant EXTENDED by the validity); as seeded none has one, so every Royal
+  badge's key asks for it through support and it is granted by hand (the seed header's `INSERT INTO user_badges …`). The VIP,
+  Royal VIP and Elite VIP badges (5%/3%/0%, five years, by hand) were seeded for a day and removed (owner, 27 Sep 2026: "remove
+  the entry vip, royal vip and elite vip"); the tests that need a rate between Regular's and the Royal badges' add their own
+  badge row (`ownerBadge` in `db/levels_test.go`, a 5% GOLD in `app/tabletax_test.go`).
+- **The daily XP** (`xp_sources`, `player_xp_claims`, `xp_settings`, `player_xp`): the owner's eight sources, each ONCE per
+  24-hour window that opens at the player's first completed hand — 🎮 Play 15/60/120 active minutes +3/+20/+50, and 👥 Win by
+  Pair +1, 🎨 Color +2, 🃏 Sequence +4, 💎 Pure Sequence +8, 🔥 Trail +20 (108 XP a window); no daily cap (`daily_cap` NULL). A
+  "Win by" source is the hand the winner held as the table ranks it (`SettleEntry.WonWith`, wild cards counted), at a Teen Patti
+  or Variation table; the hand-end settle awards it and opens/rolls every finisher's window. Play time lives in the LIVE store
+  (`live.PlayClock`, `xpplay:<userId>`), and `xp.Tracker` asks `db.XP.AwardPlayTime` when a hand crosses a 15/60/120-minute mark.
+  `db.awardXP` is the only writer. A player whose XP changed is told on the socket: **`player:level`** (a `db.Standing`).
+- **`GET /api/levels`** (public, no-cache): every level, every active badge (price, validity, product, art), the sources (code,
+  name, icon, kind, `playMinutes`/`hand`, xp, times) and the cap.
+- **The app** (`widgets/table_tax.dart`): on a taxing table's felt, under the tag, a pill — the level's title over the badge the
+  player holds that brings their rate lowest (`User.shownBadge`) and the rate: "🌱 Newbie" over "Regular · 20% TAX", with that
+  badge's Lottie as the pill's EMBLEM at its left, from the plate's top edge to its bottom (`WinningTaxTag.emblemSize`: both lines
+  and their padding — the felt reserves exactly that, so it moves nothing; owner, 27 Sep 2026: "increase the badge icon size which
+  is shown in game table"; a line tall before), scaled with the words where the slot is narrow; tapped, the **two-pane** popup (standing, rate, level, XP, next level, badges and the daily
+  list on the left; all 50 levels with their rates, the viewer's lit, then the badges on the right — the owner: "restore that
+  UI, only change was in Lobby"). The lobby's **level key** (`LevelKey`, beside Friends, the level number on it) opens the same
+  content in **three tabs** — My level · Daily XP · All levels (`showLevelInfo`). Lobby cards carry the rate pill; the table info
+  says "No tax on winnings under 50 Lakh."; the store's last shelf is **Badges** (`StoreTab.badges`): each listed badge's Lottie,
+  name, "0% winning tax", validity, and its price on the key — the key opening Play for a Play badge, else the support popup
+  (address to copy, a `mailto:` key). Every string in all five languages.
+- **Also on this branch** (owner, 27 Sep 2026): a new account starts with **10 Lakh chips**, 20 hammers and 1 missile
+  (`WELCOME_CHIPS` 1000000); **Blind 200 is open up to 20 Lakh** (`ENTRY_CAP_MAX_CHIPS` 2000000), **Blind 5,000 up to 20 Crore**
+  (`max=200000000`; "for 5000 keep entry upto 20 Crore"), **Blind and Variation 50,000 up to 200 Crore** (`max=2000000000`; "for
+  50000 table keep entry upto 200 Crore" — Seen 50,000 stays open to all); and **the two 10 Lakh tables, Blind and Variation, are
+  20 Lakh tables** ("Change 10 Lakh boot table to 20Lakh boot table"; `TABLE_STAKES` `200,5000,50000,2000000`, both still 50
+  Crore or more to enter). In config's `Defaults()`, `.env.example` and the seed's `table_settings`/`table_configs` rows alike.
+
 ## 7. Server — platform
 
 Go equivalents: `socket/index.js` → `internal/socket/{handler,wire,payload}.go` on top of
@@ -1161,7 +1223,7 @@ owns `users`.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly twenty-five, and none of them is game state** (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph; `player_stats`, `friend_requests` and `friendships` since the same day, Friends V1, §7.2): ten of accounts, money and the picture
+Tables — **there are exactly thirty-three, and none of them is game state** (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph; `player_stats`, `friend_requests` and `friendships` since the same day, Friends V1, §7.2; and eight of levels, badges and the daily XP since 27 Sep 2026 — `player_levels`, `badges`, `user_badges`, `badge_purchases`, `xp_sources`, `xp_settings`, `player_xp`, `player_xp_claims`, §6.6): ten of accounts, money and the picture
 catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`, `user_table_choice` — the paragraph after the
 `users` trigger below; merged 23 Sep 2026) (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
 `missile_spends` are below), and since 23 Sep 2026 **four of table configuration** — `table_engines`,
@@ -1391,7 +1453,7 @@ on (draw, slot), so an owner's UPDATE survives every restart. A picture prize is
 databases: `UPDATE lucky_draw_slots SET reward_type='PROFILE_PICTURE', reward_value=NULL, reward_ref_id=(SELECT id::text FROM
 profile_pictures WHERE name='Lovestruck Cat') WHERE …` (the seed's header has the table-picture twin).
 
-Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss,
+Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss, table_tax (§6.6: the winner's winning tax, action `<handId>:tax:<userId>`, always negative),
 milestone_reward, timed_bonus, daily_bonus, purchase, picture_purchase, table_picture_purchase, emoji_purchase, lucky_draw, account_deleted, legacy_reconciliation,
 test_fixture`. (`lucky_draw` is a Lucky Draw CHIPS prize — a chip source, always positive, action_id
 `lucky:<userId>:<actionId>`.) (`picture_purchase` is a premium profile picture bought with chips — a chip **sink**,
@@ -1449,15 +1511,16 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | `PG_STATEMENT_TIMEOUT_MS` | 15000 | **Go server only**: Postgres `statement_timeout` per pooled connection so a hung query fails one ledger write instead of freezing a table; 0 = no limit (Node behaviour) |
 | **`LEDGER_PURGE_INTERVAL_MS`** | 300000 (5 min) | **Go server only.** How often the in-process purge goroutine runs (`App.startLedgerPurge`, a `time.NewTicker`, first pass one interval *after* boot — a server restarted more often never purges). **0 is the only way to turn the job off.** |
 | **`LEDGER_PURGE_AFTER_MS`** | 600000 (10 min) | **Go server only.** A `chip_ledger` row is deleted once older than this — but **only** `hand_win`/`hand_loss`/`hand_packed`/`hand_left` (`db.purgeableReasons`, hardcoded in the query): `purchase`, `picture_purchase`, `milestone_reward`, `timed_bonus`, `welcome_bonus` are never purged, since their UNIQUE `action_id` is a standing double-credit guard. Deletion is allowed only inside `PurgeLedger`'s own transaction, which sets `app.ledger_purge`; the append-only trigger refuses every other DELETE and every UPDATE. **Trap: 0 does NOT disable it** — the cutoff becomes `now`, so the next pass takes every purgeable row. Now equal to `RESUME_OFFER_MS`, so a retry at the edge of the resume window can find its `action_id` already gone (was 24h for that margin). |
-| `WELCOME_CHIPS` / `BOOT_AMOUNT` † | 300000 / 200 | only `BOOT_AMOUNT` is a table key (db: `table_settings.default_boot_amount`). The 3 lakh welcome (owner, 14 Sep 2026; 2 lakh before). **Production's `.env` sets `WELCOME_CHIPS` explicitly**, so a new default changes nothing there until that line does |
-| `TABLE_STAKES` † | `200,5000,50000,1000000` | empty = any (tests); db: `table_settings.stakes` (an empty array is any; a non-empty one gains the boot of every active public row it lacks, since a table's own boot is always an allowed stake, §7.3) |
-| **`LOBBY_TABLES`** † | `seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=1000000000,blind:1000000:min=500000000,variation:50000:max=1000000000,variation:1000000:min=500000000,seen:50000:pot=50000000,three_card_poker:50000,five_card_draw:50000,texas_holdem:50000,omaha:50000` | the menu; empty = any pair (tests). **`pot=N` is a table's OWN pot cap** (Go only; owner, 19 Sep 2026: a second seen table, boot 50,000, open to all, pot limit 5 Crore — `LobbyTable.MaxPot`, read by `TableRules` and `MenuMaxPot` through `menuPotFor(category, boot)`): it wins over the category's cap (`SEEN_MAX_POT` is 40 boots at 50,000, so every hand there would be dealt into the POT_LIMIT showdown), changes nothing else — the ladder and rounds stay the category's — and a private table never reads it. 5 Crore is 5,00,00,000 = `50000000`; `500000000` is 50 Crore. The new entry is LAST in the list like every later addition; the Flutter lobby files it under Seen by category. Categories are `seen`, `blind`, (Go only, 18 Sep 2026) **`variation`** and (Go only, 19 Sep 2026, §6.5) the four poker ones **`three_card_poker`, `five_card_draw`, `texas_holdem`, `omaha`** — anything else stops the boot. A poker entry's boot is its big blind (Hold'em, Omaha) or ante (3-Card Poker, 5-Card Draw); its `minChips` on the menu is raised to the table's `minBuyIn` (`POKER_MIN_BUYIN_BOOTS` × boot) and each `options.tables[]` entry carries `game`, `smallBlind`, `bigBlind`, `ante`, `minBuyIn`, `holeCards`, `maxDiscards` (omitted on Teen Patti entries). Poker keeps **one table per game, all four at 50,000** (owner, 19 Sep 2026: "in poker category only keep one table 50000 for each gameplay"; it was six entries at 200 and 5,000 earlier that day) — so blinds 25,000/50,000, an ante of 50,000, and a buy-in of **5,00,000** at every poker table, which is MORE than the 3,00,000 welcome: a brand-new account sees the whole Poker category shut until it has won 5 Lakh, and `POKER_MIN_BUYIN_BOOTS` (4 = 2 Lakh) is the one key that changes that without touching the stake. The four default poker entries are LAST; an older Go tag cannot boot on a `.env` that lists one, and an installed app older than the first poker-aware build draws each as a seen table — raise `MIN_CLIENT_BUILD` first. Variation keeps **two tables only, 50,000 and 10 Lakh** (owner, 18 Sep 2026), behind the bands blind's tables of those stakes have; its entries are LAST so the five before them keep their places, and clients are told of the category (`config.categories`) only when it is listed. **Rollout:** an installed app older than the build that knows the category draws that card as a seen table and never shows the picker, so every hand there is a server-chosen Muflis — raise `MIN_CLIENT_BUILD` first. **Production's `.env` sets `LOBBY_TABLES` explicitly**, so the new default changes nothing there until that line does; a Go tag older than this cannot boot on a `.env` that lists `variation:`. Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). **In db mode** the menu is the active public `table_configs` rows in `sort_order` (§7.3) and this key is ignored; the rollout rule becomes the row's: a table appended to the seed arrives inactive on an existing database, and goes live with `is_active = TRUE` after `MIN_CLIENT_BUILD` — never by a restart. A row with an unknown category is left out with a logged reason, not a stopped boot. |
+| `WELCOME_CHIPS` / `BOOT_AMOUNT` † | 1000000 / 200 | only `BOOT_AMOUNT` is a table key (db: `table_settings.default_boot_amount`). The 10 Lakh welcome (owner, 27 Sep 2026: "every new user will get 1 missile 20 Hammers and 10Lakh coin"; 3 lakh from 14 Sep 2026, 2 lakh before). **Production's `.env` sets `WELCOME_CHIPS` explicitly**, so a new default changes nothing there until that line does |
+| `TABLE_STAKES` † | `200,5000,50000,2000000` | empty = any (tests); db: `table_settings.stakes` (an empty array is any; a non-empty one gains the boot of every active public row it lacks, since a table's own boot is always an allowed stake, §7.3) |
+| **`LOBBY_TABLES`** † | `seen:200:tax=1,blind:200:tax=1,blind:5000:max=200000000:tax=1,blind:50000:max=2000000000:tax=1,blind:2000000:min=500000000:tax=1,variation:50000:max=2000000000:tax=1,variation:2000000:min=500000000:tax=1,seen:50000:pot=50000000:tax=1,three_card_poker:50000,five_card_draw:50000,texas_holdem:50000,omaha:50000` (27 Sep 2026: every Teen Patti table `tax=1`, §6.6; the top Blind and Variation tables at 20 Lakh, 10 Lakh before; Blind 5,000 open to 20 Cr, 5 Cr before; the 50,000 Blind and Variation tables to 200 Cr, 100 Cr before — what the prose below says of 10 Lakh, 5 Cr and 100 Cr is the earlier menu) | the menu; empty = any pair (tests). **`pot=N` is a table's OWN pot cap** (Go only; owner, 19 Sep 2026: a second seen table, boot 50,000, open to all, pot limit 5 Crore — `LobbyTable.MaxPot`, read by `TableRules` and `MenuMaxPot` through `menuPotFor(category, boot)`): it wins over the category's cap (`SEEN_MAX_POT` is 40 boots at 50,000, so every hand there would be dealt into the POT_LIMIT showdown), changes nothing else — the ladder and rounds stay the category's — and a private table never reads it. 5 Crore is 5,00,00,000 = `50000000`; `500000000` is 50 Crore. The new entry is LAST in the list like every later addition; the Flutter lobby files it under Seen by category. Categories are `seen`, `blind`, (Go only, 18 Sep 2026) **`variation`** and (Go only, 19 Sep 2026, §6.5) the four poker ones **`three_card_poker`, `five_card_draw`, `texas_holdem`, `omaha`** — anything else stops the boot. A poker entry's boot is its big blind (Hold'em, Omaha) or ante (3-Card Poker, 5-Card Draw); its `minChips` on the menu is raised to the table's `minBuyIn` (`POKER_MIN_BUYIN_BOOTS` × boot) and each `options.tables[]` entry carries `game`, `smallBlind`, `bigBlind`, `ante`, `minBuyIn`, `holeCards`, `maxDiscards` (omitted on Teen Patti entries). Poker keeps **one table per game, all four at 50,000** (owner, 19 Sep 2026: "in poker category only keep one table 50000 for each gameplay"; it was six entries at 200 and 5,000 earlier that day) — so blinds 25,000/50,000, an ante of 50,000, and a buy-in of **5,00,000** at every poker table, which is MORE than the 3,00,000 welcome: a brand-new account sees the whole Poker category shut until it has won 5 Lakh, and `POKER_MIN_BUYIN_BOOTS` (4 = 2 Lakh) is the one key that changes that without touching the stake. The four default poker entries are LAST; an older Go tag cannot boot on a `.env` that lists one, and an installed app older than the first poker-aware build draws each as a seen table — raise `MIN_CLIENT_BUILD` first. Variation keeps **two tables only, 50,000 and 10 Lakh** (owner, 18 Sep 2026), behind the bands blind's tables of those stakes have; its entries are LAST so the five before them keep their places, and clients are told of the category (`config.categories`) only when it is listed. **Rollout:** an installed app older than the build that knows the category draws that card as a seen table and never shows the picker, so every hand there is a server-chosen Muflis — raise `MIN_CLIENT_BUILD` first. **Production's `.env` sets `LOBBY_TABLES` explicitly**, so the new default changes nothing there until that line does; a Go tag older than this cannot boot on a `.env` that lists `variation:`. Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). **In db mode** the menu is the active public `table_configs` rows in `sort_order` (§7.3) and this key is ignored; the rollout rule becomes the row's: a table appended to the seed arrives inactive on an existing database, and goes live with `is_active = TRUE` after `MIN_CLIENT_BUILD` — never by a restart. A row with an unknown category is left out with a logged reason, not a stopped boot. |
 | `MAX_PLAYERS_PER_ROOM` / `MIN_PLAYERS_TO_START` † | 5 / 2 | the Teen Patti felt lays out 2..5 places round its table from it (`SeatRing`, §8.4); 5 is still hardcoded in the poker felt's `seatPlaces` and the browser CSS |
 | `TURN_TIMEOUT_MS` † | 25000 | |
 | `MAX_BET_ROUNDS` / `POT_LIMIT_MULTIPLIER` / `MAX_RAISE_STEPS` † | 20 / 1024 / 8 | defaults only; `createTable` overrides all three per category (seen: 7 / 1024 / 2, blind: 0 / 0 / 0) |
 | `SEEN_MAX_RAISE_STEPS` / `SEEN_MAX_BET_ROUNDS` / `SEEN_MAX_POT` † | 2 / 7 / **2000000** | brief says "10 moves"; code is 7 rounds. **20 Lakh is the most a seen hand can pay** (owner, 12 Sep 2026): the moment the pot reaches it every player still in shows and the best hand takes it (`potCapReached` → `resolveShowdown(…, WinPotLimit)`), and `betOptions` headroom stops a bet that would carry the pot past it. `SEEN_MAX_RAISE_STEPS 2` is the two-rung ladder — chaal, or one raise — so a seen player raises once per turn. |
 | `MAX_BLIND_MOVES` † | 4 | |
-| `ENTRY_CAP_BOOT` / `ENTRY_CAP_CATEGORY` / `ENTRY_CAP_MAX_CHIPS` † | 200 / blind / 500000 | Requirement 30, and now the oldest case of the band above: `RoomManager.tableMaxChips` folds this trio into the matching menu entry's `maxChips`, so the lobby draws it from the same field as every other table. A `max=` on that entry in `LOBBY_TABLES` wins, being the more specific statement. |
+| **`WINNER_TAX_MIN_WINNINGS`** † | 5000000 | **Go-only (27 Sep 2026, §6.6).** The smallest WINNINGS (the pot less the winner's own chips) a table that taxes its winners (`LOBBY_TABLES` `tax=1`) taxes; 0 taxes any. db: `table_configs.tax_min_winnings` per row. |
+| `ENTRY_CAP_BOOT` / `ENTRY_CAP_CATEGORY` / `ENTRY_CAP_MAX_CHIPS` † | 200 / blind / 2000000 | Blind 200 is open up to 20 Lakh (owner, 27 Sep 2026; 5 Lakh before). Requirement 30, and now the oldest case of the band above: `RoomManager.tableMaxChips` folds this trio into the matching menu entry's `maxChips`, so the lobby draws it from the same field as every other table. A `max=` on that entry in `LOBBY_TABLES` wins, being the more specific statement. |
 | `MAX_MISSED_TURNS` † | 3 | |
 | **`UNFUNDED_GRACE_MS`** † | 30000 | **Go-only.** How long a seat that can no longer cover the boot is held between hands before the `insufficient_chips` kick, so a player can buy chips and stay; `you.unfundedDeadline` carries the deadline to that player and the Flutter status line counts it down. 0 = kicked at once (Node's rule). |
 | **`VARIATION_SELECT_TIMEOUT_MS`** † | 10000 | **Go-only.** How long the player who opens a variation table's hand has to choose its variation before the SERVER chooses Muflis. The client's countdown is decoration. 0 = the window never lapses on its own (it still closes when the chooser leaves) — never in production: a chooser who walks away holds the table for the whole reconnect grace. Given to variation tables only; a seen or blind table's `TableConfig` and snapshot are unchanged. |
@@ -2895,7 +2958,7 @@ HTML comment and its handler commented out while Facebook is switched off (23 Se
 1 login providers (Google and guest; Facebook switched off for now, 23 Sep 2026) · 2 DB per identity (brief says SQLite; **now Postgres by owner's decision**) ·
 3 ≤5/room · 4 ≥2 to start · 5 3 lakh welcome (2 lakh until 14 Sep 2026; with 9 diamonds, 20 hammers and 1 missile) · 6a–g core play · 7 persistence · 8 room chat ·
 9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 (and, since 18 Sep 2026, a third
-category **Variation** × 50,000 / 10 Lakh, hidden stacks, no pot limit — §6.4: the first player to act picks Muflis, AK47,
+category **Variation** × 50,000 / 10 Lakh (20 Lakh since 27 Sep 2026), hidden stacks, no pot limit — §6.4: the first player to act picks Muflis, AK47,
 Joker, Hukam, Lowest Joker or Highest Joker for the hand in a server-timed 10 s, else the server picks Muflis; the lobby
 shows the three categories first and a category's tables inside it, §8.4 — and since 23 Sep 2026 the two engines,
 Teen Patti and Poker, in front of them) ·
@@ -2923,6 +2986,10 @@ PostgreSQL holding table CONFIG and never state.
 **The Lucky Draw** (owner's brief, 24 Sep 2026, and the owner's BEGINNER_LUCKY_DRAW seed the same day): a six-slot wheel in the lobby,
 spun, granted and recorded by the server (weighted `crypto/rand`, cooldown, idempotent `action_id`, one transaction), prizes in the
 existing wallets and picture catalogues, `reward_type` open for future kinds — §7.2, §7.3, §8.4.
+**The winning tax, levels and badges** (owner, 26–27 Sep 2026; §6.6): the one winner of a hand at every public Seen, Blind
+and Variation table pays their rate — the lowest of their level's (20% at Level 1 to 6% at Level 50, by XP) and their badges'
+(Regular 20% for everyone; the Royal badges 0%, sold for rupees through support) — of their winnings of 50 Lakh or more; a
+daily XP of eight sources; the lobby's level key; the store's Badges shelf.
 
 ---
 
@@ -3158,7 +3225,8 @@ console, never a second. **A card** is a `PlayingCard` at a height and nothing e
 - `tools/parity/lib/csharpJsonPort.js` / `protocol.test.js` guard a wire format whose C# original is gone.
 - **Parity has one known failure** (13 Sep 2026): `lobby.test.js` "the entry cap guards the cheapest blind table from
   the lobby, not from a switch" tops a wallet up in PostgreSQL *while the player is seated* and expects `room:switch` to
-  seat them with it (500001); the Go switch carries the in-memory seat (1000). A seated wallet only moves at the three
+  seat them with it (2000001 since Blind 200's cap became 20 Lakh, 27 Sep 2026; 500001 before); the Go switch carries the
+  in-memory seat (1000). A seated wallet only moves at the three
   checkpoints (§5.1), so this is a test-versus-design question for the owner, not a regression. Its sibling failure —
   `session:ready.config` lacking `minClientBuild` — was a stale key list, fixed in `tools/parity/lib/harness.mjs`.
 - `GameConnection.onCards`/`requestCards()` wired but unused; `room:moved` `state` branch dead.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/auth"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
@@ -49,9 +50,20 @@ type playStore struct {
 
 func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken string) (auth.PurchaseOutcome, error) {
 	product, err := purchase.Lookup(productID)
+	var badge *db.BadgeProduct
 	if err != nil {
-		return auth.PurchaseOutcome{}, auth.NewAuthError(
-			auth.CodeUnknownProduct, auth.MsgUnknownProduct, http.StatusBadRequest)
+		// Not a pack: perhaps a badge the store sells (owner, 27 Sep 2026),
+		// which the badges table names by its Play product — still the
+		// server's catalogue, never the client's word.
+		b, ok, lerr := db.BadgeForProduct(ctx, s.db, productID)
+		if lerr != nil {
+			return auth.PurchaseOutcome{}, lerr
+		}
+		if !ok {
+			return auth.PurchaseOutcome{}, auth.NewAuthError(
+				auth.CodeUnknownProduct, auth.MsgUnknownProduct, http.StatusBadRequest)
+		}
+		badge = &b
 	}
 
 	if _, err := s.verifier.Verify(ctx, productID, purchaseToken); err != nil {
@@ -64,6 +76,27 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 				auth.CodePurchaseUnverified, auth.MsgPurchaseUnverified, http.StatusPaymentRequired)
 		}
 		return auth.PurchaseOutcome{}, err
+	}
+
+	// A badge is granted through badge_purchases, its replay guard, for its
+	// validity — extended where a grant of it still runs. No chip moves, so
+	// there is no seat to top up; a seated player's winning-tax rate takes it
+	// from their next hand's end, as it takes a level reached.
+	if badge != nil {
+		result, err := db.CreditBadgePurchase(ctx, s.db, s.users, userID, *badge, purchaseToken, time.Now().UnixMilli())
+		if err != nil {
+			return auth.PurchaseOutcome{}, err
+		}
+		_ = s.verifier.Acknowledge(ctx, productID, purchaseToken)
+		out := auth.PurchaseOutcome{
+			Credited: result.Credited,
+			User:     result.User,
+			Badge:    &auth.BoughtBadge{Code: result.Badge, ExpiresAt: result.ExpiresAt},
+		}
+		if result.User != nil {
+			out.Balance = result.User.Chips
+		}
+		return out, nil
 	}
 
 	// A diamond pack fills users.diamond through its own replay guard, and

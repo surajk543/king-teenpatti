@@ -73,18 +73,18 @@ func (l *flakyLedger) Settle(_ context.Context, req game.SettleRequest) (game.Se
 	defer l.mu.Unlock()
 	l.calls++
 	if l.down {
-		return nil, errors.New("database unavailable")
+		return game.SettleResult{}, errors.New("database unavailable")
 	}
 	if l.settled[req.HandID] > 0 {
-		return nil, game.NewGameError(game.CodeDuplicateAction, game.MsgDuplicateAction)
+		return game.SettleResult{}, game.NewGameError(game.CodeDuplicateAction, game.MsgDuplicateAction)
 	}
 	l.settled[req.HandID]++
-	out := game.SettleResult{}
+	out := game.SettleResult{Balances: map[string]int64{}}
 	for _, e := range req.Entries {
 		if err := l.applyLocked(e); err != nil {
-			return nil, err
+			return game.SettleResult{}, err
 		}
-		out[e.UserID] = l.wallets[e.UserID]
+		out.Balances[e.UserID] = l.wallets[e.UserID]
 	}
 	return out, nil
 }

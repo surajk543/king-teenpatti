@@ -144,6 +144,7 @@ class SeatPod extends StatelessWidget {
     this.winnerStrike,
     this.stackLanding,
     this.stackWon = 0,
+    this.winnerTax = 0,
     this.onTap,
     this.requestBadge,
     this.friendMark,
@@ -193,6 +194,12 @@ class SeatPod extends StatelessWidget {
   /// it, then rising with them. Null shows the seat's stack as it is.
   final Animation<double>? stackLanding;
   final int stackWon;
+
+  /// What this seat paid in winning tax on the pot it has just won (owner,
+  /// 26 Sep 2026), said on its WINNER ribbon with the celebration — "Winning
+  /// tax −1,360" — and struck with it. The server's own figure; 0 says
+  /// nothing, as at every table that does not tax its winners.
+  final int winnerTax;
 
   /// A seat at a poker table (go-server/internal/poker). Nothing about it is
   /// blind or seen: no BLIND / SEEN word rides on its cards and no back turns
@@ -765,6 +772,11 @@ class SeatPod extends StatelessWidget {
                     width: width,
                     hand: revealedHand,
                     strike: winnerStrike,
+                    tax: winnerTax > 0
+                        ? context.read<GameState>().t.winnerTaxLine(
+                            formatChips(winnerTax),
+                          )
+                        : null,
                   ),
                 ),
               ),
@@ -1949,7 +1961,7 @@ class SeatBet extends StatelessWidget {
 /// are laid out once, where they used to be rebuilt and laid out every frame
 /// the ribbon was up.
 class _WinnerFlash extends StatefulWidget {
-  const _WinnerFlash({required this.width, this.hand, this.strike});
+  const _WinnerFlash({required this.width, this.hand, this.strike, this.tax});
 
   final double width;
 
@@ -1957,6 +1969,11 @@ class _WinnerFlash extends StatefulWidget {
   /// without a showdown because everyone else packed: there is no winning hand
   /// to name then, only a last player standing.
   final String? hand;
+
+  /// What the winning tax took from the pot, as the ribbon says it ("Winning
+  /// tax −1,360"), or null where none was taken. Its own line under the rest,
+  /// fitted on its own, so a long figure never shrinks WINNER to make room.
+  final String? tax;
 
   /// The strike, 0 to 1 over its 620 ms, when the table times it
   /// ([SeatPod.winnerStrike]); null strikes at once.
@@ -2109,48 +2126,77 @@ class _WinnerFlashState extends State<_WinnerFlash>
                 ),
               ],
             ),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // The one thing that moves once it has landed, in a layer
-                  // of its own, so the shine repaints the word and nothing else
-                  // on the pod.
-                  RepaintBoundary(
-                    child: _ShineMask(
-                      shine: _shine,
-                      child: Text(
-                        'WINNER',
-                        maxLines: 1,
-                        style: _struck(
-                          context,
-                          w,
-                          big: true,
-                          weight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                  ),
-                  // What they won with. On the ribbon rather than beside it,
-                  // so it cannot end up over a face on its own.
-                  if (widget.hand != null)
-                    Text(
-                      widget.hand!,
-                      maxLines: 1,
-                      style: _struck(
-                        context,
-                        w,
-                        big: false,
-                        weight: FontWeight.w700,
-                      ).copyWith(color: AppTheme.bone100),
-                    ),
-                ],
-              ),
-            ),
+            child: _ribbonWords(context, w),
           ),
         ),
       ),
+    );
+  }
+
+  /// WINNER and the hand it won with, fitted together as they always were —
+  /// and, where a winning tax was taken, its line under them, fitted on its
+  /// own (owner, 26 Sep 2026: the winner's pod shows "Winning tax −1,360"):
+  /// a figure wider than WINNER must not shrink WINNER to make room for it.
+  Widget _ribbonWords(BuildContext context, double w) {
+    final head = FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // The one thing that moves once it has landed, in a layer of its
+          // own, so the shine repaints the word and nothing else on the pod.
+          RepaintBoundary(
+            child: _ShineMask(
+              shine: _shine,
+              child: Text(
+                'WINNER',
+                maxLines: 1,
+                style: _struck(context, w, big: true, weight: FontWeight.w900),
+              ),
+            ),
+          ),
+          // What they won with. On the ribbon rather than beside it, so it
+          // cannot end up over a face on its own.
+          if (widget.hand != null)
+            Text(
+              widget.hand!,
+              maxLines: 1,
+              style: _struck(
+                context,
+                w,
+                big: false,
+                weight: FontWeight.w700,
+              ).copyWith(color: AppTheme.bone100),
+            ),
+        ],
+      ),
+    );
+    final tax = widget.tax;
+    if (tax == null) return head;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        head,
+        FittedBox(
+          key: const ValueKey('winner-tax'),
+          fit: BoxFit.scaleDown,
+          child: Text(
+            tax,
+            maxLines: 1,
+            // The tax's amber on the charcoal ribbon, in both themes: the
+            // share that left the pot, never read as chips arriving.
+            style: TableType.seat(Theme.of(context), w).tax().copyWith(
+              shadows: [
+                Shadow(
+                  color: AppTheme.ink900.withValues(alpha: 0.55),
+                  blurRadius: w * 0.06,
+                  offset: Offset(0, w * 0.012),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

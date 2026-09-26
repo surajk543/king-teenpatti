@@ -33,6 +33,27 @@ var CategoryNames = map[HandCategory]string{
 // String returns the wire name.
 func (c HandCategory) String() string { return CategoryNames[c] }
 
+// Code is the category in upper snake case, the way the daily XP names a hand
+// won with (xp_sources.hand_rank): HIGH_CARD, PAIR, COLOR, SEQUENCE,
+// PURE_SEQUENCE, TRAIL; "" for no category.
+func (c HandCategory) Code() string {
+	switch c {
+	case HighCard:
+		return "HIGH_CARD"
+	case Pair:
+		return "PAIR"
+	case Color:
+		return "COLOR"
+	case Sequence:
+		return "SEQUENCE"
+	case PureSequence:
+		return "PURE_SEQUENCE"
+	case Trail:
+		return "TRAIL"
+	}
+	return ""
+}
+
 // EvaluatedHand is the comparable descriptor Evaluate produces.
 //
 // Score is compared element by element: [category, ...tiebreakers]. Lengths

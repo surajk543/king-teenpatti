@@ -42,6 +42,17 @@ type TableView struct {
 	Pot      int64  `json:"pot"` // hand.pot, or 0 between hands
 	// MaxPot is the pot ceiling, 0 when uncapped.
 	MaxPot int64 `json:"maxPot"`
+	// WinnerTax is true at a table that TAXES ITS WINNERS (owner, 26 Sep
+	// 2026; tabletax.go): the winner of each hand pays a share of what they
+	// won, the pot less their own contribution. ABSENT — never false —
+	// everywhere else, so every other snapshot is byte for byte what it was;
+	// the rate the viewer's seat pays is You.TaxBps. Go only.
+	WinnerTax bool `json:"winnerTax,omitempty"`
+	// WinnerTaxMinWinnings are the smallest winnings such a table taxes
+	// (owner, 27 Sep 2026: "no tax for winning amount less than 50 Lakh");
+	// ABSENT where it is 0 (any winnings taxed) and on every table
+	// that does not tax.
+	WinnerTaxMinWinnings int64 `json:"winnerTaxMinWinnings,omitempty"`
 	// Stake is hand.stake (blind units) or BootAmount between hands.
 	Stake int64 `json:"stake"`
 	Round int   `json:"round"` // hand.round or 0
@@ -151,6 +162,14 @@ type YouView struct {
 	// it tells them nothing they could not work out and tells nobody else
 	// anything at all: it is in `you`, which is per viewer.
 	Hand *YouHand `json:"hand,omitempty"`
+	// TaxBps is the winning-tax rate THIS viewer's seat pays now, in basis
+	// points (2000 = 20.00%; owner, 26 Sep 2026): their level's rate as of
+	// the start of the hand in progress, or between hands the rate their next
+	// hand will be dealt with (tabletax.go). Present whenever the table taxes
+	// its winners (TableView.WinnerTax), even at 0; ABSENT anywhere else. It
+	// is the viewer's alone: no other seat's rate or level is ever sent. Go
+	// only.
+	TaxBps *int `json:"taxBps,omitempty"`
 }
 
 // YouHand is YouView.Hand: the viewer's own hand as the variation counts it.
@@ -343,6 +362,10 @@ type SeatInfo struct {
 	// KickPending marks a seat already asked to be kicked by _sweepUnfunded,
 	// so a second sweep before the removal lands does not ask again.
 	KickPending bool
+	// TaxBps is the seat's winning-tax rate (NewPlayer.TaxBps, refreshed from
+	// every hand-end settle). Carried so a player moved to another table
+	// (consolidation) takes their rate with them.
+	TaxBps int
 }
 
 // Int64Ptr / StrPtr / ActionPtr are tiny helpers for the nullable wire fields.

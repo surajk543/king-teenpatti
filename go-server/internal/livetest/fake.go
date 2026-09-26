@@ -44,6 +44,7 @@ const (
 	OpListSummaries     = "list_summaries"
 	OpPing              = "ping"
 	OpClose             = "close"
+	OpAddPlayTime       = "add_play_time"
 )
 
 // Fake is the store. Zero value is not usable; use New / NewWithClock.
@@ -59,9 +60,18 @@ type Fake struct {
 	online    map[string]onlineEntry
 	offers    map[string]offerEntry
 	summaries map[string]live.TableSummary
+	xpDays    map[string]*xpDayEntry
 
 	calls map[string]int
 	fail  map[string]error
+}
+
+// xpDayEntry is one player's XP play-time record (live.PlayClock): the
+// window it counts in, the play in it, and when it is gone.
+type xpDayEntry struct {
+	windowStart int64
+	play        time.Duration
+	expiresAt   time.Time
 }
 
 type tableEntry struct {
@@ -102,12 +112,49 @@ func NewWithClock(now func() time.Time) *Fake {
 		online:    map[string]onlineEntry{},
 		offers:    map[string]offerEntry{},
 		summaries: map[string]live.TableSummary{},
+		xpDays:    map[string]*xpDayEntry{},
 		calls:     map[string]int{},
 		fail:      map[string]error{},
 	}
 }
 
-var _ live.Store = (*Fake)(nil)
+var (
+	_ live.Store     = (*Fake)(nil)
+	_ live.PlayClock = (*Fake)(nil)
+)
+
+// PlayTimeOf peeks at a player's XP play-time record: the window it counts
+// in and the play in it, ok=false when there is none (or it has gone). Not a
+// call.
+func (f *Fake) PlayTimeOf(userID string) (windowStart int64, play time.Duration, ok bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	day := f.xpDays[userID]
+	if day == nil || !day.expiresAt.After(f.now()) {
+		return 0, 0, false
+	}
+	return day.windowStart, day.play, true
+}
+
+// AddPlayTime implements live.PlayClock.
+func (f *Fake) AddPlayTime(ctx context.Context, userID string, windowStart int64, play, ttl time.Duration) (time.Duration, time.Duration, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter(ctx, OpAddPlayTime); err != nil {
+		return 0, 0, err
+	}
+	day := f.xpDays[userID]
+	if day == nil || !day.expiresAt.After(f.now()) || day.windowStart != windowStart {
+		day = &xpDayEntry{windowStart: windowStart}
+		f.xpDays[userID] = day
+	}
+	before := day.play
+	if play > 0 {
+		day.play += play
+	}
+	day.expiresAt = f.now().Add(ttl)
+	return before, day.play, nil
+}
 
 // ---- test controls ---------------------------------------------------------
 

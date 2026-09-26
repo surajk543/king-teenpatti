@@ -131,6 +131,14 @@ type User struct {
 	Rewards       Rewards `json:"rewards"`
 	CreatedAt     int64   `json:"createdAt"`   // epoch ms
 	LastLoginAt   int64   `json:"lastLoginAt"` // epoch ms
+	// Standing is the player's level and XP, the badges they hold and the
+	// winning tax they pay (owner, 26–27 Sep 2026; levels.go) — on the wire
+	// as user.playerLevel, user.badges and user.taxBps — resolved with every
+	// account read. Always present: this object only ever goes to its own
+	// player (login, me, session:ready and every answer that carries the
+	// account), so nobody learns another player's level, XP or badges from
+	// it.
+	Standing
 	// Disabled is NOT users.is_active: true when support has disabled the
 	// account (owner, 26 Sep 2026). Negated so the zero value is an enabled
 	// account — a User built anywhere but from a row (a test's fake store)
@@ -173,9 +181,12 @@ func (l *LaidTablePicture) ForTable(userID string) *game.TablePicture {
 	}
 }
 
-// Player converts to the seat-level view the RoomManager needs.
+// Player converts to the seat-level view the RoomManager needs — the winning
+// tax the player pays among it (the lower of their level's and their badges',
+// Standing.TaxBps), which their seat captures when they sit down.
 func (u *User) Player() game.Player {
-	return game.Player{ID: u.ID, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, TablePicture: u.TablePicture.ForTable(u.ID), Chips: u.Chips}
+	return game.Player{ID: u.ID, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, TablePicture: u.TablePicture.ForTable(u.ID), Chips: u.Chips,
+		TaxBps: u.TaxBps}
 }
 
 // Profile is a verified login identity (auth providers → UpsertFromProfile).
@@ -338,7 +349,8 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
        COALESCE(mh.claimed_up_to, 0), COALESCE(mt.next_claim_at, 0), COALESCE(mb.next_claim_at, 0),
        u.active_picture_id, u.created_at, u.updated_at, u.last_login_at, u.is_active,
        ap.asset_url,
-       tp.id, tp.day_asset_url, tp.night_asset_url, tp.asset_format, tp.currency, tp.cost`
+       tp.id, tp.day_asset_url, tp.night_asset_url, tp.asset_format, tp.currency, tp.cost,
+       ` + playerLevelColumns
 
 // userFromAt is the FROM clause of every account read: it joins the picture
 // the player is wearing so publicUser can resolve avatarUrl without a second
@@ -361,17 +373,21 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
 // A locking read adds `FOR UPDATE OF u`: the bare form would try to lock the
 // catalogue row too, and two players buying the same picture would queue behind
 // each other for no reason.
+//
+// The player's level, XP, badges and winning-tax rate come through
+// playerLevelJoins (levels.go), the one statement of the rule (owner,
+// 26–27 Sep 2026), at the same instant (%[1]d) as the table picture's join.
 const userFromAt = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.active_picture_id
   LEFT JOIN user_table_choice tc ON tc.user_id = u.id
   LEFT JOIN table_pictures tp ON tp.id = tc.table_picture_id
    AND (tp.type = 'FREE' OR EXISTS (
         SELECT 1 FROM user_table_pictures o
          WHERE o.user_id = u.id AND o.table_picture_id = tp.id
-           AND (o.expires_at = 0 OR o.expires_at > %d)))
+           AND (o.expires_at = 0 OR o.expires_at > %[1]d)))
   LEFT JOIN user_milestones mh ON mh.user_id = u.id AND mh.milestone = 'HANDS_PLAYED'
   LEFT JOIN user_milestones mt ON mt.user_id = u.id AND mt.milestone = 'TIMED_BONUS'
   LEFT JOIN user_milestones mb ON mb.user_id = u.id AND mb.milestone = 'DAILY_BONUS'
-  LEFT JOIN player_stats ps ON ps.user_id = u.id `
+  LEFT JOIN player_stats ps ON ps.user_id = u.id ` + playerLevelJoins
 
 // userFrom is userFromAt with this instant baked in.
 func (u *Users) userFrom() string {
@@ -412,16 +428,19 @@ type userRow struct {
 	createdAt, updatedAt, lastLoginAt int64
 	// active is users.is_active: FALSE disables the account.
 	active bool
+	// level is the player's level, XP, window and badges (playerLevelJoins).
+	level levelRow
 }
 
 // scanUser scans one row selected with userColumns; pgx.ErrNoRows → nil, nil.
 func scanUser(row pgx.Row) (*userRow, error) {
 	var r userRow
-	err := row.Scan(&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond, &r.hammer, &r.missile,
+	targets := []any{&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond, &r.hammer, &r.missile,
 		&r.handsPlayed, &r.handsWon, &r.handsLost, &r.handsLeftMid, &r.totalWinnings, &r.biggestPot,
 		&r.milestoneClaimed, &r.nextBonusAt, &r.nextDailyAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt, &r.active,
 		&r.pictureAssetURL,
-		&r.tablePictureID, &r.tableDayURL, &r.tableNightURL, &r.tableAssetFormat, &r.tableCurrency, &r.tableCost)
+		&r.tablePictureID, &r.tableDayURL, &r.tableNightURL, &r.tableAssetFormat, &r.tableCurrency, &r.tableCost}
+	err := row.Scan(append(targets, r.level.targets()...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -513,6 +532,7 @@ func (u *Users) publicUser(r *userRow) *User {
 		},
 		CreatedAt:   r.createdAt,
 		LastLoginAt: r.lastLoginAt,
+		Standing:    r.level.standing(now(u.clock)),
 		Disabled:    !r.active,
 	}
 }
@@ -973,6 +993,12 @@ func (u *Users) DeleteAccount(ctx context.Context, userID string) error {
 		// here as the face does. users rows are never deleted, so the row's
 		// ON DELETE CASCADE would never do it.
 		if _, err = tx.Exec(ctx, `DELETE FROM user_table_choice WHERE user_id = $1`, userID); err != nil {
+			return err
+		}
+		// The badges given to the account (user_badges, V1.0.0's PLAYER
+		// LEVELS) go with it, for the same reason: the row's cascade never
+		// fires. A deleted account holds nothing and pays nobody's rate.
+		if _, err = tx.Exec(ctx, `DELETE FROM user_badges WHERE user_id = $1`, userID); err != nil {
 			return err
 		}
 		// The social graph (Friends V1): nobody keeps a deleted account as a

@@ -77,8 +77,16 @@ type SnapshotConfig struct {
 	// open one waits for its player rather than closing the instant it comes
 	// back.
 	FiveCardPickTimeoutMs int64 `json:"fiveCardPickTimeoutMs,omitempty"`
-	ChatMaxHistory        int   `json:"chatMaxHistory"`
-	ChatMaxLength         int   `json:"chatMaxLength"`
+	// WinnerTax is TableConfig.WinnerTax (owner, 26 Sep 2026); absent (false)
+	// in every snapshot of a table that does not tax its winners, and in one
+	// saved before the tax existed — which restores untaxed, and is drained if
+	// the catalogue now taxes its pair (config.TableSpec.SameRules).
+	WinnerTax bool `json:"winnerTax,omitempty"`
+	// WinnerTaxMinWinnings is TableConfig.WinnerTaxMinWinnings (owner, 27 Sep 2026);
+	// absent (0) where any winnings are taxed or none are.
+	WinnerTaxMinWinnings int64 `json:"winnerTaxMinWinnings,omitempty"`
+	ChatMaxHistory       int   `json:"chatMaxHistory"`
+	ChatMaxLength        int   `json:"chatMaxLength"`
 }
 
 // SnapshotHand is Snapshot.hand.
@@ -177,6 +185,10 @@ type SnapshotContribution struct {
 	// three-moment money model survive a restart: without it a rebuilt table
 	// could not tell how much of a player's stake had already been banked.
 	ChipsWritten int64 `json:"chipsWritten"`
+	// TaxBps is the winning-tax rate this player was dealt the hand with —
+	// what they pay if they win it, even after leaving (owner, 26 Sep 2026;
+	// tabletax.go); absent when 0.
+	TaxBps int `json:"taxBps,omitempty"`
 }
 
 // SnapshotSeat is one occupied seat in Snapshot.seats.
@@ -215,6 +227,11 @@ type SnapshotSeat struct {
 	PickedBy  string   `json:"pickedBy,omitempty"`
 	PickUntil *int64   `json:"pickUntil,omitempty"`
 	JoinedAt  int64    `json:"joinedAt"` // epoch ms
+	// TaxBps is the seat's winning-tax rate (owner, 26 Sep 2026;
+	// tabletax.go): its player's level's rate, captured at sit-down and
+	// refreshed by every hand-end settle. Kept so a restart does not reach
+	// back into the database for it; absent when 0.
+	TaxBps int `json:"taxBps,omitempty"`
 }
 
 // HandSummaryEntry is one contributor in hands.summary_json and in the

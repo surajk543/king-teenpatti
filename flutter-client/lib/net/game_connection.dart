@@ -21,6 +21,29 @@ typedef ShowdownNews = ({
   String reason,
 });
 
+/// The winning tax a hand's winner paid, as `game:handEnded` carries it
+/// (owner, 26 Sep 2026): [tax] chips, taken from the whole pot at [taxBps]
+/// basis points — their level's rate. The server works it out and says so;
+/// the client only shows it. Both are 0 for a hand no tax was taken from —
+/// every table that does not tax its winners, and every hand from a server
+/// that predates it, which sends neither key.
+typedef HandTaxNews = ({String? winnerId, int tax, int taxBps});
+
+/// What a `game:handEnded` payload says its winner paid in winning tax,
+/// tolerant as every reader here: a figure that is missing, not a number, or
+/// not above 0 reads as nothing taken, and a rate outside 0..10000 basis
+/// points as none stated.
+HandTaxNews handTaxOf(Map<String, dynamic> j) {
+  final tax = j['tax'] is num ? (j['tax'] as num).toInt() : 0;
+  final bps = j['taxBps'] is num ? (j['taxBps'] as num).toInt() : 0;
+  final taken = tax > 0;
+  return (
+    winnerId: j['winnerId'] is String ? j['winnerId'] as String : null,
+    tax: taken ? tax : 0,
+    taxBps: taken && bps > 0 && bps <= 10000 ? bps : 0,
+  );
+}
+
 /// A variation window closing, as the room hears it: `game:variationSelected`,
 /// and the `variation`/`turnUp` a variation table's `game:showdown` and
 /// `game:handEnded` repeat. [selectedBy] is a [VariationSelectedBy] value, or
@@ -82,6 +105,8 @@ class GameConnection {
       >.broadcast();
   final _cards = StreamController<List<String>>.broadcast();
   final _showdown = StreamController<ShowdownNews>.broadcast();
+  final _handTax = StreamController<HandTaxNews>.broadcast();
+  final _playerLevel = StreamController<Standing>.broadcast();
   final _sideshowAsked = StreamController<PendingSideshow>.broadcast();
   final _sideshowReveal = StreamController<SideshowReveal>.broadcast();
   final _sideshowDone =
@@ -129,6 +154,21 @@ class GameConnection {
   /// This player's own three cards, sent only once they have looked.
   Stream<List<String>> get onCards => _cards.stream;
   Stream<ShowdownNews> get onShowdown => _showdown.stream;
+
+  /// What the winner of a finished hand paid in winning tax, heard with every
+  /// `game:handEnded` that names a winner and just before its
+  /// [ShowdownNews] — its own stream rather than two more fields on that
+  /// record, as [onVariationAtShowdown] is, and for the same reason: nothing
+  /// else in a showdown has any use for it. The celebration reads it, so the
+  /// winner's stack rises by what they actually took ([GameState.winnerTax]).
+  Stream<HandTaxNews> get onHandTax => _handTax.stream;
+
+  /// This player's level, XP and winning tax, sent to their own socket after
+  /// every XP award the server commits (`player:level`, owner, 26–27 Sep
+  /// 2026): the level, the badges and the rate paid — the user object's
+  /// `playerLevel`, `badges` and `taxBps`, which it simply replaces.
+  /// The server decides every point of XP; the app never counts any.
+  Stream<Standing> get onPlayerLevel => _playerLevel.stream;
 
   /// Somebody asked for a sideshow. Everyone at the table hears this — it is
   /// what drives the animation between the two seats — but it carries no cards.
@@ -311,6 +351,13 @@ class GameConnection {
       _cards.add((j['cards'] as List? ?? []).map((e) => '$e').toList());
     });
 
+    // The player's own standing after an XP award. A payload that carries
+    // no usable level says nothing, and the one held stays.
+    socket.on('player:level', (data) {
+      final standing = Standing.maybe(data);
+      if (standing != null) _playerLevel.add(standing);
+    });
+
     // The showdown is the reveal; the hand ending is who took it and for how
     // much. Both feed the same celebration.
     socket.on('game:showdown', (data) => _emitShowdown(data, null));
@@ -321,6 +368,7 @@ class GameConnection {
       _emitShowdown(
         data,
         winner.isEmpty ? null : '$winner won ${_grouped(pot)}',
+        ended: true,
       );
     });
 
@@ -440,7 +488,7 @@ class GameConnection {
     );
   }
 
-  void _emitShowdown(dynamic data, String? result) {
+  void _emitShowdown(dynamic data, String? result, {bool ended = false}) {
     final j = _map(data);
     // Before the reveal it belongs to, so the hands turn over already knowing
     // what they were played under.
@@ -450,6 +498,12 @@ class GameConnection {
         .map((e) => Reveal.fromJson(_map(e)))
         .toList();
     if (reveals.isEmpty && result == null) return;
+
+    // The hand's end says what its winner paid in winning tax, and says it just
+    // before the news that names them, so the celebration starts already
+    // knowing how much lands on their stack. Every hand-ended frame says it,
+    // 0 where nothing was taken, so no figure outlives the hand it was for.
+    if (ended) _handTax.add(handTaxOf(j));
 
     _showdown.add((
       reveals: reveals,
@@ -653,6 +707,8 @@ class GameConnection {
     _session.close();
     _cards.close();
     _showdown.close();
+    _handTax.close();
+    _playerLevel.close();
     _sideshowAsked.close();
     _sideshowReveal.close();
     _sideshowDone.close();

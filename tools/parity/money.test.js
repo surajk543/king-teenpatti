@@ -11,8 +11,11 @@
  *
  *   - SUM(chip_ledger.delta) == users.chips for every user. That is now the
  *     ONLY money cross-check in the system, so treat it as load-bearing;
- *   - every hand's rows sum to zero: chips moved between wallets, none were
- *     created or destroyed;
+ *   - every hand's hand_* rows sum to zero: chips moved between wallets, none
+ *     were created or destroyed. A table that taxes its winners (owner,
+ *     26 Sep 2026) adds ONE more row to a hand it taxes — table_tax, the
+ *     winner's, minus the tax — and that is the one way chips leave the
+ *     economy at a hand;
  *   - every row carries a known reason, a server-minted action id of the
  *     right shape, and a balance that follows the running total;
  *   - a hand_win row pays the pot less the winner's own stake; a player is
@@ -20,7 +23,8 @@
  *   - the counters (handsWon / totalWinnings / biggestPot) follow the
  *     hand_win rows;
  *   - the schema has no game state: no game_states, no pots, no hands (the
- *     four table configuration tables are configuration, argued below);
+ *     table configuration and the player levels are configuration, and a
+ *     player's XP an account fact, argued below);
  *   - the append-only trigger refuses UPDATE/DELETE on chip_ledger.
  *
  * Runs last in each profile (tools/parity.mjs appends it), but is also safe to
@@ -37,6 +41,9 @@ test.after(closeDb);
 const REASONS = new Set([
   'welcome_bonus', 'hand_win', 'hand_loss', 'hand_packed', 'hand_left', 'milestone_reward', 'timed_bonus', 'daily_bonus',
   'lucky_draw', 'picture_purchase', 'table_picture_purchase', 'emoji_purchase', 'test_fixture',
+  // The winning tax a hand's winner pays at a table that taxes its winners
+  // (owner, 26 Sep 2026): a chip sink, beside that hand's hand_win row.
+  'table_tax',
 ]);
 const CHECKPOINT_REASONS = new Set(['hand_win', 'hand_loss', 'hand_packed', 'hand_left']);
 
@@ -77,6 +84,14 @@ test('every ledger row has a known reason, a balance that follows the running to
         'every checkpoint action id is server-minted — no client id ever reaches the ledger');
     }
     if (['welcome_bonus', 'milestone_reward', 'timed_bonus', 'daily_bonus', 'lucky_draw'].includes(row.reason)) assert.ok(row.delta > 0);
+    // The winning tax (owner, 26 Sep 2026): only ever takes chips, names its
+    // hand, and carries the server's own id for it.
+    if (row.reason === 'table_tax') {
+      assert.ok(row.delta < 0, 'a winning tax only ever takes chips');
+      assert.ok(row.hand_id, 'a winning tax names its hand');
+      assert.equal(row.action_id, `${row.hand_id}:tax:${row.user_id}`, 'a winning tax carries the server-minted id');
+      assert.equal(row.game, null, 'only a Teen Patti table taxes its winners');
+    }
     // A premium picture is a chip SINK: the row only ever takes chips away.
     if (row.reason === 'picture_purchase') {
       assert.ok(row.delta < 0, 'buying a picture only ever takes chips');
@@ -115,11 +130,32 @@ test('every hand conserves chips, and resolves each player exactly once', async 
   // chips a player wins enter the economy and chips they lose leave it, as a
   // reward or a picture purchase moves them (POKER_PLAN.md §6). Every other
   // hand — Teen Patti and player-versus-player poker alike — sums to zero.
+  //
+  // The sum is over the hand_* rows: a hand at a table that taxes its winners
+  // also carries the winner's table_tax row, the chips that left the game,
+  // which is checked on its own below.
   const { rows: hands } = await query(
     `SELECT hand_id, SUM(delta) AS net, COUNT(*) AS rows FROM chip_ledger
-      WHERE hand_id IS NOT NULL AND (variant IS NULL OR variant <> 'three_card_poker') GROUP BY hand_id`);
+      WHERE hand_id IS NOT NULL AND reason IN ('hand_win', 'hand_loss', 'hand_packed', 'hand_left')
+        AND (variant IS NULL OR variant <> 'three_card_poker') GROUP BY hand_id`);
   for (const hand of hands) {
     assert.equal(Number(hand.net), 0, `hand ${hand.hand_id} moved ${hand.net} chips into or out of the economy`);
+  }
+  // Every row of a hand is a checkpoint row or its winner's tax.
+  const { rows: stray } = await query(
+    `SELECT hand_id, reason FROM chip_ledger
+      WHERE hand_id IS NOT NULL AND reason NOT IN ('hand_win', 'hand_loss', 'hand_packed', 'hand_left', 'table_tax')`);
+  assert.deepEqual(stray, [], 'a hand carries a row that is neither a checkpoint nor its winning tax');
+  // A taxed hand: one table_tax row, the WINNER's — the player with that
+  // hand's hand_win row — and no other player pays anything.
+  const { rows: taxes } = await query(
+    `SELECT t.hand_id, t.user_id, COUNT(*) OVER (PARTITION BY t.hand_id) AS per_hand,
+            EXISTS (SELECT 1 FROM chip_ledger w WHERE w.hand_id = t.hand_id AND w.user_id = t.user_id
+                     AND w.reason = 'hand_win') AS winner
+       FROM chip_ledger t WHERE t.reason = 'table_tax'`);
+  for (const tax of taxes) {
+    assert.equal(Number(tax.per_hand), 1, `hand ${tax.hand_id} was taxed more than once`);
+    assert.equal(tax.winner, true, `the tax of hand ${tax.hand_id} was paid by ${tax.user_id}, who did not win it`);
   }
   // One OUTCOME row per player per hand (hand_win / hand_loss / hand_left).
   // A packer also has a hand_packed row — that is the money moving early —
@@ -177,9 +213,22 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   // are account facts: the career counters a checkpoint adds to (the six that
   // sat on users), and who asked whom and who is friends with whom — whether
   // a friend is online or at a table is Redis's (kt:online,
-  // kt:playing:<userId>) and no row here names a room. The list
-  // is exact rather than a minimum, so a new table has to be argued for here
-  // first.
+  // kt:playing:<userId>) and no row here names a room.
+  // player_levels, badges, xp_sources and xp_settings (26–27 Sep 2026) are
+  // configuration: the level ladder — each level's title, icon and the winning
+  // tax it carries —, the badges a player may hold beside it with their rates
+  // and validity, the daily XP sources and the window; the seed and the owner
+  // write them. player_xp, player_xp_claims and user_badges are account facts,
+  // the kind of thing users holds: a player's lifetime XP and their day's
+  // window, how many times they have earned each source in it, and the badges
+  // they were given and when each runs out — XP written by the hand-end settle
+  // in the ledger's own transaction and by the play-time award, badges by
+  // hand or by a store purchase, whose receipt badge_purchases keeps (a Play
+  // purchase record, as diamond_purchases is). No table reads any of them to play a hand — a seat takes its rate
+  // with the account when its player sits down, and from each hand-end
+  // settle's answer — and the play TIME that earns XP is kept in the live
+  // store, never here. The list is exact rather than a minimum, so a new table
+  // has to be argued for here first.
   //
   // table_engines, table_categories, table_settings and table_configs (owner,
   // 23 Sep 2026: "all table related config store in database") are
@@ -200,18 +249,25 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
     assert.ok(!tables.includes(retired), `${retired} is game state and must not exist`);
   }
   assert.deepEqual(tables, [
-    'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships', 'hammer_purchases', 'hammer_spends',
-    'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends', 'player_stats', 'profile_pictures',
-    'table_categories', 'table_configs', 'table_engines', 'table_pictures', 'table_settings', 'user_emojis',
-    'user_lucky_draws', 'user_milestones', 'user_profile_pictures', 'user_table_choice', 'user_table_pictures', 'users',
+    'badge_purchases', 'badges', 'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships', 'hammer_purchases',
+    'hammer_spends', 'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends', 'player_levels',
+    'player_stats', 'player_xp', 'player_xp_claims', 'profile_pictures', 'table_categories', 'table_configs',
+    'table_engines', 'table_pictures', 'table_settings', 'user_badges', 'user_emojis', 'user_lucky_draws',
+    'user_milestones', 'user_profile_pictures', 'user_table_choice', 'user_table_pictures', 'users', 'xp_settings',
+    'xp_sources',
   ], `the schema must hold money, audit, accounts, the picture catalogues and table configuration only, got ${tables.join(', ')}`);
-  // Configuration, by construction: no column of the four refers to a room, a
-  // hand, a seat or a user.
+  // Configuration, by construction: no column of the four — nor of the level
+  // ladder, the badges and the XP rules — refers to a room, a hand, a seat or a
+  // user.
   const { rows: stateful } = await query(
     `SELECT table_name, column_name FROM information_schema.columns
       WHERE table_schema = current_schema()
-        AND table_name IN ('table_engines', 'table_categories', 'table_settings', 'table_configs')
-        AND column_name ~ '^(room|hand|seat|user)_'`);
+        AND table_name IN ('table_engines', 'table_categories', 'table_settings', 'table_configs',
+                           'player_levels', 'badges', 'xp_sources', 'xp_settings')
+        AND column_name ~ '^(room|hand|seat|user)_'
+        -- the kind of hand a daily XP source is won with (PAIR … TRAIL): a
+        -- rule, never a hand
+        AND NOT (table_name = 'xp_sources' AND column_name = 'hand_rank')`);
   assert.deepEqual(stateful, [], 'a table configuration column names a room, a hand, a seat or a user');
 });
 

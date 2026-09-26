@@ -84,15 +84,21 @@ func TestSpecComposesWhatTheServerAlwaysBuilt(t *testing.T) {
 		s.FiveCardPickTimeout = 8 * time.Second
 		return s
 	}
+	// Every public Teen Patti table taxes its winners, on winnings of 50 Lakh
+	// or more (owner, 26–27 Sep 2026); no private one and no poker room does.
+	taxed := func(s TableSpec) TableSpec {
+		s.WinnerTax, s.WinnerTaxMinWinnings = true, 5000000
+		return s
+	}
 	want := []TableSpec{
-		seen(TableSpec{Key: "seen:200", Category: "seen", BootAmount: 200, MaxPot: 2000000, SortOrder: 10}),
-		teenPatti(TableSpec{Key: "blind:200", Category: "blind", BootAmount: 200, SortOrder: 20}),
-		teenPatti(TableSpec{Key: "blind:5000", Category: "blind", BootAmount: 5000, MaxChips: 50000000, SortOrder: 30}),
-		teenPatti(TableSpec{Key: "blind:50000", Category: "blind", BootAmount: 50000, MaxChips: 1000000000, SortOrder: 40}),
-		teenPatti(TableSpec{Key: "blind:1000000", Category: "blind", BootAmount: 1000000, MinChips: 500000000, SortOrder: 50}),
-		variation(TableSpec{Key: "variation:50000", Category: "variation", BootAmount: 50000, MaxChips: 1000000000, SortOrder: 60}),
-		variation(TableSpec{Key: "variation:1000000", Category: "variation", BootAmount: 1000000, MinChips: 500000000, SortOrder: 70}),
-		seen(TableSpec{Key: "seen:50000", Category: "seen", BootAmount: 50000, MaxPot: 50000000, SortOrder: 80}),
+		taxed(seen(TableSpec{Key: "seen:200", Category: "seen", BootAmount: 200, MaxPot: 2000000, SortOrder: 10})),
+		taxed(teenPatti(TableSpec{Key: "blind:200", Category: "blind", BootAmount: 200, SortOrder: 20})),
+		taxed(teenPatti(TableSpec{Key: "blind:5000", Category: "blind", BootAmount: 5000, MaxChips: 200000000, SortOrder: 30})),
+		taxed(teenPatti(TableSpec{Key: "blind:50000", Category: "blind", BootAmount: 50000, MaxChips: 2000000000, SortOrder: 40})),
+		taxed(teenPatti(TableSpec{Key: "blind:2000000", Category: "blind", BootAmount: 2000000, MinChips: 500000000, SortOrder: 50})),
+		taxed(variation(TableSpec{Key: "variation:50000", Category: "variation", BootAmount: 50000, MaxChips: 2000000000, SortOrder: 60})),
+		taxed(variation(TableSpec{Key: "variation:2000000", Category: "variation", BootAmount: 2000000, MinChips: 500000000, SortOrder: 70})),
+		taxed(seen(TableSpec{Key: "seen:50000", Category: "seen", BootAmount: 50000, MaxPot: 50000000, SortOrder: 80})),
 		poker(TableSpec{Key: "three_card_poker:50000", Category: "three_card_poker", BootAmount: 50000, SortOrder: 90}),
 		poker(TableSpec{Key: "five_card_draw:50000", Category: "five_card_draw", BootAmount: 50000, SortOrder: 100}),
 		poker(TableSpec{Key: "texas_holdem:50000", Category: "texas_holdem", BootAmount: 50000, SortOrder: 110}),
@@ -190,10 +196,12 @@ func TestTheDefaultCatalogueSurvivesTheDatabaseRoundTrip(t *testing.T) {
 		}
 	}
 	// Every field an existing check reads is what it was — except the menu's
-	// own pot cap, which is read through Spec and left 0 on purpose.
+	// own pot cap and winner tax, which are read through Spec and left 0 and
+	// false on purpose.
 	wantMenu := make([]LobbyTable, len(g.LobbyTables))
 	for i, entry := range g.LobbyTables {
 		entry.MaxPot = 0
+		entry.WinnerTax = false
 		wantMenu[i] = entry
 	}
 	if !reflect.DeepEqual(db.LobbyTables, wantMenu) || !reflect.DeepEqual(db.TableStakes, g.TableStakes) ||
@@ -508,7 +516,7 @@ func TestValidateHoldsEveryTableToTheTaxonomy(t *testing.T) {
 func TestATablesOwnBootIsAlwaysAnAllowedStake(t *testing.T) {
 	base := Defaults().Game.EffectiveCatalogue()
 	base.Source = TableConfigSourceDB
-	if !reflect.DeepEqual(base.Settings.Stakes, []int64{200, 5000, 50000, 1000000}) {
+	if !reflect.DeepEqual(base.Settings.Stakes, []int64{200, 5000, 50000, 2000000}) {
 		t.Fatalf("the default stakes are %v", base.Settings.Stakes)
 	}
 	withRows := func(stakes []int64) TableCatalogue {
@@ -526,7 +534,7 @@ func TestATablesOwnBootIsAlwaysAnAllowedStake(t *testing.T) {
 		return cat
 	}
 
-	cat := withRows([]int64{200, 5000, 50000, 1000000})
+	cat := withRows([]int64{200, 5000, 50000, 2000000})
 	valid, problems, err := cat.Validate()
 	if err != nil {
 		t.Fatal(err)
@@ -535,23 +543,23 @@ func TestATablesOwnBootIsAlwaysAnAllowedStake(t *testing.T) {
 	if len(problems) != 1 || !strings.Contains(problems[0], "table rummy:7000 left out") {
 		t.Errorf("problems %v", problems)
 	}
-	if want := []int64{200, 5000, 50000, 1000000, 1000}; !reflect.DeepEqual(valid.Settings.Stakes, want) {
+	if want := []int64{200, 5000, 50000, 2000000, 1000}; !reflect.DeepEqual(valid.Settings.Stakes, want) {
 		t.Errorf("stakes %v, want %v", valid.Settings.Stakes, want)
 	}
-	if !reflect.DeepEqual(cat.Settings.Stakes, []int64{200, 5000, 50000, 1000000}) {
+	if !reflect.DeepEqual(cat.Settings.Stakes, []int64{200, 5000, 50000, 2000000}) {
 		t.Errorf("Validate changed the catalogue it was given: %v", cat.Settings.Stakes)
 	}
-	if g := Defaults().Game.WithCatalogue(valid); !reflect.DeepEqual(g.TableStakes, []int64{200, 5000, 50000, 1000000, 1000}) {
+	if g := Defaults().Game.WithCatalogue(valid); !reflect.DeepEqual(g.TableStakes, []int64{200, 5000, 50000, 2000000, 1000}) {
 		t.Errorf("TableStakes %v", g.TableStakes)
 	}
 
 	// The list's own order and duplicates stay; what it lacks follows in
-	// menu order: 50000 (blind:50000), 1000000 (blind:1000000), 1000.
+	// menu order: 50000 (blind:50000), 2000000 (blind:2000000), 1000.
 	valid, _, err = withRows([]int64{5000, 200, 5000}).Validate()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []int64{5000, 200, 5000, 50000, 1000000, 1000}; !reflect.DeepEqual(valid.Settings.Stakes, want) {
+	if want := []int64{5000, 200, 5000, 50000, 2000000, 1000}; !reflect.DeepEqual(valid.Settings.Stakes, want) {
 		t.Errorf("stakes %v, want %v", valid.Settings.Stakes, want)
 	}
 

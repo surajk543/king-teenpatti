@@ -10,6 +10,7 @@ import 'glass_components.dart';
 import 'glass_panels.dart';
 import 'playing_card.dart';
 import 'premium_surface.dart';
+import 'table_tax.dart';
 import 'variation_prompt.dart';
 
 /// The hand rankings, shown over whatever the player was looking at.
@@ -62,6 +63,17 @@ class _RulesSheet extends StatelessWidget {
       // Blind tables have no forced showdown; the other two do.
       if (!blind) t.ruleRoundsEnd,
       t.ruleShowTwo,
+      // A table that taxes its winners (owner, 26 Sep 2026): the whole
+      // ladder in one sentence, that a badge can lower it (27 Sep 2026: "Vip
+      // is not a level, it is badge"), and the winnings it taxes from ("30
+      // lakh is the limit on winning amount not on pot limit").
+      if (table.taxesWinner)
+        t.winningTaxRule(
+          formatTaxRate(WinningTaxLadder.levelOneBps),
+          from: table.winnerTaxMinWinnings > 0
+              ? formatChips(table.winnerTaxMinWinnings)
+              : null,
+        ),
     ];
   }
 

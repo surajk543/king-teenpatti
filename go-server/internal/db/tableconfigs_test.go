@@ -214,8 +214,8 @@ func TestLoadReturnsTheRowsAsTheDatabaseHoldsThem(t *testing.T) {
 	execSQL(t, d, `INSERT INTO table_configs (category, boot_amount, max_pot, max_raise_steps, max_bet_rounds,
             pot_limit_multiplier, max_blind_moves, turn_timeout_ms, max_missed_turns, sideshow_timeout_ms,
             sideshow_min_players, next_hand_delay_ms, unfunded_grace_ms, missile_reveal_extra_ms,
-            variation_select_timeout_ms, five_card_pick_timeout_ms, min_buy_in, max_discards, sort_order)
-        VALUES ('rummy', 200, 0, 0, 0, 0, 0, 25000, 3, 0, 0, 4000, 30000, 0, 0, 0, 0, 0, 125)`)
+            variation_select_timeout_ms, five_card_pick_timeout_ms, min_buy_in, max_discards, winner_tax, tax_min_winnings, sort_order)
+        VALUES ('rummy', 200, 0, 0, 0, 0, 0, 25000, 3, 0, 0, 4000, 30000, 0, 0, 0, 0, 0, FALSE, 0, 125)`)
 
 	cat := loadTables(t, d)
 	if cat.Source != config.TableConfigSourceDB {
@@ -336,8 +336,8 @@ func TestTheForeignKeysHoldTheTaxonomyTogether(t *testing.T) {
 		"a table naming no category": `INSERT INTO table_configs (category, boot_amount, max_pot, max_raise_steps, max_bet_rounds,
             pot_limit_multiplier, max_blind_moves, turn_timeout_ms, max_missed_turns, sideshow_timeout_ms,
             sideshow_min_players, next_hand_delay_ms, unfunded_grace_ms, missile_reveal_extra_ms,
-            variation_select_timeout_ms, five_card_pick_timeout_ms, min_buy_in, max_discards, sort_order)
-        VALUES ('rummy', 200, 0, 0, 0, 0, 0, 25000, 3, 0, 0, 4000, 30000, 0, 0, 0, 0, 0, 125)`,
+            variation_select_timeout_ms, five_card_pick_timeout_ms, min_buy_in, max_discards, winner_tax, tax_min_winnings, sort_order)
+        VALUES ('rummy', 200, 0, 0, 0, 0, 0, 25000, 3, 0, 0, 4000, 30000, 0, 0, 0, 0, 0, FALSE, 0, 125)`,
 		"an entry cap naming no category":    `UPDATE table_settings SET entry_cap_category = 'rummy'`,
 		"a category naming no engine":        `INSERT INTO table_categories (code, engine, name, sort_order) VALUES ('rummy', 'rummy', 'Rummy', 80)`,
 		"a category deleted under a table":   `DELETE FROM table_categories WHERE code = 'omaha'`,
@@ -391,6 +391,9 @@ func TestATableConfigRowMustStateEveryFigure(t *testing.T) {
 		"turn_timeout_ms", "max_missed_turns", "sideshow_timeout_ms", "sideshow_min_players",
 		"next_hand_delay_ms", "unfunded_grace_ms", "missile_reveal_extra_ms",
 		"variation_select_timeout_ms", "five_card_pick_timeout_ms", "min_buy_in", "max_discards", "sort_order",
+		// Whether the table taxes its winners (26 Sep 2026), and from what
+		// winnings (27 Sep 2026): no DEFAULT, like every rule column.
+		"winner_tax", "tax_min_winnings",
 	}
 	settings := []string{
 		"default_boot_amount", "stakes", "max_players", "min_players", "turn_timeout_ms", "max_bet_rounds",
@@ -480,7 +483,7 @@ func TestTheTableKeyIsTheIdentityAndTheChecksHoldTheFloor(t *testing.T) {
 			"turn_timeout_ms": 25000, "max_missed_turns": 3, "sideshow_timeout_ms": 6000, "sideshow_min_players": 3,
 			"next_hand_delay_ms": 4000, "unfunded_grace_ms": 30000, "missile_reveal_extra_ms": 3000,
 			"variation_select_timeout_ms": 0, "five_card_pick_timeout_ms": 0, "min_buy_in": 0, "max_discards": 0,
-			"sort_order": 500,
+			"winner_tax": false, "tax_min_winnings": 0, "sort_order": 500,
 		}
 		for column, value := range changes {
 			values[column] = value
@@ -527,6 +530,7 @@ func TestTheTableKeyIsTheIdentityAndTheChecksHoldTheFloor(t *testing.T) {
 		"a variation window of 0":         {"category": "variation", "boot_amount": 704, "five_card_pick_timeout_ms": 8000},
 		"a poker buy-in under the boot":   with(poker, map[string]any{"category": "omaha", "boot_amount": 705, "min_buy_in": 704}),
 		"six cards to exchange":           with(poker, map[string]any{"category": "five_card_draw", "boot_amount": 706, "min_buy_in": 7060, "max_discards": 6}),
+		"negative minimum winnings":       {"boot_amount": 707, "winner_tax": true, "tax_min_winnings": -1},
 	}
 	for name, changes := range refused {
 		if err := row(changes); !errors.As(err, &pgErr) || pgErr.Code != "23514" {

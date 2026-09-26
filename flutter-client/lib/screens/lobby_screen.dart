@@ -12,6 +12,7 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
 import '../widgets/game_card.dart';
 import '../widgets/avatar.dart';
@@ -28,6 +29,7 @@ import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/rules_sheet.dart';
 import '../widgets/table_ground.dart';
+import '../widgets/table_tax.dart';
 import 'friends_screen.dart';
 import 'lucky_draw_screen.dart';
 
@@ -512,6 +514,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   // Keyed so a lobby toast can stand clear of them
                   // (lobbyNoticeArea).
                   children: [
+                    // The level key (owner, 27 Sep 2026: "Add one icon in
+                    // lobby so that user can see his level"): the player's
+                    // level on it, and the level popup behind it.
+                    LevelKey(key: _levelKey),
                     FriendsKey(key: _friendsKey),
                     _MilestoneChip(key: _milestoneChip),
                   ],
@@ -2274,6 +2280,9 @@ class _TableCard extends StatelessWidget {
     // (owner, 18 Sep 2026), and it is a card of its own with its own name and
     // its own line about what happens there.
     final variation = category == TableCategory.variation;
+    // Whether the winner of each hand here pays winning tax (owner, 26–27 Sep
+    // 2026: every public Seen, Blind and Variation table) — the menu's word.
+    final taxes = table.taxesWinner;
     // A poker table is a different game altogether: its badge names the game
     // (Texas Hold'em, Omaha, 5-Card Draw, 3-Card Poker), its blurb says how
     // that game is played, and its facts are the blinds or the ante, the
@@ -2357,6 +2366,27 @@ class _TableCard extends StatelessWidget {
               final keys = Size(
                 _cornerKeysReach.width + CardSpace.s8 - m.pad,
                 _cornerKeysReach.height - m.pad,
+              );
+              // The boot's name under it, set small and tracked as a caption
+              // where the script allows — BOOT in English; tracking pulls
+              // Indic vowel signs off their letters, so the other languages
+              // keep their own case and spacing.
+              final caption = Padding(
+                padding: EdgeInsets.only(
+                  left: m.bootSize * 0.56 + m.markGap,
+                  top: CardSpace.s4,
+                ),
+                child: Text(
+                  state.lang == AppLang.english ? t.boot.toUpperCase() : t.boot,
+                  style:
+                      AppTheme.label(
+                        text.labelSmall!,
+                        colour: glass.cardMuted,
+                      ).copyWith(
+                        height: 1.0,
+                        letterSpacing: state.lang == AppLang.english ? 1.4 : 0,
+                      ),
+                ),
               );
 
               // Glass, not the table's cloth (owner's decision, 11 Sep 2026): the
@@ -2452,35 +2482,34 @@ class _TableCard extends StatelessWidget {
                               ),
                             ],
                           ),
-                          // Its name under it, set small and tracked
-                          // as a caption where the script allows —
-                          // BOOT in English; tracking pulls Indic
-                          // vowel signs off their letters, so the
-                          // other languages keep their own case and
-                          // spacing.
                           // Under the figure by a hair more than its
-                          // line, which its comma hangs below.
-                          Padding(
-                            padding: EdgeInsets.only(
-                              left: m.bootSize * 0.56 + m.markGap,
-                              top: CardSpace.s4,
-                            ),
-                            child: Text(
-                              state.lang == AppLang.english
-                                  ? t.boot.toUpperCase()
-                                  : t.boot,
-                              style:
-                                  AppTheme.label(
-                                    text.labelSmall!,
-                                    colour: glass.cardMuted,
-                                  ).copyWith(
-                                    height: 1.0,
-                                    letterSpacing: state.lang == AppLang.english
-                                        ? 1.4
-                                        : 0,
-                                  ),
-                            ),
-                          ),
+                          // line, which its comma hangs below. A table that
+                          // taxes its winners says so on this line, after
+                          // the word, with the rate THIS player would pay
+                          // there (owner, 26 Sep 2026): the line with the
+                          // most room beside it at the lobby's smallest
+                          // size, and the stake the tax is taken from. The
+                          // pill is hung on the line without making it any
+                          // taller, so no line of the card moves for it
+                          // (WinningTaxBeside).
+                          if (taxes)
+                            WinningTaxBeside(
+                              lead: caption,
+                              gap: CardSpace.s8,
+                              // The words' line is under the caption's top
+                              // padding, a little below its middle.
+                              shift: CardSpace.s4 / 2,
+                              trail: WinningTaxPill(
+                                key: const ValueKey('winning-tax-pill'),
+                                label: taxPillLabel(
+                                  t,
+                                  bps: state.user?.paysTaxBps,
+                                ),
+                                style: text.labelSmall!,
+                              ),
+                            )
+                          else
+                            caption,
                           CardGap(m.gap),
                           // One blurb line a card, so every card
                           // keeps the same rhythm down to its key: a
@@ -2874,6 +2903,7 @@ class _TableInfoDialog extends StatelessWidget {
     );
     final accent = palette.accent;
     final chips = state.user?.chips ?? 0;
+    final level = state.user?.playerLevel;
     final shut = state.tableShut(table);
     final players = state.config.maxPlayers == 0 ? 5 : state.config.maxPlayers;
     // The table's own clock where the catalogue names it — a poker room's is
@@ -2954,6 +2984,31 @@ class _TableInfoDialog extends StatelessWidget {
           bold: table.potUncapped,
         ),
       ],
+      // A table that taxes its winners (owner, 26 Sep 2026): the rate THIS
+      // player would pay here — the lower of their level's and their
+      // badges' — and their level.
+      if (table.taxesWinner) ...[
+        _CardFact(
+          icon: winningTaxIcon,
+          palette: palette,
+          label: t.winningTaxLabel,
+          value: switch (state.user?.paysTaxBps) {
+            final bps? => formatTaxRate(bps),
+            null => '—',
+          },
+          height: 26,
+          ink: TableInk.taxOn(theme.brightness),
+        ),
+        if (level != null)
+          _CardFact(
+            icon: Icons.military_tech_rounded,
+            palette: palette,
+            label: t.yourLevelLabel,
+            value: levelNameOf(t, level),
+            height: 26,
+            fixedLine: true,
+          ),
+      ],
       fact(Icons.groups_rounded, t.playersLabel, t.playersUpTo(players)),
       if (turnSeconds > 0)
         fact(Icons.timer_outlined, t.turnTimeLabel, t.secondsEach(turnSeconds)),
@@ -3007,6 +3062,15 @@ class _TableInfoDialog extends StatelessWidget {
             chipsShown,
             style: text.bodySmall?.copyWith(color: glass.textBody),
           ),
+          // Where the table taxes its winners from a floor (owner, 27 Sep
+          // 2026: "30 lakh is the limit on winning amount"): said once, under
+          // the chips line, rather than squeezed into the rate's row.
+          if (table.taxesWinner && table.winnerTaxMinWinnings > 0)
+            Text(
+              t.winningTaxFrom(formatChips(table.winnerTaxMinWinnings)),
+              key: const ValueKey('table-info-tax-from'),
+              style: text.bodySmall?.copyWith(color: glass.textBody),
+            ),
           const SizedBox(height: Space.md),
           for (final (i, row) in facts.indexed) ...[if (i > 0) rule(), row],
           if (standing.isNotEmpty) ...[
@@ -3179,12 +3243,22 @@ class _CardFact extends StatelessWidget {
     this.highlight = false,
     this.money = false,
     this.quiet = false,
+    this.ink,
+    this.fixedLine = false,
   });
 
   final IconData icon;
   final TablePalette palette;
   final String label;
   final String value;
+
+  /// The value's own ink, over [highlight], [money] and [quiet]: the winning
+  /// tax's amber ([TableInk.taxOn]).
+  final Color? ink;
+
+  /// Holds the value to its style's own line height: a value with a level's
+  /// colour-emoji mark in it would otherwise stand taller than the row.
+  final bool fixedLine;
 
   /// The row's own box, so two rows and the rule between them are a known
   /// height on the card's column: 15.4 on a 640x360 phone's card, 16.7 on a
@@ -3206,17 +3280,24 @@ class _CardFact extends StatelessWidget {
     final text = theme.textTheme;
     final glass = GlassColors.of(context);
     final size = (height * 0.66).clamp(11.0, 15.0);
-    final valueInk = highlight
-        ? palette.ink
-        : money
-        ? _goldInk(theme.brightness)
-        : quiet
-        ? glass.cardMuted
-        : glass.textDisplay;
+    final valueInk =
+        ink ??
+        (highlight
+            ? palette.ink
+            : money
+            ? _goldInk(theme.brightness)
+            : quiet
+            ? glass.cardMuted
+            : glass.textDisplay);
     // The row is never shorter than its words' own glyphs, which at a large
     // text size stood taller than the box; the card's column scales down to
     // hold the taller rows instead of clipping their tops and tails.
     final glyphs = MediaQuery.textScalerOf(context).scale(size) * 1.2;
+    final valueStyle = AppTheme.money(
+      text.labelLarge!,
+      fontSize: size,
+      colour: valueInk,
+    );
 
     return SizedBox(
       height: math.max(height, glyphs),
@@ -3254,11 +3335,8 @@ class _CardFact extends StatelessWidget {
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: AppTheme.money(
-              text.labelLarge!,
-              fontSize: size,
-              colour: valueInk,
-            ),
+            strutStyle: fixedLine ? levelStrut(valueStyle) : null,
+            style: valueStyle,
           ),
         ],
       ),
@@ -4450,6 +4528,89 @@ class _StatRow extends StatelessWidget {
   }
 }
 
+/// The player's level at the head of their record: "Level 10 · 🌟 Rising
+/// Star · 4,180 XP"; under it, while the day has an XP window, "Today 23 / 50
+/// XP · resets in 5h 12m 3s"; and the badges they hold beside the level (owner,
+/// 27 Sep 2026: "Vip is not a level, it is badge") — "Regular · Royal King".
+/// Every figure is the server's; the app counts no XP.
+class _LevelRow extends StatelessWidget {
+  const _LevelRow({required this.level, this.badges = const []});
+
+  final PlayerLevel level;
+  final List<PlayerBadge> badges;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final t = context.watch<GameState>().t;
+    final line = AppTheme.label(
+      theme.textTheme.bodyMedium!,
+      colour: scheme.onSurface,
+    );
+    final today = level.today;
+    final meta = AppTheme.money(
+      theme.textTheme.bodySmall!,
+      colour: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
+      weight: FontWeight.w500,
+    );
+
+    return Padding(
+      key: const ValueKey('stats-level'),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.lg,
+        vertical: Space.sm,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.military_tech_rounded,
+            size: 18,
+            color: _goldInk(theme.brightness),
+          ),
+          const SizedBox(width: Space.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  levelLineOf(t, level),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  strutStyle: levelStrut(line),
+                  style: line,
+                ),
+                if (today != null) ...[
+                  const SizedBox(height: Space.xxs),
+                  Text(
+                    xpTodayOf(t, today, DateTime.now()),
+                    key: const ValueKey('stats-xp-today'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: meta,
+                  ),
+                ],
+                if (badges.isNotEmpty) ...[
+                  const SizedBox(height: Space.xxs),
+                  Text(
+                    badges.map(badgeTitleOf).join(' · '),
+                    key: const ValueKey('stats-badges'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    strutStyle: levelStrut(meta),
+                    style: meta,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// A row in a settings group that does something: a glyph, its name, and
 /// whatever it ends in. No fill of its own — the group is the surface — and
 /// the group's own ink says it was pressed.
@@ -4578,6 +4739,13 @@ class _StatsDrawer extends StatelessWidget {
       ),
       children: [
         const SizedBox(height: Space.xs),
+        // The player's level (owner, 26 Sep 2026): its name with its mark,
+        // their XP, today's XP against the day's cap, and the badges they
+        // hold beside it (27 Sep 2026).
+        if (user?.playerLevel case final level?) ...[
+          _LevelRow(level: level, badges: user!.badges),
+          const _DrawerRule(),
+        ],
         for (var i = 0; i < rows.length; i++) ...[
           // The four counts of hands are one group; the two money figures are
           // another, and the rule between them is the only one in the list.
@@ -5960,6 +6128,9 @@ final _dailyChip = GlobalKey(debugLabel: 'bonus chip');
 /// On the Friends key beside the milestone chip (owner, 26 Sep 2026).
 final _friendsKey = GlobalKey(debugLabel: 'friends key');
 
+/// On the level key beside the Friends key (owner, 27 Sep 2026).
+final _levelKey = GlobalKey(debugLabel: 'level key');
+
 /// The narrowest a lobby toast is made to keep clear of the Friends key: a
 /// toast squeezed any narrower between the foot's keys would break every few
 /// words, so below this it stands where it always stood and may cover the
@@ -6013,9 +6184,15 @@ Rect? lobbyNoticeArea(BuildContext context) {
     if (bonusRight.isFinite) start = math.max(start, bonusRight + Space.sm);
   }
   var end = chipLeft - Space.sm;
-  // The Friends key stands left of the milestone chip. The toast keeps clear
-  // of it as well wherever that still leaves it [_toastFloor] to stand in.
-  final friends = _friendsKey.currentContext?.findRenderObject();
+  // The Friends key — and the level key left of it — stand left of the
+  // milestone chip. The toast keeps clear of them as well wherever that still
+  // leaves it [_toastFloor] to stand in.
+  final level = _levelKey.currentContext?.findRenderObject();
+  final friends =
+      (level is RenderBox && level.hasSize && !level.size.isEmpty
+          ? level
+          : null) ??
+      _friendsKey.currentContext?.findRenderObject();
   if (friends is RenderBox &&
       friends.attached &&
       friends.hasSize &&

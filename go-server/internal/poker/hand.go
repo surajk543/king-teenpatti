@@ -997,7 +997,10 @@ func (t *Table) settle(reason WinReason, winners map[string]bool, pushes map[str
 			Variant:     t.cfg.Category,
 		})
 	}
-	req := game.SettleRequest{RoomID: t.id, HandID: h.id, Entries: entries}
+	// PlayedMs: the hand's duration, the active play its players add to their
+	// XP window (game.SettleRequest). A poker room never taxes its winners, so
+	// the result's rates are not read.
+	req := game.SettleRequest{RoomID: t.id, HandID: h.id, Entries: entries, PlayedMs: max(0, t.clock.Now().Sub(h.startedAt).Milliseconds())}
 	if _, err := t.ledger.Settle(t.Context(), req); err != nil {
 		t.hooks.OnRoomPersistError(t, game.PersistErrorEvent{Reason: "settle", HandID: h.id, Err: err})
 		t.Settler.Owe(req, true)

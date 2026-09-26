@@ -510,6 +510,196 @@ class Strings {
   String get ruleRoundsEnd => _('ruleRoundsEnd');
   String get ruleShowTwo => _('ruleShowTwo');
   String get ruleVariationPick => _('ruleVariationPick');
+
+  // --- the winning tax (owner, 26–27 Sep 2026): at a table that taxes its
+  // winners, the winner of each hand pays a share of their winnings — the rate
+  // their LEVEL sets, which falls as their XP climbs, or a badge's where it is
+  // lower (a Royal badge: 0%), which XP never reaches. The server takes it and
+  // says how much; these only name it. Rates arrive formatted ("17.43%").
+
+  /// The pill on such a table's lobby card and beside its tag on the felt,
+  /// with the rate the viewer pays: "17.43% TAX", and "TAX" alone where the
+  /// rate is not known.
+  String taxPill(String rate) => _('taxPill').replaceFirst('{rate}', rate);
+  String get taxPillNoRate => _('taxPillNoRate');
+
+  /// The felt pill's popup title, and the table info popup's row label.
+  String get winningTaxTitle => _('winningTaxTitle');
+  String get winningTaxLabel => _('winningTaxLabel');
+
+  /// The rows that say where the viewer stands: their level, their XP, the
+  /// rate they pay, and the next level up.
+  String get yourLevelLabel => _('yourLevelLabel');
+  String get xpLabel => _('xpLabel');
+  String get yourRateLabel => _('yourRateLabel');
+  String get nextLevelLabel => _('nextLevelLabel');
+
+  /// A level named by its number and its name (the server's, with its mark):
+  /// "Level 10 · 🌟 Rising Star".
+  String levelName(int level, String title) => _(
+    'levelName',
+  ).replaceFirst('{n}', '$level').replaceFirst('{title}', title);
+
+  /// The Stats drawer's line: "Level 10 · 🌟 Rising Star · 4,180 XP".
+  String levelLine(int level, String title, String xp) => _('levelLine')
+      .replaceFirst('{n}', '$level')
+      .replaceFirst('{title}', title)
+      .replaceFirst('{xp}', xp);
+
+  /// What reaches the next level and what it charges, under its name:
+  /// "5,200 XP · 17.14%".
+  String nextLevelValue(String xp, String rate) =>
+      _('nextLevelValue').replaceFirst('{xp}', xp).replaceFirst('{rate}', rate);
+
+  /// At the top of the ladder, where XP leads nowhere further.
+  String get topLevelNote => _('topLevelNote');
+
+  /// What the felt pill's popup says the tax is — and, to anybody whose badge
+  /// does not set their rate, that climbing the levels lowers it.
+  String get winningTaxOnlyWinner => _('winningTaxOnlyWinner');
+  String get winningTaxFalls => _('winningTaxFalls');
+
+  /// A taxing table's rule, one bullet: "The winner of each hand pays a share
+  /// of the pot as winning tax — 20% at Level 1, less at every level up. A
+  /// badge can lower it further." Badges are named as what lowers the rate,
+  /// never as something XP leads to (owner, 27 Sep 2026: "Vip is not a level,
+  /// it is badge").
+  String winningTaxRule(String top, {String? from}) =>
+      '${_('ruleWinningTax').replaceFirst('{top}', top)} '
+      '${_('ruleWinningTaxBadge')}'
+      '${from == null ? '' : ' ${winningTaxFrom(from)}'}';
+
+  /// The winnings a table taxes from (owner, 27 Sep 2026: "30 lakh is the
+  /// limit on winning amount not on pot limit"): "No tax on winnings under 30
+  /// Lakh." — and, where a table's figures are listed, "on winnings of 30
+  /// Lakh or more". [amount] arrives formatted.
+  String winningTaxFrom(String amount) =>
+      _('winningTaxFrom').replaceFirst('{amount}', amount);
+  String taxOnWinningsFrom(String amount) =>
+      _('taxOnWinningsFrom').replaceFirst('{amount}', amount);
+
+  /// A badge's validity where it has none (Standard: "standard badge validity
+  /// lifetime"), its price where it is 0 ("standard badge 0 ruppes"), and the
+  /// rate it brings a holder's down to: "0% winning tax".
+  String get badgeLifetime => _('badgeLifetime');
+  String get badgeFree => _('badgeFree');
+  String badgeTaxLine(String rate) =>
+      _('badgeTaxLine').replaceFirst('{rate}', rate);
+
+  /// After a badge is bought: "🂮 Tax Free King is yours until 27/10/2026."
+  String badgeBought(String badge, String date) => _(
+    'badgeBought',
+  ).replaceFirst('{badge}', badge).replaceFirst('{date}', date);
+
+  /// The store's Badges shelf (owner, 27 Sep 2026: "Add a icon in Store to
+  /// buy badges, and for all type of royal badges Add a button to contact
+  /// support in store"): its key, title and line, and the support question a
+  /// badge given by hand asks — its key, the popup's title and body, the
+  /// email's subject, and the address to copy where no mail app opens.
+  String get storeTabBadges => _('storeTabBadges');
+  String get storeBadgesTitle => _('storeBadgesTitle');
+  String get storeBadgesBlurb => _('storeBadgesBlurb');
+  String get badgeContactSupport => _('badgeContactSupport');
+  String badgeContactTitle(String badge) =>
+      _('badgeContactTitle').replaceFirst('{badge}', badge);
+  String badgeContactBody(String badge) =>
+      _('badgeContactBody').replaceFirst('{badge}', badge);
+  String badgeMailSubject(String badge) =>
+      _('badgeMailSubject').replaceFirst('{badge}', badge);
+  String get copyAddress => _('copyAddress');
+  String get addressCopied => _('addressCopied');
+
+  /// On the winner's ribbon, with the celebration: "Winning tax −1,360".
+  String winnerTaxLine(String tax) =>
+      _('winnerTaxLine').replaceFirst('{tax}', tax);
+
+  /// The toast when XP lifts the player a level: "Level up! 🌟 Level 10 ·
+  /// Rising Star — your winning tax is now 17.43%." — and, when a badge keeps
+  /// the rate they pay below either level's, "Level up! 🌟 Level 10 · Rising
+  /// Star" alone.
+  String levelUp(String level, String rate) =>
+      _('levelUp').replaceFirst('{level}', level).replaceFirst('{rate}', rate);
+  String levelUpOnly(String level) =>
+      _('levelUpOnly').replaceFirst('{level}', level);
+
+  /// Today's XP against the day's cap — "Today 23 / 50 XP" — and when the
+  /// 24-hour window ends: "resets in 5h 12m 3s".
+  String xpToday(int xp, int cap) =>
+      _('xpToday').replaceFirst('{xp}', '$xp').replaceFirst('{cap}', '$cap');
+  String xpResetsIn(String time) =>
+      _('xpResetsIn').replaceFirst('{time}', time);
+
+  /// The tax popup's row for today's XP.
+  String get todayLabel => _('todayLabel');
+
+  // --- the tax popup in full (owner, 27 Sep 2026: the felt's pill, tapped,
+  // "will show everything in detail and it also show all levels and taxes
+  // acc to that"; "Vip is not a level, it is badge … the tax will be applied
+  // acc to minimum of badge or player level").
+
+  /// The headings: every level of the ladder, the badges there are, and the
+  /// viewer's own badges.
+  String get allLevelsTitle => _('allLevelsTitle');
+
+  /// The level popup (owner, 27 Sep 2026: "Add one icon in lobby so that user
+  /// can see his level, and in that pop up add one tab also for daily xp, one
+  /// tab for ladder"): its first tab — the viewer's own level — and its title
+  /// when the lobby's level key opens it.
+  String get levelTabMine => _('levelTabMine');
+  String get yourLevelTitle => _('yourLevelTitle');
+  String get badgesTitle => _('badgesTitle');
+  String get yourBadgesTitle => _('yourBadgesTitle');
+
+  /// The ladder's rate column, and the viewer's own row in it.
+  String get taxColumn => _('taxColumn');
+  String get levelYou => _('levelYou');
+
+  /// The level's own rate, beside the rate the viewer pays.
+  String get levelTaxLabel => _('levelTaxLabel');
+
+  /// The rule the rate follows, and which of the two set it.
+  String get winningTaxLowest => _('winningTaxLowest');
+  String get rateSetByLevel => _('rateSetByLevel');
+  String rateSetByBadge(String badge) =>
+      _('rateSetByBadge').replaceFirst('{badge}', badge);
+
+  /// The daily XP (owner, 27 Sep 2026: "Daily XP user can get … After 24
+  /// hours this will be reset, so user can claim this again"): its heading,
+  /// its sources named by what earns them — "Play 15 active minutes", "Win by
+  /// Trail" (the hand's English name, as the table shows it) — the reset, and
+  /// what a source already earned in the window says to a screen reader.
+  String get xpDailyTitle => _('xpDailyTitle');
+  String xpPlayMinutes(int minutes) =>
+      _('xpPlayMinutes').replaceFirst('{n}', '$minutes');
+  String xpWinBy(String hand) => _('xpWinBy').replaceFirst('{hand}', hand);
+  String xpListResets(int hours) =>
+      _('xpListResets').replaceFirst('{time}', timeHours(hours));
+  String get xpEarned => _('xpEarned');
+
+  /// The day's cap: "Up to 50 XP every 24 hours." — and that nothing earned
+  /// ever runs out (owner, 27 Sep 2026: "there is no validity on player
+  /// level", "XP also never expire once user has been granted").
+  String xpDailyCap(int cap, int hours) => _(
+    'xpDailyCap',
+  ).replaceFirst('{cap}', '$cap').replaceFirst('{time}', timeHours(hours));
+  String get xpNeverExpires => _('xpNeverExpires');
+
+
+  /// A badge in the catalogue: Standard is everyone's; the others last a
+  /// validity from the grant — in years where it is whole years ("Lasts 5
+  /// years", owner, 27 Sep 2026: "validity keep 5 years"), else in days.
+  String get badgeEveryone => _('badgeEveryone');
+  String badgeLasts(int days) => _('badgeLasts').replaceFirst(
+    '{time}',
+    days >= 365 && days % 365 == 0 ? timeYears(days ~/ 365) : timeDays(days),
+  );
+
+  /// When a badge the viewer holds runs out, where that is a month or more
+  /// away: "Until 26/09/2031".
+  String badgeUntil(String date) => _('badgeUntil').replaceFirst('{date}', date);
+
+  /// When the ladder could not be read.
+  String get levelsUnavailable => _('levelsUnavailable');
   String get variationChooseTitle => _('variationChooseTitle');
 
   // 5-Card Teen Patti: the player chooses which three of their five play
@@ -1370,6 +1560,15 @@ class Strings {
       'storeTabEmojis': 'Emojis',
       'storeEmojisTitle': 'Emojis',
       'storeEmojisBlurb': 'Animated emojis to send to the whole table.',
+      'storeTabBadges': 'Badges',
+      'storeBadgesTitle': 'Badges',
+      'storeBadgesBlurb': 'A badge lowers the winning tax you pay while it lasts.',
+      'badgeContactSupport': 'Contact support',
+      'badgeContactTitle': 'Get {badge}',
+      'badgeContactBody': '{badge} is given by our team. Write to us and we will help you get it.',
+      'badgeMailSubject': 'I would like the {badge} badge',
+      'copyAddress': 'Copy address',
+      'addressCopied': 'Address copied',
       'emojiShelfEmpty': 'No emojis yet.',
       'unlockEmojiTitle': 'Unlock this emoji?',
       'unlockEmojiBody': '{name} costs {price}. Unlock it now?',
@@ -1485,6 +1684,59 @@ class Strings {
       'canSitHere': 'You can sit at this table.',
       'playersUpTo': 'Up to {n}',
       'secondsEach': '{n} seconds',
+      'taxPill': '{rate} TAX',
+      'taxPillNoRate': 'TAX',
+      'winningTaxTitle': 'Winning tax',
+      'winningTaxLabel': 'winning tax',
+      'yourLevelLabel': 'your level',
+      'xpLabel': 'XP',
+      'yourRateLabel': 'your rate',
+      'nextLevelLabel': 'next level',
+      'levelName': 'Level {n} · {title}',
+      'levelLine': 'Level {n} · {title} · {xp} XP',
+      'nextLevelValue': '{xp} XP · {rate}',
+      'topLevelNote': 'This is the top level.',
+      'winningTaxOnlyWinner':
+          'Only the winner of each hand pays winning tax, on what they win — the pot less their own chips.',
+      'winningTaxFalls': 'The higher your level, the less you pay.',
+      'ruleWinningTax':
+          'The winner of each hand pays winning tax on what they win — the pot less their own chips — {top} at Level 1, less at every level up.',
+      'winnerTaxLine': 'Winning tax −{tax}',
+      'levelUp': 'Level up! {level} — your winning tax is now {rate}.',
+      'xpToday': 'Today {xp} / {cap} XP',
+      'xpResetsIn': 'resets in {time}',
+      'todayLabel': 'today',
+      'levelUpOnly': 'Level up! {level}',
+      'allLevelsTitle': 'All levels',
+      'levelTabMine': 'My level',
+      'yourLevelTitle': 'Your level',
+      'badgesTitle': 'Badges',
+      'yourBadgesTitle': 'Your badges',
+      'taxColumn': 'Tax',
+      'levelYou': 'You',
+      'levelTaxLabel': 'level tax',
+      'winningTaxLowest':
+          'You pay the lowest of your level\'s rate and your badges\'.',
+      'rateSetByLevel': 'Set by your level',
+      'rateSetByBadge': 'Set by your {badge} badge',
+      'xpDailyTitle': 'Daily XP',
+      'xpPlayMinutes': 'Play {n} active minutes',
+      'xpWinBy': 'Win by {hand}',
+      'xpListResets': 'The list resets every {time}.',
+      'xpEarned': 'Earned',
+      'xpDailyCap': 'Up to {cap} XP every {time}.',
+      'xpNeverExpires': 'XP and levels never expire.',
+      'badgeUntil': 'Until {date}',
+      'badgeEveryone': 'Everyone',
+      'badgeLasts': 'Lasts {time}',
+      'levelsUnavailable': 'The levels could not be loaded.',
+      'ruleWinningTaxBadge': 'A badge can lower it further.',
+      'winningTaxFrom': 'No tax on winnings under {amount}.',
+      'taxOnWinningsFrom': 'on winnings of {amount} or more',
+      'badgeLifetime': 'Lifetime',
+      'badgeFree': 'Free',
+      'badgeTaxLine': '{rate} winning tax',
+      'badgeBought': '{badge} is yours until {date}.',
       'variationRulesIntro':
           'The first player to act has 10 seconds to choose how the hand is decided; if they do not, it is Muflis. A wild card counts as whichever card makes your hand best. Other players\' chips are hidden and the pot has no limit.',
       'variationChooseTitle': 'Choose Variation',
@@ -2070,6 +2322,15 @@ class Strings {
       'storeTabEmojis': 'इमोजी',
       'storeEmojisTitle': 'इमोजी',
       'storeEmojisBlurb': 'पूरी टेबल को भेजने के लिए एनिमेटेड इमोजी।',
+      'storeTabBadges': 'बैज',
+      'storeBadgesTitle': 'बैज',
+      'storeBadgesBlurb': 'बैज रहते तक आपका जीत टैक्स कम रहता है।',
+      'badgeContactSupport': 'सपोर्ट से संपर्क करें',
+      'badgeContactTitle': '{badge} पाएँ',
+      'badgeContactBody': '{badge} हमारी टीम देती है। हमें लिखें, हम इसे पाने में आपकी मदद करेंगे।',
+      'badgeMailSubject': 'मुझे {badge} बैज चाहिए',
+      'copyAddress': 'पता कॉपी करें',
+      'addressCopied': 'पता कॉपी हो गया',
       'emojiShelfEmpty': 'अभी कोई इमोजी नहीं है।',
       'unlockEmojiTitle': 'यह इमोजी अनलॉक करें?',
       'unlockEmojiBody': '{name} की कीमत {price} है। अभी अनलॉक करें?',
@@ -2184,6 +2445,59 @@ class Strings {
       'canSitHere': 'आप इस टेबल पर बैठ सकते हैं।',
       'playersUpTo': '{n} तक',
       'secondsEach': '{n} सेकंड',
+      'taxPill': '{rate} टैक्स',
+      'taxPillNoRate': 'टैक्स',
+      'winningTaxTitle': 'जीत टैक्स',
+      'winningTaxLabel': 'जीत टैक्स',
+      'yourLevelLabel': 'आपका लेवल',
+      'xpLabel': 'XP',
+      'yourRateLabel': 'आपकी दर',
+      'nextLevelLabel': 'अगला लेवल',
+      'levelName': 'लेवल {n} · {title}',
+      'levelLine': 'लेवल {n} · {title} · {xp} XP',
+      'nextLevelValue': '{xp} XP · {rate}',
+      'topLevelNote': 'यह सबसे ऊँचा लेवल है।',
+      'winningTaxOnlyWinner':
+          'जीत टैक्स सिर्फ़ हर हाथ का विजेता देता है, अपनी जीत पर — पॉट में से अपने लगाए चिप्स घटाकर।',
+      'winningTaxFalls': 'आपका लेवल जितना ऊँचा, टैक्स उतना कम।',
+      'ruleWinningTax':
+          'हर हाथ का विजेता अपनी जीत पर जीत टैक्स देता है — पॉट में से अपने लगाए चिप्स घटाकर — लेवल 1 पर {top}, हर अगले लेवल पर कम।',
+      'winnerTaxLine': 'जीत टैक्स −{tax}',
+      'levelUp': 'लेवल अप! {level} — अब आपका जीत टैक्स {rate} है।',
+      'xpToday': 'आज {xp} / {cap} XP',
+      'xpResetsIn': '{time} में रीसेट',
+      'todayLabel': 'आज',
+      'levelUpOnly': 'लेवल अप! {level}',
+      'allLevelsTitle': 'सभी लेवल',
+      'levelTabMine': 'मेरा लेवल',
+      'yourLevelTitle': 'आपका लेवल',
+      'badgesTitle': 'बैज',
+      'yourBadgesTitle': 'आपके बैज',
+      'taxColumn': 'टैक्स',
+      'levelYou': 'आप',
+      'levelTaxLabel': 'लेवल टैक्स',
+      'winningTaxLowest':
+          'आप अपने लेवल और बैज की दरों में से सबसे कम दर देते हैं।',
+      'rateSetByLevel': 'आपके लेवल से तय',
+      'rateSetByBadge': 'आपके {badge} बैज से तय',
+      'xpDailyTitle': 'रोज़ का XP',
+      'xpPlayMinutes': '{n} मिनट सक्रिय खेलें',
+      'xpWinBy': '{hand} से जीतें',
+      'xpListResets': 'यह सूची हर {time} में फिर से शुरू होती है।',
+      'xpEarned': 'मिल गया',
+      'xpDailyCap': 'हर {time} में ज़्यादा से ज़्यादा {cap} XP।',
+      'xpNeverExpires': 'XP और लेवल कभी खत्म नहीं होते।',
+      'badgeUntil': '{date} तक',
+      'badgeEveryone': 'सभी के लिए',
+      'badgeLasts': '{time} तक',
+      'levelsUnavailable': 'लेवल लोड नहीं हो सके।',
+      'ruleWinningTaxBadge': 'बैज इसे और कम कर सकता है।',
+      'winningTaxFrom': '{amount} से कम की जीत पर कोई टैक्स नहीं।',
+      'taxOnWinningsFrom': '{amount} या उससे ज़्यादा की जीत पर',
+      'badgeLifetime': 'आजीवन',
+      'badgeFree': 'मुफ़्त',
+      'badgeTaxLine': '{rate} जीत टैक्स',
+      'badgeBought': '{badge} अब {date} तक आपका है।',
       'variationRulesIntro':
           'पहली चाल वाले खिलाड़ी के पास यह चुनने के लिए 10 सेकंड होते हैं कि हाथ किस नियम से तय होगा; न चुनने पर मुफ़लिस खेला जाता है। जोकर पत्ता वही पत्ता माना जाता है जिससे आपका हाथ सबसे अच्छा बने। दूसरों के चिप्स छिपे रहते हैं और पॉट की कोई सीमा नहीं है।',
       'variationChooseTitle': 'वेरिएशन चुनें',
@@ -2753,6 +3067,15 @@ class Strings {
       'storeTabEmojis': 'ইমোজি',
       'storeEmojisTitle': 'ইমোজি',
       'storeEmojisBlurb': 'পুরো টেবিলে পাঠানোর জন্য অ্যানিমেটেড ইমোজি।',
+      'storeTabBadges': 'ব্যাজ',
+      'storeBadgesTitle': 'ব্যাজ',
+      'storeBadgesBlurb': 'ব্যাজ যতদিন থাকে, আপনার জয়ের ট্যাক্স ততদিন কম থাকে।',
+      'badgeContactSupport': 'সাপোর্টে যোগাযোগ করুন',
+      'badgeContactTitle': '{badge} পান',
+      'badgeContactBody': '{badge} আমাদের টিম দেয়। আমাদের লিখুন, আমরা এটি পেতে আপনাকে সাহায্য করব।',
+      'badgeMailSubject': 'আমি {badge} ব্যাজ চাই',
+      'copyAddress': 'ঠিকানা কপি করুন',
+      'addressCopied': 'ঠিকানা কপি হয়েছে',
       'emojiShelfEmpty': 'এখনও কোনো ইমোজি নেই।',
       'unlockEmojiTitle': 'এই ইমোজিটি আনলক করবেন?',
       'unlockEmojiBody': '{name} এর দাম {price}। এখনই আনলক করবেন?',
@@ -2865,6 +3188,59 @@ class Strings {
       'canSitHere': 'আপনি এই টেবিলে বসতে পারেন।',
       'playersUpTo': '{n} জন পর্যন্ত',
       'secondsEach': '{n} সেকেন্ড',
+      'taxPill': '{rate} ট্যাক্স',
+      'taxPillNoRate': 'ট্যাক্স',
+      'winningTaxTitle': 'জয়ের ট্যাক্স',
+      'winningTaxLabel': 'জয়ের ট্যাক্স',
+      'yourLevelLabel': 'আপনার লেভেল',
+      'xpLabel': 'XP',
+      'yourRateLabel': 'আপনার হার',
+      'nextLevelLabel': 'পরের লেভেল',
+      'levelName': 'লেভেল {n} · {title}',
+      'levelLine': 'লেভেল {n} · {title} · {xp} XP',
+      'nextLevelValue': '{xp} XP · {rate}',
+      'topLevelNote': 'এটিই সর্বোচ্চ লেভেল।',
+      'winningTaxOnlyWinner':
+          'জয়ের ট্যাক্স শুধু প্রতিটি হাতের বিজয়ী দেন, যা জেতেন তার ওপর — পট থেকে নিজের দেওয়া চিপস বাদ দিয়ে।',
+      'winningTaxFalls': 'আপনার লেভেল যত উঁচু, ট্যাক্স তত কম।',
+      'ruleWinningTax':
+          'প্রতিটি হাতের বিজয়ী যা জেতেন তার ওপর জয়ের ট্যাক্স দেন — পট থেকে নিজের দেওয়া চিপস বাদ দিয়ে — লেভেল 1-এ {top}, প্রতিটি পরের লেভেলে কম।',
+      'winnerTaxLine': 'জয়ের ট্যাক্স −{tax}',
+      'levelUp': 'লেভেল আপ! {level} — এখন আপনার জয়ের ট্যাক্স {rate}।',
+      'xpToday': 'আজ {xp} / {cap} XP',
+      'xpResetsIn': '{time} পরে রিসেট',
+      'todayLabel': 'আজ',
+      'levelUpOnly': 'লেভেল আপ! {level}',
+      'allLevelsTitle': 'সব লেভেল',
+      'levelTabMine': 'আমার লেভেল',
+      'yourLevelTitle': 'আপনার লেভেল',
+      'badgesTitle': 'ব্যাজ',
+      'yourBadgesTitle': 'আপনার ব্যাজ',
+      'taxColumn': 'ট্যাক্স',
+      'levelYou': 'আপনি',
+      'levelTaxLabel': 'লেভেল ট্যাক্স',
+      'winningTaxLowest':
+          'আপনার লেভেল আর ব্যাজের হারের মধ্যে যেটি সবচেয়ে কম, সেটিই দেন।',
+      'rateSetByLevel': 'আপনার লেভেল অনুযায়ী',
+      'rateSetByBadge': 'আপনার {badge} ব্যাজ অনুযায়ী',
+      'xpDailyTitle': 'দৈনিক XP',
+      'xpPlayMinutes': '{n} মিনিট সক্রিয় খেলুন',
+      'xpWinBy': '{hand} দিয়ে জিতুন',
+      'xpListResets': 'এই তালিকা প্রতি {time}য় আবার শুরু হয়।',
+      'xpEarned': 'পাওয়া গেছে',
+      'xpDailyCap': 'প্রতি {time}য় সর্বোচ্চ {cap} XP।',
+      'xpNeverExpires': 'XP আর লেভেল কখনো শেষ হয় না।',
+      'badgeUntil': '{date} পর্যন্ত',
+      'badgeEveryone': 'সবার জন্য',
+      'badgeLasts': 'মেয়াদ {time}',
+      'levelsUnavailable': 'লেভেলগুলো লোড করা যায়নি।',
+      'ruleWinningTaxBadge': 'ব্যাজ এটি আরও কমাতে পারে।',
+      'winningTaxFrom': '{amount}-এর কম জয়ে কোনো ট্যাক্স নেই।',
+      'taxOnWinningsFrom': '{amount} বা তার বেশি জয়ে',
+      'badgeLifetime': 'আজীবন',
+      'badgeFree': 'বিনামূল্যে',
+      'badgeTaxLine': '{rate} জয়ের ট্যাক্স',
+      'badgeBought': '{badge} এখন {date} পর্যন্ত আপনার।',
       'variationRulesIntro':
           'প্রথম চালের খেলোয়াড় ১০ সেকেন্ড সময় পান হাতটি কোন নিয়মে ঠিক হবে তা বেছে নিতে; না বাছলে মুফলিস খেলা হয়। জোকার তাস সেই তাস হিসেবে গণ্য হয় যাতে আপনার হাত সবচেয়ে ভালো হয়। অন্যদের চিপস লুকানো থাকে এবং পটের কোনো সীমা নেই।',
       'variationChooseTitle': 'ভেরিয়েশন বেছে নিন',
@@ -3440,6 +3816,15 @@ class Strings {
       'storeTabEmojis': 'ઇમોજી',
       'storeEmojisTitle': 'ઇમોજી',
       'storeEmojisBlurb': 'આખા ટેબલને મોકલવા માટે એનિમેટેડ ઇમોજી.',
+      'storeTabBadges': 'બેજ',
+      'storeBadgesTitle': 'બેજ',
+      'storeBadgesBlurb': 'બેજ રહે ત્યાં સુધી તમારો જીત ટેક્સ ઓછો રહે છે.',
+      'badgeContactSupport': 'સપોર્ટનો સંપર્ક કરો',
+      'badgeContactTitle': '{badge} મેળવો',
+      'badgeContactBody': '{badge} અમારી ટીમ આપે છે. અમને લખો, અમે તે મેળવવામાં તમારી મદદ કરીશું.',
+      'badgeMailSubject': 'મને {badge} બેજ જોઈએ છે',
+      'copyAddress': 'સરનામું કૉપિ કરો',
+      'addressCopied': 'સરનામું કૉપિ થયું',
       'emojiShelfEmpty': 'હજી કોઈ ઇમોજી નથી.',
       'unlockEmojiTitle': 'આ ઇમોજી અનલૉક કરવું છે?',
       'unlockEmojiBody': '{name} ની કિંમત {price} છે. હમણાં અનલૉક કરવું છે?',
@@ -3553,6 +3938,59 @@ class Strings {
       'canSitHere': 'તમે આ ટેબલ પર બેસી શકો છો.',
       'playersUpTo': '{n} સુધી',
       'secondsEach': '{n} સેકન્ડ',
+      'taxPill': '{rate} ટેક્સ',
+      'taxPillNoRate': 'ટેક્સ',
+      'winningTaxTitle': 'જીત ટેક્સ',
+      'winningTaxLabel': 'જીત ટેક્સ',
+      'yourLevelLabel': 'તમારું લેવલ',
+      'xpLabel': 'XP',
+      'yourRateLabel': 'તમારો દર',
+      'nextLevelLabel': 'આગલું લેવલ',
+      'levelName': 'લેવલ {n} · {title}',
+      'levelLine': 'લેવલ {n} · {title} · {xp} XP',
+      'nextLevelValue': '{xp} XP · {rate}',
+      'topLevelNote': 'આ સૌથી ઊંચું લેવલ છે.',
+      'winningTaxOnlyWinner':
+          'જીત ટેક્સ ફક્ત દરેક હાથનો વિજેતા ચૂકવે છે, પોતાની જીત પર — પોટમાંથી પોતે મૂકેલી ચિપ્સ બાદ કરીને.',
+      'winningTaxFalls': 'તમારું લેવલ જેટલું ઊંચું, ટેક્સ એટલો ઓછો.',
+      'ruleWinningTax':
+          'દરેક હાથનો વિજેતા પોતાની જીત પર જીત ટેક્સ ચૂકવે છે — પોટમાંથી પોતે મૂકેલી ચિપ્સ બાદ કરીને — લેવલ 1 પર {top}, દરેક આગલા લેવલે ઓછો.',
+      'winnerTaxLine': 'જીત ટેક્સ −{tax}',
+      'levelUp': 'લેવલ અપ! {level} — હવે તમારો જીત ટેક્સ {rate} છે.',
+      'xpToday': 'આજે {xp} / {cap} XP',
+      'xpResetsIn': '{time} પછી રીસેટ',
+      'todayLabel': 'આજે',
+      'levelUpOnly': 'લેવલ અપ! {level}',
+      'allLevelsTitle': 'બધા લેવલ',
+      'levelTabMine': 'મારું લેવલ',
+      'yourLevelTitle': 'તમારું લેવલ',
+      'badgesTitle': 'બેજ',
+      'yourBadgesTitle': 'તમારા બેજ',
+      'taxColumn': 'ટેક્સ',
+      'levelYou': 'તમે',
+      'levelTaxLabel': 'લેવલ ટેક્સ',
+      'winningTaxLowest':
+          'તમે તમારા લેવલ અને બેજના દરમાંથી સૌથી ઓછો દર ચૂકવો છો.',
+      'rateSetByLevel': 'તમારા લેવલ મુજબ',
+      'rateSetByBadge': 'તમારા {badge} બેજ મુજબ',
+      'xpDailyTitle': 'દૈનિક XP',
+      'xpPlayMinutes': '{n} મિનિટ સક્રિય રમો',
+      'xpWinBy': '{hand}થી જીતો',
+      'xpListResets': 'આ યાદી દર {time}માં ફરી શરૂ થાય છે.',
+      'xpEarned': 'મળી ગયું',
+      'xpDailyCap': 'દર {time}માં વધુમાં વધુ {cap} XP.',
+      'xpNeverExpires': 'XP અને લેવલ ક્યારેય સમાપ્ત થતા નથી.',
+      'badgeUntil': '{date} સુધી',
+      'badgeEveryone': 'બધા માટે',
+      'badgeLasts': '{time} સુધી',
+      'levelsUnavailable': 'લેવલ લોડ થઈ શક્યા નહીં.',
+      'ruleWinningTaxBadge': 'બેજ તેને વધુ ઘટાડી શકે છે.',
+      'winningTaxFrom': '{amount}થી ઓછી જીત પર કોઈ ટેક્સ નથી.',
+      'taxOnWinningsFrom': '{amount} કે તેથી વધુ જીત પર',
+      'badgeLifetime': 'આજીવન',
+      'badgeFree': 'મફત',
+      'badgeTaxLine': '{rate} જીત ટેક્સ',
+      'badgeBought': '{badge} હવે {date} સુધી તમારો છે.',
       'variationRulesIntro':
           'પહેલી ચાલવાળા ખેલાડીને હાથ કયા નિયમથી નક્કી થશે તે પસંદ કરવા 10 સેકન્ડ મળે છે; ન પસંદ કરે તો મુફલિસ રમાય છે. જોકર પત્તું એ પત્તું ગણાય છે જેનાથી તમારો હાથ સૌથી સારો બને. બીજાની ચિપ્સ છુપાયેલી રહે છે અને પોટની કોઈ મર્યાદા નથી.',
       'variationChooseTitle': 'વેરિએશન પસંદ કરો',
@@ -4121,6 +4559,15 @@ class Strings {
       'storeTabEmojis': 'ਇਮੋਜੀ',
       'storeEmojisTitle': 'ਇਮੋਜੀ',
       'storeEmojisBlurb': 'ਪੂਰੇ ਟੇਬਲ ਨੂੰ ਭੇਜਣ ਲਈ ਐਨੀਮੇਟਡ ਇਮੋਜੀ।',
+      'storeTabBadges': 'ਬੈਜ',
+      'storeBadgesTitle': 'ਬੈਜ',
+      'storeBadgesBlurb': 'ਬੈਜ ਰਹਿਣ ਤੱਕ ਤੁਹਾਡਾ ਜਿੱਤ ਟੈਕਸ ਘੱਟ ਰਹਿੰਦਾ ਹੈ।',
+      'badgeContactSupport': 'ਸਪੋਰਟ ਨਾਲ ਸੰਪਰਕ ਕਰੋ',
+      'badgeContactTitle': '{badge} ਲਓ',
+      'badgeContactBody': '{badge} ਸਾਡੀ ਟੀਮ ਦਿੰਦੀ ਹੈ। ਸਾਨੂੰ ਲਿਖੋ, ਅਸੀਂ ਇਸ ਨੂੰ ਲੈਣ ਵਿੱਚ ਤੁਹਾਡੀ ਮਦਦ ਕਰਾਂਗੇ।',
+      'badgeMailSubject': 'ਮੈਨੂੰ {badge} ਬੈਜ ਚਾਹੀਦਾ ਹੈ',
+      'copyAddress': 'ਪਤਾ ਕਾਪੀ ਕਰੋ',
+      'addressCopied': 'ਪਤਾ ਕਾਪੀ ਹੋ ਗਿਆ',
       'emojiShelfEmpty': 'ਅਜੇ ਕੋਈ ਇਮੋਜੀ ਨਹੀਂ ਹੈ।',
       'unlockEmojiTitle': 'ਇਹ ਇਮੋਜੀ ਅਨਲਾਕ ਕਰਨਾ ਹੈ?',
       'unlockEmojiBody': '{name} ਦੀ ਕੀਮਤ {price} ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਨਾ ਹੈ?',
@@ -4235,6 +4682,59 @@ class Strings {
       'canSitHere': 'ਤੁਸੀਂ ਇਸ ਟੇਬਲ ਤੇ ਬੈਠ ਸਕਦੇ ਹੋ।',
       'playersUpTo': '{n} ਤੱਕ',
       'secondsEach': '{n} ਸਕਿੰਟ',
+      'taxPill': '{rate} ਟੈਕਸ',
+      'taxPillNoRate': 'ਟੈਕਸ',
+      'winningTaxTitle': 'ਜਿੱਤ ਟੈਕਸ',
+      'winningTaxLabel': 'ਜਿੱਤ ਟੈਕਸ',
+      'yourLevelLabel': 'ਤੁਹਾਡਾ ਲੈਵਲ',
+      'xpLabel': 'XP',
+      'yourRateLabel': 'ਤੁਹਾਡੀ ਦਰ',
+      'nextLevelLabel': 'ਅਗਲਾ ਲੈਵਲ',
+      'levelName': 'ਲੈਵਲ {n} · {title}',
+      'levelLine': 'ਲੈਵਲ {n} · {title} · {xp} XP',
+      'nextLevelValue': '{xp} XP · {rate}',
+      'topLevelNote': 'ਇਹ ਸਭ ਤੋਂ ਉੱਚਾ ਲੈਵਲ ਹੈ।',
+      'winningTaxOnlyWinner':
+          'ਜਿੱਤ ਟੈਕਸ ਸਿਰਫ਼ ਹਰ ਹੱਥ ਦਾ ਜੇਤੂ ਦਿੰਦਾ ਹੈ, ਆਪਣੀ ਜਿੱਤ ਤੇ — ਪੌਟ ਵਿੱਚੋਂ ਆਪਣੇ ਲਾਏ ਚਿਪਸ ਘਟਾ ਕੇ।',
+      'winningTaxFalls': 'ਤੁਹਾਡਾ ਲੈਵਲ ਜਿੰਨਾ ਉੱਚਾ, ਟੈਕਸ ਓਨਾ ਘੱਟ।',
+      'ruleWinningTax':
+          'ਹਰ ਹੱਥ ਦਾ ਜੇਤੂ ਆਪਣੀ ਜਿੱਤ ਤੇ ਜਿੱਤ ਟੈਕਸ ਦਿੰਦਾ ਹੈ — ਪੌਟ ਵਿੱਚੋਂ ਆਪਣੇ ਲਾਏ ਚਿਪਸ ਘਟਾ ਕੇ — ਲੈਵਲ 1 ਤੇ {top}, ਹਰ ਅਗਲੇ ਲੈਵਲ ਤੇ ਘੱਟ।',
+      'winnerTaxLine': 'ਜਿੱਤ ਟੈਕਸ −{tax}',
+      'levelUp': 'ਲੈਵਲ ਅੱਪ! {level} — ਹੁਣ ਤੁਹਾਡਾ ਜਿੱਤ ਟੈਕਸ {rate} ਹੈ।',
+      'xpToday': 'ਅੱਜ {xp} / {cap} XP',
+      'xpResetsIn': '{time} ਵਿੱਚ ਰੀਸੈੱਟ',
+      'todayLabel': 'ਅੱਜ',
+      'levelUpOnly': 'ਲੈਵਲ ਅੱਪ! {level}',
+      'allLevelsTitle': 'ਸਾਰੇ ਲੈਵਲ',
+      'levelTabMine': 'ਮੇਰਾ ਲੈਵਲ',
+      'yourLevelTitle': 'ਤੁਹਾਡਾ ਲੈਵਲ',
+      'badgesTitle': 'ਬੈਜ',
+      'yourBadgesTitle': 'ਤੁਹਾਡੇ ਬੈਜ',
+      'taxColumn': 'ਟੈਕਸ',
+      'levelYou': 'ਤੁਸੀਂ',
+      'levelTaxLabel': 'ਲੈਵਲ ਟੈਕਸ',
+      'winningTaxLowest':
+          'ਤੁਸੀਂ ਆਪਣੇ ਲੈਵਲ ਅਤੇ ਬੈਜਾਂ ਦੀਆਂ ਦਰਾਂ ਵਿੱਚੋਂ ਸਭ ਤੋਂ ਘੱਟ ਦਰ ਦਿੰਦੇ ਹੋ।',
+      'rateSetByLevel': 'ਤੁਹਾਡੇ ਲੈਵਲ ਮੁਤਾਬਕ',
+      'rateSetByBadge': 'ਤੁਹਾਡੇ {badge} ਬੈਜ ਮੁਤਾਬਕ',
+      'xpDailyTitle': 'ਰੋਜ਼ਾਨਾ XP',
+      'xpPlayMinutes': '{n} ਮਿੰਟ ਸਰਗਰਮ ਖੇਡੋ',
+      'xpWinBy': '{hand} ਨਾਲ ਜਿੱਤੋ',
+      'xpListResets': 'ਇਹ ਸੂਚੀ ਹਰ {time} ਵਿੱਚ ਮੁੜ ਸ਼ੁਰੂ ਹੁੰਦੀ ਹੈ।',
+      'xpEarned': 'ਮਿਲ ਗਿਆ',
+      'xpDailyCap': 'ਹਰ {time} ਵਿੱਚ ਵੱਧ ਤੋਂ ਵੱਧ {cap} XP।',
+      'xpNeverExpires': 'XP ਅਤੇ ਲੈਵਲ ਕਦੇ ਖ਼ਤਮ ਨਹੀਂ ਹੁੰਦੇ।',
+      'badgeUntil': '{date} ਤੱਕ',
+      'badgeEveryone': 'ਸਭ ਲਈ',
+      'badgeLasts': '{time} ਤੱਕ',
+      'levelsUnavailable': 'ਲੈਵਲ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕੇ।',
+      'ruleWinningTaxBadge': 'ਬੈਜ ਇਸ ਨੂੰ ਹੋਰ ਘਟਾ ਸਕਦਾ ਹੈ।',
+      'winningTaxFrom': '{amount} ਤੋਂ ਘੱਟ ਜਿੱਤ ਤੇ ਕੋਈ ਟੈਕਸ ਨਹੀਂ।',
+      'taxOnWinningsFrom': '{amount} ਜਾਂ ਵੱਧ ਜਿੱਤ ਤੇ',
+      'badgeLifetime': 'ਉਮਰ ਭਰ',
+      'badgeFree': 'ਮੁਫ਼ਤ',
+      'badgeTaxLine': '{rate} ਜਿੱਤ ਟੈਕਸ',
+      'badgeBought': '{badge} ਹੁਣ {date} ਤੱਕ ਤੁਹਾਡਾ ਹੈ।',
       'variationRulesIntro':
           'ਪਹਿਲੀ ਚਾਲ ਵਾਲੇ ਖਿਡਾਰੀ ਕੋਲ ਇਹ ਚੁਣਨ ਲਈ 10 ਸਕਿੰਟ ਹੁੰਦੇ ਹਨ ਕਿ ਹੱਥ ਕਿਸ ਨਿਯਮ ਨਾਲ ਤੈਅ ਹੋਵੇਗਾ; ਨਾ ਚੁਣੇ ਤਾਂ ਮੁਫ਼ਲਿਸ ਖੇਡਿਆ ਜਾਂਦਾ ਹੈ। ਜੋਕਰ ਪੱਤਾ ਉਹੀ ਪੱਤਾ ਗਿਣਿਆ ਜਾਂਦਾ ਹੈ ਜਿਸ ਨਾਲ ਤੁਹਾਡਾ ਹੱਥ ਸਭ ਤੋਂ ਵਧੀਆ ਬਣੇ। ਦੂਜਿਆਂ ਦੇ ਚਿਪਸ ਲੁਕੇ ਰਹਿੰਦੇ ਹਨ ਅਤੇ ਪੌਟ ਦੀ ਕੋਈ ਸੀਮਾ ਨਹੀਂ।',
       'variationChooseTitle': 'ਵੇਰੀਏਸ਼ਨ ਚੁਣੋ',

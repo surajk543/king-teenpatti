@@ -42,20 +42,23 @@ func TestDefaultsMatchNode(t *testing.T) {
 		// turn it off, and the window is what decides how long a replayed
 		// action_id is still refused as the duplicate it is.
 		"DB.LedgerPurgeInterval": 5 * time.Minute, "DB.LedgerPurgeAfter": 10 * time.Minute,
-		"Game.WelcomeChips": int64(300000), "Game.BootAmount": int64(200),
-		"Game.TableStakes": []int64{200, 5000, 50000, 1000000},
+		"Game.WelcomeChips": int64(1000000), "Game.BootAmount": int64(200),
+		"Game.TableStakes": []int64{200, 5000, 50000, 2000000},
+		// Every Teen Patti table taxes its winners (owner, 26–27 Sep 2026:
+		// tax=1, "Apply this tax rule on all the tables, blind, seen,
+		// variation"), on winnings of 50 Lakh or more.
 		"Game.LobbyTables": []LobbyTable{
-			{Category: "seen", BootAmount: 200},
-			{Category: "blind", BootAmount: 200},
-			{Category: "blind", BootAmount: 5000, MaxChips: 50000000},
-			{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},
-			{Category: "blind", BootAmount: 1000000, MinChips: 500000000},
+			{Category: "seen", BootAmount: 200, WinnerTax: true},
+			{Category: "blind", BootAmount: 200, WinnerTax: true},
+			{Category: "blind", BootAmount: 5000, MaxChips: 200000000, WinnerTax: true},
+			{Category: "blind", BootAmount: 50000, MaxChips: 2000000000, WinnerTax: true},
+			{Category: "blind", BootAmount: 2000000, MinChips: 500000000, WinnerTax: true},
 			// Variation Teen Patti (Go only; owner, 18 Sep 2026), last: two
-			// tables, 50,000 and 10 Lakh, behind blind's bands for those stakes.
-			{Category: "variation", BootAmount: 50000, MaxChips: 1000000000},
-			{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
+			// tables, 50,000 and 20 Lakh, behind blind's bands for those stakes.
+			{Category: "variation", BootAmount: 50000, MaxChips: 2000000000, WinnerTax: true},
+			{Category: "variation", BootAmount: 2000000, MinChips: 500000000, WinnerTax: true},
 			// A second seen table with a pot cap of its own (owner, 19 Sep 2026).
-			{Category: "seen", BootAmount: 50000, MaxPot: 50000000},
+			{Category: "seen", BootAmount: 50000, MaxPot: 50000000, WinnerTax: true},
 			// The Poker family (owner, 19 Sep 2026), last: the boot is the big
 			// blind or the ante.
 			{Category: "three_card_poker", BootAmount: 50000},
@@ -67,8 +70,8 @@ func TestDefaultsMatchNode(t *testing.T) {
 		"Game.MaxBetRounds": 20, "Game.PotLimitMultiplier": int64(1024), "Game.MaxRaiseSteps": 8,
 		"Game.SeenMaxRaiseSteps": 2, "Game.SeenMaxBetRounds": 7, "Game.SeenMaxPot": int64(2000000),
 		"Game.BlindMaxRaiseSteps": 0, "Game.BlindMaxBetRounds": 0, "Game.BlindPotLimitMultiplier": int64(0),
-		"Game.MaxBlindMoves": 4,
-		"Game.EntryCapBoot":  int64(200), "Game.EntryCapCategory": "blind", "Game.EntryCapMaxChips": int64(500000),
+		"Game.MaxBlindMoves": 4, "Game.WinnerTaxMinWinnings": int64(5000000),
+		"Game.EntryCapBoot": int64(200), "Game.EntryCapCategory": "blind", "Game.EntryCapMaxChips": int64(2000000),
 		"Game.MaxMissedTurns": 3, "Game.SideshowTimeout": 6 * time.Second, "Game.SideshowMinPlayers": 3,
 		"Game.DisplayNameMaxLength": 24,
 		"Game.PrivateMaxPot":        int64(500000), "Game.PrivateMaxRaiseSteps": 2, "Game.PrivateBoot": int64(200),
@@ -236,7 +239,7 @@ func TestEveryKey(t *testing.T) {
 func TestEmptyIntegerKeepsDefault(t *testing.T) {
 	// Node: Number.parseInt('') is NaN → fallback. `PORT=` in a .env is harmless.
 	cfg := mustLoad(t, map[string]string{"PORT": "", "TURN_TIMEOUT_MS": "", "WELCOME_CHIPS": ""})
-	if cfg.Port != 3000 || cfg.Game.TurnTimeout != 25*time.Second || cfg.Game.WelcomeChips != 300000 {
+	if cfg.Port != 3000 || cfg.Game.TurnTimeout != 25*time.Second || cfg.Game.WelcomeChips != 1000000 {
 		t.Errorf("empty integers must keep defaults: %+v", cfg)
 	}
 }
@@ -529,29 +532,30 @@ func TestAVariationPotCapThatOverflowsStopsTheBoot(t *testing.T) {
 func TestPublicGameConfigValues(t *testing.T) {
 	g := mustLoad(t, nil).Game
 	if g.MaxPlayers != 5 || g.MinPlayers != 2 || g.BootAmount != 200 || g.TurnTimeout.Milliseconds() != 25000 ||
-		g.WelcomeChips != 300000 || g.MaxBetRounds != 20 || g.SideshowTimeout.Milliseconds() != 6000 || g.SideshowMinPlayers != 3 ||
-		g.EntryCapBoot != 200 || g.EntryCapCategory != "blind" || g.EntryCapMaxChips != 500000 || g.PrivateBoot != 200 || g.PrivateMaxPot != 500000 ||
+		g.WelcomeChips != 1000000 || g.MaxBetRounds != 20 || g.SideshowTimeout.Milliseconds() != 6000 || g.SideshowMinPlayers != 3 ||
+		g.EntryCapBoot != 200 || g.EntryCapCategory != "blind" || g.EntryCapMaxChips != 2000000 || g.PrivateBoot != 200 || g.PrivateMaxPot != 500000 ||
 		g.MaxBlindMoves != 4 {
 		t.Errorf("public game config scalars drifted: %+v", g)
 	}
-	if !reflect.DeepEqual(g.TableStakes, []int64{200, 5000, 50000, 1000000}) {
+	if !reflect.DeepEqual(g.TableStakes, []int64{200, 5000, 50000, 2000000}) {
 		t.Errorf("stakes %v", g.TableStakes)
 	}
 	// The blind ladder is banded by stack as well as by stake: over 5 Cr is
 	// shut out of the 5,000 table, over 100 Cr out of the 50,000 one, and the
 	// 10,00,000 table needs 50 Cr to enter.
+	// Every Teen Patti table taxes its winners (owner, 26–27 Sep 2026).
 	menu := []LobbyTable{
-		{Category: "seen", BootAmount: 200},
-		{Category: "blind", BootAmount: 200},
-		{Category: "blind", BootAmount: 5000, MaxChips: 50000000},
-		{Category: "blind", BootAmount: 50000, MaxChips: 1000000000},
-		{Category: "blind", BootAmount: 1000000, MinChips: 500000000},
+		{Category: "seen", BootAmount: 200, WinnerTax: true},
+		{Category: "blind", BootAmount: 200, WinnerTax: true},
+		{Category: "blind", BootAmount: 5000, MaxChips: 200000000, WinnerTax: true},
+		{Category: "blind", BootAmount: 50000, MaxChips: 2000000000, WinnerTax: true},
+		{Category: "blind", BootAmount: 2000000, MinChips: 500000000, WinnerTax: true},
 		// Variation keeps two tables only (owner, 18 Sep 2026), behind the
 		// bands blind's tables of the same stakes have.
-		{Category: "variation", BootAmount: 50000, MaxChips: 1000000000},
-		{Category: "variation", BootAmount: 1000000, MinChips: 500000000},
+		{Category: "variation", BootAmount: 50000, MaxChips: 2000000000, WinnerTax: true},
+		{Category: "variation", BootAmount: 2000000, MinChips: 500000000, WinnerTax: true},
 		// Seen at 50,000: open to all, its own 5 Crore pot limit.
-		{Category: "seen", BootAmount: 50000, MaxPot: 50000000},
+		{Category: "seen", BootAmount: 50000, MaxPot: 50000000, WinnerTax: true},
 		// The Poker family (owner, 19 Sep 2026), last.
 		{Category: "three_card_poker", BootAmount: 50000},
 		{Category: "five_card_draw", BootAmount: 50000},

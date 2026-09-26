@@ -135,13 +135,17 @@ void main() {
         StoreTab.values.indexOf(StoreTab.pictures),
         StoreTab.values.indexOf(StoreTab.missiles) + 1,
       );
-      // Tables (owner, 15 Sep 2026) follows, and Emojis (owner, 26 Sep 2026)
-      // closes the row.
+      // Tables (owner, 15 Sep 2026) follows, then Emojis (owner, 26 Sep
+      // 2026), and Badges (owner, 27 Sep 2026) closes the row.
       expect(
         StoreTab.values.indexOf(StoreTab.tables),
         StoreTab.values.indexOf(StoreTab.pictures) + 1,
       );
-      expect(StoreTab.values.last, StoreTab.emojis);
+      expect(
+        StoreTab.values.indexOf(StoreTab.badges),
+        StoreTab.values.indexOf(StoreTab.emojis) + 1,
+      );
+      expect(StoreTab.values.last, StoreTab.badges);
     });
   });
 

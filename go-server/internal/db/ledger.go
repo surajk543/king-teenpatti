@@ -31,6 +31,8 @@ type Ledger struct {
 	db      *DB
 	metrics *metrics.Metrics // may be nil (tests)
 	clock   func() time.Time
+	// onSettled hears of every hand-end settlement that committed (OnSettled).
+	onSettled func(SettledHand)
 }
 
 // NewLedger builds the ledger. m may be nil (no observations); clock nil →
@@ -38,6 +40,37 @@ type Ledger struct {
 func NewLedger(d *DB, m *metrics.Metrics, clock func() time.Time) *Ledger {
 	return &Ledger{db: d, metrics: m, clock: clock}
 }
+
+// SettledHand is what a hand-end settlement that committed hands on, after
+// the commit, to OnSettled's hook — the XP the transaction awarded and the
+// play time it leaves for the live store (owner, 26 Sep 2026).
+type SettledHand struct {
+	HandID string
+	// Players are the players the hand-end write resolved as having completed
+	// the hand — dealt in and at the table when it ended — in ascending id
+	// order: the ones whose XP window it opened or rolled, and whose play the
+	// hand adds to.
+	Players []string
+	// Windows is the XP window each of Players' play counts in: the epoch ms
+	// it opened (player_xp.window_start), as the settle left it.
+	Windows map[string]int64
+	// PlayedMs is the hand's duration (game.SettleRequest.PlayedMs): the
+	// active play each of Players adds to their XP window in the live store.
+	PlayedMs int64
+	// Window is how long an XP window lasts (xp_settings.window_ms, read in
+	// the settle's transaction); 0 when no XP is awarded at all.
+	Window time.Duration
+	// Levels are the players whose XP the settlement changed, each with the
+	// standing they now have — what each is told of in player:level.
+	Levels map[string]Standing
+}
+
+// OnSettled sets the hook that hears of every hand-end settlement after it
+// has COMMITTED — never of one that failed, and never inside the transaction.
+// It is called on the caller's goroutine (a table's actor), so it must not
+// block: the app pushes player:level and hands the play time to a goroutine
+// of its own (internal/xp). Set it before the ledger is used; nil clears it.
+func (l *Ledger) OnSettled(fn func(SettledHand)) { l.onSettled = fn }
 
 var _ game.Ledger = (*Ledger)(nil)
 
@@ -129,9 +162,19 @@ func applyCheckpoint(ctx context.Context, tx pgx.Tx, entry game.SettleEntry, han
 	}
 
 	// A zero delta is still recorded: the row is what says this player was in
-	// the hand and how it ended for them.
-	if err := appendLedgerFor(ctx, tx, entry.UserID, handID, entry.ActionID, entry.Delta, balance, entry.Reason, at, string(entry.Game), string(entry.Variant)); err != nil {
-		return 0, err
+	// the hand and how it ended for them. A winner who paid the winning tax is
+	// written as two rows (game.LedgerRows): the win GROSS, then the tax as a
+	// table_tax row of its own — so the hand's hand_* rows still sum to zero
+	// and the tax is exactly the chips that left the game. The wallet moves
+	// once, by the entry's Delta; each row carries the balance it leaves, the
+	// last the wallet's.
+	rows := game.LedgerRows(handID, entry)
+	after := balance - entry.Delta // the rows' deltas sum to entry.Delta
+	for _, row := range rows {
+		after += row.Delta
+		if err := appendLedgerFor(ctx, tx, row.UserID, handID, row.ActionID, row.Delta, after, row.Reason, at, string(row.Game), string(row.Variant)); err != nil {
+			return 0, err
+		}
 	}
 	return balance, nil
 }
@@ -174,13 +217,26 @@ var errAccountGone = errors.New("account gone")
 // back and returns duplicate_action, which the Table reads as the success it
 // is. That uniqueness is the settle-retry safety mechanism: a commit whose
 // acknowledgement is lost must never pay the winner the pot twice.
+//
+// The same transaction does the hand's XP (owner, 26–27 Sep 2026; awardXP):
+// it opens or rolls the XP window of every player it resolves as having
+// completed the hand — an outcome row of a player who did not leave mid-hand —
+// and awards the winner the WIN_HAND source of the hand they won with
+// (SettleEntry.WonWith), once a window; a replay's rollback takes the XP with
+// it, so a hand is never counted twice either. It then reads the standing of
+// every player it wrote, AFTER that XP: SettleResult.TaxBps, the rate each
+// seat deals its next hand with — the lower of the level's and the badges',
+// so a badge that has run out since the last hand stops counting here. Only
+// once it has committed is OnSettled's hook told (SettledHand).
 func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.SettleResult, error) {
 	var result game.SettleResult
+	var settled SettledHand
 	started := time.Now()
 	err := l.transact(metrics.OpSettle, func() error {
 		return l.db.WithTx(ctx, func(tx pgx.Tx) error {
 			at := now(l.clock)
-			balances := make(game.SettleResult, len(req.Entries))
+			result = game.SettleResult{Balances: make(map[string]int64, len(req.Entries))}
+			settled = SettledHand{HandID: req.HandID, PlayedMs: req.PlayedMs, Levels: map[string]Standing{}, Windows: map[string]int64{}}
 			ordered := make([]game.SettleEntry, len(req.Entries))
 			copy(ordered, req.Entries)
 			sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].UserID < ordered[j].UserID })
@@ -193,9 +249,58 @@ func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.Settl
 				if err != nil {
 					return err
 				}
-				balances[entry.UserID] = balance
+				result.Balances[entry.UserID] = balance
 			}
-			result = balances
+
+			// The hand's XP, after every wallet: the player_xp rows are locked
+			// in the same ascending order the wallets were, so two settlements
+			// sharing players cannot deadlock on them either.
+			rules, err := loadXPRules(ctx, tx)
+			if err != nil {
+				return err
+			}
+			settled.Window = rules.window()
+			var changed []string
+			written := make([]string, 0, len(ordered))
+			for _, entry := range ordered {
+				if _, ok := result.Balances[entry.UserID]; !ok {
+					continue // the account is gone: nothing was written for it
+				}
+				written = append(written, entry.UserID)
+				if !entry.Outcome || entry.LeftMidHand {
+					continue // a leaver did not complete the hand
+				}
+				settled.Players = append(settled.Players, entry.UserID)
+				// Every player who completed the hand has their window opened
+				// or rolled; the winner earns the WIN_HAND source of the hand
+				// they won with (owner, 27 Sep 2026: "Win by Pair +1 XP … 1
+				// time"), once a window.
+				var sources []xpSourceRow
+				if entry.IsWinner {
+					sources = rules.wonWith(entry.WonWith)
+				}
+				award, err := awardXP(ctx, tx, rules, entry.UserID, at, sources)
+				if err != nil {
+					return err
+				}
+				if rules.on {
+					settled.Windows[entry.UserID] = award.windowStart
+				}
+				if award.granted > 0 {
+					changed = append(changed, entry.UserID)
+				}
+			}
+			standings, err := standingsOf(ctx, tx, at, written)
+			if err != nil {
+				return err
+			}
+			result.TaxBps = make(map[string]int, len(standings))
+			for userID, standing := range standings {
+				result.TaxBps[userID] = standing.TaxBps
+			}
+			for _, userID := range changed {
+				settled.Levels[userID] = standings[userID]
+			}
 			return nil
 		})
 	})
@@ -203,7 +308,10 @@ func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.Settl
 		l.metrics.SettlementDuration.Observe(time.Since(started).Seconds())
 	}
 	if err != nil {
-		return nil, err
+		return game.SettleResult{}, err
+	}
+	if l.onSettled != nil {
+		l.onSettled(settled)
 	}
 	return result, nil
 }

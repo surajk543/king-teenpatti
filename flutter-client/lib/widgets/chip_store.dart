@@ -1,13 +1,17 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../config/server_config.dart';
 import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
 import 'avatar.dart';
 import 'edge_fade.dart';
@@ -19,6 +23,7 @@ import 'picture_shelf.dart';
 import 'poker_chip.dart';
 import 'premium_surface.dart';
 import 'table_picture_shelf.dart';
+import 'table_tax.dart';
 
 /// Where a pack sits in the range. Drives the ribbon across its top edge, and
 /// nothing else — the price and the chips are the offer, this is the signpost.
@@ -394,7 +399,20 @@ double _measuredLine(
 /// sending the player to — the table's Force Sideshow key sends a player with
 /// no hammers to [hammers], its Missile key one with no missiles to
 /// [missiles], and the table's emoji page a locked emoji to [emojis].
-enum StoreTab { chips, diamonds, hammers, missiles, pictures, tables, emojis }
+enum StoreTab {
+  chips,
+  diamonds,
+  hammers,
+  missiles,
+  pictures,
+  tables,
+  emojis,
+
+  /// The badges (owner, 27 Sep 2026: "Add a icon in Store to buy badges"):
+  /// the ones Play sells, bought here, and the ones given by hand, whose card
+  /// asks the player to contact support.
+  badges,
+}
 
 /// The switch between the store's shelves, in the header beside the close key:
 /// one key a shelf — a [Dim.minTouch] circle holding the shelf's glyph where
@@ -606,6 +624,13 @@ class _StoreTabs extends StatelessWidget {
       icon: Icons.emoji_emotions_rounded,
       label: t.storeTabEmojis,
     ),
+    // Offered at a table too: a badge moves no chips, and its rate is the
+    // seat's from the next hand's end.
+    (
+      tab: StoreTab.badges,
+      icon: Icons.workspace_premium_rounded,
+      label: t.storeTabBadges,
+    ),
   ];
 
   /// How wide the keys are with their words, in this language at this text
@@ -815,6 +840,17 @@ class _ChipStoreState extends State<_ChipStore> {
     _tab = widget.opensOn;
     _loadPrices();
     _revealTab();
+    // The badges are the server's (GET /api/levels): read them now if they
+    // are not on the phone yet, then ask Play what the ones it sells cost.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final state = context.read<GameState>();
+      if (state.levelLadder == null) {
+        state.loadLevelLadder().then((_) {
+          if (mounted) _loadPrices();
+        });
+      }
+    });
   }
 
   @override
@@ -844,11 +880,15 @@ class _ChipStoreState extends State<_ChipStore> {
     // One query for every shelf: Play answers per product id, and a player
     // flicking between the Chips, Diamonds and Hammers tabs should see prices
     // at once. The Premium Packages sit on the Chips shelf.
-    final got = await context.read<GameState>().purchases.priceList({
+    final state = context.read<GameState>();
+    final got = await state.purchases.priceList({
       ...chipPacks.map((p) => p.productId),
       ...premiumPacks.map((p) => p.productId),
       ...diamondPacks.map((p) => p.productId),
       ...hammerPacks.map((p) => p.productId),
+      // The badges Play sells, as far as the ladder on the phone says.
+      for (final b in state.levelLadder?.badges ?? const <LadderBadge>[])
+        if (b.buyable) b.productId,
     });
     if (mounted && got.isNotEmpty) setState(() => _prices = got);
   }
@@ -964,6 +1004,7 @@ class _ChipStoreState extends State<_ChipStore> {
       atTable ? t.storeAnimatedBlurb : t.storePicturesBlurb,
       t.storeTablesBlurb,
       t.storeEmojisBlurb,
+      t.storeBadgesBlurb,
       if (atPokerRoom) t.tablePokerNote,
     ];
     var blurbW = 0.0;
@@ -1037,6 +1078,7 @@ class _ChipStoreState extends State<_ChipStore> {
         atTable ? t.picturePremiumAnimated : t.storeTabPictures,
         t.storeTablesTitle,
         t.storeEmojisTitle,
+        t.storeBadgesTitle,
       ]),
     );
     final blurbLine = math.max(
@@ -1054,6 +1096,7 @@ class _ChipStoreState extends State<_ChipStore> {
       StoreTab.pictures => (Icons.face_rounded, champagne),
       StoreTab.tables => (Icons.table_bar_rounded, champagne),
       StoreTab.emojis => (Icons.emoji_emotions_rounded, champagne),
+      StoreTab.badges => (Icons.workspace_premium_rounded, champagne),
       StoreTab.diamonds => (
         Icons.diamond_rounded,
         diamondInkOn(theme.brightness),
@@ -1067,6 +1110,7 @@ class _ChipStoreState extends State<_ChipStore> {
         atTable ? t.picturePremiumAnimated : t.storeTabPictures,
       StoreTab.tables => t.storeTablesTitle,
       StoreTab.emojis => t.storeEmojisTitle,
+      StoreTab.badges => t.storeBadgesTitle,
       StoreTab.diamonds => t.storeDiamondsTitle,
       StoreTab.hammers => t.storeHammersTitle,
       StoreTab.missiles => t.storeMissilesTitle,
@@ -1079,6 +1123,7 @@ class _ChipStoreState extends State<_ChipStore> {
       // and says where the cloth will show.
       StoreTab.tables => atPokerRoom ? t.tablePokerNote : t.storeTablesBlurb,
       StoreTab.emojis => t.storeEmojisBlurb,
+      StoreTab.badges => t.storeBadgesBlurb,
       StoreTab.diamonds => t.storeDiamondsBlurb,
       StoreTab.hammers => t.storeHammersBlurb,
       StoreTab.missiles => t.storeMissilesBlurb,
@@ -1433,6 +1478,8 @@ class _ChipStoreState extends State<_ChipStore> {
             ],
           ),
         );
+      case StoreTab.badges:
+        return _badgeShelf(context, state, grid);
       case StoreTab.emojis:
         return SizedBox(
           width: double.infinity,
@@ -1536,6 +1583,70 @@ class _ChipStoreState extends State<_ChipStore> {
   ) => _fitFigures(context, _CardMetrics.of(Size(grid.cardW, grid.cardH)), [
     for (final count in counts) (count, null),
   ], iconAspect: 1);
+
+  /// The Badges shelf: every badge the store lists ([LadderBadge.listed] —
+  /// the Royal badges: owner, 27 Sep 2026, "for badges use this entry, not
+  /// vips entry"), any Play sells first — each a product card
+  /// with its art playing, its price as the figure, its name, rate and how
+  /// long it lasts and, where the player holds it, how long theirs has left.
+  /// Until the ladder is read, a spinner; where it cannot be, a line and Try
+  /// again.
+  Widget _badgeShelf(
+    BuildContext context,
+    GameState state,
+    _ShelfGeometry grid,
+  ) {
+    final ladder = state.levelLadder;
+    final theme = Theme.of(context);
+    if (ladder == null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: Space.xl),
+        child: Center(
+          child: state.levelLadderFailed && !state.levelLadderLoading
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      state.t.levelsUnavailable,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    TextButton(
+                      key: const ValueKey('badges-retry'),
+                      onPressed: () => state.loadLevelLadder().then((_) {
+                        if (mounted) _loadPrices();
+                      }),
+                      child: Text(state.t.luckyRetry),
+                    ),
+                  ],
+                )
+              : const SizedBox.square(
+                  dimension: 22,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+        ),
+      );
+    }
+    final shown = [
+      for (final b in ladder.badges)
+        if (b.listed && b.buyable) b,
+      for (final b in ladder.badges)
+        if (b.listed && !b.buyable) b,
+    ];
+    // One art size for the shelf, as one figure size is for a pack shelf.
+    final figure = _countFigure(context, grid, [
+      for (final b in shown) formatTaxRate(b.taxBps ?? 0),
+    ]);
+    return _packGrid('badges', grid, [
+      for (final (i, b) in shown.indexed)
+        _BadgeCard(
+          key: ValueKey('badge-card-${b.code}'),
+          badge: b,
+          index: i,
+          prices: _prices,
+          figure: figure,
+        ),
+    ]);
+  }
 
   /// A shelf of packs on [grid], set out one stagger apart. Keyed by shelf,
   /// so moving from one pack shelf to another sets the new one out afresh
@@ -3199,3 +3310,217 @@ String _diamondsWord(Strings t, int count) => t.storeTabDiamonds;
 String _hammersWord(Strings t, int count) => t.storeTabHammers;
 String _missilesWord(Strings t, int count) =>
     count == 1 ? t.missile : t.storeTabMissiles;
+
+/// One badge on the Badges shelf (owner, 27 Sep 2026: "Add a icon in Store to
+/// buy badges, and for all type of royal badges Add a button to contact
+/// support in store"; "for badges use this entry … Add this in UI store and
+/// with their lottie animation"; "for all badges i have given u price 499,
+/// 999, 1799, these should be shown in button not the text contact
+/// support"): the store's product card — the badge's art playing beside its
+/// name, its rate ("0% winning tax") and how long it lasts under them, and
+/// its PRICE on the key; where the player holds it, an Owned badge and how
+/// long theirs has left. A badge Play sells ([LadderBadge.buyable]) is bought
+/// through Play at Play's price; the key of every other — every Royal badge,
+/// as seeded — asks for it through support ([showBadgeSupport]).
+class _BadgeCard extends StatelessWidget {
+  const _BadgeCard({
+    super.key,
+    required this.badge,
+    required this.index,
+    required this.prices,
+    required this.figure,
+  });
+
+  final LadderBadge badge;
+  final int index;
+  final Map<String, ProductDetails> prices;
+  final double figure;
+
+  /// What the card's key says: the price — Play's, where Play sells the
+  /// badge and has answered, else the rupees (always INR); for a badge with
+  /// no price, the support it is asked for through.
+  static String priceOf(
+    Strings t,
+    LadderBadge badge,
+    Map<String, ProductDetails> prices,
+  ) {
+    final play = badge.buyable ? prices[badge.productId]?.price : null;
+    if (play != null) return play;
+    final rupees = badge.priceInr;
+    return rupees == null ? t.badgeContactSupport : '₹${_grouped(rupees)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final state = context.watch<GameState>();
+    final t = state.t;
+    final buyable = badge.buyable;
+    // The house's gold for a royal badge; violet for one Play sells.
+    final palette = _rise(theme.colorScheme, buyable ? 1 : 2);
+    final ink = AppTheme.goldInk(theme.brightness);
+    PlayerBadge? held;
+    for (final b in state.user?.badges ?? const <PlayerBadge>[]) {
+      if (b.code == badge.code) held = b;
+    }
+    final left = held?.leftAt(DateTime.now());
+    // The art stands as tall as a figure and a line together, so the Lottie
+    // reads as the card's picture rather than a bullet.
+    final art = MediaQuery.textScalerOf(context).scale(figure) * 1.9;
+    return _StoreProductCard(
+      palette: palette,
+      ink: ink,
+      badge: held == null ? null : '✓ ${t.pictureOwned}',
+      featured: !buyable,
+      value: (m) => Row(
+        children: [
+          BadgeArt.of(badge, size: art),
+          SizedBox(width: m.iconGap),
+          Flexible(
+            child: Text(
+              badge.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: ink,
+                height: 1.15,
+              ),
+            ),
+          ),
+        ],
+      ),
+      lines: [
+        (m) => _CardLine(
+          metrics: m,
+          label: t.badgeTaxLine(formatTaxRate(badge.taxBps ?? 0)),
+          icon: winningTaxIcon,
+          ink: TableInk.taxOn(theme.brightness),
+        ),
+        (m) => _CardLine(
+          metrics: m,
+          label: switch (left) {
+            final left? => badgeLeftOf(
+              t,
+              left,
+              DateTime.fromMillisecondsSinceEpoch(held!.expiresAt),
+            ),
+            null when badge.validityDays > 0 => t.badgeLasts(
+              badge.validityDays,
+            ),
+            null => t.badgeLifetime,
+          },
+          icon: Icons.schedule_rounded,
+        ),
+      ],
+      price: priceOf(t, badge, prices),
+      onTap: buyable
+          ? () => _buyFromPlay(context, badge.productId, prices)
+          : () => showBadgeSupport(context, badge),
+    );
+  }
+}
+
+/// A badge the store does not sell through Play — given by the team —
+/// asked for through support: a popup naming the badge and the support
+/// address, which the player may copy, and a key that opens their mail app
+/// on a message to it. A phone with no mail app to open copies the address
+/// instead and says so.
+Future<void> showBadgeSupport(BuildContext context, LadderBadge badge) {
+  final state = context.read<GameState>();
+  final t = state.t;
+  final name = levelTitle(badge.icon, badge.title);
+  return showDialog<void>(
+    context: context,
+    builder: (context) {
+      final theme = Theme.of(context);
+      final scheme = theme.colorScheme;
+      final body = theme.textTheme.bodyMedium ?? const TextStyle();
+      return AlertDialog(
+        key: const ValueKey('badge-support'),
+        title: Text(t.badgeContactTitle(name)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // What it costs and how long it lasts, as its card says.
+            Text(
+              [
+                if (badge.priceInr case final rupees?) '₹${_grouped(rupees)}',
+                if (badge.validityDays > 0) t.badgeLasts(badge.validityDays),
+              ].join(' · '),
+              key: const ValueKey('badge-support-terms'),
+              style: body.copyWith(
+                fontWeight: FontWeight.w700,
+                color: AppTheme.goldInk(theme.brightness),
+              ),
+            ),
+            const SizedBox(height: Space.sm),
+            Text(
+              t.badgeContactBody(name),
+              style: body.copyWith(
+                color: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
+              ),
+            ),
+            const SizedBox(height: Space.lg),
+            Row(
+              children: [
+                Icon(
+                  Icons.mail_outline_rounded,
+                  size: 18,
+                  color: scheme.primary,
+                ),
+                const SizedBox(width: Space.sm),
+                Flexible(
+                  child: SelectableText(
+                    ServerConfig.supportEmail,
+                    style: body.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            key: const ValueKey('badge-support-copy'),
+            onPressed: () async {
+              await Clipboard.setData(
+                const ClipboardData(text: ServerConfig.supportEmail),
+              );
+              state.say(t.addressCopied);
+            },
+            child: Text(t.copyAddress),
+          ),
+          FilledButton(
+            key: const ValueKey('badge-support-mail'),
+            onPressed: () async {
+              final navigator = Navigator.of(context);
+              final uri = Uri.parse(
+                'mailto:${ServerConfig.supportEmail}'
+                '?subject=${Uri.encodeComponent(t.badgeMailSubject(badge.title))}',
+              );
+              var opened = false;
+              try {
+                opened = await launchUrl(
+                  uri,
+                  mode: LaunchMode.externalApplication,
+                );
+              } catch (_) {
+                opened = false;
+              }
+              if (!opened) {
+                await Clipboard.setData(
+                  const ClipboardData(text: ServerConfig.supportEmail),
+                );
+                state.say(t.addressCopied);
+              }
+              navigator.pop();
+            },
+            child: Text(t.badgeContactSupport),
+          ),
+        ],
+      );
+    },
+  );
+}

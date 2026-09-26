@@ -276,7 +276,7 @@ func TestADatabaseSourcedServerPlaysByTheSeedNotTheEnv(t *testing.T) {
 	}
 	var stakes []int64
 	_ = json.Unmarshal(sess["stakes"], &stakes)
-	if !reflect.DeepEqual(stakes, []int64{200, 5000, 50000, 1000000}) {
+	if !reflect.DeepEqual(stakes, []int64{200, 5000, 50000, 2000000}) {
 		t.Errorf("stakes = %v, want the seed's", stakes)
 	}
 	var menu []map[string]any
