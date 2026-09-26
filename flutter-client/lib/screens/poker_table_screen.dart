@@ -12,6 +12,7 @@ import '../widgets/buy_chips.dart';
 import '../widgets/deal_flight.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/emoji_shelf.dart';
+import '../widgets/player_drawer.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/pot_flight.dart';
@@ -102,6 +103,10 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
           LeftPanel.emoji => const EmojiDrawer(),
         },
       ),
+      // Another player's pod opens the player drawer from the right, as on
+      // the Teen Patti table; only a pod opens it.
+      endDrawer: const PlayerDrawer(),
+      endDrawerEnableOpenDragGesture: false,
       body: Stack(
         children: [
           const Positioned.fill(child: RoomGround()),
@@ -270,8 +275,22 @@ class _PokerFelt extends StatelessWidget {
             final s = viewIndex < seats.length ? seats[viewIndex] : null;
             final reveal = s == null ? null : result?.revealOf(s.userId);
             final outcome = t.pokerOutcome(reveal?.outcome);
+            // Another player: their pod opens the player drawer, and wears a
+            // badge while their friend request waits.
+            final other = playerDrawerSeat(state, s);
             return SeatPod(
               poker: true,
+              onTap: other == null
+                  ? null
+                  : () => openPlayerDrawer(context, other),
+              requestBadge: other == null
+                  ? null
+                  : SeatRequestBadge(userId: other.userId!),
+              // And, while they are the viewer's friend, the friend mark: the
+              // viewer's own list decides it, on this phone alone.
+              friendMark: other == null
+                  ? null
+                  : SeatFriendMark(userId: other.userId!),
               revealed: reveal?.cards,
               best: reveal?.best ?? const [],
               // What the hand made — and, against the dealer, how it fared.

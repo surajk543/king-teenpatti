@@ -103,14 +103,11 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 		"EXECUTE 'ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN game TEXT';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN variant TEXT';",
-		// The winning tax (owner, 26 Sep 2026): whether a table taxes its
-		// winners, FALSE on every row an older catalogue already holds.
-		"EXECUTE 'ALTER TABLE table_configs ADD COLUMN winner_tax BOOLEAN NOT NULL DEFAULT FALSE';",
 	}
 	if strings.Join(alters, "\n") != strings.Join(wantAlters, "\n") {
-		t.Errorf("the baseline brings forward exactly users.is_bot, users.is_active, chip_ledger.game/.variant and table_configs.winner_tax, got:\n%s", strings.Join(alters, "\n"))
+		t.Errorf("the baseline brings forward exactly users.is_bot, users.is_active and chip_ledger.game/.variant, got:\n%s", strings.Join(alters, "\n"))
 	}
-	for _, want := range []string{"column_name = 'is_bot'", "column_name = 'is_active'", "column_name = 'game'", "column_name = 'variant'", "column_name = 'winner_tax'"} {
+	for _, want := range []string{"column_name = 'is_bot'", "column_name = 'is_active'", "column_name = 'game'", "column_name = 'variant'"} {
 		if !strings.Contains(baseline, want) {
 			t.Errorf("%s lacks the lookup %q", migrations[0].File, want)
 		}
@@ -124,10 +121,11 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	if ledger := squash(createTableBody(t, baseline, "chip_ledger")); !strings.Contains(ledger, "game TEXT") || !strings.Contains(ledger, "variant TEXT") {
 		t.Errorf("CREATE TABLE chip_ledger must declare game TEXT and variant TEXT:\n%s", ledger)
 	}
-	// winner_tax is the one column whose two definitions differ, on purpose:
-	// the CREATE TABLE gives it no DEFAULT, like every rule column (a row typed
-	// by hand must say whether its table taxes its winners), and the guarded
-	// block gives the rows an older catalogue already holds FALSE.
+	// winner_tax (26 Sep 2026) is declared in the CREATE TABLE alone, with no
+	// DEFAULT like every rule column (a row typed by hand must say whether its
+	// table taxes its winners) and no guarded block: the build goes onto a
+	// fresh database (owner: "treat this as fresh deployment not a migration
+	// one").
 	if configs := squash(createTableBody(t, baseline, "table_configs")); !strings.Contains(configs, "winner_tax BOOLEAN NOT NULL,") {
 		t.Errorf("CREATE TABLE table_configs must declare winner_tax BOOLEAN NOT NULL with no DEFAULT:\n%s", configs)
 	}
@@ -249,6 +247,77 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	}
 	if strings.Contains(seed, "INTO emojis") && !strings.Contains(seed, "ON CONFLICT (asset_url) DO NOTHING;\n") {
 		t.Errorf("%s must add emojis ON CONFLICT (asset_url) DO NOTHING", migrations[1].File)
+	}
+
+	// Friends V1 (owner, 26 Sep 2026): three more tables in the baseline and
+	// nothing on users — player_stats, where the six gameplay counters live
+	// now, and the social graph, friend_requests and friendships, each with a
+	// foreign key to users (which needs only ops/DEPLOY.md §7's REFERENCES
+	// grant) — and one statement in the seed: the backfill that copies every
+	// account's retired counters into player_stats once, never over a row
+	// that is already there.
+	if !inOrder(baseline, "CREATE TABLE IF NOT EXISTS user_milestones", "CREATE TABLE IF NOT EXISTS player_stats",
+		"CREATE TABLE IF NOT EXISTS chip_ledger") {
+		t.Error("the baseline must create player_stats after user_milestones and before chip_ledger")
+	}
+	if !inOrder(baseline, "CREATE TABLE IF NOT EXISTS user_lucky_draws", "CREATE TABLE IF NOT EXISTS friend_requests",
+		"CREATE TABLE IF NOT EXISTS friendships", "CREATE TABLE IF NOT EXISTS table_engines") {
+		t.Error("the baseline must create friend_requests then friendships, after the Lucky Draw and before the table catalogue")
+	}
+	stats := squash(createTableBody(t, baseline, "player_stats"))
+	for _, want := range []string{"user_id TEXT PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE",
+		"hands_played BIGINT NOT NULL DEFAULT 0", "hands_won BIGINT NOT NULL DEFAULT 0", "hands_lost BIGINT NOT NULL DEFAULT 0",
+		"hands_left BIGINT NOT NULL DEFAULT 0", "total_winnings BIGINT NOT NULL DEFAULT 0", "biggest_pot BIGINT NOT NULL DEFAULT 0"} {
+		if !strings.Contains(stats, want) {
+			t.Errorf("CREATE TABLE player_stats must declare %q:\n%s", want, stats)
+		}
+	}
+	requests := squash(createTableBody(t, baseline, "friend_requests"))
+	for _, want := range []string{"requester_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE",
+		"recipient_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE",
+		"CHECK (status IN ('PENDING', 'ACCEPTED', 'REJECTED', 'CANCELLED'))", "CHECK (requester_id <> recipient_id)"} {
+		if !strings.Contains(requests, want) {
+			t.Errorf("CREATE TABLE friend_requests must declare %q:\n%s", want, requests)
+		}
+	}
+	for _, want := range []string{
+		"CREATE UNIQUE INDEX IF NOT EXISTS friend_requests_one_pending_per_pair ON friend_requests (LEAST(requester_id, recipient_id), GREATEST(requester_id, recipient_id)) WHERE status = 'PENDING';",
+		"CREATE INDEX IF NOT EXISTS friend_requests_incoming ON friend_requests (recipient_id) WHERE status = 'PENDING';",
+		"CREATE INDEX IF NOT EXISTS friend_requests_outgoing ON friend_requests (requester_id) WHERE status = 'PENDING';",
+	} {
+		if !strings.Contains(squash(baseline), want) {
+			t.Errorf("the baseline lacks %q", want)
+		}
+	}
+	friendships := squash(createTableBody(t, baseline, "friendships"))
+	for _, want := range []string{"user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE",
+		"friend_user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE",
+		"UNIQUE (user_id, friend_user_id)", "CHECK (user_id <> friend_user_id)"} {
+		if !strings.Contains(friendships, want) {
+			t.Errorf("CREATE TABLE friendships must declare %q:\n%s", want, friendships)
+		}
+	}
+	for _, table := range []string{"player_stats", "friend_requests", "friendships"} {
+		if strings.Contains(outside, "ALTER TABLE "+table) {
+			t.Errorf("%s must be declared in full, never altered", table)
+		}
+	}
+	for _, table := range []string{"friend_requests", "friendships"} {
+		if strings.Contains(seed, "INTO "+table) {
+			t.Errorf("%s seeds %s: the social graph is the players' to write", migrations[1].File, table)
+		}
+	}
+	// The six counters live in player_stats ALONE (owner, 26 Sep 2026: "only
+	// store in player_stats table"): users declares none of them, and — this
+	// build going onto a fresh database — nothing copies old figures across.
+	users := squash(createTableBody(t, baseline, "users"))
+	for _, column := range []string{"hands_played", "hands_won", "hands_lost", "hands_left_mid", "total_winnings", "biggest_pot"} {
+		if strings.Contains(users, column+" ") {
+			t.Errorf("CREATE TABLE users still declares %s: the counters live in player_stats alone", column)
+		}
+	}
+	if strings.Contains(seed, "player_stats") {
+		t.Errorf("%s writes player_stats: a player's statistics are the ledger's to write", migrations[1].File)
 	}
 
 	// The missile column and tables are the baseline's too (folded in from
@@ -416,10 +485,12 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	// Exactly these tables: money and audit (users, chip_ledger and the
 	// purchase and spend records), the two picture catalogues (profile and
 	// table, with who owns and has laid what), the emoji catalogue and who
-	// owns which (26 Sep 2026), the Lucky Draw's three, the player levels and
-	// XP (26 Sep 2026: the ladder, the XP sources and settings, and each
-	// player's XP), and the four configuration tables — twenty-six, and no
-	// game state (the baseline's header).
+	// owns which (26 Sep 2026), the Lucky Draw's three, the four
+	// configuration tables, Friends V1's three (26 Sep 2026: the gameplay
+	// counters moved off users into player_stats, and the social graph,
+	// friend_requests and friendships), and the player levels and XP (26 Sep
+	// 2026: the ladder, the XP sources and settings, and each player's XP) —
+	// twenty-nine, and no game state (the baseline's header).
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
 	if err != nil {
@@ -437,9 +508,9 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"chip_ledger", "diamond_purchases", "emojis", "hammer_purchases", "hammer_spends",
+	want := []string{"chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends",
 		"lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends",
-		"player_levels", "player_xp",
+		"player_levels", "player_stats", "player_xp",
 		"profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
 		"user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users",
 		"xp_settings", "xp_sources"}

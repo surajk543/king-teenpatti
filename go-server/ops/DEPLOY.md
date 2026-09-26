@@ -379,6 +379,13 @@ schema at all, and `server/` is long gone from the host. `rollback-to-node.sh` w
 than left as a safety net with a hole in it; a recovery script that fails at the moment it is needed
 is worse than none, because it implies a way back that is not there.
 
+**A tag before Friends V1 needs a fresh database.** Friends V1 (26 Sep 2026) moved the six gameplay
+counters off `users` into `player_stats`, and a database built by this build's scripts has no
+`users.hands_played` … `biggest_pot` at all (owner: "only store in player_stats table"; the build is
+deployed onto a fresh database, so nothing migrates them). go-server/v1.5.0 and older read and write
+those columns on every login and checkpoint, so rolling back to one of them means deploying it onto a
+fresh database, not onto this one.
+
 Releases are tagged (`go-server/vX.Y.Z`, see `../README.md` §Releasing), so going back one is a
 checkout and a rebuild. One thing has to be settled **before** the checkout — who owns `users` — and
 one is worth knowing first: what an older tag's own migrations do to a database built from the
@@ -629,7 +636,7 @@ referencing `users` still crash-loops. What covers a checkout's scripts is
 `TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser` (`internal/db`; needs a local
 PostgreSQL superuser). It reads the SQL block above out of this file, applies it to a throwaway
 schema, and boots every migration twice as a role that is not a superuser, before and after — then
-twice more while re-creating the five tables that reference `users` under the new ownership, and
+twice more while re-creating the twelve tables that reference `users` under the new ownership, and
 spends a hammer and a missile, trades diamonds for missiles and loads the table catalogue on the new grants. Run it before deploying a
 release that touches `users` or adds a table referencing it:
 

@@ -322,7 +322,11 @@ func (rm *RoomManager) registerRestored(ctx context.Context, table Room, seats [
 	}
 	for _, userID := range seats {
 		if !slices.Contains(duplicates, userID) {
-			rm.liveSetSeated(userID, table.ID())
+			// The seat and its playing record, both written again: a restart
+			// that took longer than the record's ttl has let it lapse, and
+			// this is what puts "Playing now" back in front of the player's
+			// friends.
+			rm.liveSetSeated(userID, table)
 		}
 	}
 
@@ -486,6 +490,10 @@ func (rm *RoomManager) ReconcileLive(ctx context.Context) ReconcileReport {
 		seats[userID] = roomID
 	}
 	rm.mu.Unlock()
+	byID := make(map[string]Room, len(tables))
+	for _, t := range tables {
+		byID[t.ID()] = t
+	}
 
 	for _, t := range tables {
 		if t.Destroyed() || t.Fenced() {
@@ -509,7 +517,17 @@ func (rm *RoomManager) ReconcileLive(ctx context.Context) ReconcileReport {
 		report.Published++
 	}
 	for userID, roomID := range seats {
-		if err := rm.live.SetSeated(ctx, userID, roomID); err != nil {
+		// The seat and its playing record, rewritten: this is the pass that
+		// keeps the record (PlayingTTL, three intervals of this reconciler)
+		// from lapsing under a player who is still seated, and the refill
+		// for a store that came back empty. An index entry whose table is not
+		// registered any more (dropped lazily, seatedTableLocked) is mirrored
+		// as before, but with no playing record: nobody is playing there.
+		var playing live.Playing
+		if table := byID[roomID]; table != nil {
+			playing = rm.playingAt(table)
+		}
+		if err := rm.live.SetSeated(ctx, userID, roomID, playing, rm.playingTTL); err != nil {
 			rm.liveError(LiveOpSetSeated, err)
 			report.Errors++
 			continue
@@ -539,7 +557,9 @@ func (rm *RoomManager) ReconcileLive(ctx context.Context) ReconcileReport {
 // instance filter yet), so an entry naming something it does not have is by
 // definition finished with.
 //
-//   - a seat entry whose user is not in playerRooms → ClearSeated. Seats are
+//   - a seat entry whose user is not in playerRooms → ClearSeated, which
+//     takes the player's playing record with it (the friends of a player who
+//     is not at a table must not see "Playing now"). Seats are
 //     read back only through this index, so nothing is lost by dropping one;
 //     a player who is really seated is re-set by the loop above, on this same
 //     tick, before the sweep looks.
@@ -712,19 +732,32 @@ func liveCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), liveCallTimeout)
 }
 
-// liveSetSeated mirrors playerRooms[userID] = roomID.
-func (rm *RoomManager) liveSetSeated(userID, roomID string) {
+// liveSetSeated mirrors playerRooms[userID] = table.ID(), and writes the
+// player's playing record beside it (PlayingAt: the table's family and
+// category, never its id) for PlayingTTL. Every seat the manager mirrors goes
+// through here — a join, a switch or a consolidation move (which cleared the
+// old seat first, so a move REWRITES the record), a restored seat — and the
+// reconciler's refill writes the same pair.
+func (rm *RoomManager) liveSetSeated(userID string, table Room) {
 	if rm.live == nil {
 		return
 	}
 	ctx, cancel := liveCtx()
 	defer cancel()
-	if err := rm.live.SetSeated(ctx, userID, roomID); err != nil {
+	if err := rm.live.SetSeated(ctx, userID, table.ID(), rm.playingAt(table), rm.playingTTL); err != nil {
 		rm.liveError(LiveOpSetSeated, err)
 	}
 }
 
-// liveClearSeated mirrors delete(playerRooms, userID).
+// playingAt is the playing record of a seat at table, stamped now (the
+// manager's clock).
+func (rm *RoomManager) playingAt(table Room) live.Playing {
+	return PlayingAt(table.Category(), rm.clock.Now())
+}
+
+// liveClearSeated mirrors delete(playerRooms, userID): the store drops the
+// seat key and the playing record together (live.Store.ClearSeated), so the
+// player's friends see them back in the lobby — or offline — at once.
 func (rm *RoomManager) liveClearSeated(userID string) {
 	if rm.live == nil {
 		return

@@ -20,6 +20,7 @@ import (
 //	kt:tables                    set    room ids with a stored snapshot
 //	kt:chat:<roomId>             list   serialised messages, RPUSH + LTRIM to max   PEXPIRE auxTTL
 //	kt:seat:<userId>             string roomId                                       (no ttl)
+//	kt:playing:<userId>          string Playing JSON {game, variant, updatedAt}      PX playingTTL (none when 0)
 //	kt:online                    hash   userId → "<instance>|<expiresAtMs>"
 //	kt:resume:<userId>           string ResumeOffer JSON                            PX ttl
 //	kt:lobby:<category>:<boot>   zset   roomId scored by players; private tables never indexed
@@ -148,6 +149,7 @@ func (r *Redis) keyTable(roomID string) string   { return r.prefix + "table:" + 
 func (r *Redis) keyTables() string               { return r.prefix + "tables" }
 func (r *Redis) keyChat(roomID string) string    { return r.prefix + "chat:" + roomID }
 func (r *Redis) keySeat(userID string) string    { return r.prefix + "seat:" + userID }
+func (r *Redis) keyPlaying(userID string) string { return r.prefix + "playing:" + userID }
 func (r *Redis) keyOnline() string               { return r.prefix + "online" }
 func (r *Redis) keyResume(userID string) string  { return r.prefix + "resume:" + userID }
 func (r *Redis) keySummary(roomID string) string { return r.prefix + "summary:" + roomID }
@@ -315,18 +317,45 @@ func (r *Redis) DeleteChat(ctx context.Context, roomID string) error {
 
 // ---- presence -------------------------------------------------------------
 
-// SetSeated implements Store (SET, no ttl — RoomManager clears it).
-func (r *Redis) SetSeated(ctx context.Context, userID, roomID string) error {
+// SetSeated implements Store: the seat (SET, no ttl — RoomManager clears it)
+// and the playing record beside it (SET PX playingTTL, or no expiry at all
+// when playingTTL <= 0), in one MULTI so neither is ever there without the
+// other. A zero Playing DELs the record instead.
+func (r *Redis) SetSeated(ctx context.Context, userID, roomID string, playing Playing, playingTTL time.Duration) error {
+	var body []byte
+	if playing.Game != "" {
+		if playing.UpdatedAt == 0 {
+			playing.UpdatedAt = r.now().UnixMilli()
+		}
+		var err error
+		if body, err = json.Marshal(playing); err != nil {
+			return err
+		}
+	}
+	if playingTTL < 0 {
+		playingTTL = 0
+	}
 	ctx, cancel := r.bound(ctx)
 	defer cancel()
-	return r.client.Set(ctx, r.keySeat(userID), roomID, 0).Err()
+	_, err := r.client.TxPipelined(ctx, func(p redis.Pipeliner) error {
+		p.Set(ctx, r.keySeat(userID), roomID, 0)
+		if body == nil {
+			p.Del(ctx, r.keyPlaying(userID))
+		} else {
+			// SET replaces the value AND any expiry the key had, so a
+			// rewrite with playingTTL 0 leaves no stale ttl behind.
+			p.Set(ctx, r.keyPlaying(userID), body, playingTTL)
+		}
+		return nil
+	})
+	return err
 }
 
-// ClearSeated implements Store.
+// ClearSeated implements Store: one DEL of the seat and its playing record.
 func (r *Redis) ClearSeated(ctx context.Context, userID string) error {
 	ctx, cancel := r.bound(ctx)
 	defer cancel()
-	return r.client.Del(ctx, r.keySeat(userID)).Err()
+	return r.client.Del(ctx, r.keySeat(userID), r.keyPlaying(userID)).Err()
 }
 
 // scanSuffixes walks every key matching prefix+pattern with SCAN — never
@@ -442,6 +471,63 @@ func (r *Redis) OnlineCount(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	return int(n), nil
+}
+
+// Presence implements Store: per batch of presenceBatch ids, ONE pipelined
+// round trip holding an HMGET of kt:online (their presence entries, judged
+// against the process clock exactly as OnlineCount judges them) and an MGET
+// of their kt:playing:<userId> records. Reads only: an expired kt:online
+// entry is left for OnlineCount to reap.
+func (r *Redis) Presence(ctx context.Context, userIDs []string) (map[string]Presence, error) {
+	ids := distinctIDs(userIDs)
+	out := make(map[string]Presence, len(ids))
+	for start := 0; start < len(ids); start += presenceBatch {
+		chunk := ids[start:min(start+presenceBatch, len(ids))]
+		if err := r.presenceChunk(ctx, chunk, out); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// presenceChunk is one Presence round trip, filling out for chunk.
+func (r *Redis) presenceChunk(ctx context.Context, chunk []string, out map[string]Presence) error {
+	ctx, cancel := r.bound(ctx)
+	defer cancel()
+	keys := make([]string, len(chunk))
+	for i, id := range chunk {
+		keys[i] = r.keyPlaying(id)
+	}
+	var online, playing *redis.SliceCmd
+	if _, err := r.client.Pipelined(ctx, func(p redis.Pipeliner) error {
+		online = p.HMGet(ctx, r.keyOnline(), chunk...)
+		playing = p.MGet(ctx, keys...)
+		return nil
+	}); err != nil {
+		return err
+	}
+	onlineVals, err := online.Result()
+	if err != nil {
+		return err
+	}
+	playingVals, err := playing.Result()
+	if err != nil {
+		return err
+	}
+	nowMs := r.now().UnixMilli()
+	for i, id := range chunk {
+		var p Presence
+		if value, ok := onlineVals[i].(string); ok {
+			p.Online = onlineEntryLive(value, nowMs)
+		}
+		if raw, ok := playingVals[i].(string); ok {
+			if record, ok := playingFromJSON(raw); ok {
+				p.Playing, p.Game, p.Variant, p.UpdatedAt = true, record.Game, record.Variant, record.UpdatedAt
+			}
+		}
+		out[id] = p
+	}
+	return nil
 }
 
 // ---- resume offers --------------------------------------------------------

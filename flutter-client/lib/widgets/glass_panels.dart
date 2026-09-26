@@ -41,9 +41,14 @@ class GlassDrawerPanel extends StatelessWidget {
     this.mode = GlassMode.auto,
     this.sigma,
     this.priority = 10,
+    this.alignment = AlignmentDirectional.centerStart,
   });
 
   final Widget child;
+
+  /// The screen edge the panel stands against: the start for a Scaffold's
+  /// drawer, the end for its end drawer (the table's player drawer).
+  final AlignmentGeometry alignment;
 
   /// The panel's inset. A drawer whose child scrolls should pass
   /// [EdgeInsets.zero] and pad its own rows, so the scrollbar reaches the edge.
@@ -69,7 +74,7 @@ class GlassDrawerPanel extends StatelessWidget {
     final w = MediaQuery.sizeOf(context).width;
 
     return Align(
-      alignment: AlignmentDirectional.centerStart,
+      alignment: alignment,
       child: SizedBox(
         width: width ?? Dim.drawerW(w),
         child: SafeArea(

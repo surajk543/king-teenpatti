@@ -30,10 +30,10 @@
 -- database built by an older tag needs at its next boot (production's, from
 -- go-server/v1.1.2, has game and variant but not is_bot), and they are why this
 -- file is no longer free of ALTER TABLE. users.is_active (26 Sep 2026) was
--- written straight in here the same way, a column and its guarded block, and
--- so was table_configs.winner_tax the same day — whose block alone gives the
--- column a DEFAULT, for the rows an older catalogue already holds (its comment
--- says why).
+-- written straight in here the same way, a column and its guarded block.
+-- table_configs.winner_tax (26 Sep 2026) is declared in its CREATE TABLE
+-- alone, with no guarded block: that build is deployed onto a FRESH database
+-- (owner: "treat this as fresh deployment not a migration one").
 --
 -- Flyway naming: V<version>__<description>.sql, applied in ascending version
 -- order. With no schema history table (below) a script's name is recorded
@@ -113,7 +113,9 @@
 -- `users.active_picture_id` references it, and `user_profile_pictures`, the
 -- table pictures, the emojis (`emojis`, then `user_emojis`, which names a
 -- player and an emoji), `chip_ledger` and the purchase and spend tables come
--- after both for the same reason. The Lucky Draw's three follow them — its draws, their slots (which
+-- after both for the same reason, as do player_stats (after user_milestones)
+-- and the two friends tables (after the Lucky Draw). The Lucky Draw's three
+-- follow the purchase tables — its draws, their slots (which
 -- name a draw), and the spins (which name a player, a draw and a slot) — then
 -- the player levels and XP (player_levels, xp_sources, xp_settings, then
 -- player_xp, which names a player and a level). The four table-configuration
@@ -140,11 +142,14 @@
 -- what a picture costs, and are read once at boot. Nothing about any table in
 -- play is ever written to them. Nor are the Lucky Draw's (24 Sep 2026): its
 -- draws and slots are configuration, and its spins an audit — a spin is one
--- request, over before it answers. Nor the player levels and XP (26 Sep
--- 2026): player_levels, xp_sources and xp_settings are configuration, and
--- player_xp an account fact, like the counters on users — a settle adds to it,
--- and no table reads it to play a hand. The active play time the 30- and
--- 60-minute XP is earned by lives in the live store, never here.
+-- request, over before it answers. Nor are player_stats and the friends
+-- tables (26 Sep 2026): career counters a checkpoint adds to, and who asked
+-- whom and who is friends with whom — account facts; whether a friend is
+-- online or at a table lives in the live store and nowhere here. Nor the
+-- player levels and XP (26 Sep 2026): player_levels, xp_sources and
+-- xp_settings are configuration, and player_xp an account fact — a settle adds
+-- to it, and no table reads it to play a hand. The active play time the 30-
+-- and 60-minute XP is earned by lives in the live store, never here.
 
 
 -- ---------------------------------------------------------------- pictures
@@ -256,16 +261,9 @@ CREATE TABLE IF NOT EXISTS users (
   -- /api/store/missiles). Like diamonds, never chip_ledger's business:
   -- missile_purchases and missile_spends below are its receipts.
   missile           INTEGER NOT NULL DEFAULT 1 CHECK (missile >= 0),
-  -- A hand only counts as "played" once the player has made a voluntary bet;
-  -- posting the boot and folding immediately does not count.
-  hands_played      INTEGER NOT NULL DEFAULT 0,
-  hands_won         INTEGER NOT NULL DEFAULT 0,
-  hands_lost        INTEGER NOT NULL DEFAULT 0,
-  -- Hands abandoned before they finished, tracked separately from losses.
-  hands_left_mid    INTEGER NOT NULL DEFAULT 0,
-  -- Gross chips taken in pots won, over the account's lifetime.
-  total_winnings    BIGINT NOT NULL DEFAULT 0,
-  biggest_pot       BIGINT NOT NULL DEFAULT 0,
+  -- No gameplay counters: hands played, won, lost and left mid-hand, total
+  -- winnings and the biggest pot live in player_stats (below) alone (Friends
+  -- V1, owner 26 Sep 2026: "only store in player_stats table").
   -- The reward milestones a player has collected live in user_milestones
   -- (below), not here (owner, 14 Sep 2026).
   created_at        BIGINT NOT NULL,
@@ -638,6 +636,39 @@ CREATE TABLE IF NOT EXISTS user_milestones (
   PRIMARY KEY (user_id, milestone)
 );
 
+-- Each player's gameplay statistics (Friends V1, owner 26 Sep 2026): the six
+-- counters that sat on users until this build, in a table of their own so the
+-- account row is identity, account and wallet and nothing else — users has
+-- none of them any more (owner: "only store in player_stats table"). The ONE
+-- source: db.Ledger's checkpoints add to them — in the SAME transaction as the
+-- chip delta they belong to, and only when a counter moves — and every account
+-- read (db.userFromAt) joins them, 0 without a row; the HANDS_PLAYED milestone
+-- and a friend's profile read hands_played here.
+--
+-- One row per player, inserted by the first checkpoint that moves a counter
+-- (INSERT … ON CONFLICT (user_id) DO UPDATE). Nothing is copied from an older
+-- database's users columns: this build is deployed onto a fresh database
+-- (owner, 26 Sep 2026). hands_left is the old hands_left_mid under its new
+-- name — hands abandoned before they finished, counted apart from losses —
+-- and the wire's `handsLeftMid` still carries it. A hand counts as played only once
+-- the player made a voluntary bet (requirement 16); total_winnings is gross
+-- chips taken in pots won and biggest_pot the largest of them.
+--
+-- A CREATE TABLE and nothing on users: a table with a foreign key to users
+-- needs only the REFERENCES grant ops/DEPLOY.md §7 gives, so a database built
+-- before it takes it at its next boot whoever owns users.
+CREATE TABLE IF NOT EXISTS player_stats (
+  user_id        TEXT   PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+  hands_played   BIGINT NOT NULL DEFAULT 0,
+  hands_won      BIGINT NOT NULL DEFAULT 0,
+  hands_lost     BIGINT NOT NULL DEFAULT 0,
+  hands_left     BIGINT NOT NULL DEFAULT 0,
+  total_winnings BIGINT NOT NULL DEFAULT 0,
+  biggest_pot    BIGINT NOT NULL DEFAULT 0,
+  created_at     BIGINT NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at     BIGINT NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
+);
+
 
 -- ------------------------------------------------------------------ money
 
@@ -953,6 +984,62 @@ CREATE TABLE IF NOT EXISTS user_lucky_draws (
 -- A player's latest spin of a draw, for the cooldown; newest first.
 CREATE INDEX IF NOT EXISTS user_lucky_draws_last_idx
   ON user_lucky_draws (user_id, lucky_draw_id, created_at DESC);
+
+
+-- ----------------------------------------------------------------- friends
+
+-- The social graph (Friends V1, owner 26 Sep 2026): a lobby feature — search
+-- a player by their Player ID (users.id), send a request, accept or reject
+-- it, a friend list, a friend's profile, remove a friend. Two tables, both
+-- ACCOUNT FACTS, not game state: who asked whom, and who is friends with
+-- whom. Whether a friend is online or playing is never here — no column
+-- anywhere in PostgreSQL says so; that is the live store's (kt:online and the
+-- seat's kt:playing:<userId> record), read per request.
+--
+-- Nothing on users: both reference it, which needs only the REFERENCES grant
+-- ops/DEPLOY.md §7 gives, so a database built before them takes them at its
+-- next boot whoever owns users.
+
+-- Every friend request ever sent, and what became of it: PENDING until the
+-- recipient accepts (ACCEPTED, and a friendships pair is written in the same
+-- transaction) or rejects it (REJECTED), or until either player deletes their
+-- account (CANCELLED, DELETE /api/account). A row is never deleted — it is
+-- the record of the request — and a new request between the same two players
+-- is a new row, once the last one is no longer pending.
+CREATE TABLE IF NOT EXISTS friend_requests (
+  id           BIGSERIAL PRIMARY KEY,
+  requester_id TEXT   NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  recipient_id TEXT   NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  status       TEXT   NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'ACCEPTED', 'REJECTED', 'CANCELLED')),
+  created_at   BIGINT NOT NULL,
+  updated_at   BIGINT NOT NULL,
+  CHECK (requester_id <> recipient_id)
+);
+
+-- One PENDING request per unordered pair of players: no duplicate, and no
+-- A→B beside B→A. This index is what decides two requests sent at the same
+-- instant — the second insert fails 23505 and db.Friends.Send reads the
+-- winner back and answers with the refusal that fits it.
+CREATE UNIQUE INDEX IF NOT EXISTS friend_requests_one_pending_per_pair
+  ON friend_requests (LEAST(requester_id, recipient_id), GREATEST(requester_id, recipient_id)) WHERE status = 'PENDING';
+-- A player's pending requests, received and sent (GET /api/friends/requests).
+CREATE INDEX IF NOT EXISTS friend_requests_incoming ON friend_requests (recipient_id) WHERE status = 'PENDING';
+CREATE INDEX IF NOT EXISTS friend_requests_outgoing ON friend_requests (requester_id) WHERE status = 'PENDING';
+
+-- Who is friends with whom: one row per DIRECTION, so a friendship is a pair
+-- of rows (A→B and B→A) written together when a request is accepted and
+-- deleted together when either removes the other or deletes their account.
+-- A player's friends are then the rows keyed on their own user_id, read off
+-- the UNIQUE (user_id, friend_user_id) index. created_at is when the two
+-- became friends (the wire's friendsSince).
+CREATE TABLE IF NOT EXISTS friendships (
+  id             BIGSERIAL PRIMARY KEY,
+  user_id        TEXT   NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  friend_user_id TEXT   NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  created_at     BIGINT NOT NULL,
+  UNIQUE (user_id, friend_user_id),
+  CHECK (user_id <> friend_user_id)
+);
 
 
 -- --------------------------------------------------------- player levels
@@ -1297,22 +1384,3 @@ CREATE TABLE IF NOT EXISTS table_configs (
   -- A poker stack must at least cover the stake it sits down to.
   CHECK (category NOT IN ('three_card_poker', 'five_card_draw', 'texas_holdem', 'omaha') OR min_buy_in >= boot_amount)
 );
-
--- table_configs.winner_tax for a catalogue built before it (26 Sep 2026;
--- production's go-server/v1.4.x lacks it). Catalogue-guarded (the header), and
--- the one place the column has a DEFAULT: a column added to a table that
--- already holds rows needs a value for them, and FALSE — no table taxes its
--- winners — is what every one of them was opened with. The CREATE TABLE above
--- declares it without one, like every rule column, so on a database built
--- afresh a row typed by hand must say. An existing database's two taxing
--- tables are switched on by the one-off UPDATE in ops/DEPLOY.md, not by a boot.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_schema = current_schema() AND table_name = 'table_configs' AND column_name = 'winner_tax'
-  ) THEN
-    EXECUTE 'ALTER TABLE table_configs ADD COLUMN winner_tax BOOLEAN NOT NULL DEFAULT FALSE';
-  END IF;
-END;
-$$;

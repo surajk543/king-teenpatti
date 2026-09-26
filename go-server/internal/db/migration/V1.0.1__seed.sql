@@ -533,10 +533,8 @@ SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost,
 -- table, four blind moves and 3 s more after a missile. Blind and variation
 -- at 10 Lakh TAX THEIR WINNERS (winner_tax; owner, 26 Sep 2026): the winner of
 -- each hand pays their level's share of the whole pot (THE PLAYER LEVELS,
--- below). No other table, private template or poker room does. A database
--- that already had its tables gets winner_tax FALSE everywhere (V1.0.0's
--- guarded block) and the two switched on by the one-off UPDATE in
--- ops/DEPLOY.md, since the row is never rewritten here.
+-- below). No other table, private template or poker room does. This build
+-- goes onto a FRESH database (owner, 26 Sep 2026), which these rows seed.
 --
 -- The VALUES below were GENERATED from that composition, and
 -- TestTheSeededTableCatalogueIsTheDefaults loads them back out of a fresh

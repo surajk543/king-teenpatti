@@ -82,4 +82,14 @@ const (
 	CodeEmojiFree         = "emoji_free"         // 400: a free emoji — nothing to buy
 	CodeEmojiUnaffordable = "emoji_unaffordable" // 409: the wallet the emoji's currency names cannot cover it
 	CodeEmojiLocked       = "emoji_locked"       // chat:emoji only: a premium emoji not bought, or its rental run out
+	// Friends V1 (owner, 26 Sep 2026; Go only): the lobby's social graph.
+	CodeInvalidPlayerID         = "invalid_player_id"        // 400: a Player ID that is empty once trimmed, or longer than 64
+	CodePlayerNotFound          = "player_not_found"         // 404: no such account, or a deleted or disabled one
+	CodeSelfRequest             = "self_request"             // 400: a friend request to oneself
+	CodeAlreadyFriends          = "already_friends"          // 409: a friend request to a friend
+	CodeRequestAlreadySent      = "request_already_sent"     // 409: the sender's own request to that player is pending
+	CodeRequestAlreadyReceived  = "request_already_received" // 409: that player's request to the sender is pending (+ its requestId)
+	CodeFriendRequestNotFound   = "request_not_found"        // 404: no such request, or one not addressed to the caller
+	CodeFriendRequestNotPending = "request_not_pending"      // 409: accepted, rejected or cancelled already
+	CodeNotFriends              = "not_friends"              // 404: removing a player who is not a friend
 )

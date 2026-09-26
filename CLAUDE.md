@@ -366,7 +366,8 @@ and the transactions that DO run have this shape:
 ```
   → BEGIN
   → SELECT chips FROM users WHERE id=$1 FOR UPDATE        lock the wallet row(s), ascending id
-  → UPDATE users SET chips = chips + delta, <counters>     DELTA, never an absolute
+  → UPDATE users SET chips = chips + delta                  DELTA, never an absolute
+  → INSERT player_stats … ON CONFLICT DO UPDATE <counters> only when a counter moves (since 26 Sep 2026, Friends V1)
   → INSERT chip_ledger (…, action_id UNIQUE)               one row per player per checkpoint
   → COMMIT
 ```
@@ -859,6 +860,7 @@ user survives a reconnect, which used to reset the count (`userLimiters`, pruned
 | **Poker rooms only** (Go, §6.5; a poker room sends NO `game:*`/`player:*` event and a Teen Patti table no `poker:*` one): `poker:handStarted {handId, handNo, variant, dealerSeat, smallBlind, bigBlind, ante, pot, participants}` · `poker:turn {userId, seatIndex, street, deadline, timeoutMs}` · `poker:action {userId, seatIndex, action, amount, street, pot, allIn?, reason?, discarded?}` · `poker:street {street, community, pot}` · `poker:draw {userId, seatIndex, discarded}` · `poker:showdown {reveals[{userId, seatIndex, cards, best, handName, category, won, outcome?}], community, dealer?, reason}` · `poker:handEnded {handId, handNo, variant, reason, pot, pots[{amount, eligible, winners[{userId, seatIndex, amount, handName}]}], reveals, community, dealer?, summary, nextHandAt}` (all with `roomId`) | room |
 | `poker:cards {cards}` (the deal, and the new hand after a draw) · `poker:yourTurn {street, deadline, timeoutMs, options}` | owner only / player on turn |
 | `chat:message` / `chat:history` / `game:error` | room / socket / socket |
+| `friend:request {requestId, player, createdAt}` / `friend:accepted {requestId, player, friendsSince}` (**Go only**, Friends at the table, 26 Sep 2026, §7.2) — sent by the REST layer, not by a socket event: once `POST /api/friends/requests` (201) / its `…/accept` (200) has committed, to the request's recipient / original sender; `player` is a `PlayerCard` (the sender / the accepter), `friend:request` byte for byte an `incoming[]` item of `GET /api/friends/requests`. Lobby or table alike; never to a room, never kept for an account with no socket, nothing for a reject, a removal or a refusal | that account's live socket |
 
 Production: **`https://prod.sungamestudio.com`** (REST + Socket.IO over TLS) since 24 Sep 2026 — verified that day: `/health` answered with the Go server built from `542e957` (table config from the database, the Redis live store), and `/api/tables`, `/api/profiles` and `/socket.io/` answer. `privacy/` and `account-deletion/` do NOT (404, rechecked the same day); the pages are served at `https://sungamestudio.com/privacy/` and `/account-deletion/` (§7.2). It was `https://api.sungamestudio.com` until then — a name that no longer resolves — which was also the Flutter default from 2026‑09‑08 until 24 Sep 2026, when the default became preprod (§3, `ServerConfig`).
 Client coverage: **Flutter** never sends `lobby:list`, `chat:history`, `ping:rtt`, and never listens
@@ -1049,6 +1051,58 @@ seat — the socket layer's `freshUser` (quickJoin, joinCode, create, switch) an
 seat lock — after which the guard ends the session as it does a deleted account's. A seat already taken plays on while
 its socket lasts; once that drops, the reconnect is refused and the seat lapses after the grace.
 `internal/app/accountdisabled_test.go`; the app's popup is §8.1.
+**Friends V1** (owner's brief, 26 Sep 2026: "Friends System V1 … FRIENDS MUST BE A LOBBY FEATURE … Friends can see
+whether another friend is online and, if they are currently playing, which game/table TYPE and variant they are playing …
+This live information MUST come from Redis, NEVER PostgreSQL"; `auth/friends.go`, `db/friends.go`, `game/playing.go`).
+**Ownership**: `users` = identity, account, wallet; **`player_stats`** = gameplay statistics (§7.3); **`friend_requests`**
+/ **`friendships`** = the graph (§7.3); Redis = presence; Go decides everything, Flutter renders. The **Player ID** is
+`users.id` (trimmed and lower-cased before the primary-key lookup). Every answer is a dedicated DTO (`PlayerCard` =
+`{userId, displayName, profilePicture:{id, url}}`, the url resolved as the user object's `avatarUrl`) — never a `db.User`,
+never chips/diamond/hammer/missile/wallet/purchases/email/provider, never a room or table id or a Redis key (the app tests
+scan every body for them). Routes, all signed in; the four writes through the `wallet(…)` limiter; allowed while seated
+(they move no wallet): **`GET /api/players/{playerId}`** → `{player, friendStatus: NONE|PENDING_SENT|PENDING_RECEIVED|
+FRIENDS|SELF, requestId?}` (`requestId` only with PENDING_*); **`GET /api/players/{playerId}/profile`** → `{profile:
+{…PlayerCard, friendStatus, requestId?, presence? {status: ONLINE|PLAYING|OFFLINE, online, playing, game?, variant?},
+stats {handsPlayed, handsWon, handsLost, handsLeft, winRate}}}` — `presence` ONLY for FRIENDS or SELF; `winRate` =
+round(100·won/played, 2), 0 with no hands; no total winnings or biggest pot (chip figures); **`GET /api/friends`** →
+`{friends: [PlayerCard + {status, online, playing, game?, variant?, friendsSince}]}`, PLAYING then ONLINE then OFFLINE,
+then name; **`GET /api/friends/requests`** → `{incoming, outgoing}` of `{requestId, player, createdAt}`, PENDING only,
+newest first; **`POST /api/friends/requests {userId}`** → 201 `{requestId, friendStatus: PENDING_SENT}`; **`POST
+/api/friends/requests/{requestId}/accept`** → `{friend}` and **`/reject`** → `{requestId, status: REJECTED}`; **`DELETE
+/api/friends/{friendUserId}`** → `{removed: true}`. Refusals: 400 `invalid_player_id`, 404 `player_not_found` (unknown,
+deleted or disabled), 400 `self_request`, 409 `already_friends`, 409 `request_already_sent`, 409 `request_already_received`
+(+ their `requestId`), 404 `request_not_found` (also a request not addressed to the caller), 409 `request_not_pending`, 404
+`not_friends`. **Race-safe**: one PENDING per unordered pair is the partial unique index's job, and a send that loses the
+race (23505) is re-read into the right refusal; send, accept and account deletion lock the two `users` rows `FOR KEY SHARE`
+in id order and then the request, one order everywhere, so they cannot deadlock. Accept is ONE transaction (the request
+`FOR UPDATE`, recipient and PENDING checked, ACCEPTED, A→B and B→A `ON CONFLICT DO NOTHING`); remove is one transaction
+deleting both rows. Deleted and disabled accounts are left out of the friend list and both request lists (a list entry
+must never lead to a profile that answers 404). `DELETE /api/account` also cancels the player's PENDING requests and
+deletes their friendships, in its transaction. **Presence** reuses the existing `kt:online` (set on connect, refreshed by
+the 30 s heartbeat, lapses after 90 s, cleared when the account's live socket closes) and adds ONE record per seated player,
+**`kt:playing:<userId>`** = `{"game":"TEEN_PATTI|POKER","variant":"<CATEGORY upper-cased>","updatedAt":<ms>}` — never a
+room id — written in the same MULTI as the seat mirror (`live.Store.SetSeated(ctx, user, room, playing, ttl)`: every join,
+a switch or consolidation move's target, the restore), refreshed by `ReconcileLive`'s every-pass seat rewrite (so it never
+lapses under a seated player), deleted with the seat (`ClearSeated`: leave, kick, grace lapse, a move's source, destroy,
+`sweepStrays`). Its TTL is `game.PlayingTTLFor(LIVE_RECONCILE_MS)` — three reconcile intervals, at least 90 s — and none at
+all with the reconciler off. Read in one pipelined round trip per 500 ids (`live.Store.Presence`: `HMGET kt:online` +
+`MGET kt:playing:…`, metrics op `presence`); status is PLAYING when the record exists (online then true: a player inside
+the 60 s reconnect grace stays "Playing now" rather than flickering offline), else ONLINE, else OFFLINE; a failing live store
+answers every friend OFFLINE with one WARN. The metrics middleware labels the new routes by PATTERN (`/api/players/{playerId}`
+…), never by id. V1 had no socket events and the app polled (§8.4); **Friends at the table** (owner, 26 Sep 2026: "in a
+gametable, if a player clicks other player pod then a drawer from right side will open, where he can send friend request and
+player by clicking his pod can accept the friend request") added two PUSHES and nothing else server-side — the routes were
+already allowed while seated: once a request (201) or an accept (200) has committed and its answer is written, the handler
+calls `Deps.FriendRequestSent(recipientID, item)` / `Deps.FriendRequestAccepted(senderID, FriendAccepted)`, which `app.go`
+wires to `socket.Handler.NotifyFriendRequest`/`NotifyFriendAccepted` → `friend:request` / `friend:accepted` on that
+account's live socket (§7.1; nil-safe hooks, auth never imports socket). `db.Friends.Send` returns the request as its
+recipient lists it and `Accept` both sides of the new friendship (`db.AcceptedRequest`), read back in their transactions.
+Tests: `internal/db/{friends,player_stats}_test.go`,
+`internal/auth/friends_test.go`, `internal/app/friends_test.go` (the eight routes end to end, presence over real sockets
+for every variant, the grace, a restart, a failing store), `internal/game/roommanager_playing_test.go`, the live conformance
+suite on all three stores; the pushes in `internal/{auth,app}/friendpush_test.go` and `internal/socket/friends_test.go` (both
+events over real sockets, nothing on reject/remove/refusal or to an account with no socket, two players seated mid-hand
+befriending each other with no `seated` refusal, no wallet word, room id or code in a push).
 `GET /health` (since 23 Sep 2026 it ends with `tableConfig: {source, version, fallback}` — where the tables came
 from; `fallback:true` is a `TABLE_CONFIG_SOURCE=db` boot that could not use the database's catalogue and runs the env
 composition, the one state an operator must go and fix). Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
@@ -1107,7 +1161,7 @@ owns `users`.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly twenty-two, and none of them is game state** (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph): ten of accounts, money and the picture
+Tables — **there are exactly twenty-five, and none of them is game state** (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph; `player_stats`, `friend_requests` and `friendships` since the same day, Friends V1, §7.2): ten of accounts, money and the picture
 catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`, `user_table_choice` — the paragraph after the
 `users` trigger below; merged 23 Sep 2026) (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
 `missile_spends` are below), and since 23 Sep 2026 **four of table configuration** — `table_engines`,
@@ -1200,6 +1254,25 @@ epoch-ms with a DEFAULT; no index beyond the keys each declares (each is read wh
   exactly as one on the defaults did, and a default changed in `config` without the seed fails that test naming the
   table. The seed is the CODE's default menu: a deployment whose `.env` configures its own gets its own into the
   database with `gameplay -export-table-config` (§4, DEPLOY.md §3).
+
+**Gameplay statistics live in `player_stats`** since 26 Sep 2026 (Friends V1, owner: "Create a separate player_stats
+table … Do not maintain duplicate copies"): `user_id` PK → `users` (CASCADE), `hands_played`, `hands_won`, `hands_lost`,
+`hands_left`, `total_winnings`, `biggest_pot` (BIGINT), `created_at`/`updated_at` with defaults. The ledger's checkpoints
+(§5.1) keep `UPDATE users` to the wallet and add, in the same transaction and only when a counter moves, an upsert here
+(`db.addPlayerStats`); every account read `LEFT JOIN`s it (0 without a row), the HANDS_PLAYED milestone reads it, and the
+wire `user` object is byte for byte what it was (`handsLeftMid` ← `hands_left`). **`users` has no stat column** (owner,
+26 Sep 2026: "only store in player_stats table") — the six are gone from `CREATE TABLE users`, and nothing copies an older
+database's figures across: this build is deployed onto a FRESH database (owner, the same day), and on an older one the
+statistics simply start at 0 (the old columns, where a database has them, are never read or written). A rollback to
+go-server/v1.5.0, which reads and writes those columns, therefore needs a fresh database too (DEPLOY.md §5). **The
+friends graph**: **`friend_requests`** (`id` BIGSERIAL, `requester_id`/`recipient_id` → `users` CASCADE, `status`
+PENDING|ACCEPTED|REJECTED|CANCELLED, timestamps, `CHECK requester <> recipient`; `UNIQUE INDEX … (LEAST(requester_id,
+recipient_id), GREATEST(…)) WHERE status = 'PENDING'` — no duplicate and no A→B beside B→A — plus the two partial indexes
+the incoming and outgoing lists read) and **`friendships`** (`id`, `user_id`/`friend_user_id` → `users` CASCADE,
+`created_at`, `UNIQUE (user_id, friend_user_id)`, `CHECK` not self; two rows per friendship). All three are plain CREATE
+TABLE / INDEX IF NOT EXISTS in `V1.0.0` (nothing alters `users`), so an existing database gains them at its next boot, and
+under DEPLOY.md §7 they need only its REFERENCES and UPDATE grants (`handover_boot_test.go` re-creates them). No presence of
+any kind is stored in PostgreSQL.
 
 Timestamps are epoch-ms BIGINT. Rewards: milestone 25,000 / 25 hands (`didChaal` only), timed bonus 10,000 / 4h (`POST /api/rewards/bonus`, `rewards.bonus*`), and beside it the Go-only daily bonus 1,00,000 chips + 1 hammer / 24h (owner, 14 Sep 2026; `POST /api/rewards/daily`, `rewards.daily*`, ledger reason `daily_bonus`) —
 constants in `users.js`. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} ]*$/u` —
@@ -1783,6 +1856,71 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   × 1.1; the toast area measures the chip, so it moves aside by itself). `test/bonus_chip_icons_test.dart` pumps the lobby at 640×360
   ×1.25 in all five languages and holds the word absent, both glyphs present, the figures un-ellipsised (laid-out width = max intrinsic
   width) and the chip the same height in both states.
+- **Friends V1 — a LOBBY feature** (owner's brief, 26 Sep 2026; server side §7.2/§7.3; `screens/friends_screen.dart`,
+  `state/friends_state.dart`, `models/friends.dart`), with ONE table surface since the same evening (**Friends at the
+  table**, owner: "in a gametable, if a player clicks other player pod then a drawer from right side will open, where he
+  can send friend request and player by clicking his pod can accept the friend request"; `widgets/player_drawer.dart`):
+  a tap on ANOTHER occupied seat's pod — on the Teen Patti and the poker felt, never the viewer's own, never an empty
+  chair (`playerDrawerSeat`), the plaque only — opens `PlayerDrawer`, the tables' Scaffold `endDrawer` (right side,
+  `TableSpace.drawerW`, `TableScrim.drawer`, `endDrawerEnableOpenDragGesture: false`; the Scaffold still watches nothing;
+  back closes it first; the variation window closes it as it does the left drawer): the player's picture and name at
+  once from the seat, then `GET /api/players/{id}/profile` — NONE **Add Friend** (gold primary) → **Request Sent** (dead);
+  PENDING_RECEIVED **Accept** (gold) + **Reject** (outlined); FRIENDS a ✓ Friends tag (no Remove at a table); a refusal
+  re-reads and shows its note in the drawer — for a friend, **"Friends for 3 days"** under the name in the head (owner,
+  26 Sep 2026: "show each other at the top how long they are friends in time"; `_FriendsFor`, from the friend list's
+  `friendsSince` via `FriendsState.friendsSinceOf`, the same moment for both, in the largest whole unit — minutes, hours,
+  days, months of 30 days, years — or "Friends since just now", counted again every 30 s; `Strings.friendsFor`, which
+  added months and years to the time units) — and the five stat tiles through the ONE `PlayerStatsGrid`
+  (`widgets/player_profile.dart`, `RecordSurface.lobby|table`, shared with the lobby profile). No presence, no wallet, no
+  table id. Its own state slot (`FriendsState.seatPlayer/seatProfile/openSeat/closeSeat`), apart from the page's. A seat
+  whose player has asked the viewer wears **`SeatRequestBadge`** (a gold person-add disc on the lower-LEFT corner of their
+  picture — on the pod's top corner it covered a long name's first letter), and a seat whose player is the viewer's
+  FRIEND wears **`SeatFriendMark`** (owner, 26 Sep 2026: "if two or more friends are on same table … their should appear
+  small icon on each of them … while other are not their friend so they cannot see that icon"; a green disc on the
+  picture's lower-RIGHT corner, named "Friend") — both laid over the picture in a Stack that is always there
+  (`SeatPod.requestBadge/friendMark`, `markSide`), so neither changes the pod's size or the ring, never on the viewer's
+  own pod or an empty chair, on both felts. Decided ON THE PHONE from the viewer's own lists, never sent to anyone:
+  each friend sees the mark on the other's pod because each is in the other's list, and nobody else sees either.
+  `FriendsState.tableOpened()` reads the incoming requests AND the friends list ONCE as a table opens (in
+  `handleState`); `isFriend` answers from ONE id set kept with the friends list by every read, accept, push and remove;
+  the pushes and the moves keep both — nothing polls at a table, and removal is lobby-only, so the list read at the
+  table's opening stays right for the sitting.
+  **The pushes** (§7.1): `GameConnection.onFriendRequest/onFriendAccepted`, registered before connect (a push can beat
+  `session:ready`); `GameState.handleFriendRequest` → the request joins the incoming list and a toast says "{name} sent
+  you a friend request." — "… Tap their seat to answer." when the sender sits at the viewer's table (`seatedHere`), no toast
+  for a sender blocked in the table chat; `handleFriendAccepted` → "{name} accepted your friend request."; an open drawer or
+  page showing that player re-reads. The source scan in `test/friends_page_test.dart` now holds that the table files know
+  the drawer and the badge and never the Friends page, its key or presence. `test/friends_table_test.dart` (73: both felts, the friend mark, the friendship's age,
+  every status, the moves, the pushes, 640x360 ×1.25 in all five languages both themes); pictures by hand,
+  `test/friends_table_shots.dart`. **The key**
+  (`FriendsKey`) is a round 44dp key of the corner chips' card surface just left of the MILESTONE chip in the lobby's foot —
+  not in the top bar, where a fourth key would have cut the player's name at text ×1.0 on a 640dp phone (the wallet pill
+  takes 53% of a tight bar); the people glyph in a 28dp disc, turning gold with a soft glow and a count badge ("9+" past 9)
+  while requests wait; hidden signed out and on a server from before Friends (404). `lobbyNoticeArea` keeps toasts off it
+  where 160dp remain, and gives a toast the plain foot (null) while a page or dialog covers the lobby
+  (`ModalRoute.isCurrentOf` on the milestone chip): kept between chips hidden under the Friends page, its toasts stood 156dp
+  wide on a 640dp phone and broke over three lines. **The page** (`showFriends`, risen from the foot like the store and the Lucky Draw; gold-edged glass by
+  night, the warm card by day): a header with the title, Add Friend and close, then "Your Player ID" — the full UUID, scaled
+  to fit and never cut — and Copy ("Copied" for 2 s); on a landscape phone two columns, Friend Requests (Accept / Reject)
+  and Friends (PLAYING, ONLINE, OFFLINE, then name: a green dot and "Online · Playing now" in gold over "Teen Patti • Seen" /
+  "Poker • Texas Hold'em" in the app's own engine and category names, or a grey dot and "Offline"), each with pull to
+  refresh; one list below 520dp. **Add Friend** searches by Player ID and the card's action follows `friendStatus` (Add
+  Friend · Request Sent · Accept · a Friends tag · "That's you"), refusals in words under it. A landscape phone's keyboard
+  leaves the panel 70–110dp, so while it is up the header steps aside (`FriendsScreen.typingRoom`, 160dp) and the field and
+  Search stand alone above it — with the header the field stood under the keyboard on TP_Small; Search puts the keyboard
+  away and the header back. The gap under the header lives inside Add Friend's own scroll view (`padding: top`), because a
+  scroll view that overflows clips at its top edge and the field's floating label stands half above the field's box — the
+  test holds the field, its label and Search inside the scroll view and above the keyboard at 640x360, 732x412 and 915x412,
+  ×1.0 and ×1.25, in all five languages. **Profile**: picture, name,
+  presence (friends and self only), the relationship's action or Remove Friend (asked first in a `GlassDialog`), and five stat
+  tiles — hands played, won, lost, left mid-hand, win rate — in plain thousands grouping, never `formatChips`. No wallet
+  figure, word or icon on any of it. **`FriendsState`** is its own notifier owned by `GameState` (the page watches only it, so
+  the one-second tick never rebuilds the page): the badge's count at every sign-in, whenever the lobby appears (back from a
+  table too), every 60 s while the lobby shows (not while the page is open) and when the page closes; the page's lists when it
+  opens, every 15 s while it is on screen (the timer tied to the page's own lifetime) and on pull or Retry; an answer that set
+  out before an accept, reject or remove is dropped so it cannot undo it; the page closes itself if the app leaves the lobby.
+  56 strings in five languages. Tests: `friends_{dtos,api,state,page,table}_test.dart` (204) on `friends_fixture.dart`, a fake
+  server built from the contract; pictures by hand, `test/friends_shots.dart`.
 - **Emojis** (owner, 26 Sep 2026; server side §7.1/§7.2/§7.3; `widgets/emoji_shelf.dart`, `widgets/emoji_art.dart`).
   `EmojiItem`/`ChatEmoji` DTOs, `ApiClient.emojis`/`buyEmoji`, `GameConnection.sendEmoji` (`chat:emoji`), `GameState.emojis`
   (loaded with the pictures, warmed into `PictureCache`), `buyEmoji` → `bought | notEnough | refused`, `sendEmoji` sharing
@@ -3073,7 +3211,7 @@ deploy runbook; `steps.txt` the six-line routine.
   unchanged. Every shipped client is websocket-only.
 - **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, exactly two since 23 Sep 2026 —
   `V1.0.0__baseline.sql` all DDL, `V1.0.1__seed.sql` all DML — applied in version order, idempotent, run at
-  every start: twenty-two tables — money, accounts, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
+  every start: twenty-five tables — money, accounts, gameplay stats, the friends graph, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
   state — §7.3), `TableConfigs.Load`/`ExportTableConfigSQL` (the table catalogue), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table

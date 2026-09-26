@@ -318,8 +318,12 @@ const dumpDatabase = async (schema) => {
   await client.connect();
   try {
     const users = await client.query(
-      `SELECT display_name, chips, hands_played, hands_won, hands_lost, hands_left_mid, total_winnings, biggest_pot
-         FROM users WHERE display_name LIKE 'DiffP%' ORDER BY display_name`,
+      // The counters live in player_stats since Friends V1 (26 Sep 2026).
+      `SELECT u.display_name, u.chips, COALESCE(s.hands_played, 0) AS hands_played, COALESCE(s.hands_won, 0) AS hands_won,
+              COALESCE(s.hands_lost, 0) AS hands_lost, COALESCE(s.hands_left, 0) AS hands_left_mid,
+              COALESCE(s.total_winnings, 0) AS total_winnings, COALESCE(s.biggest_pot, 0) AS biggest_pot
+         FROM users u LEFT JOIN player_stats s ON s.user_id = u.id
+        WHERE u.display_name LIKE 'DiffP%' ORDER BY u.display_name`,
     );
     const ledger = await client.query(
       `SELECT u.display_name, l.reason, l.delta, l.balance,

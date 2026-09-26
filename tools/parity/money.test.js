@@ -209,6 +209,11 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   // user_emojis (26 Sep 2026) are the emoji catalogue and who has bought
   // which — a catalogue and receipts, the profile pictures' shape again; a
   // sent emoji is a chat line, and chat lives with the room in Redis.
+  // player_stats, friend_requests and friendships (Friends V1, 26 Sep 2026)
+  // are account facts: the career counters a checkpoint adds to (the six that
+  // sat on users), and who asked whom and who is friends with whom — whether
+  // a friend is online or at a table is Redis's (kt:online,
+  // kt:playing:<userId>) and no row here names a room.
   // player_levels, xp_sources and xp_settings (26 Sep 2026) are configuration:
   // the level ladder — each level's title, icon and the winning tax it
   // carries —, what earns XP and the daily cap; the seed and the owner write
@@ -240,11 +245,11 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
     assert.ok(!tables.includes(retired), `${retired} is game state and must not exist`);
   }
   assert.deepEqual(tables, [
-    'chip_ledger', 'diamond_purchases', 'emojis', 'hammer_purchases', 'hammer_spends', 'lucky_draw_slots', 'lucky_draws',
-    'missile_purchases', 'missile_spends', 'player_levels', 'player_xp', 'profile_pictures', 'table_categories',
-    'table_configs', 'table_engines', 'table_pictures', 'table_settings', 'user_emojis', 'user_lucky_draws',
-    'user_milestones', 'user_profile_pictures', 'user_table_choice', 'user_table_pictures', 'users', 'xp_settings',
-    'xp_sources',
+    'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships', 'hammer_purchases', 'hammer_spends',
+    'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends', 'player_levels', 'player_stats', 'player_xp',
+    'profile_pictures', 'table_categories', 'table_configs', 'table_engines', 'table_pictures', 'table_settings',
+    'user_emojis', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures', 'user_table_choice',
+    'user_table_pictures', 'users', 'xp_settings', 'xp_sources',
   ], `the schema must hold money, audit, accounts, the picture catalogues and table configuration only, got ${tables.join(', ')}`);
   // Configuration, by construction: no column of the four — nor of the level
   // ladder and the XP rules — refers to a room, a hand, a seat or a user.
@@ -271,7 +276,13 @@ test('the chip ledger is append-only', async () => {
 });
 
 test('counters: handsWon follows the hand_win rows, and the winnings counters agree with them', async () => {
-  const { rows: users } = await query('SELECT id, hands_played, hands_won, hands_lost, hands_left_mid, total_winnings, biggest_pot FROM users');
+  // The counters live in player_stats since Friends V1 (26 Sep 2026); the
+  // users columns of the same names are retired and read 0 for ever.
+  const { rows: users } = await query(
+    `SELECT u.id, COALESCE(s.hands_played, 0) AS hands_played, COALESCE(s.hands_won, 0) AS hands_won,
+            COALESCE(s.hands_lost, 0) AS hands_lost, COALESCE(s.hands_left, 0) AS hands_left,
+            COALESCE(s.total_winnings, 0) AS total_winnings, COALESCE(s.biggest_pot, 0) AS biggest_pot
+       FROM users u LEFT JOIN player_stats s ON s.user_id = u.id`);
   // There is no `hands` table to read a pot from any more, and a winner's own
   // stake is folded into their single hand_win row (delta = pot - own stake),
   // so the exact pot is not derivable from the ledger. What IS checkable:
