@@ -5980,12 +5980,21 @@ const double _toastFloor = 160;
 ///
 /// Read through the screen's fade-in, the chip measures a little nearer the
 /// middle than it comes to rest, which can only move the toast further off it.
+///
+/// While a page or a dialog stands over the lobby (the Friends page, the
+/// store), the foot is covered and there is nothing at it to keep clear of:
+/// the toast takes the plain foot. Kept between the chips under the page, the
+/// Friends page's "Tall7 is no longer your friend." stood 156dp wide on a
+/// 640dp phone and broke over three lines (26 Sep 2026).
 Rect? lobbyNoticeArea(BuildContext context) {
   final chip = _milestoneChip.currentContext?.findRenderObject();
   if (chip is! RenderBox ||
       !chip.attached ||
       !chip.hasSize ||
       chip.size.isEmpty) {
+    return null;
+  }
+  if (ModalRoute.isCurrentOf(_milestoneChip.currentContext!) == false) {
     return null;
   }
   final chipLeft = chip.localToGlobal(Offset.zero).dx;

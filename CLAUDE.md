@@ -1851,13 +1851,21 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   not in the top bar, where a fourth key would have cut the player's name at text ×1.0 on a 640dp phone (the wallet pill
   takes 53% of a tight bar); the people glyph in a 28dp disc, turning gold with a soft glow and a count badge ("9+" past 9)
   while requests wait; hidden signed out and on a server from before Friends (404). `lobbyNoticeArea` keeps toasts off it
-  where 160dp remain. **The page** (`showFriends`, risen from the foot like the store and the Lucky Draw; gold-edged glass by
+  where 160dp remain, and gives a toast the plain foot (null) while a page or dialog covers the lobby
+  (`ModalRoute.isCurrentOf` on the milestone chip): kept between chips hidden under the Friends page, its toasts stood 156dp
+  wide on a 640dp phone and broke over three lines. **The page** (`showFriends`, risen from the foot like the store and the Lucky Draw; gold-edged glass by
   night, the warm card by day): a header with the title, Add Friend and close, then "Your Player ID" — the full UUID, scaled
   to fit and never cut — and Copy ("Copied" for 2 s); on a landscape phone two columns, Friend Requests (Accept / Reject)
   and Friends (PLAYING, ONLINE, OFFLINE, then name: a green dot and "Online · Playing now" in gold over "Teen Patti • Seen" /
   "Poker • Texas Hold'em" in the app's own engine and category names, or a grey dot and "Offline"), each with pull to
   refresh; one list below 520dp. **Add Friend** searches by Player ID and the card's action follows `friendStatus` (Add
-  Friend · Request Sent · Accept · a Friends tag · "That's you"), refusals in words under it. **Profile**: picture, name,
+  Friend · Request Sent · Accept · a Friends tag · "That's you"), refusals in words under it. A landscape phone's keyboard
+  leaves the panel 70–110dp, so while it is up the header steps aside (`FriendsScreen.typingRoom`, 160dp) and the field and
+  Search stand alone above it — with the header the field stood under the keyboard on TP_Small; Search puts the keyboard
+  away and the header back. The gap under the header lives inside Add Friend's own scroll view (`padding: top`), because a
+  scroll view that overflows clips at its top edge and the field's floating label stands half above the field's box — the
+  test holds the field, its label and Search inside the scroll view and above the keyboard at 640x360, 732x412 and 915x412,
+  ×1.0 and ×1.25, in all five languages. **Profile**: picture, name,
   presence (friends and self only), the relationship's action or Remove Friend (asked first in a `GlassDialog`), and five stat
   tiles — hands played, won, lost, left mid-hand, win rate — in plain thousands grouping, never `formatChips`. No wallet
   figure, word or icon on any of it. **`FriendsState`** is its own notifier owned by `GameState` (the page watches only it, so
@@ -1865,7 +1873,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   table too), every 60 s while the lobby shows (not while the page is open) and when the page closes; the page's lists when it
   opens, every 15 s while it is on screen (the timer tied to the page's own lifetime) and on pull or Retry; an answer that set
   out before an accept, reject or remove is dropped so it cannot undo it; the page closes itself if the app leaves the lobby.
-  47 strings in five languages. Tests: `friends_{dtos,api,state,page}_test.dart` (100) on `friends_fixture.dart`, a fake
+  47 strings in five languages. Tests: `friends_{dtos,api,state,page}_test.dart` (131) on `friends_fixture.dart`, a fake
   server built from the contract; pictures by hand, `test/friends_shots.dart`.
 - **Emojis** (owner, 26 Sep 2026; server side §7.1/§7.2/§7.3; `widgets/emoji_shelf.dart`, `widgets/emoji_art.dart`).
   `EmojiItem`/`ChatEmoji` DTOs, `ApiClient.emojis`/`buyEmoji`, `GameConnection.sendEmoji` (`chat:emoji`), `GameState.emojis`

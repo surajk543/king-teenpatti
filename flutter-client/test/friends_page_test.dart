@@ -244,6 +244,31 @@ void main() {
       }, () => server.client);
     });
 
+    testWidgets('a toast raised over the page takes the plain foot, not the '
+        'gap between the lobby chips the page covers', (tester) async {
+      await _setView(tester);
+      final server = populatedServer();
+      await http.runWithClient(() async {
+        final state = signedInState();
+        await _pumpLobby(tester, state);
+        final lobby = tester.element(find.byType(LobbyScreen));
+        final between = lobbyNoticeArea(lobby);
+        expect(between, isNotNull);
+        expect(between!.width, lessThan(Dim.toastW(640)));
+
+        await tester.tap(find.byTooltip('Friends'));
+        await _settle(tester);
+        expect(find.byType(FriendsScreen), findsOneWidget);
+        expect(lobbyNoticeArea(lobby), isNull);
+
+        await _systemBack(tester);
+        await _settle(tester);
+        expect(find.byType(FriendsScreen), findsNothing);
+        expect(lobbyNoticeArea(lobby), between);
+        await _unmount(tester, state);
+      }, () => server.client);
+    });
+
     testWidgets('no request waiting, no count; a server from before Friends, '
         'no key', (tester) async {
       await _setView(tester);
@@ -1136,6 +1161,88 @@ void main() {
         t.removeFriendBody,
       ]) {
         expect(wallet.hasMatch(line), isFalse, reason: '${lang.name} $line');
+      }
+    }
+  });
+  // A landscape phone's keyboard takes about 69% of its height (Gboard on
+  // TP_Small: 248 of 360dp). The page stands above it, and what is being
+  // typed must stay in view — the header above the field once pushed the
+  // field under the keyboard on a 640x360 phone (26 Sep 2026).
+  group('the keyboard', () {
+    for (final screen in const [
+      Size(640, 360),
+      Size(732, 412),
+      Size(915, 412),
+    ]) {
+      for (final scale in const [1.0, 1.25]) {
+        for (final lang in AppLang.values) {
+          testWidgets('on a ${screen.width.toInt()}x${screen.height.toInt()} '
+              'phone at text x$scale in ${lang.name} the Player ID field and '
+              'its Search key stay above the keyboard', (tester) async {
+            await _setView(tester, screen: screen, textScale: scale);
+            final keyboard = (screen.height * 0.69).roundToDouble();
+            final server = populatedServer();
+            await http.runWithClient(() async {
+              final state = signedInState(lang: lang);
+              await _openPage(tester, state);
+              await tester.tap(_key('friends-add'));
+              await _settle(tester);
+              await tester.tap(_key('friends-id-field'));
+              await tester.pump();
+              tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+              addTearDown(tester.view.resetViewInsets);
+              await tester.enterText(
+                _key('friends-id-field'),
+                'c1fccbdc-a814-4399-890c-ded08523f5c1',
+              );
+              await _settle(tester);
+              expect(tester.takeException(), isNull);
+              // Above the keyboard, and inside the view that scrolls — which
+              // clips at its edges once its contents overflow it.
+              final scroller = find
+                  .descendant(
+                    of: _key('friends-view-add'),
+                    matching: find.byType(Scrollable),
+                  )
+                  .first;
+              final visible = Rect.fromLTRB(
+                0,
+                0,
+                screen.width,
+                screen.height - keyboard,
+              ).intersect(tester.getRect(scroller));
+              final label = find.descendant(
+                of: _key('friends-id-field'),
+                matching: find.text(Strings(lang).playerIdLabel),
+              );
+              for (final (what, finder) in [
+                ('field', _key('friends-id-field')),
+                ('its label', label),
+                ('Search', _key('friends-search')),
+              ]) {
+                final rect = tester.getRect(finder);
+                expect(
+                  visible.contains(rect.topLeft) &&
+                      visible.contains(rect.bottomRight - const Offset(1, 1)),
+                  isTrue,
+                  reason: '$what $rect outside $visible',
+                );
+              }
+              // Still the field being typed in.
+              expect(
+                tester.testTextInput.isVisible && state.friends.lookup == null,
+                isTrue,
+              );
+              // Searching puts the keyboard away and the header back.
+              await tester.tap(_key('friends-search'));
+              tester.view.resetViewInsets();
+              await _settle(tester);
+              expect(_key('friends-back'), findsOneWidget);
+              expect(_key('friends-close'), findsOneWidget);
+              await _unmount(tester, state);
+            }, () => server.client);
+          });
+        }
       }
     }
   });

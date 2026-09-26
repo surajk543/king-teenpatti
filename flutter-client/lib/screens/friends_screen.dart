@@ -325,6 +325,14 @@ class FriendsScreen extends StatefulWidget {
   /// How long "Copied" stands on the copy key.
   static const Duration copiedFor = Duration(seconds: 2);
 
+  /// The room the panel needs, while the keyboard is up, to keep its header
+  /// over the Player ID field. A landscape phone's keyboard leaves it 70–110dp,
+  /// room for the field and its Search key and not for the header as well:
+  /// with it, the field stood under the keyboard on a 640x360 phone
+  /// (26 Sep 2026). There the header steps aside until the keyboard goes; a
+  /// tablet, leaving 400dp, keeps it.
+  static const double typingRoom = 160;
+
   @override
   State<FriendsScreen> createState() => _FriendsScreenState();
 }
@@ -594,22 +602,40 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   ),
                   child: Material(
                     type: MaterialType.transparency,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        _header(t, typing: keyboard > 0),
-                        if (_view == _View.list) ...[
-                          const SizedBox(height: Space.sm),
-                          _PlayerIdStrip(
-                            t: t,
-                            id: myId,
-                            copied: _copied,
-                            onCopy: () => _copyId(myId),
-                          ),
-                        ],
-                        const SizedBox(height: Space.md),
-                        Expanded(child: body),
-                      ],
+                    child: LayoutBuilder(
+                      builder: (context, box) {
+                        final bare =
+                            keyboard > 0 &&
+                            _view == _View.add &&
+                            box.maxHeight < FriendsScreen.typingRoom;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (!bare) ...[
+                              _header(t, typing: keyboard > 0),
+                              if (_view == _View.list) ...[
+                                const SizedBox(height: Space.sm),
+                                _PlayerIdStrip(
+                                  t: t,
+                                  id: myId,
+                                  copied: _copied,
+                                  onCopy: () => _copyId(myId),
+                                ),
+                              ],
+                              // Add Friend keeps this gap inside its own
+                              // scroll view (_AddFriendView).
+                              if (_view != _View.add)
+                                const SizedBox(height: Space.md),
+                            ],
+                            // Keyed so the field keeps its focus as the header
+                            // steps aside and comes back.
+                            Expanded(
+                              key: const ValueKey('friends-body'),
+                              child: body,
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -1770,6 +1796,12 @@ class _AddFriendView extends StatelessWidget {
     final note = f.lookupNote;
 
     return SingleChildScrollView(
+      // The gap under the page's header, kept inside the scroll view: the
+      // field's floating label stands half above the field's own box, and a
+      // scroll view whose contents overflow — the keyboard up on a landscape
+      // phone, the header gone — clips at its top edge, where it cut the
+      // label in half.
+      padding: const EdgeInsets.only(top: Space.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
