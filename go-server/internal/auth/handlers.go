@@ -998,6 +998,128 @@ func tablePictureHammersRefusal(err error) string {
 	return MsgTablePictureHammers
 }
 
+// Emojis is GET /api/emojis (owner, 26 Sep 2026; Go only): the emoji catalogue
+// in display order, as Profiles is the face catalogue. The token is optional
+// for the same reasons — the catalogue is not private (the app lists it before
+// sign-in), and a token buys the `owned` flag per row; a bad or expired one is
+// ignored, not refused. There is no expiry sweep here: an emoji is never worn,
+// and ownership tests the expiry itself. {"emojis": []} when nothing is on
+// offer — which is where a fresh database starts, the seed holding no emoji.
+func (h *Handler) Emojis(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Emojis == nil {
+		WriteJSON(w, http.StatusOK, EmojisResponse{Emojis: []db.Emoji{}})
+		return
+	}
+	viewer := ""
+	if claims, err := h.deps.Tokens.Verify(TokenFromRequest(r)); err == nil {
+		viewer = claims.Subject
+	}
+	emojis, err := h.deps.Emojis.List(r.Context(), viewer)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, EmojisResponse{Emojis: emojis})
+}
+
+// BuyEmoji is POST /api/emojis/buy {emojiId} (owner, 26 Sep 2026; Go only):
+// BuyPicture for an emoji, with the same money rules. The answer is {user,
+// emoji, charged, spent}, spent in the emoji's currency; charged:false when it
+// was already theirs and running (nothing moved), and a lapsed rental is
+// renewed from now. Refusals, in order: an id that is absent or not a positive
+// integer, or no such row → 400 unknown_emoji; a retired row → 400
+// emoji_retired; a free one → 400 emoji_free; a COIN emoji while seated → 409
+// seated; a wallet short of the price → 409 emoji_unaffordable, the message
+// naming the wallet and the price (EmojiUnaffordableMessage).
+//
+// A seated player may buy a DIAMOND or HAMMER emoji and not a COIN one — the
+// money rule BuyPicture explains (CLAUDE.md §5.1) — and in the lobby the
+// purchase runs under the player's seat lock (Deps.WhileUnseated) for the
+// reason given there. Buying is the whole of it: an emoji is never worn, and
+// owning it is what lets the player send it at a table (chat:emoji).
+func (h *Handler) BuyEmoji(w http.ResponseWriter, r *http.Request, user *db.User) {
+	var req BuyEmojiRequest
+	if err := ReadJSONBody(r, &req); err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	if req.EmojiID == nil || h.deps.Emojis == nil {
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownEmoji, Message: MsgUnknownEmoji})
+		return
+	}
+	id, ok := pictureIDFrom(*req.EmojiID)
+	if !ok {
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownEmoji, Message: MsgUnknownEmoji})
+		return
+	}
+
+	var bought *db.EmojiPurchase
+	var err error
+	if !h.whileUnseated(r.Context(), user.ID, func(ctx context.Context) { bought, err = h.deps.Emojis.Buy(ctx, user.ID, id) }) {
+		bought, err = h.deps.Emojis.BuyAtTable(r.Context(), user.ID, id)
+	}
+	switch {
+	case errors.Is(err, db.ErrEmojiUnknown):
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownEmoji, Message: MsgUnknownEmoji})
+		return
+	case errors.Is(err, db.ErrEmojiInactive):
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeEmojiRetired, Message: MsgEmojiRetired})
+		return
+	case errors.Is(err, db.ErrEmojiFree):
+		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeEmojiFree, Message: MsgEmojiFree})
+		return
+	case errors.Is(err, db.ErrEmojiAtTable):
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedEmoji})
+		return
+	case errors.Is(err, db.ErrEmojiUnaffordable):
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeEmojiUnaffordable, Message: emojiUnaffordableRefusal(err)})
+		return
+	case err != nil:
+		h.writeError(w, r, err)
+		return
+	}
+
+	if bought.Charged && h.deps.Logger != nil {
+		h.deps.Logger.Info("emoji bought",
+			"userId", user.ID, "emojiId", id, "currency", bought.Emoji.Currency, "spent", bought.Spent)
+	}
+	WriteJSON(w, http.StatusOK, BuyEmojiResponse{
+		User:    bought.User,
+		Emoji:   bought.Emoji,
+		Charged: bought.Charged,
+		Spent:   bought.Spent,
+	})
+}
+
+// EmojiUnaffordableMessage is emoji_unaffordable's sentence for a wallet of
+// currency (db.PictureCurrencyDiamond, …Hammer, anything else chips) short of
+// cost: "You need 5 diamonds to unlock this emoji.", the singular for a price
+// of one.
+func EmojiUnaffordableMessage(currency string, cost int64) string {
+	one, many := MsgEmojiChip, MsgEmojiChipsFmt
+	switch currency {
+	case db.PictureCurrencyDiamond:
+		one, many = MsgEmojiDiamond, MsgEmojiDiamondsFmt
+	case db.PictureCurrencyHammer:
+		one, many = MsgEmojiHammer, MsgEmojiHammersFmt
+	}
+	if cost == 1 {
+		return one
+	}
+	return fmt.Sprintf(many, cost)
+}
+
+// emojiUnaffordableRefusal reads the wallet and the price off a
+// db.EmojiShortage, and falls back to a sentence without them for a refusal
+// that carries none.
+func emojiUnaffordableRefusal(err error) string {
+	var short *db.EmojiShortage
+	if errors.As(err, &short) && short.Cost > 0 {
+		return EmojiUnaffordableMessage(short.Currency, short.Cost)
+	}
+	return MsgEmojiUnaffordable
+}
+
 // Name is POST /api/profile/name {name} (requirement 29). Order: seated →
 // 409 ("You can only change your name in the lobby."); db.NormalizeDisplayName
 // failure → 400 {error: empty_name|name_too_long|invalid_name, message}; then

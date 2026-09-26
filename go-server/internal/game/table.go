@@ -839,6 +839,28 @@ func (t *Table) PostChat(userID, text string) (*ChatMessage, error) {
 	return msg, failure
 }
 
+// PostEmoji is PostChat for an animated emoji (Room.PostEmoji): the sender
+// must be seated (not_in_room), and the line — never nil — is stored, emitted
+// through OnChat and mirrored to the live store as a typed line is.
+func (t *Table) PostEmoji(userID string, emoji ChatEmoji) (*ChatMessage, error) {
+	var msg *ChatMessage
+	var failure error
+	err := t.run(func() {
+		s := t.findSeat(userID)
+		if s == nil {
+			failure = NewGameError(CodeNotInRoom, MsgNotInRoom)
+			return
+		}
+		msg = t.chat.AddEmoji(userID, s.displayName, emoji)
+		t.listener.OnChat(t.view, msg)
+		t.liveAppendChat(msg)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return msg, failure
+}
+
 // StartHand deals now instead of waiting for the countdown (startHand).
 // Returns nil (no error) when nothing was dealt (destroyed, hand already
 // live, too few funded players, or the boot transaction was refused — the

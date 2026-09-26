@@ -28,6 +28,15 @@ type UserStore interface {
 	FindByID(ctx context.Context, id string) (*db.User, error)
 }
 
+// EmojiStore is what chat:emoji needs from db.Emojis: whether this player may
+// send this emoji now, and the row to send (owner, 26 Sep 2026; Go only).
+type EmojiStore interface {
+	// Owns returns the emoji when it is active and free or theirs on an
+	// unexpired rental, else db.ErrEmojiUnknown, db.ErrEmojiInactive or
+	// db.ErrEmojiLocked.
+	Owns(ctx context.Context, userID string, emojiID int64) (db.Emoji, error)
+}
+
 // Deps wires the realtime layer.
 type Deps struct {
 	Config  *config.Config
@@ -45,6 +54,10 @@ type Deps struct {
 	Live live.Store
 	// Instance is LIVE_INSTANCE_ID, written into every presence entry.
 	Instance string
+	// Emojis is the emoji catalogue chat:emoji checks every send against (one
+	// database read per send). Nil → no catalogue: every chat:emoji is
+	// unknown_emoji.
+	Emojis EmojiStore
 }
 
 // Presence timings (LIVE_STATE_PLAN.md key schema, kt:online): every live
@@ -480,6 +493,9 @@ func (h *Handler) onConnection(s *sio.Socket) {
 	}))
 	s.On(EvChatMessage, h.guard(s, EvChatMessage, func(args []json.RawMessage) (any, error) {
 		return h.chatMessage(s, decodeChat(args))
+	}))
+	s.On(EvChatEmoji, h.guard(s, EvChatEmoji, func(args []json.RawMessage) (any, error) {
+		return h.chatEmoji(s, decodeChatEmoji(args))
 	}))
 	s.On(EvChatHistory, h.guard(s, EvChatHistory, func([]json.RawMessage) (any, error) {
 		return h.chatHistory(s)
@@ -1077,6 +1093,56 @@ func (h *Handler) chatMessage(s *sio.Socket, req ChatRequest) (any, error) {
 		return nil, game.NewGameError(game.CodeChatRateLimited, MsgChatRateLimited)
 	}
 	msg, err := table.PostChat(sess.user.ID, req.Text)
+	if err != nil {
+		return nil, err
+	}
+	if msg == nil {
+		return OKAck{OK: true}, nil
+	}
+	return ChatAck{OK: true, MessageID: msg.ID}, nil
+}
+
+// chatEmoji is chat:emoji {emojiId} (owner, 26 Sep 2026; Go only): the player
+// sends an animated emoji they own to their table. Refusals, in this order:
+// not at a table → not_in_room (chat:message's own code and message); an id
+// that is not a positive integer, or no such row → unknown_emoji; a retired
+// row → emoji_retired; a premium emoji not bought, or whose rental has run out
+// → emoji_locked; then the SAME per-socket chat allowance chat:message spends
+// (chat_rate_limited) — an emoji is a chat message, and the two share one
+// budget. Ownership is read from the database on every send (Deps.Emojis.Owns,
+// one query), never from the session, so a rental that lapses mid-sitting stops
+// the very next send.
+//
+// Accepted: table.PostEmoji stores the line in the room's history — so
+// chat:history carries it like any line — and OnChat broadcasts it as an
+// ordinary chat:message whose text is the emoji's name and which carries
+// {id, name, url, assetFormat}; the ack is {ok:true, messageId}.
+func (h *Handler) chatEmoji(s *sio.Socket, req ChatEmojiRequest) (any, error) {
+	sess := sessionOf(s)
+	table := h.rooms().GetTableForPlayer(sess.user.ID)
+	if table == nil {
+		return nil, notAtTable()
+	}
+	if req.EmojiID <= 0 || h.deps.Emojis == nil {
+		return nil, game.NewGameError(auth.CodeUnknownEmoji, auth.MsgUnknownEmoji)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), emojiLookupTimeout)
+	emoji, err := h.deps.Emojis.Owns(ctx, sess.user.ID, req.EmojiID)
+	cancel()
+	switch {
+	case errors.Is(err, db.ErrEmojiUnknown):
+		return nil, game.NewGameError(auth.CodeUnknownEmoji, auth.MsgUnknownEmoji)
+	case errors.Is(err, db.ErrEmojiInactive):
+		return nil, game.NewGameError(auth.CodeEmojiRetired, auth.MsgEmojiRetired)
+	case errors.Is(err, db.ErrEmojiLocked):
+		return nil, game.NewGameError(auth.CodeEmojiLocked, auth.MsgEmojiLocked)
+	case err != nil:
+		return nil, err
+	}
+	if !sess.chatLimiter.allow() {
+		return nil, game.NewGameError(game.CodeChatRateLimited, MsgChatRateLimited)
+	}
+	msg, err := table.PostEmoji(sess.user.ID, emoji.ForChat())
 	if err != nil {
 		return nil, err
 	}

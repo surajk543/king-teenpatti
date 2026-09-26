@@ -50,6 +50,9 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	execSQL(t, older, `DROP TABLE user_table_choice`)
 	execSQL(t, older, `DROP TABLE user_table_pictures`)
 	execSQL(t, older, `DROP TABLE table_pictures`)
+	// So are the emoji store's two (26 Sep 2026).
+	execSQL(t, older, `DROP TABLE user_emojis`)
+	execSQL(t, older, `DROP TABLE emojis`)
 	column := func(d *db.DB, table, name string) int64 {
 		t.Helper()
 		return countOf(t, d, `SELECT count(*) FROM information_schema.columns
@@ -93,6 +96,20 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	}
 	if got, err := db.NewUsers(d, welcome, nil).FindByID(ctx, before.ID); err != nil || got == nil || got.TablePicture != nil {
 		t.Errorf("the existing account after the upgrade: %+v %v, want it read with no table picture laid", got, err)
+	}
+
+	// The emoji tables were created and seeded with the owner's seven, and an
+	// emoji added to them can be bought by the account that was already there.
+	if n := countOf(t, d, `SELECT count(*) FROM emojis WHERE is_active`); n != 7 {
+		t.Errorf("%d emojis after the upgrade, want the seed's 7", n)
+	}
+	var emojiID int64
+	if err := d.Pool.QueryRow(ctx, `INSERT INTO emojis (name, asset_url, type, currency, cost, created_at, updated_at)
+	     VALUES ('Upgrade', '/emojis/upgrade.json', 'PREMIUM', 'DIAMOND', 1, 0, 0) RETURNING id`).Scan(&emojiID); err != nil {
+		t.Fatalf("an emoji after the upgrade: %v", err)
+	}
+	if bought, err := db.NewEmojis(d, db.NewUsers(d, welcome, nil), nil).Buy(ctx, before.ID, emojiID); err != nil || !bought.Charged {
+		t.Errorf("buying an emoji after the upgrade: %+v %v", bought, err)
 	}
 
 	// A bot's login writes the restored column.

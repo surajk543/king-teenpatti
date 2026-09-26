@@ -504,6 +504,28 @@ func (t *Table) PostChat(userID, text string) (*game.ChatMessage, error) {
 	return msg, failure
 }
 
+// PostEmoji is PostChat for an animated emoji (game.Room.PostEmoji; owner,
+// 26 Sep 2026): the same line a Teen Patti table posts — its text the emoji's
+// name, the emoji beside it — stored, emitted and mirrored as a typed line is.
+func (t *Table) PostEmoji(userID string, emoji game.ChatEmoji) (*game.ChatMessage, error) {
+	var msg *game.ChatMessage
+	var failure error
+	err := t.run(func() {
+		s := t.findSeat(userID)
+		if s == nil {
+			failure = game.NewGameError(game.CodeNotInRoom, game.MsgNotInRoom)
+			return
+		}
+		msg = t.chat.AddEmoji(userID, s.displayName, emoji)
+		t.listener.OnChat(t.view, msg)
+		t.LiveState.AppendChat(msg, t.chat.MaxHistory)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return msg, failure
+}
+
 // StartHand deals now instead of waiting for the countdown (tests).
 func (t *Table) StartHand() error { return t.run(func() { t.startHand() }) }
 

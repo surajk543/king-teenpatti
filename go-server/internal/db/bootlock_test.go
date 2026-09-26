@@ -49,7 +49,9 @@ func TestABootSurvivesALongReaderHoldingTheTables(t *testing.T) {
 	// into them on every boot, the baseline declares their keys and the
 	// foreign keys between them, and none of that may need a lock a report
 	// over the lobby's configuration would hold.
-	for _, table := range []string{"table_engines", "table_categories", "table_settings", "table_configs"} {
+	// And the emoji store's two (26 Sep 2026): a boot finds them there and
+	// does nothing to them.
+	for _, table := range []string{"table_engines", "table_categories", "table_settings", "table_configs", "emojis", "user_emojis"} {
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM `+table+` LIMIT 1`); err != nil {
 			t.Fatalf("read %s: %v", table, err)
 		}

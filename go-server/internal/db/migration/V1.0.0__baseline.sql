@@ -106,9 +106,10 @@
 -- lets a row be corrected without reopening a structural migration.
 --
 -- Order matters: `profile_pictures` is created before `users` because
--- `users.active_picture_id` references it, and `user_profile_pictures`,
--- `chip_ledger` and the purchase and spend tables come after both for the same
--- reason. The Lucky Draw's three follow them — its draws, their slots (which
+-- `users.active_picture_id` references it, and `user_profile_pictures`, the
+-- table pictures, the emojis (`emojis`, then `user_emojis`, which names a
+-- player and an emoji), `chip_ledger` and the purchase and spend tables come
+-- after both for the same reason. The Lucky Draw's three follow them — its draws, their slots (which
 -- name a draw), and the spins (which name a player, a draw and a slot). The
 -- four table-configuration tables come last, in the order they
 -- reference one another — `table_engines`, `table_categories` (each category
@@ -495,6 +496,74 @@ CREATE TABLE IF NOT EXISTS user_table_choice (
   user_id          TEXT   PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
   table_picture_id BIGINT NOT NULL REFERENCES table_pictures (id) ON DELETE CASCADE,
   chosen_at        BIGINT NOT NULL
+);
+
+-- ------------------------------------------------------------------ emojis
+
+-- The animated emojis a player sends to their table (owner, 26 Sep 2026: "user
+-- can buy emoji which will be animation … when user click that emoji then that
+-- emoji message will send to all players just like chat messages"). It is the
+-- profile-picture catalogue again, for a thing SENT rather than worn: a FREE
+-- row anyone may send, a PREMIUM row bought with chips, diamonds or hammers
+-- and, when priced as a rental, kept for its term — the same columns, the same
+-- FREE/PREMIUM rule, the same three currencies, the same rentals, and the same
+-- lobby-only rule for a chip-priced one (CLAUDE.md §5.1). What differs: the
+-- art is a Lottie and nothing else, and an emoji is never worn — owning one is
+-- what lets a player send it at a table (the socket's chat:emoji, which reads
+-- the ownership below on every send), where it reaches everybody as an
+-- ordinary chat:message carrying the emoji.
+--
+-- Two CREATE TABLE IF NOT EXISTS, nothing on users — so a database built
+-- before them takes them at its next boot, and under ops/DEPLOY.md §7
+-- user_emojis needs only the REFERENCES grant §7 gives, as user_table_pictures
+-- does. The seed holds NO emoji: the owner supplies the art (their Lotties,
+-- names, prices and terms) and the rows are added then.
+
+-- One row per emoji on offer. The columns are profile_pictures' — above, for
+-- what each means — with asset_format held to LOTTIE, the one format an emoji
+-- is played in. asset_url is the Lottie JSON (a Drive uc?export=download link,
+-- or a server-relative path into PUBLIC_DIR such as /emojis/laughing.json) and
+-- is UNIQUE, the natural key a later seed would match on.
+CREATE TABLE IF NOT EXISTS emojis (
+  id             BIGSERIAL PRIMARY KEY,
+  name           TEXT    NOT NULL,
+  asset_url      TEXT    NOT NULL UNIQUE,
+  asset_format   TEXT    NOT NULL DEFAULT 'LOTTIE' CHECK (asset_format IN ('LOTTIE')),
+  -- COIN is chips, through chip_ledger (reason emoji_purchase); DIAMOND and
+  -- HAMMER debit their users column directly, as a picture's do. Only a COIN
+  -- row is refused to a seated player.
+  currency       TEXT    NOT NULL DEFAULT 'COIN'   CHECK (currency IN ('COIN', 'DIAMOND', 'HAMMER')),
+  type           TEXT    NOT NULL DEFAULT 'FREE'   CHECK (type IN ('FREE', 'PREMIUM')),
+  cost           BIGINT  NOT NULL DEFAULT 0 CHECK (cost >= 0),
+  -- The rental term, duration_days DAYS plus duration_hours HOURS; both 0 is
+  -- for ever. Stamped onto the ownership row at purchase.
+  duration_days  INTEGER NOT NULL DEFAULT 0 CHECK (duration_days >= 0),
+  duration_hours INTEGER NOT NULL DEFAULT 0 CHECK (duration_hours >= 0),
+  is_active      BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order     INTEGER NOT NULL DEFAULT 0,
+  created_at     BIGINT  NOT NULL,
+  updated_at     BIGINT  NOT NULL,
+  CONSTRAINT free_emoji_cost_check CHECK (
+    (type = 'FREE'    AND cost =  0) OR
+    (type = 'PREMIUM' AND cost >  0)
+  )
+);
+
+-- Who has bought which premium emoji, and until when: the twin of
+-- user_profile_pictures, kept for the same reasons. A FREE emoji needs no row
+-- here; a lapsed rental is a row whose expires_at is in the past, never
+-- deleted, and every ownership test (the listing, a purchase, a send) says so
+-- rather than relying on a sweep — there is nothing worn to sweep, which is
+-- also why, unlike the picture tables, it has no index on expires_at. purchases
+-- is what makes a renewal's ledger action_id unique ("emoji:<user>:<id>:<n>").
+CREATE TABLE IF NOT EXISTS user_emojis (
+  user_id     TEXT    NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  emoji_id    BIGINT  NOT NULL REFERENCES emojis (id) ON DELETE CASCADE,
+  acquired_at BIGINT  NOT NULL,
+  -- Epoch ms the rental runs out; 0 means it never does.
+  expires_at  BIGINT  NOT NULL DEFAULT 0,
+  purchases   INTEGER NOT NULL DEFAULT 1 CHECK (purchases > 0),
+  PRIMARY KEY (user_id, emoji_id)
 );
 
 -- The reward milestones each player has collected (owner, 14 Sep 2026): one

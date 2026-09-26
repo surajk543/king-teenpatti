@@ -18,6 +18,8 @@
 --                 every lobby table and every private template.
 --   THE LUCKY DRAW  the beginner draw and its six prizes (owner, 24 Sep 2026;
 --                 lucky_draws, lucky_draw_slots).
+--   THE EMOJIS    the emoji catalogue (owner, 26 Sep 2026): the animations a
+--                 player buys and sends at a table (emojis).
 --
 -- Data, not structure: V1.0.0__baseline.sql builds every table these rows go
 -- into, and it runs FIRST — before this file and before anything numbered
@@ -747,3 +749,57 @@ CROSS JOIN (
 ) AS v(slot_number, reward_type, reward_value, weight)
 WHERE ld.code = 'BEGINNER_LUCKY_DRAW'
 ON CONFLICT (lucky_draw_id, slot_number) DO NOTHING;
+
+-- ================================================================= THE EMOJIS
+--
+-- Every emoji the server seeds (owner, 26 Sep 2026), for the two tables
+-- V1.0.0__baseline.sql's EMOJIS section builds. An emoji is bought like a
+-- profile picture and SENT at a table, where it plays over the sender's seat
+-- for everyone there (chat:emoji). The owner's own art only, hosted in the
+-- owner's Drive folder as the animated pictures are (THE PICTURES says how a
+-- Drive link becomes a URL a client can load); every row is a Lottie.
+--
+-- Idempotent like everything in this file: ON CONFLICT on the natural key
+-- (asset_url) DO NOTHING, so a boot adds the rows a database lacks and never
+-- rewrites one the owner has since re-priced, renamed, reordered or retired.
+-- Editing a row a database already has is an UPDATE run there; a new emoji
+-- appended here reaches every database at its next boot.
+--
+--   Angry    5 hammers  30 days  sort_order 10  "Emoji Angry.json", 480x480, 60 fps, 1.85 s
+--   Dollar   5 hammers  30 days  sort_order 20  "Dollar Emoji.json", 750x750, 25 fps, 2.04 s
+--   Crying   5 hammers  30 days  sort_order 30  "Emoji Crying.json", 480x480, 60 fps, 1.55 s
+--   Hi Face          5 hammers  30 days  sort_order 40  "Hi Face Emoji.json", 512x512, 60 fps, 2.17 s
+--   Clapping Hands   5 hammers  30 days  sort_order 50  "Clapping Hands Emoji.json", 512x512, 60 fps, 2.00 s
+--   Cowboy Hat Face  5 hammers  30 days  sort_order 60  "Cowboy Hat Face Emoji.json", 512x512, 60 fps, 3.00 s
+--   Muscle           5 hammers  30 days  sort_order 70  "Muscle Emoji.json", 512x512, 60 fps, 3.00 s
+--
+-- Neither has a 3D layer, an expression, an embedded image or a text layer —
+-- what a phone's Lottie player cannot draw (CLAUDE.md §12.3).
+INSERT INTO emojis (name, asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order, created_at, updated_at)
+SELECT name, asset_url, 'LOTTIE', currency, type, cost, duration_days, 0, TRUE, sort_order,
+       (EXTRACT(EPOCH FROM now()) * 1000)::bigint,
+       (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+  FROM (VALUES
+    ('Angry',
+     'https://drive.google.com/uc?export=download&id=19CkeJfl8J9knw0tLoxgruKFaGwnsP3jh',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 10),
+    ('Dollar',
+     'https://drive.google.com/uc?export=download&id=1HZej1y15g4FhGKjNPbR2WOqFdDXn-r5l',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 20),
+    ('Crying',
+     'https://drive.google.com/uc?export=download&id=1iTOgg_JZRXvY9f9IRPaAR9UyEt4q7f4S',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 30),
+    ('Hi Face',
+     'https://drive.google.com/uc?export=download&id=1qpBgQTwXWMvrHqQLAA6wT1EIsNb9zakr',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 40),
+    ('Clapping Hands',
+     'https://drive.google.com/uc?export=download&id=1_wnZ9Tmiy7qnK7EzmK5hpSPZCOTxvjlc',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 50),
+    ('Cowboy Hat Face',
+     'https://drive.google.com/uc?export=download&id=141HlEZZxoRuIzAaN16emiNO7UZ7RWYNn',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 60),
+    ('Muscle',
+     'https://drive.google.com/uc?export=download&id=199f59nq4Vx0FImGvbAv4X2LJnkyUQ67f',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 70)
+  ) AS v(name, asset_url, currency, type, cost, duration_days, sort_order)
+ON CONFLICT (asset_url) DO NOTHING;

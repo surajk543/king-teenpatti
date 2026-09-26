@@ -73,4 +73,12 @@ const (
 	CodeInternalError        = "internal_error"         // 500
 	CodeInvalidJSON          = "invalid_json"           // 400 — Go-only, see PORT_PLAN.md (Node answered 500 internal_error)
 	CodeNotFound             = "not_found"              // 404 — Go-only JSON 404 for unknown /api paths (DECISIONS.md §5)
+	// The emoji store (owner, 26 Sep 2026; Go only). unknown_emoji,
+	// emoji_retired and emoji_locked are also the socket's chat:emoji refusals
+	// (socket.KnownErrorCodes), with the same messages.
+	CodeUnknownEmoji      = "unknown_emoji"      // 400: no such emoji in the catalogue (or an id that is not one)
+	CodeEmojiRetired      = "emoji_retired"      // 400: is_active = FALSE
+	CodeEmojiFree         = "emoji_free"         // 400: a free emoji — nothing to buy
+	CodeEmojiUnaffordable = "emoji_unaffordable" // 409: the wallet the emoji's currency names cannot cover it
+	CodeEmojiLocked       = "emoji_locked"       // chat:emoji only: a premium emoji not bought, or its rental run out
 )

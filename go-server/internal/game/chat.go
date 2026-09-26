@@ -23,6 +23,28 @@ type ChatMessage struct {
 	Text        string  `json:"text"`
 	At          int64   `json:"at"`               // epoch ms
 	System      bool    `json:"system,omitempty"` // only ever true on system lines
+	// Emoji is the animated emoji a player sent (chat:emoji; owner, 26 Sep
+	// 2026; Go only), present ONLY on such a line: a plain line and a system
+	// line carry no "emoji" key at all, not even null, so their JSON is byte
+	// for byte what it was before emojis existed. On an emoji line Text is the
+	// emoji's name, so a client that knows nothing of emojis shows a word
+	// rather than a blank line.
+	Emoji *ChatEmoji `json:"emoji,omitempty"`
+}
+
+// ChatEmoji is the emoji an emoji line carries (chat:message's `emoji`): the
+// catalogue row as the table's clients need it to play it — which row, its
+// name, where its Lottie is and how to play it. What it cost and who owns it
+// are the store's business (db.Emoji, GET /api/emojis), not the table's.
+//
+// It is built by the socket layer from the row the sender was checked
+// against, once, when the line is sent; the chat log keeps it as it was then,
+// so a later re-price or rename of the row never rewrites what was said.
+type ChatEmoji struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	AssetFormat string `json:"assetFormat"`
 }
 
 // RoomChat is the in-memory chat history of one room.
@@ -62,6 +84,29 @@ func (c *RoomChat) Add(userID, displayName, text string) *ChatMessage {
 		DisplayName: displayName,
 		Text:        clean,
 		At:          Millis(c.now()),
+	}
+	return c.push(message)
+}
+
+// AddEmoji appends an emoji line: the player's animated emoji, which every
+// client at the table plays over the sender's seat and in the log (chat:emoji;
+// owner, 26 Sep 2026). It is a chat line in every other respect — the same
+// history, the same cap, the same chat:message on the wire — with Text the
+// emoji's name, sanitised as a typed line would be (the name is catalogue
+// data, but nothing reaches a client's chat log without passing the same
+// filter), and Emoji the row itself. Unlike Add it never returns nil: an emoji
+// whose name sanitises away is still an emoji, and the line still goes out,
+// so the sender always gets a messageId.
+func (c *RoomChat) AddEmoji(userID, displayName string, emoji ChatEmoji) *ChatMessage {
+	id := userID
+	sent := emoji
+	message := ChatMessage{
+		ID:          util.UUID(),
+		UserID:      &id,
+		DisplayName: displayName,
+		Text:        SanitizeChat(emoji.Name, c.MaxLength),
+		At:          Millis(c.now()),
+		Emoji:       &sent,
 	}
 	return c.push(message)
 }

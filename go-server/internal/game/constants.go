@@ -291,6 +291,13 @@ const (
 	// n counting that player's purchases of it so a lapsed rental can be bought
 	// again, and like picture_purchase it is a chip sink: the delta is negative.
 	LedgerReasonTablePicturePurchase = "table_picture_purchase"
+	// LedgerReasonEmojiPurchase is a premium animated EMOJI — one a player
+	// sends to their table (chat:emoji; owner, 26 Sep 2026) — bought with
+	// chips (db.Emojis.Buy). Its action_id is "emoji:<userId>:<emojiId>:<n>",
+	// n counting that player's purchases of it so a lapsed rental can be
+	// bought again, and like picture_purchase it is a chip sink: the delta is
+	// negative.
+	LedgerReasonEmojiPurchase = "emoji_purchase"
 	// LedgerReasonLuckyDraw is chips won on the Lucky Draw (owner, 24 Sep
 	// 2026; db.LuckyDraws.Spin). Its action_id is the spin's key,
 	// "lucky:<userId>:<actionId>" — UNIQUE here as in user_lucky_draws, so a
