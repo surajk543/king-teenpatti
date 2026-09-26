@@ -23,17 +23,17 @@ formality.
 | Cleartext for local dev | `NSAllowsLocalNetworking`, the narrow equivalent of Android's `usesCleartextTraffic` |
 | Google sign-in hooks | `GIDClientID` and the URL scheme, both fed from `ios/Flutter/*.xcconfig` |
 
-Version and build number come from `pubspec.yaml` (`1.0.0+3`) through
+Version and build number come from `pubspec.yaml` (`1.2.3+10` today) through
 `$(FLUTTER_BUILD_NAME)` / `$(FLUTTER_BUILD_NUMBER)`, exactly as on Android — do
 not set them in Xcode.
 
 ## 2. First run on the Mac
 
 ```bash
-git pull
+git pull                   # master at or after 7294763: the production default (§3)
 cd flutter-client
-flutter pub get
-flutter run                # generates ios/Podfile, runs pod install, builds
+flutter clean && flutter pub get
+flutter run                # production; generates ios/Podfile, runs pod install, builds
 ```
 
 There is no `ios/Podfile` in the repo on purpose: Flutter writes one that
@@ -52,18 +52,44 @@ raise it in Xcode and in the Podfile's `platform :ios` line together.
 
 ## 3. Pointing at a server
 
-The default is preprod, `https://preprod.sungamestudio.com` (since 24 Sep 2026); a store build passes `--dart-define-from-file=config/production.json` for `https://prod.sungamestudio.com` (`api.sungamestudio.com` until 24 Sep 2026).
-
-For a server running on the Mac itself, note that the Android emulator's
-`10.0.2.2` alias does not exist here:
+**The default is production, `https://prod.sungamestudio.com`** (owner, 27 Sep
+2026: "in frontend when UI is build it should by default call prod api"; it was
+preprod from 24 Sep 2026, and `api.sungamestudio.com` before that). A build with
+no define talks to production, is labelled production, and carries the
+production Google Web client id. Name any other environment with one of the
+files in `flutter-client/config/` — never with a lone `--dart-define`, which
+changes the address without the label (`config/README.md`):
 
 ```bash
-flutter run --dart-define=SERVER_URL=http://localhost:3000       # simulator
-flutter run --dart-define=SERVER_URL=http://192.168.1.10:3000    # real device, Mac's LAN IP
+flutter run --dart-define-from-file=config/production.json           # production (= no define)
+flutter run --dart-define-from-file=config/preprod.json              # preprod.sungamestudio.com
+flutter run --dart-define-from-file=config/local-ios-simulator.json  # a server on this Mac, from the simulator
 ```
 
-`NSAllowsLocalNetworking` covers both without weakening anything for
-production traffic.
+The Android emulator's `10.0.2.2` alias does not exist here, which is why the
+simulator has a file of its own (`http://localhost:3000`). A real iPhone reaches
+a server on the Mac at the Mac's LAN address: copy `local-ios-simulator.json`
+and change the host. `NSAllowsLocalNetworking` covers both without weakening
+anything for production traffic.
+
+**Preprod runs an older server** (v1.2.0 on 27 Sep 2026): no Friends, no player
+levels, no winning tax. The app hides what its server does not offer — the
+Friends key on a 404, the level key and the tax pill with no level in the
+account — so a build pointed at preprod looks as if those features were
+missing. Build against production to see them.
+
+**Building or archiving from Xcode** reads none of these files. Xcode takes the
+dart-defines the last `flutter` command wrote into
+`ios/Flutter/Generated.xcconfig` (git-ignored, so it is whatever this Mac last
+ran), and a stale one keeps an old server address even on new code. Before
+running or archiving the Runner scheme:
+
+```bash
+flutter build ios --config-only --dart-define-from-file=config/production.json
+```
+
+To see which server a build talks to, open Settings: the version line ends in
+"· preprod" or "· local" off production, and in nothing on production.
 
 ## 4. Google sign-in
 
@@ -82,12 +108,10 @@ the four Android ones and the Web one already registered do not cover iOS
    GOOGLE_IOS_URL_SCHEME=com.googleusercontent.apps.265025011940-xxxxxxxx
    ```
 
-4. Build with the Web client id as before — the server checks the token's
-   audience against it on both platforms, so this half does not change:
-
-   ```bash
-   flutter run --dart-define=GOOGLE_SERVER_CLIENT_ID=265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com
-   ```
+4. The Web client id needs nothing more: the server checks the token's
+   audience against it on both platforms, a build with no define already
+   carries it, and every `config/*.json` names it
+   (`265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com`).
 
 Left empty, the build still works and "Continue with Google" fails saying the
 provider is unavailable, which is the truth.
@@ -132,7 +156,7 @@ App Review — a separate exercise from the Play launch. When it happens:
 
 ```bash
 flutter build ipa \
-  --dart-define=GOOGLE_SERVER_CLIENT_ID=<web client id> \
+  --dart-define-from-file=config/production.json \
   --dart-define=APPLE_APP_ID=<app store id>
 ```
 

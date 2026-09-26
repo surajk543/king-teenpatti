@@ -215,7 +215,11 @@ define — and the store build still names production explicitly:
 `https://prod.sungamestudio.com`** (owner, 24 Sep 2026: "ui should call https://prod.sungamestudio.com/ to connect backend";
 `api.sungamestudio.com` stopped resolving that day, so a store build of `flutter-client/v1.2.1` or older reaches no server;
 `test/release_config_test.dart` pins `config/production.json`, https and no trailing slash). `flutter-client/config/`
-holds one JSON per environment (`production`, `preprod`, `local-emulator`: `SERVER_URL`, `APP_ENV`, `PRIVACY_URL`, `GOOGLE_SERVER_CLIENT_ID`);
+holds one JSON per environment (`production`, `preprod`, `local-emulator`, and since 27 Sep 2026 `local-ios-simulator` —
+`http://localhost:3000`, since the Android emulator's `10.0.2.2` does not exist on a Mac: `SERVER_URL`, `APP_ENV`,
+`PRIVACY_URL`, `GOOGLE_SERVER_CLIENT_ID`; an Xcode build reads none of them but the last `flutter` command's
+`ios/Flutter/Generated.xcconfig`, so run `flutter build ios --config-only --dart-define-from-file=config/production.json`
+first — `docs/ios-setup.md` §3);
 `APP_ENV` is shown beside the version in the settings drawer unless it is `production`. A local server is
 `--dart-define=SERVER_URL=http://10.0.2.2:3000` (the emulator's alias for the host loopback) or `http://<lan-ip>:3000` for a
 real device on the LAN — in a **DEBUG** build only: `usesCleartextTraffic="true"` lives in
