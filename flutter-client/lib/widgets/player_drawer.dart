@@ -117,7 +117,11 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
             return Column(
               key: ValueKey('player-drawer:${who.userId}'),
               children: [
-                _Head(t: t, player: who),
+                _Head(
+                  t: t,
+                  player: who,
+                  friendsSince: _friends.friendsSinceOf(who.userId),
+                ),
                 const MenuRule(),
                 Expanded(
                   child: EdgeFade(
@@ -174,12 +178,18 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
 }
 
 /// Who the drawer is about: their picture and their name, as the seat drew
-/// them, and the key that closes it.
+/// them, and the key that closes it — and, when the two are friends, how long
+/// they have been ("Friends for 3 days"), which each of them sees of the
+/// other (owner, 26 Sep 2026: "show each other at the top how long they are
+/// friends in time").
 class _Head extends StatelessWidget {
-  const _Head({required this.t, required this.player});
+  const _Head({required this.t, required this.player, this.friendsSince});
 
   final Strings t;
   final PlayerCard player;
+
+  /// When the two became friends (epoch ms), or null when they are not.
+  final int? friendsSince;
 
   /// The picture's radius: the drawer's one portrait, a step over a chat
   /// line's and under a pod's.
@@ -206,12 +216,20 @@ class _Head extends StatelessWidget {
           ),
           const SizedBox(width: Space.md),
           Expanded(
-            child: Text(
-              player.displayName,
-              key: const ValueKey('seat-player-name'),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TableType.modalTitle(theme),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  player.displayName,
+                  key: const ValueKey('seat-player-name'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TableType.modalTitle(theme),
+                ),
+                if (friendsSince case final since?)
+                  _FriendsFor(t: t, since: since),
+              ],
             ),
           ),
           PressScale(
@@ -221,6 +239,80 @@ class _Head extends StatelessWidget {
               tooltip: t.close,
               icon: const Icon(Icons.close_rounded),
               onPressed: () => Navigator.pop(context),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Friends for 3 days" under the name in the drawer's head, in the friend
+/// mark's green and glyph: how long the two have been friends, counted from
+/// the friendship's own moment (the same for both of them), in the largest
+/// whole unit ([Strings.friendsFor]). It counts on by itself while the drawer
+/// is open — "Friends since just now" becomes "Friends for 1 minute" — every
+/// 30 s, and wraps rather than being cut in a narrow drawer.
+class _FriendsFor extends StatefulWidget {
+  const _FriendsFor({required this.t, required this.since});
+
+  final Strings t;
+
+  /// When the two became friends (epoch ms).
+  final int since;
+
+  /// How often the line is counted again.
+  static const Duration tick = Duration(seconds: 30);
+
+  @override
+  State<_FriendsFor> createState() => _FriendsForState();
+}
+
+class _FriendsForState extends State<_FriendsFor> {
+  Timer? _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(_FriendsFor.tick, (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final green = friendsGreen(theme.brightness);
+    final style = TableType.info(theme, colour: green);
+    final since = DateTime.now().difference(
+      DateTime.fromMillisecondsSinceEpoch(widget.since),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(top: Space.xxs),
+      child: Row(
+        key: const ValueKey('seat-friends-for'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1, right: Space.xs),
+            child: Icon(
+              Icons.how_to_reg_rounded,
+              size: (style.fontSize ?? 13.5) * 1.15,
+              color: green,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              widget.t.friendsFor(since),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: style,
             ),
           ),
         ],

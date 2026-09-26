@@ -1865,7 +1865,11 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   back closes it first; the variation window closes it as it does the left drawer): the player's picture and name at
   once from the seat, then `GET /api/players/{id}/profile` — NONE **Add Friend** (gold primary) → **Request Sent** (dead);
   PENDING_RECEIVED **Accept** (gold) + **Reject** (outlined); FRIENDS a ✓ Friends tag (no Remove at a table); a refusal
-  re-reads and shows its note in the drawer — and the five stat tiles through the ONE `PlayerStatsGrid`
+  re-reads and shows its note in the drawer — for a friend, **"Friends for 3 days"** under the name in the head (owner,
+  26 Sep 2026: "show each other at the top how long they are friends in time"; `_FriendsFor`, from the friend list's
+  `friendsSince` via `FriendsState.friendsSinceOf`, the same moment for both, in the largest whole unit — minutes, hours,
+  days, months of 30 days, years — or "Friends since just now", counted again every 30 s; `Strings.friendsFor`, which
+  added months and years to the time units) — and the five stat tiles through the ONE `PlayerStatsGrid`
   (`widgets/player_profile.dart`, `RecordSurface.lobby|table`, shared with the lobby profile). No presence, no wallet, no
   table id. Its own state slot (`FriendsState.seatPlayer/seatProfile/openSeat/closeSeat`), apart from the page's. A seat
   whose player has asked the viewer wears **`SeatRequestBadge`** (a gold person-add disc on the lower-LEFT corner of their
@@ -1885,7 +1889,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   you a friend request." — "… Tap their seat to answer." when the sender sits at the viewer's table (`seatedHere`), no toast
   for a sender blocked in the table chat; `handleFriendAccepted` → "{name} accepted your friend request."; an open drawer or
   page showing that player re-reads. The source scan in `test/friends_page_test.dart` now holds that the table files know
-  the drawer and the badge and never the Friends page, its key or presence. `test/friends_table_test.dart` (60: both felts, the friend mark,
+  the drawer and the badge and never the Friends page, its key or presence. `test/friends_table_test.dart` (73: both felts, the friend mark, the friendship's age,
   every status, the moves, the pushes, 640x360 ×1.25 in all five languages both themes); pictures by hand,
   `test/friends_table_shots.dart`. **The key**
   (`FriendsKey`) is a round 44dp key of the corner chips' card surface just left of the MILESTONE chip in the lobby's foot —
@@ -1914,7 +1918,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   table too), every 60 s while the lobby shows (not while the page is open) and when the page closes; the page's lists when it
   opens, every 15 s while it is on screen (the timer tied to the page's own lifetime) and on pull or Retry; an answer that set
   out before an accept, reject or remove is dropped so it cannot undo it; the page closes itself if the app leaves the lobby.
-  50 strings in five languages. Tests: `friends_{dtos,api,state,page,table}_test.dart` (191) on `friends_fixture.dart`, a fake
+  56 strings in five languages. Tests: `friends_{dtos,api,state,page,table}_test.dart` (204) on `friends_fixture.dart`, a fake
   server built from the contract; pictures by hand, `test/friends_shots.dart`.
 - **Emojis** (owner, 26 Sep 2026; server side §7.1/§7.2/§7.3; `widgets/emoji_shelf.dart`, `widgets/emoji_art.dart`).
   `EmojiItem`/`ChatEmoji` DTOs, `ApiClient.emojis`/`buyEmoji`, `GameConnection.sendEmoji` (`chat:emoji`), `GameState.emojis`

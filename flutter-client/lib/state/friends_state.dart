@@ -110,6 +110,18 @@ class FriendsState extends ChangeNotifier {
   bool isFriend(String? userId) =>
       userId != null && userId.isNotEmpty && _friendIds.contains(userId);
 
+  /// When this player and [userId] became friends (epoch ms), as the friend
+  /// list has it — the same moment for both of them — or null when they are
+  /// not friends or the list does not know. The player drawer's "Friends for
+  /// 3 days" (owner, 26 Sep 2026).
+  int? friendsSinceOf(String? userId) {
+    if (!isFriend(userId)) return null;
+    for (final f in _friends) {
+      if (f.userId == userId) return f.friendsSince > 0 ? f.friendsSince : null;
+    }
+    return null;
+  }
+
   /// Requests addressed to this player — the ones Accept and Reject answer —
   /// and the ones they sent, newest first.
   List<FriendRequestItem> incoming = const [];

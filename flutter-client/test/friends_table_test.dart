@@ -1643,4 +1643,111 @@ void main() {
       state.dispose();
     },
   );
+  // The owner, 26 Sep 2026: "In the friends drawer also show each other at the
+  // top how long they are friends in time, friendship time".
+  group('how long two players have been friends', () {
+    test('is counted in the largest whole unit, in every language', () {
+      String at(Duration d) => t.friendsFor(d);
+      expect(at(Duration.zero), 'Friends since just now');
+      expect(at(const Duration(seconds: 59)), 'Friends since just now');
+      expect(at(const Duration(seconds: -5)), 'Friends since just now');
+      expect(at(const Duration(minutes: 1)), 'Friends for 1 minute');
+      expect(at(const Duration(minutes: 59)), 'Friends for 59 minutes');
+      expect(at(const Duration(hours: 1)), 'Friends for 1 hour');
+      expect(at(const Duration(hours: 23)), 'Friends for 23 hours');
+      expect(at(const Duration(days: 1)), 'Friends for 1 day');
+      expect(at(const Duration(days: 29)), 'Friends for 29 days');
+      expect(at(const Duration(days: 30)), 'Friends for 1 month');
+      expect(at(const Duration(days: 364)), 'Friends for 12 months');
+      expect(at(const Duration(days: 365)), 'Friends for 1 year');
+      expect(at(const Duration(days: 800)), 'Friends for 2 years');
+      for (final lang in AppLang.values) {
+        final s = Strings(lang);
+        for (final d in const [
+          Duration.zero,
+          Duration(minutes: 5),
+          Duration(hours: 5),
+          Duration(days: 3),
+          Duration(days: 90),
+          Duration(days: 800),
+        ]) {
+          final line = s.friendsFor(d);
+          expect(line, isNot(contains('{')), reason: '${lang.name} $d');
+          expect(line.trim(), isNotEmpty, reason: '${lang.name} $d');
+          if (d > Duration.zero) {
+            expect(line, contains(RegExp(r'\d')), reason: '${lang.name} $d');
+          }
+        }
+      }
+    });
+
+    for (final MapEntry(key: felt, value: room) in felts.entries) {
+      testWidgets('on the $felt felt a friend\'s drawer says it under their '
+          'name, and nobody else\'s does', (tester) async {
+        final since = DateTime.now()
+            .subtract(const Duration(days: 3, hours: 2))
+            .millisecondsSinceEpoch;
+        final server = _server();
+        server.friends
+          ..clear()
+          ..add(
+            friendJson(
+              'u4',
+              'Vikramaditya',
+              status: 'PLAYING',
+              game: 'TEEN_PATTI',
+              variant: 'SEEN',
+              since: since,
+            ),
+          );
+        await http.runWithClient(() async {
+          final state = _state();
+          await _mount(tester, state, room());
+          await _tapPod(tester, 'u4');
+          expect(_key('seat-friends-for'), findsOneWidget);
+          expect(_inDrawer(find.text('Friends for 3 days')), findsOneWidget);
+          await _closeDrawer(tester);
+          for (final other in ['u1', 'u2', 'u3']) {
+            await _tapPod(tester, other);
+            expect(_key('seat-friends-for'), findsNothing, reason: other);
+            await _closeDrawer(tester);
+          }
+          await _unmount(tester, state);
+        }, () => server.client);
+      });
+    }
+
+    for (final brightness in Brightness.values) {
+      for (final lang in AppLang.values) {
+        testWidgets('its longest lines fit the drawer at 640x360 x1.25 in '
+            '${lang.name} (${brightness.name})', (tester) async {
+          for (final age in const [Duration.zero, Duration(days: 300)]) {
+            final server = _server();
+            server.friends
+              ..clear()
+              ..add(
+                friendJson(
+                  'u4',
+                  'Vikramaditya',
+                  since: DateTime.now().subtract(age).millisecondsSinceEpoch,
+                ),
+              );
+            await http.runWithClient(() async {
+              final state = _state(lang: lang);
+              await _mount(
+                tester,
+                state,
+                felts.values.first(),
+                brightness: brightness,
+              );
+              await _tapPod(tester, 'u4');
+              expect(_key('seat-friends-for'), findsOneWidget);
+              _expectDrawerFits(tester, '${lang.name} $age');
+              await _unmount(tester, state);
+            }, () => server.client);
+          }
+        });
+      }
+    }
+  });
 }

@@ -1127,6 +1127,33 @@ class Strings {
   /// than "left" glued on, so each language keeps its own word order.
   String timeLeft(String time) => _('timeLeft').replaceAll('{time}', time);
 
+  /// Months and years, for how long two players have been friends.
+  String timeMonths(int n) =>
+      _(n == 1 ? 'timeMonth' : 'timeMonths').replaceAll('{n}', '$n');
+  String timeYears(int n) =>
+      _(n == 1 ? 'timeYear' : 'timeYears').replaceAll('{n}', '$n');
+
+  /// How long two players have been friends, [since] they became friends (a
+  /// duration, never negative): "Friends for 3 days", in the largest whole
+  /// unit — minutes under an hour, hours under a day, days under 30, months
+  /// (of 30 days) under a year (of 365), then years; "Friends since just now"
+  /// under a minute. The player drawer's head (owner, 26 Sep 2026: "show each
+  /// other at the top how long they are friends in time").
+  String friendsFor(Duration since) {
+    final d = since.isNegative ? Duration.zero : since;
+    if (d.inMinutes < 1) return _('friendsJustNow');
+    final time = d.inHours < 1
+        ? timeMinutes(d.inMinutes)
+        : d.inDays < 1
+        ? timeHours(d.inHours)
+        : d.inDays < 30
+        ? timeDays(d.inDays)
+        : d.inDays < 365
+        ? timeMonths(d.inDays ~/ 30)
+        : timeYears(d.inDays ~/ 365);
+    return _('friendsFor').replaceAll('{time}', time);
+  }
+
   /// Said instead of a time for a premium picture that never runs out.
   String get pictureKeeps => _('pictureKeeps');
 
@@ -1671,6 +1698,12 @@ class Strings {
       'timeMinute': '{n} minute',
       'timeMinutes': '{n} minutes',
       'timeLeft': '{time} left',
+      'timeMonth': '{n} month',
+      'timeMonths': '{n} months',
+      'timeYear': '{n} year',
+      'timeYears': '{n} years',
+      'friendsFor': 'Friends for {time}',
+      'friendsJustNow': 'Friends since just now',
       'pictureKeeps': 'Yours to keep',
       'rentalLapsed': 'Your rental has run out',
       'rentalEnds': 'Ends {date}',
@@ -2353,6 +2386,12 @@ class Strings {
       'timeMinute': '{n} मिनट',
       'timeMinutes': '{n} मिनट',
       'timeLeft': '{time} बाकी',
+      'timeMonth': '{n} महीना',
+      'timeMonths': '{n} महीने',
+      'timeYear': '{n} साल',
+      'timeYears': '{n} साल',
+      'friendsFor': '{time} से दोस्त',
+      'friendsJustNow': 'अभी-अभी दोस्त बने',
       'pictureKeeps': 'हमेशा के लिए आपकी',
       'rentalLapsed': 'किराये की अवधि ख़त्म हो गई',
       'rentalEnds': 'समाप्ति: {date}',
@@ -3026,6 +3065,12 @@ class Strings {
       'timeMinute': '{n} মিনিট',
       'timeMinutes': '{n} মিনিট',
       'timeLeft': '{time} বাকি',
+      'timeMonth': '{n} মাস',
+      'timeMonths': '{n} মাস',
+      'timeYear': '{n} বছর',
+      'timeYears': '{n} বছর',
+      'friendsFor': '{time} ধরে বন্ধু',
+      'friendsJustNow': 'এইমাত্র বন্ধু হয়েছেন',
       'pictureKeeps': 'চিরকাল আপনার',
       'rentalLapsed': 'ভাড়ার মেয়াদ শেষ হয়েছে',
       'rentalEnds': 'মেয়াদ শেষ: {date}',
@@ -3670,6 +3715,12 @@ class Strings {
       'timeMinute': '{n} મિનિટ',
       'timeMinutes': '{n} મિનિટ',
       'timeLeft': '{time} બાકી',
+      'timeMonth': '{n} મહિનો',
+      'timeMonths': '{n} મહિના',
+      'timeYear': '{n} વર્ષ',
+      'timeYears': '{n} વર્ષ',
+      'friendsFor': '{time}થી મિત્રો',
+      'friendsJustNow': 'હમણાં જ મિત્રો બન્યા',
       'pictureKeeps': 'હંમેશા માટે તમારો',
       'rentalLapsed': 'ભાડાની મુદત પૂરી થઈ ગઈ',
       'rentalEnds': 'મુદત પૂરી: {date}',
@@ -4345,6 +4396,12 @@ class Strings {
       'timeMinute': '{n} ਮਿੰਟ',
       'timeMinutes': '{n} ਮਿੰਟ',
       'timeLeft': '{time} ਬਾਕੀ',
+      'timeMonth': '{n} ਮਹੀਨਾ',
+      'timeMonths': '{n} ਮਹੀਨੇ',
+      'timeYear': '{n} ਸਾਲ',
+      'timeYears': '{n} ਸਾਲ',
+      'friendsFor': '{time} ਤੋਂ ਦੋਸਤ',
+      'friendsJustNow': 'ਹੁਣੇ ਹੁਣੇ ਦੋਸਤ ਬਣੇ',
       'pictureKeeps': 'ਹਮੇਸ਼ਾ ਲਈ ਤੁਹਾਡੀ',
       'rentalLapsed': 'ਕਿਰਾਏ ਦੀ ਮਿਆਦ ਖਤਮ ਹੋ ਗਈ',
       'rentalEnds': 'ਮਿਆਦ ਖਤਮ: {date}',
