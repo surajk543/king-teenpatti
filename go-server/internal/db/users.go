@@ -131,7 +131,19 @@ type User struct {
 	Rewards       Rewards `json:"rewards"`
 	CreatedAt     int64   `json:"createdAt"`   // epoch ms
 	LastLoginAt   int64   `json:"lastLoginAt"` // epoch ms
+	// Disabled is NOT users.is_active: true when support has disabled the
+	// account (owner, 26 Sep 2026). Negated so the zero value is an enabled
+	// account — a User built anywhere but from a row (a test's fake store)
+	// is never refused by accident. Never on the wire: a disabled account is
+	// refused account_disabled before any user object is sent
+	// (auth.RequireAuth, the socket handshake, every way into a seat).
+	Disabled bool `json:"-"`
 }
+
+// ErrAccountDisabled is a login for an account whose users.is_active is
+// FALSE: UpsertFromProfile answers it before touching the row, and the login
+// handler turns it into 403 account_disabled.
+var ErrAccountDisabled = errors.New("account_disabled")
 
 // LaidTablePicture is user.tablePicture on the wire: the table picture a
 // player has laid, with both URLs so the client can draw the one its theme
@@ -320,7 +332,7 @@ type queryer interface {
 const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.email, u.avatar_url, u.chips, u.diamond, u.hammer, u.missile,
        u.hands_played, u.hands_won, u.hands_lost, u.hands_left_mid, u.total_winnings, u.biggest_pot,
        COALESCE(mh.claimed_up_to, 0), COALESCE(mt.next_claim_at, 0), COALESCE(mb.next_claim_at, 0),
-       u.active_picture_id, u.created_at, u.updated_at, u.last_login_at,
+       u.active_picture_id, u.created_at, u.updated_at, u.last_login_at, u.is_active,
        ap.asset_url,
        tp.id, tp.day_asset_url, tp.night_asset_url, tp.asset_format, tp.currency, tp.cost`
 
@@ -389,6 +401,8 @@ type userRow struct {
 	nextBonusAt                       int64
 	nextDailyAt                       int64
 	createdAt, updatedAt, lastLoginAt int64
+	// active is users.is_active: FALSE disables the account.
+	active bool
 }
 
 // scanUser scans one row selected with userColumns; pgx.ErrNoRows → nil, nil.
@@ -396,7 +410,7 @@ func scanUser(row pgx.Row) (*userRow, error) {
 	var r userRow
 	err := row.Scan(&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond, &r.hammer, &r.missile,
 		&r.handsPlayed, &r.handsWon, &r.handsLost, &r.handsLeftMid, &r.totalWinnings, &r.biggestPot,
-		&r.milestoneClaimed, &r.nextBonusAt, &r.nextDailyAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt,
+		&r.milestoneClaimed, &r.nextBonusAt, &r.nextDailyAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt, &r.active,
 		&r.pictureAssetURL,
 		&r.tablePictureID, &r.tableDayURL, &r.tableNightURL, &r.tableAssetFormat, &r.tableCurrency, &r.tableCost)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -490,6 +504,7 @@ func (u *Users) publicUser(r *userRow) *User {
 		},
 		CreatedAt:   r.createdAt,
 		LastLoginAt: r.lastLoginAt,
+		Disabled:    !r.active,
 	}
 }
 
@@ -570,6 +585,12 @@ func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (use
 		}
 
 		if existing != nil {
+			// A disabled account is refused here, before the row is touched:
+			// a login attempt must not refresh last_login_at or the provider
+			// details of an account support has switched off.
+			if !existing.active {
+				return ErrAccountDisabled
+			}
 			if _, err := tx.Exec(ctx, `UPDATE users
             SET email         = COALESCE($1, email),
                 avatar_url    = COALESCE($2, avatar_url),

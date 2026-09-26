@@ -196,6 +196,15 @@ func AccountGoneError() error {
 	return game.NewGameError(auth.CodeUnknownUser, auth.MsgUnknownUser)
 }
 
+// AccountDisabledError is the refusal a join from a disabled account gets
+// (users.is_active FALSE; owner, 26 Sep 2026: "he cannot join the table"):
+// account_disabled, "Your account is disabled. Please contact support." The
+// guard then ends the session, as it does for a deleted account, and the
+// handshake refuses the reconnect with the same code.
+func AccountDisabledError() error {
+	return game.NewGameError(auth.CodeAccountDisabled, auth.MsgAccountDisabled)
+}
+
 // SetRooms supplies the RoomManager. Must be called before Attach.
 func (h *Handler) SetRooms(rooms *game.RoomManager) {
 	h.deps.Rooms = rooms
@@ -206,7 +215,8 @@ func (h *Handler) SetRooms(rooms *game.RoomManager) {
 //
 // Handshake (io.use): token = handshake.auth.token, falling back to
 // query.token; Tokens.Verify → Users.FindByID(sub); nil user →
-// "unknown_user"; any AuthError → its Code; any other error → "unauthorized".
+// "unknown_user"; a disabled one (users.is_active) → "account_disabled"; any
+// AuthError → its Code; any other error → "unauthorized".
 // The middleware error message IS the code (CONNECT_ERROR {"message": code}).
 //
 // Connection (io.on('connection')), in order:
@@ -300,6 +310,12 @@ func (h *Handler) authenticate(s *sio.Socket) error {
 	}
 	if user == nil {
 		return errors.New(auth.CodeUnknownUser)
+	}
+	if user.Disabled {
+		// Disabled by support (users.is_active): no session, so no seat is
+		// resumed and no table can be joined. The app reads the code and shows
+		// its "contact support" popup.
+		return errors.New(auth.CodeAccountDisabled)
 	}
 	cfg := h.cfg()
 	s.SetData(&session{
@@ -539,9 +555,11 @@ func (h *Handler) guard(s *sio.Socket, event string, fn func(args []json.RawMess
 				ack(ErrorAck{OK: false, Code: code, Message: message})
 			}
 			h.fail(s, err)
-			if code == auth.CodeUnknownUser {
-				// The account behind this session has gone (deleted): answer,
-				// then end the session rather than keep refusing it.
+			if code == auth.CodeUnknownUser || code == auth.CodeAccountDisabled {
+				// The account behind this session has gone (deleted) or been
+				// disabled: answer, then end the session rather than keep
+				// refusing it. A disabled account's reconnect is refused at the
+				// handshake.
 				h.EndSession(sess.user.ID)
 			}
 			return
@@ -617,7 +635,8 @@ func (h *Handler) teenPattiTable(userID string) (*game.Table, error) {
 // handshake snapshot). A vanished or deleted row is unknown_user (24 Sep
 // 2026; it was an internal error, as Node's TypeError on `null.id` was, which
 // logged ERROR on every request a deleted account's socket sent): guard then
-// ends that session, since there is no account left behind it.
+// ends that session, since there is no account left behind it. A disabled one
+// (users.is_active FALSE) is account_disabled, and guard ends it the same way.
 //
 // This read is not the one a seat starts from: it happens before the join
 // holds the player's seat lock, so a lobby-only wallet change can still commit
@@ -634,6 +653,9 @@ func (h *Handler) freshUser(userID string) (*db.User, error) {
 	}
 	if fresh == nil {
 		return nil, AccountGoneError()
+	}
+	if fresh.Disabled {
+		return nil, AccountDisabledError()
 	}
 	return fresh, nil
 }

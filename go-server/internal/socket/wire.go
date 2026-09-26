@@ -130,7 +130,7 @@ var KnownErrorCodes = map[string]struct{}{
 	"unknown_emoji": {}, "emoji_retired": {}, "emoji_locked": {},
 	// auth
 	"invalid_device_id": {}, "invalid_session": {}, "invalid_token": {}, "missing_token": {},
-	"provider_unconfigured": {}, "unknown_provider": {}, "unknown_user": {},
+	"provider_unconfigured": {}, "unknown_provider": {}, "unknown_user": {}, "account_disabled": {},
 	// the socket layer's own
 	"rate_limited": {}, "internal_error": {},
 }

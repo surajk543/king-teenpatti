@@ -327,6 +327,11 @@ func New(opts Options) (*App, error) {
 				// (socket.EndSession) rather than logging ERROR per request.
 				return game.Player{}, socket.AccountGoneError()
 			}
+			if user.Disabled {
+				// Disabled (users.is_active) after the socket's own read:
+				// refused under the seat lock too, so no door seats it.
+				return game.Player{}, socket.AccountDisabledError()
+			}
 			return user.Player(), nil
 		},
 	}

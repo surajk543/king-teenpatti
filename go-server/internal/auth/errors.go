@@ -45,6 +45,7 @@ const (
 	CodeProviderUnconfigured = "provider_unconfigured" // 503
 	CodeUnknownProvider      = "unknown_provider"      // 400
 	CodeUnknownUser          = "unknown_user"          // token valid, row gone
+	CodeAccountDisabled      = "account_disabled"      // 403: users.is_active is FALSE (owner, 26 Sep 2026)
 	CodeUnauthorized         = "unauthorized"          // socket middleware fallback for a non-AuthError
 )
 

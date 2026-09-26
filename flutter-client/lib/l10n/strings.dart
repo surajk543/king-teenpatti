@@ -1108,6 +1108,11 @@ class Strings {
   String get runOrderNote => _('runOrderNote');
   String get close => _('close');
 
+  /// The popup a disabled account gets (users.is_active; owner, 26 Sep 2026):
+  /// at sign-in, on a restored session, and when a table refuses it.
+  String get accountDisabledTitle => _('accountDisabledTitle');
+  String get accountDisabledBody => _('accountDisabledBody');
+
   // --- a newer build is waiting on Play
   String get updateTitle => _('updateTitle');
   String get updateBody => _('updateBody');
@@ -1635,6 +1640,9 @@ class Strings {
       'runOrderNote':
           'A-K-Q is the highest run, then A-2-3, then K-Q-J down to 4-3-2.',
       'close': 'Close',
+      'accountDisabledTitle': 'Account disabled',
+      'accountDisabledBody':
+          'Your account is disabled. Please contact support.',
       'changeName': 'Change name',
       'save': 'Save',
       'nameSaved': 'Name updated.',
@@ -2261,6 +2269,9 @@ class Strings {
       'runOrder': 'सीक्वेंस का क्रम',
       'runOrderNote': 'A-K-Q सबसे ऊँचा, फिर A-2-3, फिर K-Q-J से लेकर 4-3-2 तक।',
       'close': 'बंद करें',
+      'accountDisabledTitle': 'खाता निष्क्रिय है',
+      'accountDisabledBody':
+          'आपका खाता निष्क्रिय कर दिया गया है। कृपया सपोर्ट से संपर्क करें।',
       'changeName': 'नाम बदलें',
       'save': 'सहेजें',
       'nameSaved': 'नाम बदल गया।',
@@ -2880,6 +2891,9 @@ class Strings {
       'runOrderNote':
           'A-K-Q সবচেয়ে উঁচু, তারপর A-2-3, তারপর K-Q-J থেকে 4-3-2 পর্যন্ত।',
       'close': 'বন্ধ করুন',
+      'accountDisabledTitle': 'অ্যাকাউন্ট নিষ্ক্রিয়',
+      'accountDisabledBody':
+          'আপনার অ্যাকাউন্ট নিষ্ক্রিয় করা হয়েছে। অনুগ্রহ করে সাপোর্টের সঙ্গে যোগাযোগ করুন।',
       'changeName': 'নাম বদলান',
       'save': 'সেভ করুন',
       'nameSaved': 'নাম বদলে গেছে।',
@@ -3496,6 +3510,9 @@ class Strings {
       'runOrder': 'સિક્વન્સનો ક્રમ',
       'runOrderNote': 'A-K-Q સૌથી ઊંચું, પછી A-2-3, પછી K-Q-J થી 4-3-2 સુધી.',
       'close': 'બંધ કરો',
+      'accountDisabledTitle': 'ખાતું નિષ્ક્રિય છે',
+      'accountDisabledBody':
+          'તમારું ખાતું નિષ્ક્રિય કરવામાં આવ્યું છે. કૃપા કરીને સપોર્ટનો સંપર્ક કરો.',
       'changeName': 'નામ બદલો',
       'save': 'સાચવો',
       'nameSaved': 'નામ બદલાઈ ગયું.',
@@ -4114,6 +4131,9 @@ class Strings {
       'runOrder': 'ਸੀਕਵੈਂਸ ਦਾ ਕ੍ਰਮ',
       'runOrderNote': 'A-K-Q ਸਭ ਤੋਂ ਉੱਚਾ, ਫਿਰ A-2-3, ਫਿਰ K-Q-J ਤੋਂ 4-3-2 ਤੱਕ।',
       'close': 'ਬੰਦ ਕਰੋ',
+      'accountDisabledTitle': 'ਖਾਤਾ ਬੰਦ ਹੈ',
+      'accountDisabledBody':
+          'ਤੁਹਾਡਾ ਖਾਤਾ ਬੰਦ ਕਰ ਦਿੱਤਾ ਗਿਆ ਹੈ। ਕਿਰਪਾ ਕਰਕੇ ਸਪੋਰਟ ਨਾਲ ਸੰਪਰਕ ਕਰੋ।',
       'changeName': 'ਨਾਮ ਬਦਲੋ',
       'save': 'ਸੰਭਾਲੋ',
       'nameSaved': 'ਨਾਮ ਬਦਲ ਗਿਆ।',

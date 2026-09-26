@@ -109,6 +109,16 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, isNew, err := h.deps.Users.UpsertFromProfile(r.Context(), *profile)
+	if errors.Is(err, db.ErrAccountDisabled) {
+		// A verified identity whose account support has switched off
+		// (users.is_active; owner, 26 Sep 2026): 403 account_disabled, which
+		// the app answers with its "contact support" popup. Logged like every
+		// other refused login, so a player's report can be found.
+		refusal := AccountDisabledError()
+		h.logRefusedLogin(req, refusal)
+		h.writeError(w, r, refusal)
+		return
+	}
 	if err != nil {
 		h.writeError(w, r, err)
 		return
