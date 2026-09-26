@@ -860,6 +860,7 @@ user survives a reconnect, which used to reset the count (`userLimiters`, pruned
 | **Poker rooms only** (Go, §6.5; a poker room sends NO `game:*`/`player:*` event and a Teen Patti table no `poker:*` one): `poker:handStarted {handId, handNo, variant, dealerSeat, smallBlind, bigBlind, ante, pot, participants}` · `poker:turn {userId, seatIndex, street, deadline, timeoutMs}` · `poker:action {userId, seatIndex, action, amount, street, pot, allIn?, reason?, discarded?}` · `poker:street {street, community, pot}` · `poker:draw {userId, seatIndex, discarded}` · `poker:showdown {reveals[{userId, seatIndex, cards, best, handName, category, won, outcome?}], community, dealer?, reason}` · `poker:handEnded {handId, handNo, variant, reason, pot, pots[{amount, eligible, winners[{userId, seatIndex, amount, handName}]}], reveals, community, dealer?, summary, nextHandAt}` (all with `roomId`) | room |
 | `poker:cards {cards}` (the deal, and the new hand after a draw) · `poker:yourTurn {street, deadline, timeoutMs, options}` | owner only / player on turn |
 | `chat:message` / `chat:history` / `game:error` | room / socket / socket |
+| `friend:request {requestId, player, createdAt}` / `friend:accepted {requestId, player, friendsSince}` (**Go only**, Friends at the table, 26 Sep 2026, §7.2) — sent by the REST layer, not by a socket event: once `POST /api/friends/requests` (201) / its `…/accept` (200) has committed, to the request's recipient / original sender; `player` is a `PlayerCard` (the sender / the accepter), `friend:request` byte for byte an `incoming[]` item of `GET /api/friends/requests`. Lobby or table alike; never to a room, never kept for an account with no socket, nothing for a reject, a removal or a refusal | that account's live socket |
 
 Production: **`https://prod.sungamestudio.com`** (REST + Socket.IO over TLS) since 24 Sep 2026 — verified that day: `/health` answered with the Go server built from `542e957` (table config from the database, the Redis live store), and `/api/tables`, `/api/profiles` and `/socket.io/` answer. `privacy/` and `account-deletion/` do NOT (404, rechecked the same day); the pages are served at `https://sungamestudio.com/privacy/` and `/account-deletion/` (§7.2). It was `https://api.sungamestudio.com` until then — a name that no longer resolves — which was also the Flutter default from 2026‑09‑08 until 24 Sep 2026, when the default became preprod (§3, `ServerConfig`).
 Client coverage: **Flutter** never sends `lobby:list`, `chat:history`, `ping:rtt`, and never listens
@@ -1088,10 +1089,20 @@ all with the reconciler off. Read in one pipelined round trip per 500 ids (`live
 `MGET kt:playing:…`, metrics op `presence`); status is PLAYING when the record exists (online then true: a player inside
 the 60 s reconnect grace stays "Playing now" rather than flickering offline), else ONLINE, else OFFLINE; a failing live store
 answers every friend OFFLINE with one WARN. The metrics middleware labels the new routes by PATTERN (`/api/players/{playerId}`
-…), never by id. V1 has no socket events: the app polls (§8.4). Tests: `internal/db/{friends,player_stats}_test.go`,
+…), never by id. V1 had no socket events and the app polled (§8.4); **Friends at the table** (owner, 26 Sep 2026: "in a
+gametable, if a player clicks other player pod then a drawer from right side will open, where he can send friend request and
+player by clicking his pod can accept the friend request") added two PUSHES and nothing else server-side — the routes were
+already allowed while seated: once a request (201) or an accept (200) has committed and its answer is written, the handler
+calls `Deps.FriendRequestSent(recipientID, item)` / `Deps.FriendRequestAccepted(senderID, FriendAccepted)`, which `app.go`
+wires to `socket.Handler.NotifyFriendRequest`/`NotifyFriendAccepted` → `friend:request` / `friend:accepted` on that
+account's live socket (§7.1; nil-safe hooks, auth never imports socket). `db.Friends.Send` returns the request as its
+recipient lists it and `Accept` both sides of the new friendship (`db.AcceptedRequest`), read back in their transactions.
+Tests: `internal/db/{friends,player_stats}_test.go`,
 `internal/auth/friends_test.go`, `internal/app/friends_test.go` (the eight routes end to end, presence over real sockets
 for every variant, the grace, a restart, a failing store), `internal/game/roommanager_playing_test.go`, the live conformance
-suite on all three stores.
+suite on all three stores; the pushes in `internal/{auth,app}/friendpush_test.go` and `internal/socket/friends_test.go` (both
+events over real sockets, nothing on reject/remove/refusal or to an account with no socket, two players seated mid-hand
+befriending each other with no `seated` refusal, no wallet word, room id or code in a push).
 `GET /health` (since 23 Sep 2026 it ends with `tableConfig: {source, version, fallback}` — where the tables came
 from; `fallback:true` is a `TABLE_CONFIG_SOURCE=db` boot that could not use the database's catalogue and runs the env
 composition, the one state an operator must go and fix). Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
@@ -1845,8 +1856,29 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   ×1.25 in all five languages and holds the word absent, both glyphs present, the figures un-ellipsised (laid-out width = max intrinsic
   width) and the chip the same height in both states.
 - **Friends V1 — a LOBBY feature** (owner's brief, 26 Sep 2026; server side §7.2/§7.3; `screens/friends_screen.dart`,
-  `state/friends_state.dart`, `models/friends.dart`). Nothing of it reaches the table: `table_screen`, `poker_table_screen`,
-  `table_chrome` and `seat_pod` never mention it (a source scan in `test/friends_page_test.dart` holds that). **The key**
+  `state/friends_state.dart`, `models/friends.dart`), with ONE table surface since the same evening (**Friends at the
+  table**, owner: "in a gametable, if a player clicks other player pod then a drawer from right side will open, where he
+  can send friend request and player by clicking his pod can accept the friend request"; `widgets/player_drawer.dart`):
+  a tap on ANOTHER occupied seat's pod — on the Teen Patti and the poker felt, never the viewer's own, never an empty
+  chair (`playerDrawerSeat`), the plaque only — opens `PlayerDrawer`, the tables' Scaffold `endDrawer` (right side,
+  `TableSpace.drawerW`, `TableScrim.drawer`, `endDrawerEnableOpenDragGesture: false`; the Scaffold still watches nothing;
+  back closes it first; the variation window closes it as it does the left drawer): the player's picture and name at
+  once from the seat, then `GET /api/players/{id}/profile` — NONE **Add Friend** (gold primary) → **Request Sent** (dead);
+  PENDING_RECEIVED **Accept** (gold) + **Reject** (outlined); FRIENDS a ✓ Friends tag (no Remove at a table); a refusal
+  re-reads and shows its note in the drawer — and the five stat tiles through the ONE `PlayerStatsGrid`
+  (`widgets/player_profile.dart`, `RecordSurface.lobby|table`, shared with the lobby profile). No presence, no wallet, no
+  table id. Its own state slot (`FriendsState.seatPlayer/seatProfile/openSeat/closeSeat`), apart from the page's. A seat
+  whose player has asked the viewer wears **`SeatRequestBadge`** (a gold person-add disc on the pod's top corner towards the
+  middle; `SeatPod.onTap/requestBadge`, the pod's size and the ring unchanged), from FriendsState's incoming requests read
+  ONCE as a table opens (`refreshBadge` in `handleState`) and kept by the pushes and the moves — nothing polls at a table.
+  **The pushes** (§7.1): `GameConnection.onFriendRequest/onFriendAccepted`, registered before connect (a push can beat
+  `session:ready`); `GameState.handleFriendRequest` → the request joins the incoming list and a toast says "{name} sent
+  you a friend request." — "… Tap their seat to answer." when the sender sits at the viewer's table (`seatedHere`), no toast
+  for a sender blocked in the table chat; `handleFriendAccepted` → "{name} accepted your friend request."; an open drawer or
+  page showing that player re-reads. The source scan in `test/friends_page_test.dart` now holds that the table files know
+  the drawer and the badge and never the Friends page, its key or presence. `test/friends_table_test.dart` (39: both felts,
+  every status, the moves, the pushes, 640x360 ×1.25 in all five languages both themes); pictures by hand,
+  `test/friends_table_shots.dart`. **The key**
   (`FriendsKey`) is a round 44dp key of the corner chips' card surface just left of the MILESTONE chip in the lobby's foot —
   not in the top bar, where a fourth key would have cut the player's name at text ×1.0 on a 640dp phone (the wallet pill
   takes 53% of a tight bar); the people glyph in a 28dp disc, turning gold with a soft glow and a count badge ("9+" past 9)
@@ -1873,7 +1905,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   table too), every 60 s while the lobby shows (not while the page is open) and when the page closes; the page's lists when it
   opens, every 15 s while it is on screen (the timer tied to the page's own lifetime) and on pull or Retry; an answer that set
   out before an accept, reject or remove is dropped so it cannot undo it; the page closes itself if the app leaves the lobby.
-  47 strings in five languages. Tests: `friends_{dtos,api,state,page}_test.dart` (131) on `friends_fixture.dart`, a fake
+  50 strings in five languages. Tests: `friends_{dtos,api,state,page,table}_test.dart` (170) on `friends_fixture.dart`, a fake
   server built from the contract; pictures by hand, `test/friends_shots.dart`.
 - **Emojis** (owner, 26 Sep 2026; server side §7.1/§7.2/§7.3; `widgets/emoji_shelf.dart`, `widgets/emoji_art.dart`).
   `EmojiItem`/`ChatEmoji` DTOs, `ApiClient.emojis`/`buyEmoji`, `GameConnection.sendEmoji` (`chat:emoji`), `GameState.emojis`
