@@ -252,19 +252,9 @@ CREATE TABLE IF NOT EXISTS users (
   -- /api/store/missiles). Like diamonds, never chip_ledger's business:
   -- missile_purchases and missile_spends below are its receipts.
   missile           INTEGER NOT NULL DEFAULT 1 CHECK (missile >= 0),
-  -- RETIRED (Friends V1, 26 Sep 2026): the six gameplay counters moved to
-  -- player_stats (below), which is the one source from this build on — the
-  -- ledger's checkpoints write them there and every account read joins them
-  -- from there. These columns are never written or read again; they stay in
-  -- this CREATE TABLE only so a rollback to go-server/v1.5.0, which reads and
-  -- writes them, still boots. V1.0.1__seed.sql copied each account's figures
-  -- into player_stats once, the first time this build booted.
-  hands_played      INTEGER NOT NULL DEFAULT 0,
-  hands_won         INTEGER NOT NULL DEFAULT 0,
-  hands_lost        INTEGER NOT NULL DEFAULT 0,
-  hands_left_mid    INTEGER NOT NULL DEFAULT 0,
-  total_winnings    BIGINT NOT NULL DEFAULT 0,
-  biggest_pot       BIGINT NOT NULL DEFAULT 0,
+  -- No gameplay counters: hands played, won, lost and left mid-hand, total
+  -- winnings and the biggest pot live in player_stats (below) alone (Friends
+  -- V1, owner 26 Sep 2026: "only store in player_stats table").
   -- The reward milestones a player has collected live in user_milestones
   -- (below), not here (owner, 14 Sep 2026).
   created_at        BIGINT NOT NULL,
@@ -638,20 +628,20 @@ CREATE TABLE IF NOT EXISTS user_milestones (
 );
 
 -- Each player's gameplay statistics (Friends V1, owner 26 Sep 2026): the six
--- counters that sat on users until this build (users.hands_played …
--- biggest_pot, retired above), in a table of their own so the account row is
--- identity, account and wallet and nothing else. The one source from now on:
--- db.Ledger's checkpoints add to them — in the SAME transaction as the chip
--- delta they belong to, and only when a counter moves — and every account
--- read (db.userFromAt) joins them, 0 without a row; the HANDS_PLAYED
--- milestone and a friend's profile read hands_played here.
+-- counters that sat on users until this build, in a table of their own so the
+-- account row is identity, account and wallet and nothing else — users has
+-- none of them any more (owner: "only store in player_stats table"). The ONE
+-- source: db.Ledger's checkpoints add to them — in the SAME transaction as the
+-- chip delta they belong to, and only when a counter moves — and every account
+-- read (db.userFromAt) joins them, 0 without a row; the HANDS_PLAYED milestone
+-- and a friend's profile read hands_played here.
 --
 -- One row per player, inserted by the first checkpoint that moves a counter
--- (INSERT … ON CONFLICT (user_id) DO UPDATE) or by V1.0.1__seed.sql's
--- one-time backfill from the retired columns, which never touches a row that
--- is already here. hands_left is users.hands_left_mid under its new name —
--- hands abandoned before they finished, counted apart from losses — and the
--- wire's `handsLeftMid` still carries it. A hand counts as played only once
+-- (INSERT … ON CONFLICT (user_id) DO UPDATE). Nothing is copied from an older
+-- database's users columns: this build is deployed onto a fresh database
+-- (owner, 26 Sep 2026). hands_left is the old hands_left_mid under its new
+-- name — hands abandoned before they finished, counted apart from losses —
+-- and the wire's `handsLeftMid` still carries it. A hand counts as played only once
 -- the player made a voluntary bet (requirement 16); total_winnings is gross
 -- chips taken in pots won and biggest_pot the largest of them.
 --

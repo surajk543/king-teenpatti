@@ -1260,10 +1260,11 @@ table … Do not maintain duplicate copies"): `user_id` PK → `users` (CASCADE)
 `hands_left`, `total_winnings`, `biggest_pot` (BIGINT), `created_at`/`updated_at` with defaults. The ledger's checkpoints
 (§5.1) keep `UPDATE users` to the wallet and add, in the same transaction and only when a counter moves, an upsert here
 (`db.addPlayerStats`); every account read `LEFT JOIN`s it (0 without a row), the HANDS_PLAYED milestone reads it, and the
-wire `user` object is byte for byte what it was (`handsLeftMid` ← `hands_left`). **`users`' six stat columns are RETIRED**
-— never written or read by this build — and stay in `CREATE TABLE users` only so a rollback to go-server/v1.5.0, which
-reads them, still boots (it would see them frozen at the upgrade). `V1.0.1__seed.sql` backfills each account's row from them
-once (`INSERT … SELECT … WHERE NOT EXISTS … ON CONFLICT DO NOTHING`), so they can never overwrite live figures. **The
+wire `user` object is byte for byte what it was (`handsLeftMid` ← `hands_left`). **`users` has no stat column** (owner,
+26 Sep 2026: "only store in player_stats table") — the six are gone from `CREATE TABLE users`, and nothing copies an older
+database's figures across: this build is deployed onto a FRESH database (owner, the same day), and on an older one the
+statistics simply start at 0 (the old columns, where a database has them, are never read or written). A rollback to
+go-server/v1.5.0, which reads and writes those columns, therefore needs a fresh database too (DEPLOY.md §5). **The
 friends graph**: **`friend_requests`** (`id` BIGSERIAL, `requester_id`/`recipient_id` → `users` CASCADE, `status`
 PENDING|ACCEPTED|REJECTED|CANCELLED, timestamps, `CHECK requester <> recipient`; `UNIQUE INDEX … (LEAST(requester_id,
 recipient_id), GREATEST(…)) WHERE status = 'PENDING'` — no duplicate and no A→B beside B→A — plus the two partial indexes

@@ -31,11 +31,13 @@ func (f *fixture) stats(userID string) statsRow {
 	return r
 }
 
-// retiredColumns sums the six users columns the counters used to live in.
-func (f *fixture) retiredColumns(userID string) int64 {
+// usersCounterColumns counts the gameplay-counter columns users has in the
+// fixture's schema — none: they live in player_stats alone.
+func (f *fixture) usersCounterColumns() int64 {
 	f.t.Helper()
-	return f.scalar(`SELECT (hands_played + hands_won + hands_lost + hands_left_mid)::bigint + total_winnings + biggest_pot
-	     FROM users WHERE id = $1`, userID)
+	return f.scalar(`SELECT count(*) FROM information_schema.columns
+	     WHERE table_schema = current_schema() AND table_name = 'users'
+	       AND column_name IN ('hands_played', 'hands_won', 'hands_lost', 'hands_left_mid', 'total_winnings', 'biggest_pot')`)
 }
 
 func TestAHandsCountersLandInPlayerStatsAndNoneInUsers(t *testing.T) {
@@ -77,9 +79,9 @@ func TestAHandsCountersLandInPlayerStatsAndNoneInUsers(t *testing.T) {
 		if got := f.stats(c.id); got != c.want {
 			t.Errorf("%s's player_stats = %+v, want %+v", name, got, c.want)
 		}
-		if n := f.retiredColumns(c.id); n != 0 {
-			t.Errorf("%s: the retired users columns moved (%d); the counters live in player_stats", name, n)
-		}
+	}
+	if n := f.usersCounterColumns(); n != 0 {
+		t.Errorf("users has %d gameplay-counter columns; the counters live in player_stats alone", n)
 	}
 
 	// A second win adds to the row rather than replacing it; the biggest pot
@@ -164,54 +166,10 @@ func TestAnOutcomeThatMovesNoCounterWritesNoStatsRow(t *testing.T) {
 	}
 }
 
-// The boot's backfill copies an account's retired counters into player_stats
-// once — hands_left_mid as hands_left — and never again over a live row.
-func TestTheBackfillCopiesTheRetiredCountersOnceAndNeverOverLiveStatistics(t *testing.T) {
-	f := newFixture(t)
-	old := f.user("Veteran")
-	if _, err := f.d.Pool.Exec(f.ctx, `DELETE FROM player_stats WHERE user_id = $1`, old.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET hands_played = 40, hands_won = 10, hands_lost = 25, hands_left_mid = 5,
-	       total_winnings = 700000, biggest_pot = 120000 WHERE id = $1`, old.ID); err != nil {
-		t.Fatal(err)
-	}
-	reboot(t, f.d)
-	if got := f.stats(old.ID); got != (statsRow{played: 40, won: 10, lost: 25, left: 5, winnings: 700000, biggest: 120000, ok: true}) {
-		t.Fatalf("backfilled = %+v", got)
-	}
-	u := f.find(old.ID)
-	if u.HandsPlayed != 40 || u.HandsLeftMid != 5 || u.TotalWinnings != 700000 {
-		t.Fatalf("the account reads %+v", u)
-	}
-	// Twenty-five hands in, the milestone judges player_stats.hands_played.
-	if !u.Rewards.MilestoneAvailable || u.Rewards.MilestoneAt != 25 {
-		t.Fatalf("the milestone after the backfill: %+v", u.Rewards)
-	}
-
-	// A hand played since; then a boot, with the stale figures still on users.
-	hand := "hand-after-" + randomSuffix(t)
-	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: "room-after", HandID: hand, Entries: []game.SettleEntry{
-		settleEntry(hand, old.ID, 900, true, true, 1800),
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	reboot(t, f.d)
-	if got := f.stats(old.ID); got.played != 41 || got.won != 11 || got.winnings != 701800 {
-		t.Fatalf("a boot copied the retired columns over live statistics: %+v", got)
-	}
-	// A new account gets a row of zeros at the next boot, which the reads do
-	// not tell from no row at all.
-	fresh := f.user("Fresh")
-	reboot(t, f.d)
-	if got := f.stats(fresh.ID); got != (statsRow{ok: true}) {
-		t.Fatalf("a new account's backfilled row = %+v", got)
-	}
-}
-
-// The users columns are never written by this build: a whole career of
-// checkpoints and rewards leaves them at 0.
-func TestNothingWritesTheRetiredUsersColumns(t *testing.T) {
+// A whole career of checkpoints and rewards is counted in player_stats, and
+// users has no counter column for anything to write (owner, 26 Sep 2026: "only
+// store in player_stats table").
+func TestAWholeCareerIsCountedInPlayerStatsAlone(t *testing.T) {
 	f := newFixture(t)
 	a, b := f.user("A"), f.user("B")
 	for i := 0; i < 3; i++ {
@@ -228,10 +186,8 @@ func TestNothingWritesTheRetiredUsersColumns(t *testing.T) {
 	if _, err := f.users.ClaimTimedBonus(f.ctx, a.ID); err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{a.ID, b.ID} {
-		if n := f.retiredColumns(id); n != 0 {
-			t.Fatalf("a retired users column was written for %s: %d", id, n)
-		}
+	if n := f.usersCounterColumns(); n != 0 {
+		t.Fatalf("users has %d gameplay-counter columns", n)
 	}
 	if got := f.stats(a.ID); got.won != 3 || got.played != 3 {
 		t.Fatalf("A's statistics = %+v", got)

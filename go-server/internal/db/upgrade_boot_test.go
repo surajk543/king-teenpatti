@@ -55,13 +55,12 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	// So are the emoji store's two (26 Sep 2026).
 	execSQL(t, older, `DROP TABLE user_emojis`)
 	execSQL(t, older, `DROP TABLE emojis`)
-	// And Friends V1's three (26 Sep 2026): production's go-server/v1.5.0
-	// keeps its counters on users, where this build's first boot finds them.
+	// And Friends V1's three (26 Sep 2026). This build goes onto a FRESH
+	// database (owner, 26 Sep 2026), so nothing is copied from anywhere: a boot
+	// on an older one just creates them, and its players' statistics start at 0.
 	execSQL(t, older, `DROP TABLE friendships`)
 	execSQL(t, older, `DROP TABLE friend_requests`)
 	execSQL(t, older, `DROP TABLE player_stats`)
-	execSQL(t, older, `UPDATE users SET hands_played = 30, hands_won = 12, hands_lost = 15, hands_left_mid = 3,
-	                          total_winnings = 90000, biggest_pot = 25000 WHERE id = $1`, before.ID)
 	column := func(d *db.DB, table, name string) int64 {
 		t.Helper()
 		return countOf(t, d, `SELECT count(*) FROM information_schema.columns
@@ -125,25 +124,19 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 		t.Errorf("buying an emoji after the upgrade: %+v %v", bought, err)
 	}
 
-	// Friends V1: the three tables are there, the old account's counters
-	// were copied across from the retired users columns — hands_left_mid as
-	// hands_left — and it reads them from player_stats; users was not altered.
+	// Friends V1: the three tables are there, empty — nothing is copied — and
+	// the account that was already there reads its statistics as zeros.
 	for _, table := range []string{"player_stats", "friend_requests", "friendships"} {
 		if n := countOf(t, d, `SELECT count(*) FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`, d.Schema, table); n != 1 {
 			t.Errorf("%s was not created by the upgrade", table)
 		}
 	}
-	var played, won, lost, left, winnings, biggest int64
-	if err := d.Pool.QueryRow(ctx, `SELECT hands_played, hands_won, hands_lost, hands_left, total_winnings, biggest_pot
-	     FROM player_stats WHERE user_id = $1`, before.ID).Scan(&played, &won, &lost, &left, &winnings, &biggest); err != nil {
-		t.Fatalf("the old account's statistics after the upgrade: %v", err)
-	}
-	if played != 30 || won != 12 || lost != 15 || left != 3 || winnings != 90000 || biggest != 25000 {
-		t.Errorf("backfilled statistics = %d %d %d %d %d %d, want 30 12 15 3 90000 25000", played, won, lost, left, winnings, biggest)
+	if n := countOf(t, d, `SELECT count(*) FROM player_stats`); n != 0 {
+		t.Errorf("%d player_stats rows after the upgrade: nothing is copied into it", n)
 	}
 	if got, err := db.NewUsers(d, welcome, nil).FindByID(ctx, before.ID); err != nil || got == nil ||
-		got.HandsPlayed != 30 || got.HandsWon != 12 || got.HandsLost != 15 || got.HandsLeftMid != 3 || got.TotalWinnings != 90000 || got.BiggestPot != 25000 {
-		t.Errorf("the old account reads %+v %v, want its counters from player_stats", got, err)
+		got.HandsPlayed != 0 || got.HandsWon != 0 || got.HandsLost != 0 || got.HandsLeftMid != 0 || got.TotalWinnings != 0 || got.BiggestPot != 0 {
+		t.Errorf("the old account reads %+v %v, want zero statistics", got, err)
 	}
 
 	// A bot's login writes the restored column.
@@ -183,9 +176,8 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 		t.Errorf("%d wallets disagree with their ledgers", n)
 	}
 
-	// A second boot on the upgraded database is a no-op — and never copies
-	// the retired columns over live statistics: a hand played since the
-	// upgrade survives it, even with the old figures still on users.
+	// A second boot on the upgraded database is a no-op, statistics included:
+	// a hand played since the upgrade survives it.
 	if _, err := db.NewLedger(d, nil, nil).Settle(ctx, game.SettleRequest{
 		RoomID: "upgrade-room", HandID: "upgrade-settle-" + randomSuffix(t),
 		Entries: []game.SettleEntry{{UserID: before.ID, Delta: 0, Reason: game.LedgerReasonHandLoss,
@@ -194,8 +186,8 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 		t.Fatal(err)
 	}
 	reboot(t, d)
-	if n := countOf(t, d, `SELECT hands_played FROM player_stats WHERE user_id = $1`, before.ID); n != 31 {
-		t.Errorf("hands_played after a second boot = %d, want 31: the backfill ran over a live row", n)
+	if n := countOf(t, d, `SELECT hands_played FROM player_stats WHERE user_id = $1`, before.ID); n != 1 {
+		t.Errorf("hands_played after a second boot = %d, want 1", n)
 	}
 	for _, c := range [][2]string{{"users", "is_bot"}, {"users", "is_active"}, {"chip_ledger", "game"}, {"chip_ledger", "variant"}} {
 		if column(d, c[0], c[1]) != 1 {

@@ -299,8 +299,17 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 			t.Errorf("%s seeds %s: the social graph is the players' to write", migrations[1].File, table)
 		}
 	}
-	if !strings.Contains(squash(seed), "INSERT INTO player_stats (user_id, hands_played, hands_won, hands_lost, hands_left, total_winnings, biggest_pot, created_at, updated_at) SELECT u.id, u.hands_played, u.hands_won, u.hands_lost, u.hands_left_mid, u.total_winnings, u.biggest_pot, u.created_at, u.updated_at FROM users u WHERE NOT EXISTS (SELECT 1 FROM player_stats s WHERE s.user_id = u.id) ON CONFLICT (user_id) DO NOTHING;") {
-		t.Errorf("%s must backfill player_stats from the retired users columns, once per account", migrations[1].File)
+	// The six counters live in player_stats ALONE (owner, 26 Sep 2026: "only
+	// store in player_stats table"): users declares none of them, and — this
+	// build going onto a fresh database — nothing copies old figures across.
+	users := squash(createTableBody(t, baseline, "users"))
+	for _, column := range []string{"hands_played", "hands_won", "hands_lost", "hands_left_mid", "total_winnings", "biggest_pot"} {
+		if strings.Contains(users, column+" ") {
+			t.Errorf("CREATE TABLE users still declares %s: the counters live in player_stats alone", column)
+		}
+	}
+	if strings.Contains(seed, "player_stats") {
+		t.Errorf("%s writes player_stats: a player's statistics are the ledger's to write", migrations[1].File)
 	}
 
 	// The missile column and tables are the baseline's too (folded in from

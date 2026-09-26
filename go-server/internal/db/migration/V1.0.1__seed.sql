@@ -20,9 +20,6 @@
 --                 lucky_draws, lucky_draw_slots).
 --   THE EMOJIS    the emoji catalogue (owner, 26 Sep 2026): the animations a
 --                 player buys and sends at a table (emojis).
---   THE PLAYER STATISTICS  not a catalogue: the one-time copy of every
---                 account's gameplay counters from the retired users columns
---                 into player_stats (Friends V1, 26 Sep 2026).
 --
 -- Data, not structure: V1.0.0__baseline.sql builds every table these rows go
 -- into, and it runs FIRST — before this file and before anything numbered
@@ -854,24 +851,3 @@ SELECT name, asset_url, 'LOTTIE', currency, type, cost, duration_days, 0, TRUE, 
      'HAMMER', 'PREMIUM', 5::bigint, 30, 190)
   ) AS v(name, asset_url, currency, type, cost, duration_days, sort_order)
 ON CONFLICT (asset_url) DO NOTHING;
-
-
--- ===================================================== THE PLAYER STATISTICS
---
--- The six gameplay counters left users for player_stats in this build
--- (Friends V1, owner 26 Sep 2026; V1.0.0's player_stats). This copies each
--- account's figures across ONCE: a row is inserted only for an account that
--- has none, and ON CONFLICT DO NOTHING leaves every existing row exactly as it
--- is — so the retired columns, which nothing writes any more, can never
--- overwrite the live statistics, and every later boot copies nothing but the
--- zeros of an account created since that has not yet played a counted hand.
--- hands_left_mid arrives as hands_left. Not a catalogue row, but a row all
--- the same — which is why it is here and not in the baseline, which holds no
--- rows. Under ops/DEPLOY.md §7 it needs SELECT on users, which §7 grants.
-INSERT INTO player_stats (user_id, hands_played, hands_won, hands_lost, hands_left,
-                          total_winnings, biggest_pot, created_at, updated_at)
-SELECT u.id, u.hands_played, u.hands_won, u.hands_lost, u.hands_left_mid,
-       u.total_winnings, u.biggest_pot, u.created_at, u.updated_at
-  FROM users u
- WHERE NOT EXISTS (SELECT 1 FROM player_stats s WHERE s.user_id = u.id)
-ON CONFLICT (user_id) DO NOTHING;

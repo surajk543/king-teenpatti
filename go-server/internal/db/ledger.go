@@ -114,11 +114,10 @@ func applyCheckpoint(ctx context.Context, tx pgx.Tx, entry game.SettleEntry, han
 		}
 	}
 
-	// The wallet is all users holds now. The counters live in player_stats
-	// (Friends V1, 26 Sep 2026; users.hands_played … biggest_pot are retired
-	// and never written again), added to in this same transaction — and only
-	// when one of them moves: a pack, a boot-only fold or a leave between
-	// hands writes no stats statement at all.
+	// The wallet is all users holds. The counters live in player_stats alone
+	// (Friends V1, 26 Sep 2026: users has no stat column), added to in this
+	// same transaction — and only when one of them moves: a pack, a boot-only
+	// fold or a leave between hands writes no stats statement at all.
 	if _, err := tx.Exec(ctx, `UPDATE users SET chips = $1, updated_at = $2 WHERE id = $3`,
 		balance, at, entry.UserID); err != nil {
 		return 0, err
@@ -141,9 +140,8 @@ func applyCheckpoint(ctx context.Context, tx pgx.Tx, entry game.SettleEntry, han
 // creating it the first time: played/won/lost/left are 0 or 1, gross the pot
 // they took (0 unless they won), which total_winnings sums and biggest_pot
 // keeps the largest of. Called inside the checkpoint's transaction, holding
-// the player's wallet lock — every run-time writer of a player's row holds
-// that lock first (the seed's backfill runs at boot, before any table), so two
-// writes to one row queue on the wallet, never on each other.
+// the player's wallet lock — every writer of a player's row holds that lock
+// first, so two writes to one row queue on the wallet, never on each other.
 func addPlayerStats(ctx context.Context, tx pgx.Tx, userID string, played, won, lost, left int, gross, at int64) error {
 	_, err := tx.Exec(ctx, `INSERT INTO player_stats (user_id, hands_played, hands_won, hands_lost, hands_left,
 	                                  total_winnings, biggest_pot, created_at, updated_at)
