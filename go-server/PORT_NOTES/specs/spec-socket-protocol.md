@@ -876,6 +876,24 @@ Poker's (`eval3.go`): `High Card`, `Pair`, `Flush`, `Straight`, `Three of a Kind
 same meaning kept name for name, plus `game:"poker"` and `poker {…}`; a Teen Patti table's snapshot
 carries neither key.
 
+**Friend pushes** (Go only — Friends at the table, owner 26 Sep 2026; `internal/socket/handler.go`
+`NotifyFriendRequest`/`NotifyFriendAccepted`, fed by `auth.Deps.FriendRequestSent`/`FriendRequestAccepted`).
+Sent by the REST layer, not by any socket event: once `POST /api/friends/requests` (201) or `POST
+/api/friends/requests/{id}/accept` (200) has committed and its answer is written, to ONE account's live
+socket (`emitToUser`) — wherever it is, lobby or table; never to a room, never kept for an account with no
+socket (its lists say it at the next read), nothing for a reject, a removal or any refusal. A push can reach a
+socket that connected an instant earlier before its `session:ready`.
+
+| Event | Audience | Payload |
+|---|---|---|
+| `friend:request` | the request's recipient | `{requestId, player:{userId, displayName, profilePicture:{id, url}}, createdAt}` — `player` the SENDER; byte for byte an `incoming[]` item of `GET /api/friends/requests` |
+| `friend:accepted` | the request's sender | `{requestId, player:{userId, displayName, profilePicture:{id, url}}, friendsSince}` — `player` the player who accepted; `friendsSince` the sender's `GET /api/friends` value |
+
+```
+S→C  42["friend:request",{"requestId":1,"player":{"userId":"<sender>","displayName":"Alice","profilePicture":{"id":null,"url":null}},"createdAt":1790442915826}]
+S→C  42["friend:accepted",{"requestId":1,"player":{"userId":"<accepter>","displayName":"Bobby","profilePicture":{"id":7,"url":"https://…"}},"friendsSince":1790442915835}]
+```
+
 ### 8.1 `serializeFor(viewerId)` (`table.js:1642-1739`) — MUST MATCH, including redaction
 
 ```jsonc

@@ -137,7 +137,22 @@ type Deps struct {
 	// Presence is where a friend's online and playing presence is read from
 	// (app: the live store). Nil → every friend reads OFFLINE.
 	Presence PresenceSource
-	Logger   *slog.Logger
+	// FriendRequestSent tells a player of a friend request just made to them
+	// (Friends at the table, owner 26 Sep 2026; app: the socket layer's
+	// friend:request, to that player's live socket, lobby or table — nothing
+	// when they have none, and nothing kept for later). Called on the
+	// request's goroutine, holding no lock, once the request has committed
+	// and its 201 is written, with the recipient's id and the request exactly
+	// as their GET /api/friends/requests lists it in incoming. It must not
+	// block: the answer has not yet left while it runs. Nil = nobody to tell.
+	FriendRequestSent func(recipientID string, item FriendRequestItem)
+	// FriendRequestAccepted tells the original sender of a friend request that
+	// it has just been accepted (app: the socket layer's friend:accepted, to
+	// that player's live socket). Called as FriendRequestSent is, once the
+	// accept has committed and its answer is written, with the sender's id.
+	// Nil = nobody to tell.
+	FriendRequestAccepted func(senderID string, accepted FriendAccepted)
+	Logger                *slog.Logger
 }
 
 // MissileStore is the slice of db.Missiles the missile store endpoint uses.

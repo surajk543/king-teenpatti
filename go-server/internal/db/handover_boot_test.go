@@ -297,11 +297,11 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 		t.Fatalf("a second account on §7's grants: %v", err)
 	}
 	friends := db.NewFriends(d, nil)
-	requestID, err := friends.Send(ctx, u.ID, friend.ID)
+	sent, err := friends.Send(ctx, u.ID, friend.ID)
 	if err != nil {
 		t.Fatalf("a friend request on §7's grants: %v", err)
 	}
-	if _, err := friends.Accept(ctx, friend.ID, requestID); err != nil {
+	if _, err := friends.Accept(ctx, friend.ID, sent.ID); err != nil {
 		t.Fatalf("an accept on §7's grants: %v", err)
 	}
 	if found, err := friends.Lookup(ctx, u.ID, friend.ID); err != nil || found.FriendStatus != db.FriendStatusFriends {

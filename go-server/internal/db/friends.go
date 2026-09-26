@@ -12,8 +12,9 @@ import (
 
 // Friends V1 (owner, 26 Sep 2026): the persistent social graph —
 // friend_requests and friendships (V1.0.0's FRIENDS) — and the player lookups
-// the lobby's Friends page is drawn from. A lobby feature: nothing here is
-// read at a table, and whether a friend is online or playing is never here —
+// the lobby's Friends page (and, since Friends at the table, a table's player
+// drawer — over the same REST routes) is drawn from. No game table reads
+// anything here, and whether a friend is online or playing is never here —
 // that is the live store's (live.Store.Presence), merged in by the REST layer.
 //
 // What leaves this file about a player is a FriendPlayer — the id, the name
@@ -130,7 +131,8 @@ type PlayerLookup struct {
 	Stats     PlayerStats
 }
 
-// Friend is one friend of a player's list (or the one Accept just made).
+// Friend is one friend of a player's list (or either side of the friendship
+// Accept just made).
 type Friend struct {
 	Player FriendPlayer
 	// Since is when the two became friends (friendships.created_at, epoch ms).
@@ -143,6 +145,19 @@ type FriendRequest struct {
 	ID        int64
 	Player    FriendPlayer
 	CreatedAt int64
+}
+
+// AcceptedRequest is a friend request Accept has just accepted: the two
+// players of the new friendship, each as the OTHER's friend list shows them
+// (List's row — the card, and when the two became friends).
+type AcceptedRequest struct {
+	// Sender is the request's sender, as the player who accepted it now
+	// lists them: the accept's answer.
+	Sender Friend
+	// Recipient is the player who accepted it, as the sender now lists them:
+	// what the sender is told (Friends at the table, owner 26 Sep 2026: the
+	// socket's friend:accepted).
+	Recipient Friend
 }
 
 // Friends is the social graph's store.
@@ -300,15 +315,18 @@ const sendAttempts = 3
 const pendingPairIndex = "friend_requests_one_pending_per_pair"
 
 // Send records fromID's friend request to toID (toID normalised) and returns
-// its id. One transaction:
+// it as its recipient will list it (Requests' incoming): its id, the SENDER,
+// and when it was sent — what the recipient is told (Friends at the table,
+// owner 26 Sep 2026: the socket's friend:request). One transaction:
 //
 //	SELECT … FROM users WHERE id IN (from, to) ORDER BY id FOR KEY SHARE
 //	(to invisible → ErrPlayerNotFound)
 //	friends already → ErrAlreadyFriends
 //	a pending request between them → ErrRequestAlreadySent (theirs) or
 //	                                  *RequestAlreadyReceived (the other's)
-//	INSERT INTO friend_requests … RETURNING id
+//	INSERT INTO friend_requests … RETURNING id, created_at
 //	friends now → ErrAlreadyFriends (rolled back)
+//	SELECT the sender as a FriendPlayer
 //
 // The two accounts are locked first, in id order and in the mode the foreign
 // keys lock them in anyway, so an account deletion (which locks its own row
@@ -324,21 +342,21 @@ const pendingPairIndex = "friend_requests_one_pending_per_pair"
 // request between the pair that committed after the first look would
 // otherwise leave a pending request between two friends: the insert waited
 // for it on the pending row it replaced, so the second look sees it.
-func (f *Friends) Send(ctx context.Context, fromID, toID string) (int64, error) {
+func (f *Friends) Send(ctx context.Context, fromID, toID string) (*FriendRequest, error) {
 	if fromID == toID {
-		return 0, ErrSelfRequest
+		return nil, ErrSelfRequest
 	}
 	for attempt := 1; ; attempt++ {
-		id, err := f.sendOnce(ctx, fromID, toID)
+		sent, err := f.sendOnce(ctx, fromID, toID)
 		if err != nil && attempt < sendAttempts && isUniqueViolationOn(err, pendingPairIndex) {
 			continue
 		}
-		return id, err
+		return sent, err
 	}
 }
 
-func (f *Friends) sendOnce(ctx context.Context, fromID, toID string) (int64, error) {
-	var id int64
+func (f *Friends) sendOnce(ctx context.Context, fromID, toID string) (*FriendRequest, error) {
+	var sent FriendRequest
 	err := f.db.WithTx(ctx, func(tx pgx.Tx) error {
 		visible, err := lockAccounts(ctx, tx, fromID, toID)
 		if err != nil {
@@ -373,7 +391,8 @@ func (f *Friends) sendOnce(ctx context.Context, fromID, toID string) (int64, err
 		stamp := now(f.clock)
 		if err := tx.QueryRow(ctx,
 			`INSERT INTO friend_requests (requester_id, recipient_id, status, created_at, updated_at)
-			 VALUES ($1, $2, 'PENDING', $3, $3) RETURNING id`, fromID, toID, stamp).Scan(&id); err != nil {
+			 VALUES ($1, $2, 'PENDING', $3, $3) RETURNING id, created_at`, fromID, toID, stamp).
+			Scan(&sent.ID, &sent.CreatedAt); err != nil {
 			return err
 		}
 		if friends, err := areFriends(ctx, tx, fromID, toID); err != nil {
@@ -381,12 +400,15 @@ func (f *Friends) sendOnce(ctx context.Context, fromID, toID string) (int64, err
 		} else if friends {
 			return ErrAlreadyFriends
 		}
-		return nil
+		// The sender, as the recipient's incoming list names them.
+		sent.Player, err = scanFriendPlayer(tx.QueryRow(ctx,
+			`SELECT `+friendPlayerColumns+` FROM users u`+friendPictureJoin+` WHERE u.id = $1`, fromID))
+		return err
 	})
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return id, nil
+	return &sent, nil
 }
 
 // lockAccounts locks both accounts' rows FOR KEY SHARE, in id order (the
@@ -419,22 +441,26 @@ func areFriends(ctx context.Context, tx pgx.Tx, a, b string) (bool, error) {
 	return friends, err
 }
 
-// Accept is userID accepting the request requestID, and returns the new
-// friend (the request's sender) with when the friendship began. ONE
-// transaction:
+// Accept is userID accepting the request requestID, and returns the two
+// players of the new friendship, each as the other's friend list now shows
+// them: the request's sender — the new friend, the accept's answer — and
+// userID, with the sender's own friendsSince — what the sender is told
+// (Friends at the table, owner 26 Sep 2026: the socket's friend:accepted).
+// ONE transaction:
 //
 //	read the request                         (none, or not addressed to userID → ErrRequestNotFound)
 //	lock both accounts FOR KEY SHARE, id order
 //	SELECT status … FOR UPDATE               (not PENDING → ErrRequestNotPending)
 //	UPDATE friend_requests SET status = 'ACCEPTED'
 //	INSERT INTO friendships (a→b), (b→a) ON CONFLICT DO NOTHING
+//	read both rows back, each with its player
 //
 // The accounts are locked before the request row, the order an account
 // deletion takes them in (its own row, then its requests), so the two queue
 // rather than deadlock; the deletion that goes first cancels the request and
 // the accept finds it not pending.
-func (f *Friends) Accept(ctx context.Context, userID string, requestID int64) (*Friend, error) {
-	var out *Friend
+func (f *Friends) Accept(ctx context.Context, userID string, requestID int64) (*AcceptedRequest, error) {
+	var out *AcceptedRequest
 	err := f.db.WithTx(ctx, func(tx pgx.Tx) error {
 		var requester, recipient string
 		err := tx.QueryRow(ctx, `SELECT requester_id, recipient_id FROM friend_requests WHERE id = $1`, requestID).
@@ -465,22 +491,37 @@ func (f *Friends) Accept(ctx context.Context, userID string, requestID int64) (*
 			 ON CONFLICT (user_id, friend_user_id) DO NOTHING`, recipient, requester, stamp); err != nil {
 			return err
 		}
-		var since int64
-		player, err := scanFriendPlayer(tx.QueryRow(ctx,
-			`SELECT `+friendPlayerColumns+`, fr.created_at
-			   FROM friendships fr
-			   JOIN users u ON u.id = fr.friend_user_id`+friendPictureJoin+`
-			  WHERE fr.user_id = $1 AND fr.friend_user_id = $2`, recipient, requester), &since)
+		sender, err := friendOf(ctx, tx, recipient, requester)
 		if err != nil {
 			return err
 		}
-		out = &Friend{Player: player, Since: since}
+		accepter, err := friendOf(ctx, tx, requester, recipient)
+		if err != nil {
+			return err
+		}
+		out = &AcceptedRequest{Sender: sender, Recipient: accepter}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// friendOf is friendID as userID's friend list shows them (List's row): the
+// player, and when the two became friends — the friendship row userID →
+// friendID, read in tx.
+func friendOf(ctx context.Context, tx pgx.Tx, userID, friendID string) (Friend, error) {
+	var since int64
+	player, err := scanFriendPlayer(tx.QueryRow(ctx,
+		`SELECT `+friendPlayerColumns+`, fr.created_at
+		   FROM friendships fr
+		   JOIN users u ON u.id = fr.friend_user_id`+friendPictureJoin+`
+		  WHERE fr.user_id = $1 AND fr.friend_user_id = $2`, userID, friendID), &since)
+	if err != nil {
+		return Friend{}, err
+	}
+	return Friend{Player: player, Since: since}, nil
 }
 
 // Reject is userID turning the request requestID down: the row is marked

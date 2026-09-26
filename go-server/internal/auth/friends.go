@@ -32,20 +32,33 @@ import (
 // limiter as every other mutation does. Allowed anywhere — at a table too —
 // as none of them moves a wallet.
 //
-// WHAT NEVER LEAVES. Every answer is built from the DTOs below and nothing
-// else: never a db.User, and so never a wallet (chips, diamonds, hammers,
-// missiles), a purchase, a ledger row, an email or a provider identity; and a
-// friend who is at a table is shown the KIND of table (game and variant, from
-// the seat's live playing record) — never its room id, its code or a live
-// store key.
+// PUSHES (Friends at the table, owner 26 Sep 2026). Two of them tell the OTHER
+// player at once, wherever they are — lobby or table: a request made (201) is
+// handed to Deps.FriendRequestSent for its recipient, and an accept (200) to
+// Deps.FriendRequestAccepted for the request's sender — the app sends them as
+// the socket's friend:request and friend:accepted to that player's live
+// socket. Each is called once the transaction has committed and the answer is
+// written, and never on a reject, a removal or a refusal: a refusal is never
+// announced.
+//
+// WHAT NEVER LEAVES. Every answer and every push is built from the DTOs below
+// and nothing else: never a db.User, and so never a wallet (chips, diamonds,
+// hammers, missiles), a purchase, a ledger row, an email or a provider
+// identity; and a friend who is at a table is shown the KIND of table (game
+// and variant, from the seat's live playing record) — never its room id, its
+// code or a live store key.
 
 // FriendStore is the slice of db.Friends the friends routes use.
 type FriendStore interface {
 	Lookup(ctx context.Context, viewerID, playerID string) (*db.PlayerLookup, error)
 	List(ctx context.Context, userID string) ([]db.Friend, error)
 	Requests(ctx context.Context, userID string) (incoming, outgoing []db.FriendRequest, err error)
-	Send(ctx context.Context, fromID, toID string) (int64, error)
-	Accept(ctx context.Context, userID string, requestID int64) (*db.Friend, error)
+	// Send records a request and returns it as its recipient will list it
+	// (Player: the sender).
+	Send(ctx context.Context, fromID, toID string) (*db.FriendRequest, error)
+	// Accept accepts one and returns both players of the new friendship, each
+	// as the other will list them.
+	Accept(ctx context.Context, userID string, requestID int64) (*db.AcceptedRequest, error)
 	Reject(ctx context.Context, userID string, requestID int64) error
 	Remove(ctx context.Context, userID, friendID string) error
 }
@@ -153,11 +166,25 @@ type FriendsResponse struct {
 }
 
 // FriendRequestItem is one pending request: its id, the OTHER player, and
-// when it was sent.
+// when it was sent. It is also, exactly, the socket's friend:request payload
+// (Friends at the table, owner 26 Sep 2026): the request as its recipient's
+// incoming list shows it, Player being the SENDER — one client parser reads
+// both.
 type FriendRequestItem struct {
 	RequestID int64      `json:"requestId"`
 	Player    PlayerCard `json:"player"`
 	CreatedAt int64      `json:"createdAt"`
+}
+
+// FriendAccepted is the socket's friend:accepted payload (Friends at the
+// table, owner 26 Sep 2026), pushed to the original sender of a request the
+// moment its recipient accepts it: the request, the player who accepted —
+// as the sender's friend list now shows them — and when the two became
+// friends (friendships.created_at, epoch ms: the sender's friendsSince).
+type FriendAccepted struct {
+	RequestID    int64      `json:"requestId"`
+	Player       PlayerCard `json:"player"`
+	FriendsSince int64      `json:"friendsSince"`
 }
 
 // FriendRequestsResponse ← GET /api/friends/requests: the pending requests
@@ -320,6 +347,10 @@ func (h *Handler) FriendRequests(w http.ResponseWriter, r *http.Request, user *d
 // request_already_sent; 409 request_already_received with the pending
 // request's requestId. Two requests sent at the same instant — either way —
 // leave exactly one pending (db.Friends.Send).
+//
+// Once the 201 is written the recipient is told, wherever they are
+// (Deps.FriendRequestSent → friend:request): the request exactly as their
+// GET /api/friends/requests lists it in incoming. A refusal tells nobody.
 func (h *Handler) SendFriendRequest(w http.ResponseWriter, r *http.Request, user *db.User) {
 	var body SendFriendRequestBody
 	if err := ReadJSONBody(r, &body); err != nil {
@@ -331,7 +362,7 @@ func (h *Handler) SendFriendRequest(w http.ResponseWriter, r *http.Request, user
 		refuseFriends(w, http.StatusBadRequest, CodeInvalidPlayerID, MsgInvalidPlayerID, nil)
 		return
 	}
-	id, err := h.deps.Friends.Send(r.Context(), user.ID, playerID)
+	sent, err := h.deps.Friends.Send(r.Context(), user.ID, playerID)
 	var received *db.RequestAlreadyReceived
 	switch {
 	case errors.Is(err, db.ErrSelfRequest):
@@ -348,7 +379,12 @@ func (h *Handler) SendFriendRequest(w http.ResponseWriter, r *http.Request, user
 	case err != nil:
 		h.writeError(w, r, err)
 	default:
-		WriteJSON(w, http.StatusCreated, SendFriendRequestResponse{RequestID: id, FriendStatus: db.FriendStatusPendingSent})
+		WriteJSON(w, http.StatusCreated, SendFriendRequestResponse{RequestID: sent.ID, FriendStatus: db.FriendStatusPendingSent})
+		// playerID is the recipient's users.id exactly: the request's foreign
+		// key has just accepted it.
+		if h.deps.FriendRequestSent != nil {
+			h.deps.FriendRequestSent(playerID, requestItem(*sent))
+		}
 	}
 }
 
@@ -358,18 +394,30 @@ func (h *Handler) SendFriendRequest(w http.ResponseWriter, r *http.Request, user
 // friend, presence included. 404 request_not_found for an id that does not
 // exist or is not addressed to the caller (the two are one refusal: a request
 // id never says whose it is); 409 request_not_pending once it is answered.
+//
+// Once the answer is written the request's sender is told, wherever they are
+// (Deps.FriendRequestAccepted → friend:accepted): the request, the caller as
+// the sender's friend list now shows them, and friendsSince. A refusal tells
+// nobody.
 func (h *Handler) AcceptFriendRequest(w http.ResponseWriter, r *http.Request, user *db.User) {
 	requestID, ok := requestIDFrom(r.PathValue("requestId"))
 	if !ok {
 		refuseFriends(w, http.StatusNotFound, CodeFriendRequestNotFound, MsgFriendRequestNotFound, nil)
 		return
 	}
-	friend, err := h.deps.Friends.Accept(r.Context(), user.ID, requestID)
+	accepted, err := h.deps.Friends.Accept(r.Context(), user.ID, requestID)
 	if h.refuseAnswer(w, r, err) {
 		return
 	}
-	id := friend.Player.UserID
-	WriteJSON(w, http.StatusOK, AcceptFriendRequestResponse{Friend: friendItem(*friend, h.presenceOf(r.Context(), []string{id})[id])})
+	senderID := accepted.Sender.Player.UserID
+	WriteJSON(w, http.StatusOK, AcceptFriendRequestResponse{Friend: friendItem(accepted.Sender, h.presenceOf(r.Context(), []string{senderID})[senderID])})
+	if h.deps.FriendRequestAccepted != nil {
+		h.deps.FriendRequestAccepted(senderID, FriendAccepted{
+			RequestID:    requestID,
+			Player:       cardOf(accepted.Recipient.Player),
+			FriendsSince: accepted.Recipient.Since,
+		})
+	}
 }
 
 // RejectFriendRequest is POST /api/friends/requests/{requestId}/reject:
@@ -537,9 +585,15 @@ func sortFriends(items []FriendItem) {
 func requestItems(list []db.FriendRequest) []FriendRequestItem {
 	out := make([]FriendRequestItem, 0, len(list))
 	for _, r := range list {
-		out = append(out, FriendRequestItem{RequestID: r.ID, Player: cardOf(r.Player), CreatedAt: r.CreatedAt})
+		out = append(out, requestItem(r))
 	}
 	return out
+}
+
+// requestItem is one request on the wire — a list's item, and the
+// friend:request push, built the one same way.
+func requestItem(r db.FriendRequest) FriendRequestItem {
+	return FriendRequestItem{RequestID: r.ID, Player: cardOf(r.Player), CreatedAt: r.CreatedAt}
 }
 
 // statsView is a profile's stats with its win rate.

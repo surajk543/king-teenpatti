@@ -74,6 +74,13 @@ const (
 	EvChatMessageOut         = "chat:message"
 	EvChatHistoryOut         = "chat:history"
 	EvGameError              = "game:error" // socket: {code, message}
+	// Friends at the table (owner, 26 Sep 2026; Go only). Each goes to ONE
+	// player's live socket — wherever they are, lobby or table — the moment
+	// the REST call that caused it has committed: never to a room, and never
+	// kept for a player with no socket (their lists say it at the next read).
+	// Nothing is sent for a reject, a removal or a refusal.
+	EvFriendRequest  = "friend:request"  // the request's recipient: auth.FriendRequestItem (Player: the sender)
+	EvFriendAccepted = "friend:accepted" // the request's sender: auth.FriendAccepted (Player: the accepter)
 )
 
 // Messages the socket layer itself puts on the wire.

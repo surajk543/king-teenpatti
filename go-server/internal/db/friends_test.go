@@ -3,6 +3,7 @@ package db_test
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -28,11 +29,11 @@ func (f *fixture) lookup(viewer, player string) *db.PlayerLookup {
 
 func (f *fixture) mustSend(from, to string) int64 {
 	f.t.Helper()
-	id, err := f.friends().Send(f.ctx, from, to)
+	sent, err := f.friends().Send(f.ctx, from, to)
 	if err != nil {
 		f.t.Fatalf("send %s → %s: %v", from, to, err)
 	}
-	return id
+	return sent.ID
 }
 
 func (f *fixture) befriend(a, b string) {
@@ -192,12 +193,15 @@ func TestARequestIsPendingOnceAndOnlyItsRecipientAnswersIt(t *testing.T) {
 	if _, err := fr.Accept(f.ctx, b.ID, 987654321); !errors.Is(err, db.ErrRequestNotFound) {
 		t.Fatalf("an unknown id: %v", err)
 	}
-	friend, err := fr.Accept(f.ctx, b.ID, id)
+	accepted, err := fr.Accept(f.ctx, b.ID, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if friend.Player.UserID != a.ID || friend.Player.DisplayName != "A" || friend.Since <= 0 {
+	if friend := accepted.Sender; friend.Player.UserID != a.ID || friend.Player.DisplayName != "A" || friend.Since <= 0 {
 		t.Fatalf("the new friend = %+v", friend)
+	}
+	if accepter := accepted.Recipient; accepter.Player.UserID != b.ID || accepter.Player.DisplayName != "B" || accepter.Since != accepted.Sender.Since {
+		t.Fatalf("the player who accepted = %+v", accepter)
 	}
 	// One transaction wrote both rows, and the request is ACCEPTED.
 	if n := f.count(`SELECT count(*) FROM friendships WHERE (user_id = $1 AND friend_user_id = $2) OR (user_id = $2 AND friend_user_id = $1)`, a.ID, b.ID); n != 2 {
@@ -238,6 +242,53 @@ func TestARequestIsPendingOnceAndOnlyItsRecipientAnswersIt(t *testing.T) {
 	again := f.mustSend(c.ID, a.ID)
 	if again == rejected {
 		t.Fatal("a new request is a new row")
+	}
+}
+
+// Friends at the table (owner, 26 Sep 2026): Send hands back the request as
+// its recipient will list it, and Accept both players of the new friendship
+// as each will list the other — read inside their transactions, so what the
+// socket pushes is exactly what the lists say next, the worn picture and the
+// times included.
+func TestASentAndAnAcceptedRequestComeBackAsEachSideWillListThem(t *testing.T) {
+	f := newFixture(t)
+	sender, recipient := f.user("Sender"), f.user("Recipient")
+	var pictureID int64
+	if err := f.d.Pool.QueryRow(f.ctx, `SELECT id FROM profile_pictures WHERE type = 'FREE' ORDER BY id LIMIT 1`).Scan(&pictureID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.users.SetActivePicture(f.ctx, sender.ID, &pictureID); err != nil {
+		t.Fatal(err)
+	}
+
+	sent, err := f.friends().Send(f.ctx, sender.ID, recipient.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sent.Player.UserID != sender.ID || sent.Player.DisplayName != "Sender" || sent.Player.PictureID == nil ||
+		*sent.Player.PictureID != pictureID || sent.Player.PictureURL == nil || sent.CreatedAt <= 0 {
+		t.Fatalf("Send = %+v", sent)
+	}
+	incoming, _, err := f.friends().Requests(f.ctx, recipient.ID)
+	if err != nil || len(incoming) != 1 || !reflect.DeepEqual(*sent, incoming[0]) {
+		t.Fatalf("Send = %+v, the recipient's incoming = %+v (%v)", *sent, incoming, err)
+	}
+
+	accepted, err := f.friends().Accept(f.ctx, recipient.ID, sent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted.Sender.Player.UserID != sender.ID || accepted.Recipient.Player.UserID != recipient.ID {
+		t.Fatalf("Accept = %+v", accepted)
+	}
+	for _, side := range []struct {
+		lister string
+		got    db.Friend
+	}{{recipient.ID, accepted.Sender}, {sender.ID, accepted.Recipient}} {
+		list, err := f.friends().List(f.ctx, side.lister)
+		if err != nil || len(list) != 1 || !reflect.DeepEqual(side.got, list[0]) {
+			t.Fatalf("Accept says %+v, %s's list says %+v (%v)", side.got, side.lister, list, err)
+		}
 	}
 }
 

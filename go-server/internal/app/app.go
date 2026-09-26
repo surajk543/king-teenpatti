@@ -457,6 +457,11 @@ func New(opts Options) (*App, error) {
 		WhileUnseated: a.rooms.WhileUnseated,
 		// A deleted account's sockets are ended at once (24 Sep 2026).
 		AccountDeleted: a.sockets.EndSession,
+		// Friends at the table (owner, 26 Sep 2026): a request made and a
+		// request accepted are pushed to the other player's live socket,
+		// lobby or table, once committed (friend:request, friend:accepted).
+		FriendRequestSent:     a.sockets.NotifyFriendRequest,
+		FriendRequestAccepted: a.sockets.NotifyFriendAccepted,
 	})
 	mux := http.NewServeMux()
 	if cfg.Metrics.Enabled {
