@@ -207,9 +207,10 @@ Server ↔ client: the backend's address is ONE build-time setting, `lib/config/
 **`https://sungamestudio.com/privacy/`** (`ServerConfig.privacyUrl`, `--dart-define=PRIVACY_URL`, in every `config/*.json`;
 owner, 24 Sep 2026 — the page the Play listing names; `https://prod.sungamestudio.com/privacy/`, which 1.2.2+9 opened,
 answers 404). **With no define the app talks to
-PREPROD, `https://preprod.sungamestudio.com`** (owner, 24 Sep 2026: "change the prefix to preprod … this should be
-configurable"; the default was production, `https://api.sungamestudio.com`, until then), so an unconfigured build can
-never reach the production accounts — and **the store build must name production explicitly**:
+PRODUCTION, `https://prod.sungamestudio.com`, labelled `production`, with the production Google Web client id** (owner,
+27 Sep 2026: "in frontend when UI is build it should by default call prod api"; the default was preprod from 24 Sep 2026,
+and `api.sungamestudio.com` before), so a plain build is the store build and preprod or a local server must be named with a
+define — and the store build still names production explicitly:
 `flutter build appbundle --release --dart-define-from-file=flutter-client/config/production.json` — **production is
 `https://prod.sungamestudio.com`** (owner, 24 Sep 2026: "ui should call https://prod.sungamestudio.com/ to connect backend";
 `api.sungamestudio.com` stopped resolving that day, so a store build of `flutter-client/v1.2.1` or older reaches no server;

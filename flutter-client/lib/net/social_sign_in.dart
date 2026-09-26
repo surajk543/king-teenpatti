@@ -54,9 +54,13 @@ class SocialSignIn {
   /// an `idToken` at all — without it the sign-in succeeds and hands back a
   /// credential the server cannot verify. It must also be listed in the
   /// server's GOOGLE_CLIENT_IDS, because that is what the server checks the
-  /// token's audience against.
+  /// token's audience against. With no define it is the production Web
+  /// client (`config/production.json`'s — a public id, not a secret), so a
+  /// plain build, which talks to production, can sign in with Google too.
   static const serverClientId = String.fromEnvironment(
     'GOOGLE_SERVER_CLIENT_ID',
+    defaultValue:
+        '265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com',
   );
 
   static bool get googleConfigured => serverClientId.isNotEmpty;
