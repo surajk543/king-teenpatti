@@ -47,9 +47,9 @@ func withoutSeededEmojis(t *testing.T, f *fixture) {
 
 // The seed is the owner's own art (26 Sep 2026: "use this Lottie emoji,
 // validity 30 days, cost 5 Hammer", then six more at "same price same
-// validity"): seven Drive-hosted Lotties at 5 hammers for 30 days each, in the
-// order they were given and owned by nobody.
-func TestTheSeededEmojisAreTheOwnersSevenAtFiveHammersForThirtyDays(t *testing.T) {
+// validity"): sixteen Drive-hosted Lotties at 5 hammers for 30 days each, in
+// the order they were given and owned by nobody.
+func TestTheSeededEmojisAreTheOwnersSixteenAtFiveHammersForThirtyDays(t *testing.T) {
 	f := newFixture(t)
 	listed, err := f.emojiStore().List(f.ctx, "")
 	if err != nil {
@@ -63,6 +63,15 @@ func TestTheSeededEmojisAreTheOwnersSevenAtFiveHammersForThirtyDays(t *testing.T
 		{"Clapping Hands", "1_wnZ9Tmiy7qnK7EzmK5hpSPZCOTxvjlc"},
 		{"Cowboy Hat Face", "141HlEZZxoRuIzAaN16emiNO7UZ7RWYNn"},
 		{"Muscle", "199f59nq4Vx0FImGvbAv4X2LJnkyUQ67f"},
+		{"Plane Face", "1Y3WEnboXZskv6vItBQ_E1WZoC9aIUh8D"},
+		{"Knife", "1lLryjoIf2KNGqZFGxGX8vGThozJM0vw-"},
+		{"Sleeping", "1bC-1hqYUblHCjiTvAd6OT8xHYYbj9sKC"},
+		{"Squinting Face with Tongue", "1MwoBkG2OIUbHVwu_Jrp4d1VjsJyPb9Y7"},
+		{"Crying Face", "1NbIZ7Uix45KCEencp5cvX6aDisiEfhqi"},
+		{"Enraged Face", "1C_zU11KCYX8vaGC04TQgC68cE2TYXHWt"},
+		{"Chill Face", "1kvwY307kfud4L9SjaZCLzO0mLOZ9pRYR"},
+		{"Face Blowing a Kiss", "1K7mIif6FpaHl06j1VFkPB8awW21zz-wf"},
+		{"Kiss Face", "1oLtnFWg0dd75cuPebF5i0IHuynRnJlp2"},
 	}
 	if len(listed) != len(want) {
 		t.Fatalf("the seeded catalogue holds %d emojis, want %d: %+v", len(listed), len(want), listed)

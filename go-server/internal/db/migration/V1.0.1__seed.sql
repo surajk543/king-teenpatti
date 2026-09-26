@@ -765,15 +765,24 @@ ON CONFLICT (lucky_draw_id, slot_number) DO NOTHING;
 -- Editing a row a database already has is an UPDATE run there; a new emoji
 -- appended here reaches every database at its next boot.
 --
---   Angry    5 hammers  30 days  sort_order 10  "Emoji Angry.json", 480x480, 60 fps, 1.85 s
---   Dollar   5 hammers  30 days  sort_order 20  "Dollar Emoji.json", 750x750, 25 fps, 2.04 s
---   Crying   5 hammers  30 days  sort_order 30  "Emoji Crying.json", 480x480, 60 fps, 1.55 s
---   Hi Face          5 hammers  30 days  sort_order 40  "Hi Face Emoji.json", 512x512, 60 fps, 2.17 s
---   Clapping Hands   5 hammers  30 days  sort_order 50  "Clapping Hands Emoji.json", 512x512, 60 fps, 2.00 s
---   Cowboy Hat Face  5 hammers  30 days  sort_order 60  "Cowboy Hat Face Emoji.json", 512x512, 60 fps, 3.00 s
---   Muscle           5 hammers  30 days  sort_order 70  "Muscle Emoji.json", 512x512, 60 fps, 3.00 s
+--   Angry                       5 hammers  30 days  sort_order  10  "Emoji Angry.json", 480x480, 60 fps, 1.85 s
+--   Dollar                      5 hammers  30 days  sort_order  20  "Dollar Emoji.json", 750x750, 25 fps, 2.04 s
+--   Crying                      5 hammers  30 days  sort_order  30  "Emoji Crying.json", 480x480, 60 fps, 1.55 s
+--   Hi Face                     5 hammers  30 days  sort_order  40  "Hi Face Emoji.json", 512x512, 60 fps, 2.17 s
+--   Clapping Hands              5 hammers  30 days  sort_order  50  "Clapping Hands Emoji.json", 512x512, 60 fps, 2.00 s
+--   Cowboy Hat Face             5 hammers  30 days  sort_order  60  "Cowboy Hat Face Emoji.json", 512x512, 60 fps, 3.00 s
+--   Muscle                      5 hammers  30 days  sort_order  70  "Muscle Emoji.json", 512x512, 60 fps, 3.00 s
+--   Plane Face                  5 hammers  30 days  sort_order  80  "Plane Face Emoji.json", 512x512, 60 fps, 2.52 s
+--   Knife                       5 hammers  30 days  sort_order  90  "Knife Emoji.json", 500x500, 60 fps, 4.00 s
+--   Sleeping                    5 hammers  30 days  sort_order 100  "Emoji Sleeping.json", 480x480, 60 fps, 0.60 s
+--   Squinting Face with Tongue  5 hammers  30 days  sort_order 110  "Squinting Face with Tongue Emoji.json", 500x500, 60 fps, 2.33 s
+--   Crying Face                 5 hammers  30 days  sort_order 120  "Crying Face Emoji.json", 512x512, 60 fps, 2.40 s
+--   Enraged Face                5 hammers  30 days  sort_order 130  "Enraged Face Emoji.json", 500x500, 60 fps, 2.33 s
+--   Chill Face                  5 hammers  30 days  sort_order 140  "Chill Face Emoji.json", 512x512, 60 fps, 2.70 s
+--   Face Blowing a Kiss         5 hammers  30 days  sort_order 150  "Face Blowing A Kiss Emoji.json", 512x512, 60 fps, 2.00 s
+--   Kiss Face                   5 hammers  30 days  sort_order 160  "Kiss Face Emoji.json", 512x512, 60 fps, 3.00 s
 --
--- Neither has a 3D layer, an expression, an embedded image or a text layer —
+-- None has a 3D layer, an expression, an embedded image or a text layer —
 -- what a phone's Lottie player cannot draw (CLAUDE.md §12.3).
 INSERT INTO emojis (name, asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order, created_at, updated_at)
 SELECT name, asset_url, 'LOTTIE', currency, type, cost, duration_days, 0, TRUE, sort_order,
@@ -800,6 +809,33 @@ SELECT name, asset_url, 'LOTTIE', currency, type, cost, duration_days, 0, TRUE, 
      'HAMMER', 'PREMIUM', 5::bigint, 30, 60),
     ('Muscle',
      'https://drive.google.com/uc?export=download&id=199f59nq4Vx0FImGvbAv4X2LJnkyUQ67f',
-     'HAMMER', 'PREMIUM', 5::bigint, 30, 70)
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 70),
+    ('Plane Face',
+     'https://drive.google.com/uc?export=download&id=1Y3WEnboXZskv6vItBQ_E1WZoC9aIUh8D',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 80),
+    ('Knife',
+     'https://drive.google.com/uc?export=download&id=1lLryjoIf2KNGqZFGxGX8vGThozJM0vw-',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 90),
+    ('Sleeping',
+     'https://drive.google.com/uc?export=download&id=1bC-1hqYUblHCjiTvAd6OT8xHYYbj9sKC',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 100),
+    ('Squinting Face with Tongue',
+     'https://drive.google.com/uc?export=download&id=1MwoBkG2OIUbHVwu_Jrp4d1VjsJyPb9Y7',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 110),
+    ('Crying Face',
+     'https://drive.google.com/uc?export=download&id=1NbIZ7Uix45KCEencp5cvX6aDisiEfhqi',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 120),
+    ('Enraged Face',
+     'https://drive.google.com/uc?export=download&id=1C_zU11KCYX8vaGC04TQgC68cE2TYXHWt',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 130),
+    ('Chill Face',
+     'https://drive.google.com/uc?export=download&id=1kvwY307kfud4L9SjaZCLzO0mLOZ9pRYR',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 140),
+    ('Face Blowing a Kiss',
+     'https://drive.google.com/uc?export=download&id=1K7mIif6FpaHl06j1VFkPB8awW21zz-wf',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 150),
+    ('Kiss Face',
+     'https://drive.google.com/uc?export=download&id=1oLtnFWg0dd75cuPebF5i0IHuynRnJlp2',
+     'HAMMER', 'PREMIUM', 5::bigint, 30, 160)
   ) AS v(name, asset_url, currency, type, cost, duration_days, sort_order)
 ON CONFLICT (asset_url) DO NOTHING;
