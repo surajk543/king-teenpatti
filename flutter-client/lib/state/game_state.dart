@@ -392,7 +392,9 @@ class GameState extends ChangeNotifier {
   /// newest only, as [_bubbleQueue] keeps for words.
   final Map<String, ChatMessage> _emojiWaiting = {};
 
-  static const emojiBubbleFor = Duration(seconds: 4);
+  /// How long an emoji plays over its sender's seat (owner, 26 Sep 2026: "for
+  /// emoji keep the timing 5 seconds instead of 4").
+  static const emojiBubbleFor = Duration(seconds: 5);
 
   /// Players this viewer has muted, by user id.
   ///

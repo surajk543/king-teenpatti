@@ -442,7 +442,11 @@ void main() {
   });
 
   group('receiving', () {
-    testWidgets('an emoji plays over its sender for four seconds, then goes', (
+    test('an emoji plays for five seconds (owner, 26 Sep 2026)', () {
+      expect(GameState.emojiBubbleFor, const Duration(seconds: 5));
+    });
+
+    testWidgets('an emoji plays over its sender for five seconds, then goes', (
       tester,
     ) async {
       final state = _state();
