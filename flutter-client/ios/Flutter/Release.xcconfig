@@ -13,8 +13,11 @@
 // app still builds and guest play still works; only "Continue with Google"
 // fails, and it fails saying so.
 //
-// The server-side half is unchanged and stays a dart-define, because the server
-// checks the token's audience against the WEB client id on both platforms:
-//   flutter build ipa --dart-define=GOOGLE_SERVER_CLIENT_ID=…apps.googleusercontent.com
+// The server-side half is the WEB client id, because the server checks the
+// token's audience against it on both platforms. It is a dart-define that
+// needs no passing: a build with no define carries the production Web client
+// (SocialSignIn.serverClientId's default since 27 Sep 2026), and every
+// config/*.json names it too:
+//   flutter build ipa --dart-define-from-file=config/production.json
 GOOGLE_IOS_CLIENT_ID=
 GOOGLE_IOS_URL_SCHEME=

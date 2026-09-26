@@ -7,7 +7,13 @@ One file per backend the app can be built against, passed with
 flutter build appbundle --release --dart-define-from-file=config/production.json   # the Play build — prod.sungamestudio.com (also the default with no define)
 flutter build apk --debug          --dart-define-from-file=config/preprod.json      # preprod.sungamestudio.com
 flutter build apk --debug          --dart-define-from-file=config/local-emulator.json   # a server on this machine, from the emulator
+flutter run --dart-define-from-file=config/local-ios-simulator.json                      # a server on the Mac, from the iOS simulator
 ```
+
+The same files serve iOS (`flutter run` / `flutter build ipa --dart-define-from-file=…`). Xcode itself reads none of
+them: it builds with the dart-defines the last `flutter` command wrote into `ios/Flutter/Generated.xcconfig`, so before
+running or archiving from Xcode run `flutter build ios --config-only --dart-define-from-file=config/production.json`
+(`docs/ios-setup.md` §3).
 
 Keys: `SERVER_URL` (REST and Socket.IO both hang off it — `lib/config/server_config.dart`),
 `APP_ENV` (`preprod` | `production` | `local`, shown beside the version in the settings drawer unless production),
