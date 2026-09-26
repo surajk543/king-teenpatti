@@ -11,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
 import 'avatar.dart';
 import 'edge_fade.dart';
+import 'emoji_shelf.dart';
 import 'glass_components.dart';
 import 'glass_orb.dart';
 import 'glass_panels.dart';
@@ -386,13 +387,14 @@ double _measuredLine(
 }
 
 /// The store's shelves, in the order their keys sit in the header: chip packs,
-/// diamond packs, hammer packs, missile trades, the picture catalogue and the
+/// diamond packs, hammer packs, missile trades, the picture catalogue, the
 /// table pictures (owner, 15 Sep 2026: the cloths a player lays on their own
-/// table). Public so a caller can open the store on the shelf it is sending
-/// the player to — the table's Force Sideshow key sends a player with no
-/// hammers to [hammers], and its Missile key one with no missiles to
-/// [missiles].
-enum StoreTab { chips, diamonds, hammers, missiles, pictures, tables }
+/// table) and the emojis (owner, 26 Sep 2026: animated emojis a player sends
+/// to the table). Public so a caller can open the store on the shelf it is
+/// sending the player to — the table's Force Sideshow key sends a player with
+/// no hammers to [hammers], its Missile key one with no missiles to
+/// [missiles], and the table's emoji page a locked emoji to [emojis].
+enum StoreTab { chips, diamonds, hammers, missiles, pictures, tables, emojis }
 
 /// The switch between the store's shelves, in the header beside the close key:
 /// one key a shelf — a [Dim.minTouch] circle holding the shelf's glyph where
@@ -596,6 +598,13 @@ class _StoreTabs extends StatelessWidget {
       tab: StoreTab.tables,
       icon: Icons.table_bar_rounded,
       label: t.storeTabTables,
+    ),
+    // Offered in the lobby and at a table alike: an emoji priced in hammers
+    // or diamonds may be bought mid-sitting, and sent at once.
+    (
+      tab: StoreTab.emojis,
+      icon: Icons.emoji_emotions_rounded,
+      label: t.storeTabEmojis,
     ),
   ];
 
@@ -871,6 +880,7 @@ class _ChipStoreState extends State<_ChipStore> {
     final onHammers = tab == StoreTab.hammers;
     final onMissiles = tab == StoreTab.missiles;
     final onChips = tab == StoreTab.chips;
+    final onEmojis = tab == StoreTab.emojis;
     final size = MediaQuery.sizeOf(context);
     final scaler = MediaQuery.textScalerOf(context);
 
@@ -953,6 +963,7 @@ class _ChipStoreState extends State<_ChipStore> {
       t.storeMissilesBlurb,
       atTable ? t.storeAnimatedBlurb : t.storePicturesBlurb,
       t.storeTablesBlurb,
+      t.storeEmojisBlurb,
       if (atPokerRoom) t.tablePokerNote,
     ];
     var blurbW = 0.0;
@@ -1025,6 +1036,7 @@ class _ChipStoreState extends State<_ChipStore> {
         t.storeMissilesTitle,
         atTable ? t.picturePremiumAnimated : t.storeTabPictures,
         t.storeTablesTitle,
+        t.storeEmojisTitle,
       ]),
     );
     final blurbLine = math.max(
@@ -1041,6 +1053,7 @@ class _ChipStoreState extends State<_ChipStore> {
     final (IconData? glyph, Color glyphInk) = switch (tab) {
       StoreTab.pictures => (Icons.face_rounded, champagne),
       StoreTab.tables => (Icons.table_bar_rounded, champagne),
+      StoreTab.emojis => (Icons.emoji_emotions_rounded, champagne),
       StoreTab.diamonds => (
         Icons.diamond_rounded,
         diamondInkOn(theme.brightness),
@@ -1053,6 +1066,7 @@ class _ChipStoreState extends State<_ChipStore> {
       StoreTab.pictures =>
         atTable ? t.picturePremiumAnimated : t.storeTabPictures,
       StoreTab.tables => t.storeTablesTitle,
+      StoreTab.emojis => t.storeEmojisTitle,
       StoreTab.diamonds => t.storeDiamondsTitle,
       StoreTab.hammers => t.storeHammersTitle,
       StoreTab.missiles => t.storeMissilesTitle,
@@ -1064,6 +1078,7 @@ class _ChipStoreState extends State<_ChipStore> {
       // A poker room's felt shows no table picture: the shelf still sells,
       // and says where the cloth will show.
       StoreTab.tables => atPokerRoom ? t.tablePokerNote : t.storeTablesBlurb,
+      StoreTab.emojis => t.storeEmojisBlurb,
       StoreTab.diamonds => t.storeDiamondsBlurb,
       StoreTab.hammers => t.storeHammersBlurb,
       StoreTab.missiles => t.storeMissilesBlurb,
@@ -1207,7 +1222,9 @@ class _ChipStoreState extends State<_ChipStore> {
                           ChipBalance(chips: chips),
                           const SizedBox(width: Space.md),
                         ],
-                        if (onPictures || onTables) ...[
+                        // The Emojis shelf is priced in the pictures' three
+                        // wallets too, and heads the same way.
+                        if (onPictures || onTables || onEmojis) ...[
                           PictureWalletBalances(
                             diamonds: diamonds,
                             hammers: hammers,
@@ -1340,7 +1357,7 @@ class _ChipStoreState extends State<_ChipStore> {
                             // mask over the Pictures and Tables shelves, whose
                             // Lotties and chips move every frame, would be an
                             // offscreen pass every frame.
-                            child: onPictures || onTables
+                            child: onPictures || onTables || onEmojis
                                 ? scroll
                                 : EdgeFade(child: scroll),
                           ),
@@ -1414,6 +1431,18 @@ class _ChipStoreState extends State<_ChipStore> {
                 openStore: _show,
               ),
             ],
+          ),
+        );
+      case StoreTab.emojis:
+        return SizedBox(
+          width: double.infinity,
+          child: emojiShelf(
+            context: context,
+            state: state,
+            // The picture shelf's tile size, so an emoji stands as large as
+            // a face does wherever it is on sale.
+            side: 2 * (size.height * 0.105).clamp(32.0, 52.0),
+            openStore: _show,
           ),
         );
       case StoreTab.diamonds:

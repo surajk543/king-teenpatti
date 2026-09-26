@@ -10,6 +10,7 @@ import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/table_theme.dart';
 import 'avatar.dart';
+import 'emoji_art.dart';
 import 'hammer_flight.dart';
 import 'liquid_fill.dart';
 import 'playing_card.dart';
@@ -130,6 +131,8 @@ class SeatPod extends StatelessWidget {
     this.playsAs = const [],
     this.best = const [],
     this.saying,
+    this.emoji,
+    this.emojiUrl,
     this.bubbleSide = BubbleSide.above,
     this.reversed = false,
     this.beside = false,
@@ -234,6 +237,14 @@ class SeatPod extends StatelessWidget {
 
   /// What they just said, while it is still fresh.
   final String? saying;
+
+  /// The emoji they just sent, while it still plays (owner, 26 Sep 2026;
+  /// [GameState.emojiBubbleFor]), and its file made absolute. It stands in
+  /// the bubble's place — the same side, the same pointer — and while it
+  /// plays it takes that place from [saying]: an emoji is the newer and the
+  /// shorter of the two, and one bubble a seat is what the felt has room for.
+  final ChatEmoji? emoji;
+  final String? emojiUrl;
 
   /// Which way the bubble opens, so it lands on the felt and not off it.
   final BubbleSide bubbleSide;
@@ -353,7 +364,40 @@ class SeatPod extends StatelessWidget {
     // The OverflowBox and the bubble itself are handed the same ceiling, so
     // the two can no longer disagree about how wide a bubble may grow.
     final bubbleMax = width * (bubbleSide == BubbleSide.above ? 2.1 : 1.7);
-    final bubble = saying == null
+    final tailFrom = switch (bubbleSide) {
+      BubbleSide.above => _TailFrom.centre,
+      BubbleSide.right => _TailFrom.left,
+      BubbleSide.left => _TailFrom.right,
+    };
+    final shownEmoji = emoji;
+    final bubble = shownEmoji != null
+        ? SizedBox(
+            height: 0,
+            width: width,
+            child: OverflowBox(
+              alignment: switch (bubbleSide) {
+                BubbleSide.above => Alignment.bottomCenter,
+                BubbleSide.left => Alignment.bottomRight,
+                BubbleSide.right => Alignment.bottomLeft,
+              },
+              minWidth: 0,
+              maxWidth: bubbleMax,
+              minHeight: 0,
+              maxHeight: width * 1.3,
+              child: Padding(
+                padding: EdgeInsets.only(bottom: gap),
+                child: _EmojiBubble(
+                  key: const ValueKey('seat-emoji'),
+                  emoji: shownEmoji,
+                  url: emojiUrl,
+                  width: width,
+                  tailUp: bubbleSide != BubbleSide.above,
+                  tailFrom: tailFrom,
+                ),
+              ),
+            ),
+          )
+        : saying == null
         ? null
         : SizedBox(
             height: 0,
@@ -381,11 +425,7 @@ class SeatPod extends StatelessWidget {
                   // bubbles sit below their pod and point up at it; the
                   // viewer's sits above and points down.
                   tailUp: bubbleSide != BubbleSide.above,
-                  tailFrom: switch (bubbleSide) {
-                    BubbleSide.above => _TailFrom.centre,
-                    BubbleSide.right => _TailFrom.left,
-                    BubbleSide.left => _TailFrom.right,
-                  },
+                  tailFrom: tailFrom,
                 ),
               ),
             ),
@@ -1518,6 +1558,82 @@ class _Bubble extends StatelessWidget {
               theme,
               width,
             ).speech(colour: AppTheme.boneInk.withValues(alpha: 0.94)),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// An emoji over a seat (owner, 26 Sep 2026): the chat bubble's skin — the
+/// same charcoal, the same pointer at the pod — round the emoji playing, so a
+/// transparent Lottie reads over the cloth and every player at the table sees
+/// whose it is. It pops in as a line of words does, keyed on the line, so a
+/// second emoji queued behind the first pops again.
+class _EmojiBubble extends StatelessWidget {
+  const _EmojiBubble({
+    super.key,
+    required this.emoji,
+    required this.url,
+    required this.width,
+    required this.tailUp,
+    required this.tailFrom,
+  });
+
+  final ChatEmoji emoji;
+
+  /// The emoji's file, absolute.
+  final String? url;
+
+  /// The pod's width, which every measurement here is taken from.
+  final double width;
+  final bool tailUp;
+  final _TailFrom tailFrom;
+
+  /// The emoji's side, as a share of the pod: most of it, so it reads from
+  /// across the table without reaching the pot.
+  static const double artShare = 0.72;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final reach = width * 0.08;
+    final pad = width * 0.06;
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('${emoji.id}:${emoji.url}:${identityHashCode(emoji)}'),
+      tween: Tween(begin: 0, end: 1),
+      duration: Motion.base,
+      curve: Motion.settle,
+      builder: (context, v, child) => Transform.scale(
+        scale: 0.6 + 0.4 * v,
+        alignment: tailUp ? Alignment.topCenter : Alignment.bottomCenter,
+        child: Opacity(opacity: v.clamp(0, 1), child: child),
+      ),
+      child: CustomPaint(
+        painter: _BubbleSkin(
+          fill: AppTheme.ink900.withValues(alpha: 0.82),
+          stroke: AppTheme.goldBright.withValues(alpha: 0.20),
+          shadow: AppTheme.ink900.withValues(alpha: dark ? 0.45 : 0.28),
+          radius: width * 0.14,
+          podWidth: width,
+          tailBase: width * 0.17,
+          reach: reach,
+          tailUp: tailUp,
+          tailFrom: tailFrom,
+          blur: width * 0.10,
+          dy: width * 0.035,
+        ),
+        child: Padding(
+          padding: EdgeInsets.only(
+            top: (tailUp ? reach : 0) + pad,
+            bottom: (tailUp ? 0 : reach) + pad,
+            left: pad,
+            right: pad,
+          ),
+          child: EmojiArt(
+            url: url,
+            size: width * artShare,
+            semanticLabel: emoji.name,
           ),
         ),
       ),

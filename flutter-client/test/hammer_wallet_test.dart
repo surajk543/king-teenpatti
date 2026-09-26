@@ -68,6 +68,7 @@ void main() {
         StoreTab.missiles,
         StoreTab.pictures,
         StoreTab.tables,
+        StoreTab.emojis,
       ]);
     });
   });

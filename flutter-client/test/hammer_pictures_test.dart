@@ -897,7 +897,10 @@ void main() {
 
     for (final (size, scale, stacked) in const [
       (Size(1280, 800), 1.0, false),
-      (Size(891, 411), 1.0, false),
+      // One over the other at 891x411 since the seventh shelf (Emojis, owner
+      // 26 Sep 2026) took a key's width from the header: beside the row the
+      // widest blurb no longer keeps its one line there.
+      (Size(891, 411), 1.0, true),
       (Size(640, 360), 1.25, true),
     ]) {
       final name = '${size.width.toInt()}x${size.height.toInt()}';

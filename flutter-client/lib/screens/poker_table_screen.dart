@@ -11,6 +11,7 @@ import '../theme/table_theme.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/deal_flight.dart';
 import '../widgets/drifting_chips.dart';
+import '../widgets/emoji_shelf.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/pot_flight.dart';
@@ -98,6 +99,7 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
         child: switch (_panel) {
           LeftPanel.menu => const TableDrawer(),
           LeftPanel.chat => const ChatDrawer(),
+          LeftPanel.emoji => const EmojiDrawer(),
         },
       ),
       body: Stack(
@@ -115,7 +117,11 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
                 Expanded(
                   child: Row(
                     children: [
-                      SideRail(onOpen: _open, onRules: _openRules),
+                      SideRail(
+                        onOpen: _open,
+                        onRules: _openRules,
+                        cornerKeys: 1,
+                      ),
                       const Expanded(child: _PokerFelt()),
                     ],
                   ),
@@ -296,6 +302,10 @@ class _PokerFelt extends StatelessWidget {
               saying: s?.userId == null
                   ? null
                   : state.saidRecently[s!.userId]?.text,
+              // An emoji the player sent plays in the bubble's place for a
+              // few seconds, on every phone at the table (owner, 26 Sep 2026).
+              emoji: state.emojiOver(s?.userId),
+              emojiUrl: state.absoluteUrl(state.emojiOver(s?.userId)?.url),
               bubbleSide: viewIndex == 0
                   ? BubbleSide.above
                   : viewIndex <= 2

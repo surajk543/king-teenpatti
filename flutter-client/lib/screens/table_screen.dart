@@ -19,6 +19,7 @@ import '../widgets/casino_table.dart';
 import '../widgets/chip_store.dart';
 import '../widgets/deal_flight.dart';
 import '../widgets/drifting_chips.dart';
+import '../widgets/emoji_shelf.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/hand_fan.dart';
@@ -140,6 +141,7 @@ class _TableScreenState extends State<TableScreen> {
         child: switch (_panel) {
           LeftPanel.menu => const TableDrawer(),
           LeftPanel.chat => const ChatDrawer(),
+          LeftPanel.emoji => const EmojiDrawer(),
         },
       ),
       body: Stack(
@@ -1254,6 +1256,10 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               saying: s?.userId == null
                   ? null
                   : state.saidRecently[s!.userId]?.text,
+              // An emoji the player sent plays in the bubble's place for a
+              // few seconds, on every phone at the table (owner, 26 Sep 2026).
+              emoji: state.emojiOver(s?.userId),
+              emojiUrl: state.absoluteUrl(state.emojiOver(s?.userId)?.url),
               // A bubble opens towards the middle of the table: seats on the
               // left speak to the right, seats on the right to the left, and
               // the viewer's own words go up over their pod. The head seat's

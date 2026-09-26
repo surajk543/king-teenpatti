@@ -13,6 +13,7 @@ import '../state/quick_message_order.dart';
 import '../theme/app_theme.dart';
 import '../theme/table_theme.dart';
 import 'edge_fade.dart';
+import 'emoji_art.dart';
 import 'feedback_toggles.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
@@ -42,8 +43,9 @@ const List<Offset> seatPlaces = [
   Offset(0.945, 0.44), // right
 ];
 
-/// Which of the two panels the left drawer is showing.
-enum LeftPanel { menu, chat }
+/// Which panel the left drawer is showing: the menu, the chat (with its
+/// quick messages), or the emoji page (owner, 26 Sep 2026).
+enum LeftPanel { menu, chat, emoji }
 
 /// The left drawer's content, which tells the table when it has left the
 /// screen.
@@ -347,24 +349,66 @@ class RoomGround extends StatelessWidget {
 }
 
 /// The only chrome in the game room besides the Shop key in the corner above
-/// it: the menu and the chat below it, stacked down the left edge. The quick
-/// messages are a tab of the chat drawer.
+/// it: the menu, the chat below it, and the emoji key under that (owner,
+/// 26 Sep 2026), stacked down the left edge. The quick messages are a tab of
+/// the chat drawer.
 ///
 /// Everything else that used to sit across the top — the table code, the
 /// category, the hand number — is in the drawer. None of it changed what a
 /// player does next, and a rail costs width, which a landscape screen has, in
 /// place of height, which it does not.
 class SideRail extends StatelessWidget {
-  const SideRail({super.key, required this.onOpen, this.onRules});
+  const SideRail({
+    super.key,
+    required this.onOpen,
+    this.onRules,
+    this.cornerKeys = 2,
+  });
 
   final void Function(LeftPanel) onOpen;
 
-  /// A third key, under the chat: the rules of the game being played. Given
-  /// only by the poker table (owner, 19 Sep 2026: "in each poker gameplay add
-  /// an icon of rulebook"), where every game on the menu has different rules
-  /// and the only way to them was the drawer. The Teen Patti table passes
-  /// nothing and keeps two keys.
+  /// A fourth key, under the emoji key: the rules of the game being played.
+  /// Given only by the poker table (owner, 19 Sep 2026: "in each poker
+  /// gameplay add an icon of rulebook"), where every game on the menu has
+  /// different rules and the only way to them was the drawer. The Teen Patti
+  /// table passes nothing and keeps three keys.
   final VoidCallback? onRules;
+
+  /// How many keys stand in the bottom-left corner under the rail — Missile
+  /// and Pack at a Teen Patti table, Fold alone at a poker room — so the
+  /// rail's column is set clear of them ([columnTop]).
+  final int cornerKeys;
+
+  /// Where the rail's column, [columnH] tall, starts down a rail [railH] tall
+  /// on a screen [screen]: centred between the Shop key in the corner above
+  /// and the [cornerKeys] keys in the corner below, where that band holds it,
+  /// and centred on the rail where it does not.
+  ///
+  /// The rail used to be centred on the screen, which with two keys left more
+  /// than 74dp clear at each end on the tightest phone. Three keys (the emoji
+  /// key, 26 Sep 2026) centred on a 640x360 screen would run from y 99.8 to
+  /// 260.2 — onto the Missile key, whose face starts at y 260 there. In the
+  /// band from the Shop key's foot (y 50) to the gap over the Missile key
+  /// (y 254) the column runs y 71.8 to 232.2, 22dp and more clear at each
+  /// end; the poker rail's four keys (217.2dp) run y 68.4 to 285.6, above
+  /// Fold at y 310.
+  static double columnTop({
+    required Size screen,
+    required double railH,
+    required double columnH,
+    required int cornerKeys,
+  }) {
+    final column = columnH;
+    final gap = TableSpace.gap(screen.width);
+    // The Shop key: its inset from the top and its height.
+    final above = gap + Dim.minTouch;
+    // The corner keys: each its height and the gap over it, and the gap
+    // under the last one.
+    final below = cornerKeys * (Dim.keyH(screen.height) + gap) + gap;
+    final band = railH - above - below;
+    if (band >= column) return above + (band - column) / 2;
+    return math.max(0, (railH - column) / 2);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -377,82 +421,138 @@ class SideRail extends StatelessWidget {
     // 54.0x56.0 at 1280x800 — every one of them past the 44dp minimum, which
     // an inset key would not have been at the rail's 48dp floor.
     //
-    // Two keys and a gap, centred down the rail: 2x46.8 + 10 = 103.6dp at
-    // 640x360, so the column runs from y 128.2 to 231.8. The Shop key above
-    // it ends by y 50 (6dp inset, 44dp tall) and the Pack key below it starts
-    // at y 306 at the earliest (44dp tall, at most 10dp off the bottom), which
-    // leaves more than 74dp clear at each end on the tightest phone; at
-    // 891x411 the column is 116.8dp tall and the margins only grow. The quick
-    // messages had a third key here until 14 Sep 2026 (owner); they are a tab
-    // of the chat drawer now.
-    //
-    // A poker table puts the rulebook back in that third place: three keys and
-    // two gaps are 3x46.8 + 20 = 160.4dp at 640x360, running y 97.8 to 258.2
-    // in a 356dp column — still clear of the Shop key above and the Fold key
-    // below, and every key still fills the rail, so each target is the whole
-    // 48dp width.
+    // Three keys and two gaps — menu, chat, emoji — are 3x46.8 + 20 = 160.4dp
+    // at 640x360; a poker table puts the rulebook in a fourth place, 217.2dp.
+    // The column stands clear of the Shop key above and the corner keys below
+    // ([columnTop]). The quick messages had a key here until 14 Sep 2026
+    // (owner); they are a tab of the chat drawer now.
     final railW = Dim.railW(size.width);
     final keyH = Dim.railButtonH(size.height);
 
+    // While the chat's cooldown runs, the chat key and the emoji key both
+    // become its countdown: an emoji is a chat line, and the two share one
+    // wait (GameState.sendEmoji).
+    final countdown = ChatCountdown(
+      left: state.chatCooldownLeft,
+      total: GameState.chatCooldown.inSeconds,
+    );
+
+    final column = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        RailKey(
+          tooltip: t.tableMenu,
+          width: railW,
+          height: keyH,
+          onTap: () => onOpen(LeftPanel.menu),
+          child: const Icon(Icons.menu_rounded, size: 22),
+        ),
+        const SizedBox(height: Space.md),
+        Badge(
+          isLabelVisible: state.unreadChat > 0,
+          backgroundColor: AppTheme.gold,
+          textColor: AppTheme.ink900,
+          label: Text('${state.unreadChat}'),
+          child: RailKey(
+            // While the cooldown runs the icon becomes the countdown, so
+            // the player can see when they may speak again without opening
+            // the chat to find out.
+            tooltip: state.canChat
+                ? t.tableChat
+                : '${t.tableChat} ${state.chatCooldownLeft}s',
+            width: railW,
+            height: keyH,
+            onTap: () => onOpen(LeftPanel.chat),
+            child: state.canChat
+                ? const RailLottie(
+                    asset: 'assets/animations/Message.json',
+                    fallback: Icons.forum_rounded,
+                    recolour: strokesInInk,
+                  )
+                : countdown,
+          ),
+        ),
+        const SizedBox(height: Space.md),
+        // The emoji key (owner, 26 Sep 2026: "IN UI add a button of emoji in
+        // gameplay table"): it opens the emoji page in this drawer, where one
+        // tap sends an emoji to everyone at the table.
+        RailKey(
+          key: const ValueKey('rail-emoji'),
+          tooltip: state.canChat
+              ? t.tableEmojis
+              : '${t.tableEmojis} ${state.chatCooldownLeft}s',
+          width: railW,
+          height: keyH,
+          onTap: () => onOpen(LeftPanel.emoji),
+          child: state.canChat
+              ? const Icon(Icons.emoji_emotions_outlined, size: 22)
+              : countdown,
+        ),
+        if (onRules != null) ...[
+          const SizedBox(height: Space.md),
+          RailKey(
+            // The lobby table cards' rules glyph, so the key a player
+            // pressed to read the rules before sitting down is the same
+            // key once they are at the table.
+            tooltip: t.tableRulesKey,
+            width: railW,
+            height: keyH,
+            onTap: onRules!,
+            child: const Icon(Icons.menu_book_outlined, size: 22),
+          ),
+        ],
+      ],
+    );
+
+    // Placed by a layout delegate rather than a LayoutBuilder: the rail
+    // rebuilds with every notify (it watches the chat's cooldown), and a
+    // LayoutBuilder lays itself out — and so repaints the whole screen's
+    // layer — on every rebuild, where this relays out only when the screen
+    // or the corner changes.
     return SizedBox(
       width: railW,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            RailKey(
-              tooltip: t.tableMenu,
-              width: railW,
-              height: keyH,
-              onTap: () => onOpen(LeftPanel.menu),
-              child: const Icon(Icons.menu_rounded, size: 22),
-            ),
-            const SizedBox(height: Space.md),
-            Badge(
-              isLabelVisible: state.unreadChat > 0,
-              backgroundColor: AppTheme.gold,
-              textColor: AppTheme.ink900,
-              label: Text('${state.unreadChat}'),
-              child: RailKey(
-                // While the cooldown runs the icon becomes the countdown, so
-                // the player can see when they may speak again without opening
-                // the chat to find out.
-                tooltip: state.canChat
-                    ? t.tableChat
-                    : '${t.tableChat} ${state.chatCooldownLeft}s',
-                width: railW,
-                height: keyH,
-                onTap: () => onOpen(LeftPanel.chat),
-                child: state.canChat
-                    ? const RailLottie(
-                        asset: 'assets/animations/Message.json',
-                        fallback: Icons.forum_rounded,
-                        recolour: strokesInInk,
-                      )
-                    : ChatCountdown(
-                        left: state.chatCooldownLeft,
-                        total: GameState.chatCooldown.inSeconds,
-                      ),
-              ),
-            ),
-            if (onRules != null) ...[
-              const SizedBox(height: Space.md),
-              RailKey(
-                // The lobby table cards' rules glyph, so the key a player
-                // pressed to read the rules before sitting down is the same
-                // key once they are at the table.
-                tooltip: t.tableRulesKey,
-                width: railW,
-                height: keyH,
-                onTap: onRules!,
-                child: const Icon(Icons.menu_book_outlined, size: 22),
-              ),
-            ],
-          ],
-        ),
+      child: CustomSingleChildLayout(
+        delegate: _RailColumnLayout(screen: size, cornerKeys: cornerKeys),
+        child: column,
       ),
     );
   }
+}
+
+/// Stands the rail's column where [SideRail.columnTop] says, centred across
+/// the rail.
+class _RailColumnLayout extends SingleChildLayoutDelegate {
+  const _RailColumnLayout({required this.screen, required this.cornerKeys});
+
+  final Size screen;
+  final int cornerKeys;
+
+  @override
+  Size getSize(BoxConstraints constraints) => constraints.constrain(
+    Size(
+      constraints.maxWidth,
+      constraints.hasBoundedHeight ? constraints.maxHeight : 0,
+    ),
+  );
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
+      BoxConstraints(maxWidth: constraints.maxWidth);
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) => Offset(
+    (size.width - childSize.width) / 2,
+    SideRail.columnTop(
+      screen: screen,
+      railH: size.height,
+      columnH: childSize.height,
+      cornerKeys: cornerKeys,
+    ),
+  );
+
+  @override
+  bool shouldRelayout(_RailColumnLayout old) =>
+      old.screen != screen || old.cornerKeys != cornerKeys;
 }
 
 /// The chat bubble's strokes, in the rail's ink.
@@ -1870,6 +1970,9 @@ class StepperKey extends StatelessWidget {
 class ChatDrawer extends StatefulWidget {
   const ChatDrawer({super.key});
 
+  /// The emoji an emoji line shows in the chat, beside its sender's name.
+  static const double chatEmojiSize = 32;
+
   @override
   State<ChatDrawer> createState() => _ChatDrawerState();
 }
@@ -2092,46 +2195,83 @@ class _ChatDrawerState extends State<ChatDrawer> {
                           theme.colorScheme,
                         );
 
+                        final name = mine ? 'You' : m.displayName;
+                        final nameStyle = TableType.chatName(
+                          theme,
+                          colour: mine
+                              ? goldInk(theme.brightness)
+                              : theme.colorScheme.onSurface,
+                        );
+                        final emoji = m.emoji;
                         final row = Padding(
                           padding: const EdgeInsets.symmetric(
                             vertical: Space.xs,
                           ),
                           child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            crossAxisAlignment: emoji == null
+                                ? CrossAxisAlignment.start
+                                : CrossAxisAlignment.center,
                             children: [
                               Container(
                                 width: 3,
                                 height: 16,
-                                margin: const EdgeInsets.only(
+                                margin: EdgeInsets.only(
                                   right: Space.md,
-                                  top: 3,
+                                  top: emoji == null ? 3 : 0,
                                 ),
                                 decoration: BoxDecoration(
                                   color: colour,
                                   borderRadius: BorderRadius.circular(Radii.xs),
                                 ),
                               ),
-                              Expanded(
-                                child: RichText(
-                                  textScaler: MediaQuery.textScalerOf(context),
-                                  text: TextSpan(
-                                    style: TableType.chatText(theme),
-                                    children: [
-                                      TextSpan(
-                                        text:
-                                            '${mine ? 'You' : m.displayName}: ',
-                                        style: TableType.chatName(
-                                          theme,
-                                          colour: mine
-                                              ? goldInk(theme.brightness)
-                                              : theme.colorScheme.onSurface,
+                              // An emoji line (owner, 26 Sep 2026): the
+                              // sender's name, then the emoji itself, small
+                              // and playing — what the table saw over their
+                              // seat. A screen reader hears who sent which.
+                              if (emoji != null)
+                                Expanded(
+                                  child: Semantics(
+                                    label: t.emojiSentBy(name, emoji.name),
+                                    excludeSemantics: true,
+                                    child: Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            '$name:',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: nameStyle,
+                                          ),
                                         ),
-                                      ),
-                                      TextSpan(text: m.text),
-                                    ],
+                                        const SizedBox(width: Space.sm),
+                                        EmojiArt(
+                                          key: const ValueKey('chat-emoji'),
+                                          url: state.absoluteUrl(emoji.url),
+                                          size: ChatDrawer.chatEmojiSize,
+                                          semanticLabel: emoji.name,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                              else
+                                Expanded(
+                                  child: RichText(
+                                    textScaler: MediaQuery.textScalerOf(
+                                      context,
+                                    ),
+                                    text: TextSpan(
+                                      style: TableType.chatText(theme),
+                                      children: [
+                                        TextSpan(
+                                          text: '$name: ',
+                                          style: nameStyle,
+                                        ),
+                                        TextSpan(text: m.text),
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              ),
                             ],
                           ),
                         );
