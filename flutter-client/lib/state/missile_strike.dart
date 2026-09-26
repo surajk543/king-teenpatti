@@ -63,6 +63,13 @@ abstract final class MissileTiming {
   /// A breath after the reveal before the volley is gone.
   static const tail = Duration(milliseconds: 80);
 
+  /// How late into a volley its sound (`FeedbackSettings.missileHit`) may
+  /// still start. The owner's clip starts with the launch — its roar over the
+  /// flight, its blast at 1.4 s with the first missiles landing — so a table
+  /// that only draws the volley later than this (a reconnect, a slow frame)
+  /// stays quiet rather than bursting after the missiles have landed.
+  static const soundLate = Duration(milliseconds: 250);
+
   /// When the missile at [index] lands.
   static Duration impact(int index) => stagger * index + flight;
 

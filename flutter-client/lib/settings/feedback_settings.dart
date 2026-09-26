@@ -70,6 +70,13 @@ class FeedbackSettings extends ChangeNotifier {
   /// recording, 2 s: a strike at 100 ms and a ring that fades by 1.2 s.
   static const hammerHitClip = 'sound/hammer hit.mp3';
 
+  /// A missile volley (owner, 26 Sep 2026: "this is the sound should be
+  /// played when user click on missile button and everybody should listen
+  /// this sound"). The owner's recording, 4.3 s: the missiles' roar from
+  /// 0.2 s, the blast at 1.4 s — where the first of them lands
+  /// (`MissileTiming.flight`, 1.3 s) — and a rumble to 3.8 s.
+  static const missileHitClip = 'sound/Missile hit.mp3';
+
   /// How many of [dealCardClip] may sound at once. The deal sends a card
   /// every 115 ms and the clip is heard for 440 ms, so four overlap; one voice
   /// would stop each card's sound for the next one before its swish began,
@@ -165,6 +172,11 @@ class FeedbackSettings extends ChangeNotifier {
   /// heard by everybody at the table, as everybody sees the hammer. At the
   /// synthesised clips' 0.85: it strikes at full scale already.
   void hammerHit() => unawaited(_playAsset(hammerHitClip));
+
+  /// A missile volley leaving the firer's pod ([missileHitClip]), heard by
+  /// everybody at the table, as everybody sees the volley. At the synthesised
+  /// clips' 0.85: its blast is at full scale already.
+  void missileHit() => unawaited(_playAsset(missileHitClip));
 
   /// A tap on a control.
   ///

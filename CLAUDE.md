@@ -163,7 +163,8 @@ king-teenpatti/
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
     ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/ (synthesised clips),
     │                         assets/sound/ (the owner's recordings, §8.4 "Sounds": see card sound.mp3 — the look at a hand;
-    │                         Card Distribute.mp3 — each card of the deal; hammer hit.mp3 — a Force Sideshow's hammer),
+    │                         Card Distribute.mp3 — each card of the deal; hammer hit.mp3 — a Force Sideshow's hammer;
+    │                         Missile hit.mp3 — a missile volley),
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
     │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
@@ -2339,6 +2340,14 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   with `impact`; a strike joined after the landing is not heard late, and an ordinary sideshow has no hammer and no sound.
   On the emulators (a build logging each clip): a two-player deal played 6, a four-player one 12, each Force Sideshow one
   hammer, and Android's audio service logged every start. `test/deal_sound_test.dart`, `test/hammer_strike_test.dart`.
+  **The missile** (same day: "this is the sound should be played when user click on missile button and everybody should
+  listen this sound"): **`assets/sound/Missile hit.mp3`** (`missileHit()`, 0.85 — its blast is at full scale), 4.3 s: the
+  missiles' roar from 0.2 s, the blast at 1.4 s, a rumble to 3.8 s. Played once per volley from its LAUNCH, where the felt
+  starts it (`_launchVolley`) — for the firer and everybody else at the table, since every client builds the volley from the
+  missile's `game:action` — so the roar rides the flight and the blast comes as the first missiles land
+  (`MissileTiming.flight` 1.3 s). A volley the table draws later than `MissileTiming.soundLate` (250 ms) into it (a
+  reconnect) is not heard, nor is a missile with nobody to aim at. On the emulators Small6's missile played it once on
+  both phones, the firer's and another player's. `test/missile_strike_test.dart`.
 - **The Settings drawer** (owner's brief, 26 Sep 2026: "Settings = premium + clean + calm + functional", some 20–30% of the
   store's language; presentation only — every dialog and what every row does is as it was; the app is landscape-only, so the
   brief's portrait case does not arise). `_LobbyDrawer`, which the Stats drawer shares, takes a fixed `head` (`_DrawerHead`: a

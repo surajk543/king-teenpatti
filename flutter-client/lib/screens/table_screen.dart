@@ -951,6 +951,12 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
       _buzzAt = buzzAt != null && buzzAt > start ? buzzAt : null;
     });
     clock.forward(from: start.clamp(0.0, 1.0));
+    // Heard by everybody at the table from the launch (owner, 26 Sep 2026),
+    // once per volley: _followMissile launches each volley once. Not a
+    // volley joined late, whose blast would come after the missiles landed.
+    if (total * start < MissileTiming.soundLate) {
+      context.read<FeedbackSettings>().missileHit();
+    }
   }
 
   /// A light buzz as the missile aimed at the viewer lands, gated on the

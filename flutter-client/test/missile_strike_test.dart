@@ -10,6 +10,7 @@
 // game:handEnded.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:teenpatti/models/dtos.dart';
@@ -175,15 +176,27 @@ GameState _newState({RoomState? room}) {
   return state;
 }
 
+/// Every missile volley the table asks to be heard, and when.
+class _Heard extends FeedbackSettings {
+  _Heard(this.now);
+
+  final DateTime Function() now;
+  final volleys = <DateTime>[];
+
+  @override
+  void missileHit() => volleys.add(now());
+}
+
 Future<void> _pumpTable(
   WidgetTester tester,
   GameState state, {
   Size screen = const Size(891, 411),
+  FeedbackSettings? sounds,
 }) async {
   tester.view.physicalSize = screen;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  final feedback = FeedbackSettings();
+  final feedback = sounds ?? FeedbackSettings();
   addTearDown(feedback.dispose);
   // Parsed for real, so the painter draws the rockets and the blasts.
   await tester.runAsync(MissileArt.load);
@@ -444,6 +457,110 @@ void main() {
 
     await _teardown(tester, state);
   });
+
+  // The owner's missile sound (26 Sep 2026: "this is the sound should be
+  // played when user click on missile button and everybody should listen
+  // this sound"): once per volley, from its launch, for every player at the
+  // table — the firer, a target, a bystander alike.
+  group('the missile is heard', () {
+    testWidgets('by the player who fired it, once, as the volley leaves', (
+      tester,
+    ) async {
+      final state = _newState();
+      final sounds = _Heard(() => tester.binding.clock.now());
+      await _pumpTable(tester, state, sounds: sounds);
+
+      state.handleTableAction(_missileFrom('u0'));
+      final fired = tester.binding.clock.now();
+      _settle(state);
+      await tester.pump();
+      await tester.pump(_ms(16));
+      expect(sounds.volleys, hasLength(1));
+      expect(
+        sounds.volleys.single.difference(fired).inMilliseconds,
+        lessThanOrEqualTo(50),
+        reason: 'with the launch: its blast lands with the missiles',
+      );
+
+      // The action arriving twice is one volley and one sound, and nothing
+      // more is heard for the rest of it.
+      state.handleTableAction(_missileFrom('u0'));
+      await tester.pump(MissileTiming.total(4) + _ms(200));
+      await tester.pump();
+      expect(sounds.volleys, hasLength(1));
+
+      await _teardown(tester, state);
+    });
+
+    testWidgets("by everybody else at the table, an opponent's volley", (
+      tester,
+    ) async {
+      final state = _newState(room: _room(turn: 'u3'));
+      final sounds = _Heard(() => tester.binding.clock.now());
+      await _pumpTable(tester, state, sounds: sounds);
+
+      state.handleTableAction(_missileFrom('u3'));
+      _settle(state);
+      await tester.pump();
+      await tester.pump(_ms(16));
+      expect(sounds.volleys, hasLength(1));
+
+      await _teardown(tester, state);
+    });
+
+    testWidgets('not without a volley, nor late into one', (tester) async {
+      final state = _newState(
+        room: _room(status: {for (final id in _ids.skip(1)) id: 'packed'}),
+      );
+      final sounds = _Heard(() => tester.binding.clock.now());
+      await _pumpTable(tester, state, sounds: sounds);
+
+      // Nobody left to aim at: no volley, nothing heard.
+      state.handleTableAction(_missileFrom('u0'));
+      await tester.pump();
+      await tester.pump(_ms(300));
+      expect(sounds.volleys, isEmpty);
+
+      // A volley already a second under way when this table draws it (a
+      // reconnect): drawn where it has got to, and not heard — its blast
+      // would come after the missiles had landed.
+      state
+        ..room = _room()
+        ..missileStrike = MissileStrike(
+          handNo: 4,
+          fromUserId: 'u0',
+          targetUserIds: const ['u1', 'u2', 'u3', 'u4'],
+          startedAt: DateTime.now().subtract(const Duration(seconds: 1)),
+        )
+        ..notifyListeners();
+      await tester.pump();
+      await tester.pump(_ms(16));
+      expect(find.byType(MissileFlight), findsOneWidget);
+      expect(sounds.volleys, isEmpty);
+
+      state.missileStrike = null;
+      await _teardown(tester, state);
+    });
+  });
+
+  test(
+    "the owner's missile clip is bundled where the table plays it from",
+    () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      expect(FeedbackSettings.missileHitClip, 'sound/Missile hit.mp3');
+      final clip = await rootBundle.load(
+        'assets/${FeedbackSettings.missileHitClip}',
+      );
+      expect(clip.lengthInBytes, greaterThan(10000));
+      // Its blast (1.4 s into the clip) comes as the first missiles land.
+      expect(
+        (MissileTiming.impact(0) - const Duration(milliseconds: 1400))
+            .inMilliseconds
+            .abs(),
+        lessThanOrEqualTo(150),
+      );
+    },
+  );
 
   const screens = [Size(640, 360), Size(891, 411), Size(1280, 800)];
   for (final screen in screens) {
