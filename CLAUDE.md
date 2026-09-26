@@ -837,6 +837,7 @@ user survives a reconnect, which used to reset the count (`userLimiters`, pruned
 | `player:requestCards` | `{}` | `{cards}` (empty unless seen) |
 | `poker:action` (**Go only**, poker rooms, §6.5) | `{action, amount?, cards?, actionId?}` — `fold\|check\|call\|bet\|raise\|allIn\|play\|draw`; `amount` is the TOTAL street bet for bet/raise (safe integer, else `invalid_amount`); `cards` the codes to discard on a draw | `{ok, action, amount?, allIn?, discarded?}`; `wrong_game` at a Teen Patti table, and `game:action`/`game:sideshowRespond`/`game:selectVariation` answer `wrong_game` at a poker room |
 | `chat:message` | `{text}` | `{messageId}` — own 5/5s limiter (`chat_rate_limited`) |
+| `chat:emoji` (**Go only**, 26 Sep 2026, §7.2 "Emojis") | `{emojiId}` (a number or its text) | `{messageId}`; refusals in order `not_in_room`, `unknown_emoji`, `emoji_retired`, `emoji_locked` (not owned, or its rental has run out — read from the DB on every send), `chat_rate_limited` (the SAME limiter as `chat:message`). The room then sends its ordinary `chat:message` whose `text` is the emoji's name and which carries **`emoji {id, name, url, assetFormat}`** — present only on an emoji line (a typed line is byte for byte what it was), kept in `chat:history`, at Teen Patti tables and poker rooms alike (`game.Room.PostEmoji`) |
 | `chat:history` | `{}` | `{count}` (no client sends it) |
 | `ping:rtt` | `sentAt` | `{sentAt, serverTime}` — **unguarded**, no `ok` |
 
@@ -1011,6 +1012,17 @@ wallet lock (`db.Missiles.TradeMissiles`), replay-guarded by `missile_purchases`
 Answers `{user, charged, diamonds, missiles}` — `charged:false` with 0 and 0 on a replay; 400 `unknown_pack` /
 `invalid_request_id` (a non-string `requestId` is `invalid_request_id`, each field read on its own — 24 Sep 2026; it spoiled the
 whole decode and read as `unknown_pack`), 409 `not_enough_diamonds`. Allowed while seated: diamonds and missiles sit outside §5.1;
+**Emojis** (owner, 26 Sep 2026: "add a feature of buying emoji which will be type of LOTTIE animation, which user can
+buy, just like we have added the feature of profile picture … this emoji can buy from store also … when user click that
+emoji then that emoji message will send to all players just like chat messages"; `db/emojis.go`, `auth/handlers.go`
+`Emojis`/`BuyEmoji`) — the profile-picture model for something SENT rather than worn. **`GET /api/emojis`** (token
+optional, as `/api/profiles`): `{emojis:[{id, name, url, assetFormat, currency, type, cost, durationDays, durationHours,
+sortOrder, owned, expiresAt}]}`, active rows in `sort_order`. **`POST /api/emojis/buy {emojiId}`** (signed in, the wallet
+rate limiter): `{user, emoji, charged, spent}` — COIN through a `chip_ledger` row, reason **`emoji_purchase`**, action_id
+`emoji:<userId>:<emojiId>:<n>`, LOBBY-ONLY (409 `seated` "You can only buy a chip-priced emoji in the lobby."); DIAMOND
+and HAMMER from their `users` column with no ledger row, at a table too; owned-and-running → `charged:false`; a lapsed
+rental renewed. Refusals 400 `unknown_emoji` / `emoji_retired` / `emoji_free`, 409 `emoji_unaffordable` (the wallet
+and the price in the message). Sending is the socket's `chat:emoji` (§7.1).
 **`GET /api/lucky-draw[?code=]`** / **`POST /api/lucky-draw/spin {actionId, code?}`** (owner, 24 Sep 2026; `auth/handlers.go`
 `LuckyDraw`/`SpinLuckyDraw`, `db/luckydraw.go`; the tables in §7.3) — the Lucky Draw, a six-slot wheel the SERVER spins. The GET
 (signed in; allowed at a table, it only reads) answers `{draw:{code, name, spinnerType, cooldownMs}, slots:[{slotNumber, rewardType,
@@ -1095,7 +1107,7 @@ owns `users`.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly twenty, and none of them is game state**: ten of accounts, money and the picture
+Tables — **there are exactly twenty-two, and none of them is game state** (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph): ten of accounts, money and the picture
 catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`, `user_table_choice` — the paragraph after the
 `users` trigger below; merged 23 Sep 2026) (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
 `missile_spends` are below), and since 23 Sep 2026 **four of table configuration** — `table_engines`,
@@ -1268,6 +1280,17 @@ that day; the owner took their rows out, keeping the catalogue to their own art 
 one is the seeded row's shape with the two `/tables/` paths (the DAY file a pale cloth for the light theme's dark ink, the NIGHT file a
 deep one for the dark theme's light ink; a picture's art must read on its own ground or the words on the table go with it).
 
+**The emojis (owner, 26 Sep 2026)** are two more tables in `V1.0.0__baseline.sql`: **`emojis`** (`profile_pictures`'
+columns — `name`, `asset_url` UNIQUE, `asset_format` LOTTIE only, `currency` COIN|DIAMOND|HAMMER, `type` FREE|PREMIUM
+with the free-is-0 CHECK, `cost`, `duration_days`/`duration_hours`, `is_active`, `sort_order`) and **`user_emojis`**
+(`user_id`, `emoji_id`, `acquired_at`, `expires_at`, `purchases`; PK on the pair — the twin of `user_profile_pictures`;
+a FREE emoji needs no row). `V1.0.1__seed.sql`'s THE EMOJIS holds the owner's SIXTEEN, every one a Drive-hosted Lottie at
+**5 hammers for 30 days** (checked: no 3D, no expressions, no images), `ON CONFLICT (asset_url) DO NOTHING`: Angry,
+Dollar, Crying, Hi Face, Clapping Hands, Cowboy Hat Face, Muscle, Plane Face, Knife, Sleeping, Squinting Face with
+Tongue, Crying Face, Enraged Face, Chill Face, Face Blowing a Kiss, Kiss Face (sort_order 10–160, the order they were
+given; the names are the Drive titles without "Emoji" — the app never shows a Drive title).
+`TestTheSeededEmojisAreTheOwnersSixteenAtFiveHammersForThirtyDays`.
+
 **The Lucky Draw (owner, 24 Sep 2026)** is three more tables in `V1.0.0__baseline.sql` (LUCKY DRAW, after `missile_spends`) and one
 draw in `V1.0.1__seed.sql` (THE LUCKY DRAW, last). **`lucky_draws`** (`code` UNIQUE, `name`, `spinner_type` TEXT default `STANDARD` —
 a label for how the client may dress the wheel —, `cooldown_ms` ≥ 0, `is_active`, `sort_order`) and **`lucky_draw_slots`**
@@ -1296,7 +1319,7 @@ databases: `UPDATE lucky_draw_slots SET reward_type='PROFILE_PICTURE', reward_va
 profile_pictures WHERE name='Lovestruck Cat') WHERE …` (the seed's header has the table-picture twin).
 
 Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss,
-milestone_reward, timed_bonus, daily_bonus, purchase, picture_purchase, table_picture_purchase, lucky_draw, account_deleted, legacy_reconciliation,
+milestone_reward, timed_bonus, daily_bonus, purchase, picture_purchase, table_picture_purchase, emoji_purchase, lucky_draw, account_deleted, legacy_reconciliation,
 test_fixture`. (`lucky_draw` is a Lucky Draw CHIPS prize — a chip source, always positive, action_id
 `lucky:<userId>:<actionId>`.) (`picture_purchase` is a premium profile picture bought with chips — a chip **sink**,
 always a negative delta, action_id `picture:<userId>:<pictureId>`; `table_picture_purchase` is the same for a table picture,
@@ -1760,6 +1783,20 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   × 1.1; the toast area measures the chip, so it moves aside by itself). `test/bonus_chip_icons_test.dart` pumps the lobby at 640×360
   ×1.25 in all five languages and holds the word absent, both glyphs present, the figures un-ellipsised (laid-out width = max intrinsic
   width) and the chip the same height in both states.
+- **Emojis** (owner, 26 Sep 2026; server side §7.1/§7.2/§7.3; `widgets/emoji_shelf.dart`, `widgets/emoji_art.dart`).
+  `EmojiItem`/`ChatEmoji` DTOs, `ApiClient.emojis`/`buyEmoji`, `GameConnection.sendEmoji` (`chat:emoji`), `GameState.emojis`
+  (loaded with the pictures, warmed into `PictureCache`), `buyEmoji` → `bought | notEnough | refused`, `sendEmoji` sharing
+  the chat cooldown. **The store's seventh shelf, Emojis** (`StoreTab.emojis`): each tile plays its Lottie (`EmojiArt`,
+  fitted whole) under the shelf badge (✓ Owned / padlocked price) and the term; a locked one asks first with the emoji
+  large; a chip-priced one at a table is lobby-only; a short hammer or diamond wallet is offered its shelf. **The table:
+  an emoji key** (`ValueKey('rail-emoji')`, a smiley) on the left rail of both felts under the chat key — the rail column
+  now centred between the Shop key and the corner keys (`SideRail.columnTop`) so four keys fit a 360dp phone — opening
+  `EmojiDrawer`, a page of the table's left drawer (never a route): owned emojis to send (tap = send + close; dimmed with
+  the dial during the cooldown), locked ones with their price leading to the store's Emojis shelf. **An emoji plays over
+  its sender's seat for `GameState.emojiBubbleFor` = 5 s** (owner: "5 seconds instead of 4") on every phone, the sender's
+  too, in the chat bubble's place (`SeatPod.emoji`, a one-deep queue per seat), and sits in the chat log as a small
+  playing Lottie beside the name; a blocked sender's is hidden. 18 strings in five languages.
+  `test/emoji_{state,store,table}_test.dart`.
 - **The Lucky Draw** (owner, 24 Sep 2026; `screens/lucky_draw_screen.dart`, server side §7.2/§7.3). **The lobby key** is a
   `_CornerChip` beside the daily bonus in the bottom-left corner (`_LuckyDrawChip`; the two stand in one Row keyed `_dailyChip`, so
   `lobbyNoticeArea` keeps a toast off both): LUCKY DRAW over "Spin now" while a spin is due (gold, a small drawn wheel —
@@ -3036,7 +3073,7 @@ deploy runbook; `steps.txt` the six-line routine.
   unchanged. Every shipped client is websocket-only.
 - **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, exactly two since 23 Sep 2026 —
   `V1.0.0__baseline.sql` all DDL, `V1.0.1__seed.sql` all DML — applied in version order, idempotent, run at
-  every start: twenty tables — money, accounts, the picture catalogues (profile and table), the four table-configuration tables, the Lucky Draw's three, no game
+  every start: twenty-two tables — money, accounts, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
   state — §7.3), `TableConfigs.Load`/`ExportTableConfigSQL` (the table catalogue), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table
