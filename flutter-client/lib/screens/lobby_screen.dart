@@ -1831,6 +1831,7 @@ class _GroupCard extends StatelessWidget {
           child: _Pressable(
             onTap: () {
               tapHaptic(context);
+              context.read<FeedbackSettings>().cardClick();
               onOpen();
             },
             child: LayoutBuilder(
@@ -2324,8 +2325,10 @@ class _TableCard extends StatelessWidget {
           onTap: shut
               ? () {}
               : () {
-                  // The door, then the room.
-                  context.read<FeedbackSettings>().enterTable();
+                  // The card's click, the door, then the room.
+                  context.read<FeedbackSettings>()
+                    ..cardClick()
+                    ..enterTable();
                   context.read<GameState>().quickJoin(boot, category);
                 },
           child: LayoutBuilder(

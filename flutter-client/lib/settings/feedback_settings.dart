@@ -77,6 +77,11 @@ class FeedbackSettings extends ChangeNotifier {
   /// (`MissileTiming.flight`, 1.3 s) — and a rumble to 3.8 s.
   static const missileHitClip = 'sound/Missile hit.mp3';
 
+  /// A tap on one of the lobby's cards (owner, 26 Sep 2026: "this sound
+  /// should be played when user click on card" — the lobby cards). The
+  /// owner's recording: a click 60 ms in, gone by 150 ms.
+  static const cardClickClip = 'sound/Card click.mp3';
+
   /// How many of [dealCardClip] may sound at once. The deal sends a card
   /// every 115 ms and the clip is heard for 440 ms, so four overlap; one voice
   /// would stop each card's sound for the next one before its swish began,
@@ -177,6 +182,13 @@ class FeedbackSettings extends ChangeNotifier {
   /// everybody at the table, as everybody sees the volley. At the synthesised
   /// clips' 0.85: its blast is at full scale already.
   void missileHit() => unawaited(_playAsset(missileHitClip));
+
+  /// A tap on a lobby card that goes somewhere — an engine (Teen Patti,
+  /// Poker), a category (Seen, Blind, Variation …) or a table the player may
+  /// sit at ([cardClickClip]). At full volume: it peaks some 4 dB under the
+  /// synthesised clips. A padlocked table card is not a tap that goes
+  /// anywhere and stays quiet.
+  void cardClick() => unawaited(_playAsset(cardClickClip, volume: 1));
 
   /// A tap on a control.
   ///
