@@ -1009,20 +1009,52 @@ void main() {
     });
   });
 
-  test('the gameplay screens know nothing of Friends', () {
-    const files = [
+  // Friends at the table (owner, 26 Sep 2026): a tap on another player's pod
+  // opens the player drawer, and a seat whose player asked wears a badge. That
+  // is all a table knows of Friends — never the Friends page, its key, or
+  // where a friend is.
+  test('the gameplay screens know the player drawer and the request badge, '
+      'never the Friends page or presence', () {
+    const table = [
       'lib/screens/table_screen.dart',
       'lib/screens/poker_table_screen.dart',
       'lib/widgets/table_chrome.dart',
       'lib/widgets/seat_pod.dart',
+      'lib/widgets/player_drawer.dart',
+      'lib/widgets/player_profile.dart',
     ];
-    final friends = RegExp(
-      r'friends_screen|friends_state|models/friends|FriendsKey|FriendsScreen|'
-      r'FriendsState|showFriends|\.friends\b',
+    final lobbyOnly = RegExp(
+      r'friends_screen|FriendsScreen|FriendsKey|showFriends|'
+      r'presence|Presence|playingNow',
     );
-    for (final path in files) {
+    for (final path in table) {
       final source = File(path).readAsStringSync();
-      expect(friends.hasMatch(source), isFalse, reason: path);
+      expect(lobbyOnly.hasMatch(source), isFalse, reason: path);
+    }
+    // The felts reach Friends through the drawer's file and nothing else: the
+    // drawer a pod opens and the badge a seat wears, on both of them.
+    final state = RegExp(
+      r'friends_state|models/friends|FriendsState|\.friends\b',
+    );
+    for (final felt in const [
+      'lib/screens/table_screen.dart',
+      'lib/screens/poker_table_screen.dart',
+    ]) {
+      final source = File(felt).readAsStringSync();
+      expect(state.hasMatch(source), isFalse, reason: felt);
+      expect(source, contains('endDrawer: const PlayerDrawer()'));
+      expect(source, contains('endDrawerEnableOpenDragGesture: false'));
+      expect(source, contains('openPlayerDrawer('), reason: felt);
+      expect(source, contains('SeatRequestBadge('), reason: felt);
+    }
+    // The chrome and the pod know neither.
+    for (final path in const [
+      'lib/widgets/table_chrome.dart',
+      'lib/widgets/seat_pod.dart',
+    ]) {
+      final source = File(path).readAsStringSync();
+      expect(state.hasMatch(source), isFalse, reason: path);
+      expect(source, isNot(contains('player_drawer')), reason: path);
     }
   });
 

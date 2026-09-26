@@ -51,7 +51,17 @@ String friendsRefusalText(Strings t, String? code) => switch (code) {
 /// ([pageClosed]); the page's two lists are read when it opens, every
 /// [pollEvery] while it is open, and on a pull or a retry ([refresh]). No
 /// timer runs while the page is shut but the lobby's, and none at all away
-/// from the lobby. V1 has no push: this is all the news there is.
+/// from the lobby.
+///
+/// Two pieces of news are pushed rather than asked for (owner, 26 Sep 2026:
+/// "do this async"): a request that has just arrived ([requestArrived],
+/// `friend:request`) and one of the player's own that has just been accepted
+/// ([requestAccepted], `friend:accepted`). At a table the incoming requests
+/// are read once as the table opens and kept by those two and by the moves;
+/// a seat's pod wears a badge while its player's request waits
+/// ([hasRequestFrom]), and a tap on it opens the table's player drawer, whose
+/// profile has a slot of its own here ([seatPlayer] and the rest) — never the
+/// Friends page's.
 class FriendsState extends ChangeNotifier {
   FriendsState({
     required this._api,
@@ -138,6 +148,26 @@ class FriendsState extends ChangeNotifier {
   /// What the last move from the profile was refused with, to say on it.
   String? profileNote;
 
+  // ------------------------------------------------------------ the seat
+
+  /// The player whose seat was tapped at a table — the player drawer's — as
+  /// the seat drew them: their name and picture, shown at once while their
+  /// profile is read. Null when the drawer is shut. A slot of its own, so the
+  /// table never borrows (or clears) the Friends page's profile or search.
+  PlayerCard? seatPlayer;
+
+  /// [seatPlayer]'s profile, once read: what they are to the viewer and
+  /// their record. Its presence, when a friend's profile carries one, is
+  /// never shown at a table.
+  PublicProfile? seatProfile;
+  bool seatLoading = false;
+
+  /// Why [seatProfile] could not be read — a refusal code — or null.
+  String? seatError;
+
+  /// What the last move from the drawer was refused with, to say in it.
+  String? seatNote;
+
   // ------------------------------------------------------------ lifecycle
 
   Timer? _poll;
@@ -154,6 +184,7 @@ class FriendsState extends ChangeNotifier {
   /// older question is dropped.
   int _searchSeq = 0;
   int _profileSeq = 0;
+  int _seatSeq = 0;
 
   /// The read of the lists, and of the count, out now, and the [_edits] each
   /// set out at: a second call while one is out waits for it — unless the
@@ -231,6 +262,7 @@ class FriendsState extends ChangeNotifier {
     sendingTo = null;
     clearSearch(notify: false);
     closeProfile(notify: false);
+    closeSeat(notify: false);
     _notify();
   }
 
@@ -361,16 +393,16 @@ class FriendsState extends ChangeNotifier {
     final token = _token();
     if (token == null || busyRequests.contains(requestId)) return false;
     busyRequests.add(requestId);
+    _clearSeatNoteFor(_userOfRequest(requestId));
     _notify();
     try {
       final friend = await _api.acceptFriendRequest(token, requestId);
       if (_token() != token) return false;
       _edits++;
       final asked = _requestById(requestId);
+      final from = _userOfRequest(requestId);
       _dropRequest(requestId);
-      final userId = friend.userId.isNotEmpty
-          ? friend.userId
-          : asked?.player.userId ?? '';
+      final userId = friend.userId.isNotEmpty ? friend.userId : from ?? '';
       if (friend.userId.isNotEmpty) {
         friends = sortFriends([
           ...friends.where((f) => f.userId != friend.userId),
@@ -380,10 +412,10 @@ class FriendsState extends ChangeNotifier {
         // An answer with no friend in it: the list says who, once read.
         unawaited(refresh());
       }
-      _nowFriends(userId);
       final name = friend.displayName.isNotEmpty
           ? friend.displayName
-          : asked?.player.displayName ?? '';
+          : asked?.player.displayName ?? _nameOf(userId);
+      _nowFriends(userId);
       if (name.isNotEmpty) _tell(_strings().friendAdded(name));
       return true;
     } catch (e) {
@@ -402,14 +434,15 @@ class FriendsState extends ChangeNotifier {
     final token = _token();
     if (token == null || busyRequests.contains(requestId)) return false;
     busyRequests.add(requestId);
+    _clearSeatNoteFor(_userOfRequest(requestId));
     _notify();
     try {
       await _api.rejectFriendRequest(token, requestId);
       if (_token() != token) return false;
       _edits++;
-      final asked = _requestById(requestId);
+      final from = _userOfRequest(requestId);
       _dropRequest(requestId);
-      if (asked != null) _noLongerPending(asked.player.userId);
+      if (from != null) _noLongerPending(from);
       return true;
     } catch (e) {
       if (_token() != token) return false;
@@ -454,16 +487,19 @@ class FriendsState extends ChangeNotifier {
     }
   }
 
-  /// Asks [userId] to be friends — from the Add Friend page's card or a
-  /// profile. On success the player stands as PENDING_SENT; a refusal moves
-  /// them to whatever it says they are (already friends, already asked, a
-  /// request of theirs to accept) and is said on the page that asked.
+  /// Asks [userId] to be friends — from the Add Friend page's card, a
+  /// profile, or the table's player drawer. On success the player stands as
+  /// PENDING_SENT; a refusal moves them to whatever it says they are (already
+  /// friends, already asked, a request of theirs to accept) and is said on
+  /// the page that asked — in the drawer, which reads the profile again to
+  /// offer the move that fits now.
   Future<bool> sendRequest(String userId) async {
     final token = _token();
     if (token == null || sendingTo != null) return false;
     sendingTo = userId;
     lookupNote = null;
     profileNote = null;
+    _clearSeatNoteFor(userId);
     _notify();
     try {
       final sent = await _api.sendFriendRequest(token, userId);
@@ -499,6 +535,17 @@ class FriendsState extends ChangeNotifier {
       }
       if (lookup?.player.userId == userId) lookupNote = code;
       if (profileFor == userId && profile != null) profileNote = code;
+      if (seatPlayer?.userId == userId) {
+        if (code == 'player_not_found') {
+          // Gone: there is no profile left to offer a move on.
+          _seatSeq++;
+          seatProfile = null;
+          seatLoading = false;
+          seatError = code;
+        } else {
+          _refusedAtSeat(code);
+        }
+      }
       return false;
     } finally {
       sendingTo = null;
@@ -600,6 +647,154 @@ class FriendsState extends ChangeNotifier {
     return null;
   }
 
+  // ------------------------------------------------------------ the seat
+
+  /// Whether a request from [userId] waits for this player: what puts the
+  /// badge on that player's pod at a table.
+  bool hasRequestFrom(String? userId) =>
+      userId != null && requestFrom(userId) != null;
+
+  /// The request [userId] sent this player, while it waits for an answer.
+  FriendRequestItem? requestFrom(String userId) {
+    if (userId.isEmpty) return null;
+    for (final r in incoming) {
+      if (r.player.userId == userId) return r;
+    }
+    return null;
+  }
+
+  /// A seat was tapped at a table: the player drawer opens on [who], drawn at
+  /// once as the seat has them, and their profile is read now. A second tap
+  /// on the same player keeps what is on show while it is read again.
+  Future<void> openSeat(PlayerCard who) {
+    if (seatPlayer?.userId != who.userId) seatProfile = null;
+    seatPlayer = who;
+    seatError = null;
+    seatNote = null;
+    return _readSeat();
+  }
+
+  /// The drawer's Retry: its player's profile read again.
+  Future<void> retrySeat() => _readSeat();
+
+  Future<void> _readSeat({bool keepNote = false}) async {
+    final who = seatPlayer;
+    if (who == null) return;
+    final seq = ++_seatSeq;
+    if (!keepNote) seatNote = null;
+    final token = _token();
+    if (token == null) {
+      seatLoading = false;
+      seatError = friendsNoAnswer;
+      _notify();
+      return;
+    }
+    seatLoading = true;
+    seatError = null;
+    _notify();
+    try {
+      final got = await _api.playerProfile(token, who.userId);
+      if (seq != _seatSeq || _token() != token) return;
+      seatProfile = got;
+    } catch (e) {
+      if (seq != _seatSeq || _token() != token) return;
+      final code = _codeOf(e);
+      seatError = code;
+      // A player the server no longer knows has no profile left to show.
+      if (code == 'player_not_found') seatProfile = null;
+    } finally {
+      if (seq == _seatSeq) {
+        seatLoading = false;
+        _notify();
+      }
+    }
+  }
+
+  /// The drawer has shut, and its player goes with it; an answer still on
+  /// its way for them is dropped when it lands. Quiet when [notify] is false:
+  /// the drawer calls this as it is taken down, when nothing may be marked
+  /// to rebuild.
+  void closeSeat({bool notify = true}) {
+    _seatSeq++;
+    seatPlayer = null;
+    seatProfile = null;
+    seatLoading = false;
+    seatError = null;
+    seatNote = null;
+    if (notify) _notify();
+  }
+
+  // ---------------------------------------------------------- pushed news
+
+  /// A request has just arrived (`friend:request`), in the lobby or at a
+  /// table. It joins [incoming] at the top — the lobby key's count goes up,
+  /// and at a table the sender's pod wears its badge — its sender stands as
+  /// PENDING_RECEIVED wherever they are on show (an open player drawer for
+  /// them reads their profile again), and an open Friends page reads its
+  /// lists. What is SAID about it is the caller's: only GameState knows
+  /// whether the sender sits at this player's table, and whom they have
+  /// blocked there.
+  void requestArrived(FriendRequestItem request) {
+    final from = request.player.userId;
+    if (request.requestId.isEmpty || from.isEmpty) return;
+    // A read already out describes the requests as they were before this
+    // one: it is dropped when it lands, and the next read brings this too.
+    _edits++;
+    available = true;
+    incoming = [
+      request,
+      for (final r in incoming)
+        if (r.requestId != request.requestId && r.player.userId != from) r,
+    ];
+    incomingCount = incoming.length;
+    _restate(from, FriendStatus.pendingReceived, requestId: request.requestId);
+    if (seatPlayer?.userId == from) unawaited(_readSeat());
+    if (_pageOpen) unawaited(refresh());
+    _notify();
+  }
+
+  /// A request this player sent has been accepted (`friend:accepted`): the
+  /// player who accepted is a friend now — on the list, and wherever they
+  /// are on show; an open player drawer for them reads their profile again,
+  /// and an open Friends page its lists.
+  void requestAccepted(FriendAccepted accepted) {
+    final who = accepted.player.userId;
+    if (who.isEmpty) return;
+    _edits++;
+    available = true;
+    outgoing = [
+      for (final r in outgoing)
+        if (r.requestId != accepted.requestId && r.player.userId != who) r,
+    ];
+    // Friends have nothing left to ask each other.
+    incoming = [
+      for (final r in incoming)
+        if (r.player.userId != who) r,
+    ];
+    incomingCount = incoming.length;
+    if (!friends.any((f) => f.userId == who)) {
+      friends = sortFriends([
+        ...friends,
+        FriendItem(
+          player: accepted.player,
+          // The push says nothing of where they are. They accepted a moment
+          // ago, which only a player signed in can do; the list's own read
+          // says exactly — now, when the page is open, and the moment it
+          // next opens otherwise.
+          presence: const FriendPresence(
+            status: PresenceStatus.online,
+            online: true,
+          ),
+          friendsSince: accepted.friendsSince,
+        ),
+      ]);
+    }
+    _nowFriends(who);
+    if (seatPlayer?.userId == who) unawaited(_readSeat());
+    if (_pageOpen) unawaited(refresh());
+    _notify();
+  }
+
   // ------------------------------------------------------------- helpers
 
   FriendRequestItem? _requestById(String requestId) {
@@ -609,12 +804,38 @@ class FriendsState extends ChangeNotifier {
     return null;
   }
 
+  /// Whose request [requestId] is — as the requests, the search card, the
+  /// profile or the player drawer last had it — or null.
+  String? _userOfRequest(String requestId) {
+    final asked = _requestById(requestId);
+    if (asked != null) return asked.player.userId;
+    if (lookup?.requestId == requestId) return lookup!.player.userId;
+    if (profile?.requestId == requestId) return profile!.userId;
+    if (seatProfile?.requestId == requestId) return seatProfile!.userId;
+    return null;
+  }
+
   String _nameOf(String userId) {
     for (final f in friends) {
       if (f.userId == userId) return f.displayName;
     }
     if (profile?.userId == userId) return profile!.player.displayName;
+    if (seatPlayer?.userId == userId) return seatPlayer!.displayName;
     return '';
+  }
+
+  /// A move on [userId] is setting out: what the drawer said about the last
+  /// one goes.
+  void _clearSeatNoteFor(String? userId) {
+    if (userId != null && seatPlayer?.userId == userId) seatNote = null;
+  }
+
+  /// A move made from the player drawer was refused: [code] is said in the
+  /// drawer, where the move was made, and the profile is read again so the
+  /// drawer offers the move that fits now.
+  void _refusedAtSeat(String code) {
+    seatNote = code;
+    unawaited(_readSeat(keepNote: true));
   }
 
   void _dropRequest(String requestId) {
@@ -643,10 +864,14 @@ class FriendsState extends ChangeNotifier {
         FriendStatus.isPending(profile!.friendStatus)) {
       profile = profile!.withStatus(FriendStatus.none);
     }
+    if (seatProfile?.userId == userId &&
+        FriendStatus.isPending(seatProfile!.friendStatus)) {
+      _restateSeat(seatProfile!.withStatus(FriendStatus.none));
+    }
   }
 
-  /// What [userId] now is to this player, on the search card and the profile
-  /// alike.
+  /// What [userId] now is to this player, on the search card, the profile
+  /// and the player drawer alike.
   void _restate(String userId, String status, {String? requestId}) {
     if (lookup?.player.userId == userId) {
       lookup = lookup!.withStatus(status, requestId: requestId);
@@ -658,17 +883,41 @@ class FriendsState extends ChangeNotifier {
         presence: presenceOf(userId),
       );
     }
+    if (seatProfile?.userId == userId) {
+      _restateSeat(
+        seatProfile!.withStatus(
+          status,
+          requestId: requestId,
+          presence: presenceOf(userId),
+        ),
+      );
+    }
+  }
+
+  /// The drawer's player as a move has just left them. A read of their
+  /// profile still out set off before the move, and would put the old
+  /// relationship back when it landed: it is dropped.
+  void _restateSeat(PublicProfile now) {
+    _seatSeq++;
+    seatLoading = false;
+    seatProfile = now;
   }
 
   /// An accept or a reject refused: said in the player's language, and where
   /// the request is gone or answered, gone from the page too — the lists are
-  /// read again to show what became of it.
+  /// read again to show what became of it. Refused from the player drawer, it
+  /// is said there instead ([_refusedAtSeat]).
   void _refusedOnRequest(String requestId, Object error) {
     final code = _codeOf(error);
+    final from = _userOfRequest(requestId);
     if (code == 'request_not_found' || code == 'request_not_pending') {
       _edits++;
       _dropRequest(requestId);
       unawaited(refresh());
+    }
+    if (from != null && from == seatPlayer?.userId) {
+      _refusedAtSeat(code);
+      return;
     }
     _tell(friendsRefusalText(_strings(), code));
   }

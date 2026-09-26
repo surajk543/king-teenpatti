@@ -144,7 +144,26 @@ class SeatPod extends StatelessWidget {
     this.winnerStrike,
     this.stackLanding,
     this.stackWon = 0,
+    this.onTap,
+    this.requestBadge,
   });
+
+  /// A tap on the pod — the glass plaque, not the cards and bet under it:
+  /// another player's opens the table's player drawer (owner, 26 Sep 2026).
+  /// Null for the viewer's own pod, which a tap does nothing to; an empty
+  /// chair never takes one.
+  final VoidCallback? onTap;
+
+  /// A badge for the pod's top corner — the one facing the middle of the
+  /// table — while this player's friend request waits for the viewer
+  /// ([SeatRequestBadge]). Laid over the pod, so neither the pod's size nor
+  /// the ring's layout changes with it.
+  final Widget? requestBadge;
+
+  /// The side of [requestBadge] on a pod [podWidth] wide: a quarter of it,
+  /// never so small it cannot be seen nor so large it covers the name.
+  static double requestBadgeSide(double podWidth) =>
+      (podWidth * 0.24).clamp(18.0, 30.0);
 
   /// Names the stack pill, where the pot's chips land when this seat wins.
   final Key? stackKey;
@@ -342,12 +361,21 @@ class SeatPod extends StatelessWidget {
     ];
 
     final column = <Widget>[
-      _pod(
-        context,
-        s,
-        beat,
-        edge,
-        state.colourFor(s.userId ?? '', theme.colorScheme),
+      // The pod takes the tap — its glass plaque, not the cards or the bet
+      // hung under it. One tree shape whether or not it can be tapped, so a
+      // seat whose tap comes or goes keeps its state.
+      GestureDetector(
+        behavior: onTap == null
+            ? HitTestBehavior.deferToChild
+            : HitTestBehavior.opaque,
+        onTap: onTap,
+        child: _pod(
+          context,
+          s,
+          beat,
+          edge,
+          state.colourFor(s.userId ?? '', theme.colorScheme),
+        ),
       ),
       ...below,
     ];
@@ -700,6 +728,14 @@ class SeatPod extends StatelessWidget {
       ),
     );
 
+    final badge = requestBadge;
+    final badgeSide = requestBadgeSide(width);
+    // A third of the badge stands off the pod's corner, the rest over it:
+    // on the corner that faces the middle of the table, which is the side the
+    // seat's words open towards, so it never runs off the felt.
+    final badgeOut = -badgeSide * 0.3;
+    final badgeLeft = bubbleSide == BubbleSide.left;
+
     return PodImpact(
       key: podKey,
       clock: impact,
@@ -724,6 +760,16 @@ class SeatPod extends StatelessWidget {
               ),
             ),
           panel,
+          if (badge != null)
+            Positioned(
+              top: badgeOut,
+              left: badgeLeft ? badgeOut : null,
+              right: badgeLeft ? null : badgeOut,
+              width: badgeSide,
+              height: badgeSide,
+              // The pod under it takes the tap that answers the request.
+              child: IgnorePointer(child: badge),
+            ),
         ],
       ),
     );

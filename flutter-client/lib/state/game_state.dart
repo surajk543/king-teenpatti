@@ -11,6 +11,7 @@ import 'package:uuid/uuid.dart';
 import '../config/server_config.dart';
 import '../l10n/strings.dart';
 import '../models/dtos.dart';
+import '../models/friends.dart';
 import '../net/picture_cache.dart';
 import '../net/api_client.dart';
 import '../net/app_update.dart';
@@ -1257,6 +1258,8 @@ class GameState extends ChangeNotifier {
           ..addAll(h.where((m) => !isBlocked(m.userId)));
         notifyListeners();
       }),
+      _conn.onFriendRequest.listen(handleFriendRequest),
+      _conn.onFriendAccepted.listen(handleFriendAccepted),
       _conn.onError.listen((e) {
         // The account was disabled while signed in: out, and the popup.
         if (e.code == accountDisabledCode) {
@@ -1333,6 +1336,45 @@ class GameState extends ChangeNotifier {
     }
 
     notifyListeners();
+  }
+
+  /// `friend:request`: somebody has just asked this player to be friends
+  /// (owner, 26 Sep 2026: "do this async") — in the lobby or at a table.
+  ///
+  /// The request joins the ones waiting ([FriendsState.requestArrived]) and
+  /// the toast says who. At a table the sender sits at, it also says where to
+  /// answer — their seat, which wears the request's badge now. A player this
+  /// viewer has blocked at the table is not heard from, a request included:
+  /// no toast, though the request stands, on the Friends page and on the
+  /// sender's seat.
+  @visibleForTesting
+  void handleFriendRequest(FriendRequestItem request) {
+    friends.requestArrived(request);
+    final sender = request.player;
+    if (isBlocked(sender.userId) || sender.displayName.isEmpty) return;
+    notice = seatedHere(sender.userId)
+        ? t.friendRequestAtTable(sender.displayName)
+        : t.friendRequestArrived(sender.displayName);
+    notifyListeners();
+  }
+
+  /// `friend:accepted`: a request this player sent has been accepted — they
+  /// are friends now ([FriendsState.requestAccepted]), and the toast says who.
+  @visibleForTesting
+  void handleFriendAccepted(FriendAccepted accepted) {
+    friends.requestAccepted(accepted);
+    final name = accepted.player.displayName;
+    if (name.isEmpty) return;
+    notice = t.friendAcceptedYours(name);
+    notifyListeners();
+  }
+
+  /// Whether [userId] sits at the table this player is at.
+  bool seatedHere(String? userId) {
+    final r = room;
+    if (r == null || screen != Screen.table) return false;
+    if (userId == null || userId.isEmpty) return false;
+    return r.seats.any((s) => s.occupied && s.userId == userId);
   }
 
   /// A hand's reveal, or its end.
@@ -1475,6 +1517,11 @@ class GameState extends ChangeNotifier {
       screen = Screen.table;
       chat.clear();
       unreadChat = 0;
+      // The requests waiting for this player, read once as the table opens:
+      // the seat of a player who asked wears a badge (the player drawer).
+      // From here they are kept by the pushes and the moves — nothing polls
+      // at a table.
+      unawaited(friends.refreshBadge());
     }
     if (restored) _endResume(welcome: true);
     notifyListeners();

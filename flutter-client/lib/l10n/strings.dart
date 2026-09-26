@@ -212,6 +212,21 @@ class Strings {
   String friendRemoved(String name) =>
       _('friendRemoved').replaceAll('{name}', name);
 
+  /// "Ravi sent you a friend request." — a request that has just arrived
+  /// (`friend:request`), wherever the player is.
+  String friendRequestArrived(String name) =>
+      _('friendRequestArrived').replaceAll('{name}', name);
+
+  /// The same, at a table the sender sits at: where to answer it — their
+  /// seat, which wears the request's badge.
+  String friendRequestAtTable(String name) =>
+      _('friendRequestAtTable').replaceAll('{name}', name);
+
+  /// "Ravi accepted your friend request." — one of the player's own requests
+  /// accepted (`friend:accepted`).
+  String friendAcceptedYours(String name) =>
+      _('friendAcceptedYours').replaceAll('{name}', name);
+
   /// Every refusal a Friends route can answer, in words
   /// (`friendsRefusalText` picks by code).
   String get friendRefusePlayerNotFound => _('friendRefusePlayerNotFound');
@@ -1878,6 +1893,10 @@ class Strings {
       'back': 'Back',
       'friendAdded': '{name} is now your friend.',
       'friendRemoved': '{name} is no longer your friend.',
+      'friendRequestArrived': '{name} sent you a friend request.',
+      'friendRequestAtTable':
+          '{name} sent you a friend request. Tap their seat to answer.',
+      'friendAcceptedYours': '{name} accepted your friend request.',
       'friendRefusePlayerNotFound': 'Player not found.',
       'friendRefuseInvalidId': 'That is not a valid Player ID.',
       'friendRefuseSelf': 'You cannot add yourself.',
@@ -2549,6 +2568,10 @@ class Strings {
       'back': 'वापस',
       'friendAdded': '{name} अब आपके दोस्त हैं।',
       'friendRemoved': '{name} अब आपके दोस्त नहीं हैं।',
+      'friendRequestArrived': '{name} ने आपको फ़्रेंड रिक्वेस्ट भेजी है।',
+      'friendRequestAtTable':
+          '{name} ने आपको फ़्रेंड रिक्वेस्ट भेजी है। जवाब देने के लिए उनकी सीट पर टैप करें।',
+      'friendAcceptedYours': '{name} ने आपकी फ़्रेंड रिक्वेस्ट स्वीकार कर ली।',
       'friendRefusePlayerNotFound': 'खिलाड़ी नहीं मिला।',
       'friendRefuseInvalidId': 'यह सही खिलाड़ी आईडी नहीं है।',
       'friendRefuseSelf': 'आप खुद को नहीं जोड़ सकते।',
@@ -3226,6 +3249,10 @@ class Strings {
       'back': 'ফিরে যান',
       'friendAdded': '{name} এখন আপনার বন্ধু।',
       'friendRemoved': '{name} আর আপনার বন্ধু নন।',
+      'friendRequestArrived': '{name} আপনাকে বন্ধুত্বের অনুরোধ পাঠিয়েছেন।',
+      'friendRequestAtTable':
+          '{name} আপনাকে বন্ধুত্বের অনুরোধ পাঠিয়েছেন। উত্তর দিতে তাঁর আসনে ট্যাপ করুন।',
+      'friendAcceptedYours': '{name} আপনার বন্ধুত্বের অনুরোধ গ্রহণ করেছেন।',
       'friendRefusePlayerNotFound': 'খেলোয়াড় পাওয়া যায়নি।',
       'friendRefuseInvalidId': 'এটি সঠিক খেলোয়াড় আইডি নয়।',
       'friendRefuseSelf': 'আপনি নিজেকে যোগ করতে পারবেন না।',
@@ -3894,6 +3921,10 @@ class Strings {
       'back': 'પાછા',
       'friendAdded': '{name} હવે તમારા મિત્ર છે.',
       'friendRemoved': '{name} હવે તમારા મિત્ર નથી.',
+      'friendRequestArrived': '{name}એ તમને મિત્રતાની વિનંતી મોકલી છે.',
+      'friendRequestAtTable':
+          '{name}એ તમને મિત્રતાની વિનંતી મોકલી છે. જવાબ આપવા તેમની સીટ પર ટૅપ કરો.',
+      'friendAcceptedYours': '{name}એ તમારી મિત્રતાની વિનંતી સ્વીકારી.',
       'friendRefusePlayerNotFound': 'ખેલાડી મળ્યો નથી.',
       'friendRefuseInvalidId': 'આ સાચી ખેલાડી આઈડી નથી.',
       'friendRefuseSelf': 'તમે પોતાને ઉમેરી શકતા નથી.',
@@ -4572,6 +4603,10 @@ class Strings {
       'back': 'ਵਾਪਸ',
       'friendAdded': '{name} ਹੁਣ ਤੁਹਾਡੇ ਦੋਸਤ ਹਨ।',
       'friendRemoved': '{name} ਹੁਣ ਤੁਹਾਡੇ ਦੋਸਤ ਨਹੀਂ ਹਨ।',
+      'friendRequestArrived': '{name} ਨੇ ਤੁਹਾਨੂੰ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ ਭੇਜੀ ਹੈ।',
+      'friendRequestAtTable':
+          '{name} ਨੇ ਤੁਹਾਨੂੰ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ ਭੇਜੀ ਹੈ। ਜਵਾਬ ਦੇਣ ਲਈ ਉਨ੍ਹਾਂ ਦੀ ਸੀਟ ਉੱਤੇ ਟੈਪ ਕਰੋ।',
+      'friendAcceptedYours': '{name} ਨੇ ਤੁਹਾਡੀ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ ਸਵੀਕਾਰ ਕਰ ਲਈ।',
       'friendRefusePlayerNotFound': 'ਖਿਡਾਰੀ ਨਹੀਂ ਮਿਲਿਆ।',
       'friendRefuseInvalidId': 'ਇਹ ਸਹੀ ਖਿਡਾਰੀ ਆਈਡੀ ਨਹੀਂ ਹੈ।',
       'friendRefuseSelf': 'ਤੁਸੀਂ ਆਪਣੇ-ਆਪ ਨੂੰ ਨਹੀਂ ਜੋੜ ਸਕਦੇ।',

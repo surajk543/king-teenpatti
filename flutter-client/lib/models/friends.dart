@@ -236,6 +236,32 @@ class FriendRequestItem {
       );
 }
 
+/// A request the viewer sent, accepted (`friend:accepted`, pushed to its
+/// sender the moment the other player accepts it — at a table or in the
+/// lobby): which request, who accepted it, and since when the two are
+/// friends. The server sends no presence with it, and nothing here guesses one.
+class FriendAccepted {
+  const FriendAccepted({
+    required this.requestId,
+    required this.player,
+    this.friendsSince = 0,
+  });
+
+  final String requestId;
+
+  /// The player who accepted.
+  final PlayerCard player;
+
+  /// Epoch ms the two became friends; 0 when not sent.
+  final int friendsSince;
+
+  factory FriendAccepted.fromJson(Map<String, dynamic> j) => FriendAccepted(
+    requestId: friendRequestIdOf(j['requestId']) ?? '',
+    player: PlayerCard.fromJson(_map(j['player'])),
+    friendsSince: _int(j['friendsSince']),
+  );
+}
+
 /// Every pending request of the viewer's, both ways, newest first.
 class FriendRequests {
   const FriendRequests({this.incoming = const [], this.outgoing = const []});

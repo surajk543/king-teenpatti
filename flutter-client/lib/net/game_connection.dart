@@ -5,6 +5,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:uuid/uuid.dart';
 
 import '../models/dtos.dart';
+import '../models/friends.dart';
 import 'api_client.dart' show accountDisabledCode;
 
 /// A hand's reveal or its end, as `game:showdown` and `game:handEnded` carry
@@ -105,6 +106,8 @@ class GameConnection {
   final _pokerAction = StreamController<PokerActionNews>.broadcast();
   final _chat = StreamController<ChatMessage>.broadcast();
   final _chatHistory = StreamController<List<ChatMessage>>.broadcast();
+  final _friendRequest = StreamController<FriendRequestItem>.broadcast();
+  final _friendAccepted = StreamController<FriendAccepted>.broadcast();
   final _errors =
       StreamController<({String? code, String message})>.broadcast();
   final _left = StreamController<void>.broadcast();
@@ -186,6 +189,15 @@ class GameConnection {
   Stream<PokerActionNews> get onPokerAction => _pokerAction.stream;
   Stream<ChatMessage> get onChat => _chat.stream;
   Stream<List<ChatMessage>> get onChatHistory => _chatHistory.stream;
+
+  /// Somebody asked this player to be friends (`friend:request`, owner,
+  /// 26 Sep 2026): the request exactly as `GET /api/friends/requests` lists
+  /// an incoming one. Sent to this player's live socket wherever they are —
+  /// the lobby or a table — once the server has recorded it.
+  Stream<FriendRequestItem> get onFriendRequest => _friendRequest.stream;
+
+  /// A request this player sent was accepted (`friend:accepted`).
+  Stream<FriendAccepted> get onFriendAccepted => _friendAccepted.stream;
 
   /// A refusal or a failure. `code` is the server's snake_case code when it
   /// sent one: its messages are English by design, so the client localises
@@ -387,6 +399,20 @@ class GameConnection {
             .map((e) => ChatMessage.fromJson(_map(e)))
             .toList(),
       );
+    });
+
+    // Friends (owner, 26 Sep 2026): news the server pushes the moment it has
+    // recorded it, so neither the lobby nor a table has to ask. A payload
+    // naming no request or no player is nothing anybody could answer.
+    socket.on('friend:request', (data) {
+      final request = FriendRequestItem.fromJson(_map(data));
+      if (request.requestId.isEmpty || request.player.userId.isEmpty) return;
+      _friendRequest.add(request);
+    });
+    socket.on('friend:accepted', (data) {
+      final accepted = FriendAccepted.fromJson(_map(data));
+      if (accepted.player.userId.isEmpty) return;
+      _friendAccepted.add(accepted);
     });
 
     socket.on('game:error', (data) {
@@ -639,6 +665,8 @@ class GameConnection {
     _pokerAction.close();
     _chat.close();
     _chatHistory.close();
+    _friendRequest.close();
+    _friendAccepted.close();
     _errors.close();
     _left.close();
     _kicked.close();

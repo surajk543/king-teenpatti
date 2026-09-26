@@ -17,6 +17,7 @@ import '../widgets/avatar.dart';
 import '../widgets/edge_fade.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
+import '../widgets/player_profile.dart';
 import '../widgets/premium_surface.dart';
 
 // Friends V1 (owner's brief, 26 Sep 2026) — a LOBBY feature: the key in the
@@ -119,31 +120,6 @@ String _variantName(
 
 /// A code as words: `NEW_GAME` → "New Game".
 String _tidy(String code) => friendlyName(code.replaceAll('_', ' ').trim());
-
-/// A count as the app writes one: grouped by thousands, never abbreviated —
-/// hands are not money.
-String _count(int n) {
-  final s = n.abs().toString();
-  final b = StringBuffer(n < 0 ? '-' : '');
-  for (var i = 0; i < s.length; i++) {
-    if (i > 0 && (s.length - i) % 3 == 0) b.write(',');
-    b.write(s[i]);
-  }
-  return b.toString();
-}
-
-/// A win rate as a share: "57.25%", "50%" — two places at most, and none of
-/// the trailing zeros.
-String _rate(double percent) {
-  var text = percent.toStringAsFixed(2);
-  if (text.contains('.')) text = text.replaceFirst(RegExp(r'\.?0+$'), '');
-  return '$text%';
-}
-
-/// The green a friend who is online is marked with: the dark scheme's mint on
-/// charcoal, and a deeper green that holds 4:1 on the day's white.
-Color onlineGreen(Brightness b) =>
-    b == Brightness.dark ? AppTheme.mintOnInk : const Color(0xFF1E8E57);
 
 // ----------------------------------------------------------------- the key
 
@@ -1320,7 +1296,7 @@ class _Dot extends StatelessWidget {
   Widget build(BuildContext context) {
     final b = Theme.of(context).brightness;
     final glass = GlassColors.of(context);
-    final colour = online ? onlineGreen(b) : glass.cardMuted;
+    final colour = online ? friendsGreen(b) : glass.cardMuted;
     return Container(
       key: ValueKey(online ? 'presence-dot-online' : 'presence-dot-offline'),
       width: size,
@@ -1760,7 +1736,7 @@ class _RelationAction extends StatelessWidget {
           key: const ValueKey('friend-already'),
           icon: Icons.check_circle_rounded,
           label: t.friends,
-          ink: onlineGreen(theme.brightness),
+          ink: friendsGreen(theme.brightness),
         );
       default:
         return const SizedBox.shrink(key: ValueKey('friend-self'));
@@ -2067,7 +2043,7 @@ class _ProfileView extends StatelessWidget {
             height: 120,
             child: _Waiting(key: ValueKey('friend-profile-loading')),
           )
-        : _StatsGrid(t: t, stats: profile.stats);
+        : PlayerStatsGrid(t: t, stats: profile.stats);
 
     return LayoutBuilder(
       builder: (context, box) {
@@ -2099,113 +2075,6 @@ class _ProfileView extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-/// A player's record: hands played, won, lost, left, and the win rate. Counts
-/// only — no chip figure has a place on a profile.
-class _StatsGrid extends StatelessWidget {
-  const _StatsGrid({required this.t, required this.stats});
-
-  final Strings t;
-  final PlayerStats stats;
-
-  @override
-  Widget build(BuildContext context) {
-    final tiles = <(IconData, String, String)>[
-      (Icons.style_outlined, t.handsPlayed, _count(stats.handsPlayed)),
-      (Icons.emoji_events_outlined, t.won, _count(stats.handsWon)),
-      (Icons.trending_down_rounded, t.lost, _count(stats.handsLost)),
-      (Icons.exit_to_app_rounded, t.leftMidHand, _count(stats.handsLeft)),
-      (Icons.percent_rounded, t.winRate, _rate(stats.winRate)),
-    ];
-    return LayoutBuilder(
-      builder: (context, box) {
-        const gap = Space.sm;
-        final columns = box.maxWidth >= 560 ? 5 : 3;
-        final width = (box.maxWidth - gap * (columns - 1)) / columns;
-        return Wrap(
-          key: const ValueKey('friend-stats'),
-          spacing: gap,
-          runSpacing: gap,
-          children: [
-            for (final (i, tile) in tiles.indexed)
-              SizedBox(
-                width: width,
-                child: _StatTile(
-                  key: ValueKey('friend-stat-$i'),
-                  icon: tile.$1,
-                  label: tile.$2,
-                  value: tile.$3,
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-/// One figure of the record, over what it counts.
-class _StatTile extends StatelessWidget {
-  const _StatTile({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final text = theme.textTheme;
-    final glass = GlassColors.of(context);
-    return _Pane(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Space.sm,
-          vertical: Space.md,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16, color: glass.cardMuted),
-            const SizedBox(height: Space.xxs),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                value,
-                maxLines: 1,
-                // The display ink, not the lobby's gold: gold is how the
-                // lobby writes money, and none of these is money.
-                style: AppTheme.money(
-                  text.titleMedium!,
-                  colour: glass.textDisplay,
-                ),
-              ),
-            ),
-            const SizedBox(height: Space.xxs),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              // The label's light tracking, not the ramp's small caps: spread
-              // over Devanagari, tracking pulls the vowel signs off.
-              style: AppTheme.label(
-                text.labelSmall!,
-                colour: glass.cardMuted,
-                weight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
