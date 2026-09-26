@@ -50,8 +50,11 @@ func TestABootSurvivesALongReaderHoldingTheTables(t *testing.T) {
 	// foreign keys between them, and none of that may need a lock a report
 	// over the lobby's configuration would hold.
 	// And the emoji store's two (26 Sep 2026): a boot finds them there and
-	// does nothing to them.
-	for _, table := range []string{"table_engines", "table_categories", "table_settings", "table_configs", "emojis", "user_emojis"} {
+	// does nothing to them. Nor to Friends V1's three (26 Sep 2026) — though
+	// the seed runs player_stats' backfill on every boot, which reads users
+	// and writes player_stats and so must need no lock a reader holds.
+	for _, table := range []string{"table_engines", "table_categories", "table_settings", "table_configs", "emojis", "user_emojis",
+		"player_stats", "friend_requests", "friendships"} {
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM `+table+` LIMIT 1`); err != nil {
 			t.Fatalf("read %s: %v", table, err)
 		}

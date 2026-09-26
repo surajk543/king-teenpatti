@@ -47,10 +47,13 @@ func (f *fixture) settle(entries []game.SettleEntry, pot int64) {
 }
 
 // setHandsPlayed reaches past the API to put a career's worth of hands on the
-// counter, so the milestone tests do not have to settle 25 hands apiece.
+// counter, so the milestone tests do not have to settle 25 hands apiece. The
+// counter is player_stats.hands_played (Friends V1): the users column of that
+// name is retired.
 func (f *fixture) setHandsPlayed(userID string, n int) {
 	f.t.Helper()
-	if err := f.d.Exec(f.ctx, `UPDATE users SET hands_played = $1 WHERE id = $2`, n, userID); err != nil {
+	if err := f.d.Exec(f.ctx, `INSERT INTO player_stats (user_id, hands_played) VALUES ($2, $1)
+	     ON CONFLICT (user_id) DO UPDATE SET hands_played = EXCLUDED.hands_played`, n, userID); err != nil {
 		f.t.Fatal(err)
 	}
 }

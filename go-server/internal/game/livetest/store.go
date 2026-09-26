@@ -18,6 +18,14 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/live"
 )
 
+// PlayingEntry is a seat's playing record as SetSeated left it, with the
+// ttl it was written for (no expiry is modelled: a test asserts what the
+// manager asked for).
+type PlayingEntry struct {
+	Record live.Playing
+	TTL    time.Duration
+}
+
 // Save is one recorded SaveTable call.
 type Save struct {
 	RoomID   string
@@ -32,6 +40,7 @@ type Store struct {
 	tables  map[string]Save
 	chats   map[string][][]byte
 	seats   map[string]string
+	playing map[string]PlayingEntry
 	online  map[string]string
 	offers  map[string]live.ResumeOffer
 	index   map[string]live.TableSummary
@@ -51,6 +60,7 @@ func New() *Store {
 		tables:  map[string]Save{},
 		chats:   map[string][][]byte{},
 		seats:   map[string]string{},
+		playing: map[string]PlayingEntry{},
 		online:  map[string]string{},
 		offers:  map[string]live.ResumeOffer{},
 		index:   map[string]live.TableSummary{},
@@ -66,6 +76,7 @@ func (s *Store) Flush() {
 	s.tables = map[string]Save{}
 	s.chats = map[string][][]byte{}
 	s.seats = map[string]string{}
+	s.playing = map[string]PlayingEntry{}
 	s.online = map[string]string{}
 	s.offers = map[string]live.ResumeOffer{}
 	s.index = map[string]live.TableSummary{}
@@ -143,6 +154,24 @@ func (s *Store) Seats() map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// Playing returns a copy of the playing records (userId → record and ttl).
+func (s *Store) Playing() map[string]PlayingEntry {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]PlayingEntry, len(s.playing))
+	for k, v := range s.playing {
+		out[k] = v
+	}
+	return out
+}
+
+// DropPlaying forgets one playing record, as its ttl running out would.
+func (s *Store) DropPlaying(userID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.playing, userID)
 }
 
 // Index returns a copy of the matchmaking index (roomId → summary).
@@ -262,13 +291,18 @@ func (s *Store) DeleteChat(_ context.Context, roomID string) error {
 	return nil
 }
 
-func (s *Store) SetSeated(_ context.Context, userID, roomID string) error {
+func (s *Store) SetSeated(_ context.Context, userID, roomID string, playing live.Playing, playingTTL time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.record("set_seated", userID, roomID); err != nil {
 		return err
 	}
 	s.seats[userID] = roomID
+	if playing.Game == "" {
+		delete(s.playing, userID)
+	} else {
+		s.playing[userID] = PlayingEntry{Record: playing, TTL: playingTTL}
+	}
 	return nil
 }
 
@@ -279,6 +313,7 @@ func (s *Store) ClearSeated(_ context.Context, userID string) error {
 		return err
 	}
 	delete(s.seats, userID)
+	delete(s.playing, userID)
 	return nil
 }
 
@@ -335,6 +370,24 @@ func (s *Store) OnlineCount(context.Context) (int, error) {
 		return 0, err
 	}
 	return len(s.online), nil
+}
+
+func (s *Store) Presence(_ context.Context, userIDs []string) (map[string]live.Presence, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.record("presence", len(userIDs)); err != nil {
+		return nil, err
+	}
+	out := make(map[string]live.Presence, len(userIDs))
+	for _, id := range userIDs {
+		var p live.Presence
+		_, p.Online = s.online[id]
+		if e, ok := s.playing[id]; ok {
+			p.Playing, p.Game, p.Variant, p.UpdatedAt = true, e.Record.Game, e.Record.Variant, e.Record.UpdatedAt
+		}
+		out[id] = p
+	}
+	return out, nil
 }
 
 func (s *Store) PutResumeOffer(_ context.Context, userID string, offer live.ResumeOffer, _ time.Duration) error {

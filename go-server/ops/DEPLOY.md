@@ -629,7 +629,7 @@ referencing `users` still crash-loops. What covers a checkout's scripts is
 `TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser` (`internal/db`; needs a local
 PostgreSQL superuser). It reads the SQL block above out of this file, applies it to a throwaway
 schema, and boots every migration twice as a role that is not a superuser, before and after — then
-twice more while re-creating the five tables that reference `users` under the new ownership, and
+twice more while re-creating the twelve tables that reference `users` under the new ownership, and
 spends a hammer and a missile, trades diamonds for missiles and loads the table catalogue on the new grants. Run it before deploying a
 release that touches `users` or adds a table referencing it:
 

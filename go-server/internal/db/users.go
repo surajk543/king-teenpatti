@@ -55,7 +55,7 @@ const (
 
 // Rewards is user.rewards on the wire (publicUser).
 type Rewards struct {
-	// MilestoneAvailable: milestoneFor(hands_played) > the player's
+	// MilestoneAvailable: milestoneFor(player_stats.hands_played) > the player's
 	// HANDS_PLAYED claimed_up_to in user_milestones (0 with no row).
 	MilestoneAvailable bool `json:"milestoneAvailable"`
 	// MilestoneAt is floor(hands_played / 25) * 25.
@@ -327,10 +327,14 @@ type queryer interface {
 // 2026). The reward
 // milestones come from user_milestones, where milestone_claimed and
 // next_bonus_at sat until 14 Sep 2026, and read 0 for a player with no row.
-// Qualified with the `u` alias because every read now goes through userFrom's
-// joins.
+// The six gameplay counters come from player_stats (Friends V1, 26 Sep 2026;
+// the users columns of the same names are retired and never read), 0 for a
+// player with no row, and player_stats.hands_left is what the wire still calls
+// handsLeftMid. Qualified with the `u` alias because every read now goes
+// through userFrom's joins.
 const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.email, u.avatar_url, u.chips, u.diamond, u.hammer, u.missile,
-       u.hands_played, u.hands_won, u.hands_lost, u.hands_left_mid, u.total_winnings, u.biggest_pot,
+       COALESCE(ps.hands_played, 0), COALESCE(ps.hands_won, 0), COALESCE(ps.hands_lost, 0), COALESCE(ps.hands_left, 0),
+       COALESCE(ps.total_winnings, 0), COALESCE(ps.biggest_pot, 0),
        COALESCE(mh.claimed_up_to, 0), COALESCE(mt.next_claim_at, 0), COALESCE(mb.next_claim_at, 0),
        u.active_picture_id, u.created_at, u.updated_at, u.last_login_at, u.is_active,
        ap.asset_url,
@@ -338,10 +342,12 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
 
 // userFromAt is the FROM clause of every account read: it joins the picture
 // the player is wearing so publicUser can resolve avatarUrl without a second
-// round trip, the table picture they have laid for the same reason, and the
-// player's three rows of user_milestones for the rewards. LEFT, because most
-// players wear nothing and a new one has collected nothing, and every one of
-// them must still come back from these queries.
+// round trip, the table picture they have laid for the same reason, the
+// player's three rows of user_milestones for the rewards, and their
+// player_stats row for the counters (and the HANDS_PLAYED milestone, which is
+// judged on player_stats.hands_played). LEFT, because most players wear
+// nothing, a new one has collected nothing and played nothing, and every one
+// of them must still come back from these queries.
 //
 // The laid table picture joins only while it may still be laid — a FREE row,
 // or a PREMIUM one whose rental has not run out at this instant (%d, epoch
@@ -364,7 +370,8 @@ const userFromAt = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.act
            AND (o.expires_at = 0 OR o.expires_at > %d)))
   LEFT JOIN user_milestones mh ON mh.user_id = u.id AND mh.milestone = 'HANDS_PLAYED'
   LEFT JOIN user_milestones mt ON mt.user_id = u.id AND mt.milestone = 'TIMED_BONUS'
-  LEFT JOIN user_milestones mb ON mb.user_id = u.id AND mb.milestone = 'DAILY_BONUS' `
+  LEFT JOIN user_milestones mb ON mb.user_id = u.id AND mb.milestone = 'DAILY_BONUS'
+  LEFT JOIN player_stats ps ON ps.user_id = u.id `
 
 // userFrom is userFromAt with this instant baked in.
 func (u *Users) userFrom() string {
@@ -391,9 +398,11 @@ type userRow struct {
 	diamond                    int
 	hammer                     int
 	missile                    int
-	handsPlayed, handsWon      int
-	handsLost, handsLeftMid    int
-	totalWinnings, biggestPot  int64
+	// handsPlayed … biggestPot are the player's player_stats row (0 with
+	// none); handsLeftMid is its hands_left.
+	handsPlayed, handsWon     int
+	handsLost, handsLeftMid   int
+	totalWinnings, biggestPot int64
 	// milestoneClaimed is the HANDS_PLAYED claimed_up_to, nextBonusAt the
 	// TIMED_BONUS next_claim_at and nextDailyAt the DAILY_BONUS one, from
 	// user_milestones; 0 with no row.
@@ -903,7 +912,9 @@ const DeletedDisplayName = "Deleted player"
 // stays, emptied of anything that identifies anyone. The users_no_delete
 // trigger (§7.3) refuses a real DELETE from every caller in any case.
 //
-// Erased: display name, email, the provider photo, the worn picture, and the
+// Erased: display name, email, the provider photo, the worn picture, the laid
+// table picture, the friendships (both directions; pending friend requests
+// either way are CANCELLED — Friends V1), and the
 // provider identity. Clearing the identity is what frees (provider,
 // provider_user_id) for reuse, so the same device signing in afterwards gets
 // a NEW account with a fresh welcome bonus instead of being handed the
@@ -961,8 +972,14 @@ func (u *Users) DeleteAccount(ctx context.Context, userID string) error {
 		// table (user_table_choice, V1.0.0's TABLE PICTURES); it comes off
 		// here as the face does. users rows are never deleted, so the row's
 		// ON DELETE CASCADE would never do it.
-		_, err = tx.Exec(ctx, `DELETE FROM user_table_choice WHERE user_id = $1`, userID)
-		return err
+		if _, err = tx.Exec(ctx, `DELETE FROM user_table_choice WHERE user_id = $1`, userID); err != nil {
+			return err
+		}
+		// The social graph (Friends V1): nobody keeps a deleted account as a
+		// friend, and nothing is left pending with it — the friendships go,
+		// both directions, and the pending requests either way are
+		// CANCELLED. The same cascade reason as above: it would never fire.
+		return forgetFriends(ctx, tx, userID, timestamp)
 	})
 }
 

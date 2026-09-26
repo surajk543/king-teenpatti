@@ -268,8 +268,9 @@ type RoomManagerOptions struct {
 
 	// Live is the live-state store (LIVE_STATE_PLAN.md): every table saves
 	// its snapshot and chat there, the seat index is mirrored
-	// (SetSeated/ClearSeated), public tables are published to the
-	// matchmaking index, and Restore rebuilds the tables it holds. nil →
+	// (SetSeated/ClearSeated — each seat with its playing record, what the
+	// player's friends are shown, PlayingAt), public tables are published to
+	// the matchmaking index, and Restore rebuilds the tables it holds. nil →
 	// none of that happens (exactly the pre-Redis behaviour).
 	Live live.Store
 	// Instance tags this process in TableSummary.Instance (LIVE_INSTANCE_ID,
@@ -278,6 +279,14 @@ type RoomManagerOptions struct {
 	// LiveTTL is the snapshot expiry handed to every table
 	// (LIVE_STATE_TTL_MS); 0 → DefaultLiveTTL.
 	LiveTTL time.Duration
+	// PlayingTTL is how long the playing record written beside every seat
+	// mirror (live.Playing, what a player's friends are shown they are
+	// playing; PlayingAt) lives in the store unless it is rewritten. The app
+	// passes PlayingTTLFor(LIVE_RECONCILE_MS): ReconcileLive rewrites every
+	// seat, so the record never lapses under a seated player, while a crashed
+	// process's records expire on their own. 0 → no expiry: the record is
+	// cleared with its seat key, exactly as that key is.
+	PlayingTTL time.Duration
 
 	// Factories opens and restores the rooms of every game family but Teen
 	// Patti, keyed by family (POKER_PLAN.md §4): the app wires
@@ -413,6 +422,9 @@ type RoomManager struct {
 	live     live.Store
 	instance string
 	liveTTL  time.Duration
+	// playingTTL is RoomManagerOptions.PlayingTTL (0 = the playing record
+	// never expires on its own).
+	playingTTL time.Duration
 	// published is roomId → the (players, state) last pushed to the
 	// matchmaking index, so tableHooks.OnState publishes only on a change.
 	// Guarded by pubMu, never by mu (OnState runs on a table actor).
@@ -524,6 +536,7 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 		live:        opts.Live,
 		instance:    opts.Instance,
 		liveTTL:     liveTTL,
+		playingTTL:  opts.PlayingTTL,
 		published:   map[string]publishedSummary{},
 		factories:   opts.Factories,
 	}
@@ -1710,7 +1723,7 @@ func (rm *RoomManager) seatHeld(table Room, user Player, socketID string) error 
 	}
 	rm.mu.Unlock()
 	if err == nil {
-		rm.liveSetSeated(user.ID, roomID)
+		rm.liveSetSeated(user.ID, table)
 	}
 	return err
 }

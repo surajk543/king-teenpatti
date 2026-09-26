@@ -130,7 +130,14 @@ type Deps struct {
 	// LuckyDraws is the Lucky Draw (owner, 24 Sep 2026). Nil → both of its
 	// endpoints answer 503 lucky_draw_unavailable.
 	LuckyDraws LuckyDrawStore
-	Logger     *slog.Logger
+	// Friends is the social graph (Friends V1, owner 26 Sep 2026; friends.go).
+	// Nil → its eight routes are not mounted (unknown /api paths answer the
+	// JSON 404).
+	Friends FriendStore
+	// Presence is where a friend's online and playing presence is read from
+	// (app: the live store). Nil → every friend reads OFFLINE.
+	Presence PresenceSource
+	Logger   *slog.Logger
 }
 
 // MissileStore is the slice of db.Missiles the missile store endpoint uses.
@@ -197,6 +204,20 @@ type PurchaseOutcome struct {
 //	GET  /api/emojis             → Emojis           (token optional; Go only)
 //	POST /api/emojis/buy         → BuyEmoji         (RequireAuth; Go only)
 //
+// and, when Deps.Friends is set, Friends V1's eight (friends.go; Go only):
+//
+//	GET    /api/players/{playerId}                  → FindPlayer          (RequireAuth)
+//	GET    /api/players/{playerId}/profile          → PlayerProfile       (RequireAuth)
+//	GET    /api/friends                             → FriendList          (RequireAuth)
+//	GET    /api/friends/requests                    → FriendRequests      (RequireAuth)
+//	POST   /api/friends/requests                    → SendFriendRequest   (RequireAuth, wallet limiter)
+//	POST   /api/friends/requests/{requestId}/accept → AcceptFriendRequest (RequireAuth, wallet limiter)
+//	POST   /api/friends/requests/{requestId}/reject → RejectFriendRequest (RequireAuth, wallet limiter)
+//	DELETE /api/friends/{friendUserId}              → RemoveFriend        (RequireAuth, wallet limiter)
+//
+// Their patterns are registered with the {wildcards}, so the metrics label a
+// request by the pattern (/api/players/{playerId}) and never by an id.
+//
 // Responses are JSON; errors are ErrorResponse. Body parsing (ReadJSONBody):
 // JSON only, UTF-8 only, 32 KiB limit (express.json({limit:'32kb'})); a
 // malformed body or a non-UTF-8 charset → 400 {error:"invalid_json"}, an
@@ -257,6 +278,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/lucky-draw/spin", methods(http.MethodPost, wallet(h.SpinLuckyDraw)))
 	mux.Handle("/api/emojis", methods(http.MethodGet, http.HandlerFunc(h.Emojis)))
 	mux.Handle("/api/emojis/buy", methods(http.MethodPost, wallet(h.BuyEmoji)))
+	if h.deps.Friends != nil {
+		h.registerFriends(mux, wallet)
+	}
 }
 
 // methods lets `method` (and HEAD when method is GET) through to next and

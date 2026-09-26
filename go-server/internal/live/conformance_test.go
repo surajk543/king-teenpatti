@@ -211,14 +211,14 @@ func runConformance(t *testing.T, newHarness func(t *testing.T) *harness) {
 		if _, err := h.store.SeatOf(ctx, "u1"); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("SeatOf unseated: err = %v, want ErrNotFound", err)
 		}
-		must(t, h.store.SetSeated(ctx, "u1", "r1"))
-		must(t, h.store.SetSeated(ctx, "u2", "r1"))
+		must(t, h.store.SetSeated(ctx, "u1", "r1", Playing{}, 0))
+		must(t, h.store.SetSeated(ctx, "u2", "r1", Playing{}, 0))
 		room, err := h.store.SeatOf(ctx, "u1")
 		must(t, err)
 		if room != "r1" {
 			t.Fatalf("SeatOf = %q, want r1", room)
 		}
-		must(t, h.store.SetSeated(ctx, "u1", "r2")) // moved
+		must(t, h.store.SetSeated(ctx, "u1", "r2", Playing{}, 0)) // moved
 		room, err = h.store.SeatOf(ctx, "u1")
 		must(t, err)
 		if room != "r2" {
@@ -251,9 +251,9 @@ func runConformance(t *testing.T, newHarness func(t *testing.T) *harness) {
 			t.Fatalf("empty ListSummaries = %v", summaries)
 		}
 
-		must(t, h.store.SetSeated(ctx, "u1", "r1"))
-		must(t, h.store.SetSeated(ctx, "u2", "r1"))
-		must(t, h.store.SetSeated(ctx, "u3", "r2"))
+		must(t, h.store.SetSeated(ctx, "u1", "r1", Playing{}, 0))
+		must(t, h.store.SetSeated(ctx, "u2", "r1", Playing{}, 0))
+		must(t, h.store.SetSeated(ctx, "u3", "r2", Playing{}, 0))
 		seats, err = h.store.ListSeats(ctx)
 		must(t, err)
 		if len(seats) != 3 || seats["u1"] != "r1" || seats["u3"] != "r2" {
@@ -325,6 +325,166 @@ func runConformance(t *testing.T, newHarness func(t *testing.T) *harness) {
 			t.Fatalf("OnlineCount after full expiry = %d, want 0", n)
 		}
 		must(t, h.store.SetOffline(ctx, "never-online")) // idempotent
+	})
+
+	// The playing record rides the seat mirror (Friends V1): written with the
+	// seat, rewritten by the next SetSeated (a move, a restore, the
+	// reconciler's refresh), deleted with the seat, and read back — never the
+	// room — by Presence.
+	t.Run("PlayingRidesTheSeat", func(t *testing.T) {
+		h := newHarness(t)
+		seen := Playing{Game: "TEEN_PATTI", Variant: "SEEN", UpdatedAt: 1_790_000_000_000}
+		must(t, h.store.SetSeated(ctx, "u1", "r1", seen, h.ttl))
+		got, err := h.store.Presence(ctx, []string{"u1"})
+		must(t, err)
+		want := Presence{Playing: true, Game: "TEEN_PATTI", Variant: "SEEN", UpdatedAt: 1_790_000_000_000}
+		if got["u1"] != want {
+			t.Fatalf("Presence after SetSeated = %+v, want %+v", got["u1"], want)
+		}
+		if got["u1"].Status() != StatusPlaying || !got["u1"].IsOnline() {
+			t.Fatalf("a seated player with no socket is PLAYING and online: %s %v", got["u1"].Status(), got["u1"].IsOnline())
+		}
+		// A move rewrites it.
+		must(t, h.store.SetSeated(ctx, "u1", "r2", Playing{Game: "POKER", Variant: "TEXAS_HOLDEM", UpdatedAt: 1_790_000_000_500}, h.ttl))
+		got, err = h.store.Presence(ctx, []string{"u1"})
+		must(t, err)
+		if p := got["u1"]; !p.Playing || p.Game != "POKER" || p.Variant != "TEXAS_HOLDEM" || p.UpdatedAt != 1_790_000_000_500 {
+			t.Fatalf("Presence after a move = %+v", p)
+		}
+		room, err := h.store.SeatOf(ctx, "u1")
+		must(t, err)
+		if room != "r2" {
+			t.Fatalf("SeatOf after the move = %q", room)
+		}
+		// A write with no stamp is stamped by the store.
+		must(t, h.store.SetSeated(ctx, "u2", "r1", Playing{Game: "TEEN_PATTI", Variant: "BLIND"}, h.ttl))
+		got, err = h.store.Presence(ctx, []string{"u2"})
+		must(t, err)
+		if got["u2"].UpdatedAt <= 0 {
+			t.Fatalf("an unstamped record = %+v, want updatedAt stamped", got["u2"])
+		}
+		// A zero Playing writes the seat alone, and takes an old record away.
+		must(t, h.store.SetSeated(ctx, "u2", "r1", Playing{}, h.ttl))
+		got, err = h.store.Presence(ctx, []string{"u2"})
+		must(t, err)
+		if got["u2"] != (Presence{}) {
+			t.Fatalf("a seat with no playing record = %+v", got["u2"])
+		}
+		if room, err := h.store.SeatOf(ctx, "u2"); err != nil || room != "r1" {
+			t.Fatalf("the seat itself = %q %v", room, err)
+		}
+		// Clearing the seat clears the record.
+		must(t, h.store.ClearSeated(ctx, "u1"))
+		got, err = h.store.Presence(ctx, []string{"u1"})
+		must(t, err)
+		if got["u1"] != (Presence{}) {
+			t.Fatalf("Presence after ClearSeated = %+v", got["u1"])
+		}
+	})
+
+	t.Run("PlayingRecordExpiry", func(t *testing.T) {
+		h := newHarness(t)
+		must(t, h.store.SetSeated(ctx, "short", "r1", Playing{Game: "TEEN_PATTI", Variant: "SEEN"}, h.ttl))
+		must(t, h.store.SetSeated(ctx, "refreshed", "r1", Playing{Game: "TEEN_PATTI", Variant: "SEEN"}, h.ttl))
+		must(t, h.store.SetSeated(ctx, "forever", "r1", Playing{Game: "POKER", Variant: "OMAHA"}, 0))
+		h.advance(h.ttl / 2)
+		// The reconciler's refresh: the same seat written again.
+		must(t, h.store.SetSeated(ctx, "refreshed", "r1", Playing{Game: "TEEN_PATTI", Variant: "SEEN"}, h.ttl))
+		h.advance(h.ttl * 3 / 4) // 5/4 ttl since "short" was written, 3/4 since the refresh
+		got, err := h.store.Presence(ctx, []string{"short", "refreshed", "forever"})
+		must(t, err)
+		if got["short"].Playing {
+			t.Fatal("a playing record outlived its ttl")
+		}
+		if !got["refreshed"].Playing || !got["forever"].Playing {
+			t.Fatalf("a refreshed record or one with no ttl lapsed: %+v", got)
+		}
+		// The seat key itself never expires: only the record does.
+		if room, err := h.store.SeatOf(ctx, "short"); err != nil || room != "r1" {
+			t.Fatalf("the seat key lapsed with its record: %q %v", room, err)
+		}
+		past(h)
+		got, err = h.store.Presence(ctx, []string{"forever"})
+		must(t, err)
+		if !got["forever"].Playing {
+			t.Fatal("a record written with no ttl lapsed")
+		}
+	})
+
+	// Presence is one batched read: online (kt:online live), playing (the
+	// record), both, or neither, for a whole list at once; one entry per
+	// distinct id.
+	t.Run("PresenceBatch", func(t *testing.T) {
+		h := newHarness(t)
+		empty, err := h.store.Presence(ctx, nil)
+		must(t, err)
+		if empty == nil || len(empty) != 0 {
+			t.Fatalf("Presence(nil) = %#v, want an empty non-nil map", empty)
+		}
+		must(t, h.store.SetOnline(ctx, "lobby", "inst", h.ttl))
+		must(t, h.store.SetOnline(ctx, "table", "inst", h.ttl))
+		must(t, h.store.SetSeated(ctx, "table", "r1", Playing{Game: "TEEN_PATTI", Variant: "VARIATION"}, h.ttl))
+		must(t, h.store.SetSeated(ctx, "grace", "r1", Playing{Game: "POKER", Variant: "FIVE_CARD_DRAW"}, h.ttl))
+		must(t, h.store.SetOnline(ctx, "gone", "inst", h.ttl))
+		must(t, h.store.SetOffline(ctx, "gone"))
+		got, err := h.store.Presence(ctx, []string{"lobby", "table", "grace", "gone", "nobody", "lobby", ""})
+		must(t, err)
+		if len(got) != 5 {
+			t.Fatalf("Presence answered %d ids, want the 5 distinct ones: %+v", len(got), got)
+		}
+		for id, want := range map[string]struct {
+			status          string
+			online, playing bool
+			variant         string
+		}{
+			"lobby":  {StatusOnline, true, false, ""},
+			"table":  {StatusPlaying, true, true, "VARIATION"},
+			"grace":  {StatusPlaying, true, true, "FIVE_CARD_DRAW"},
+			"gone":   {StatusOffline, false, false, ""},
+			"nobody": {StatusOffline, false, false, ""},
+		} {
+			p, ok := got[id]
+			if !ok {
+				t.Fatalf("no entry for %s", id)
+			}
+			if p.Status() != want.status || p.IsOnline() != want.online || p.Playing != want.playing || p.Variant != want.variant {
+				t.Fatalf("%s = %+v (%s), want %+v", id, p, p.Status(), want)
+			}
+		}
+		// A presence entry that has run out is offline, whatever is left in
+		// the hash until OnlineCount reaps it.
+		past(h)
+		got, err = h.store.Presence(ctx, []string{"lobby", "table"})
+		must(t, err)
+		if got["lobby"].Online || got["table"] != (Presence{}) {
+			t.Fatalf("Presence after every ttl = %+v", got)
+		}
+	})
+
+	t.Run("PresenceOfAThousandAccounts", func(t *testing.T) {
+		h := newHarness(t)
+		ids := make([]string, 1200)
+		for i := range ids {
+			ids[i] = fmt.Sprintf("u%04d", i)
+			// A minute, not h.ttl: on a real server the writes themselves
+			// take wall time, and nothing here is about expiry.
+			if i%3 == 0 {
+				must(t, h.store.SetSeated(ctx, ids[i], "r", Playing{Game: "TEEN_PATTI", Variant: "SEEN"}, time.Minute))
+			}
+			if i%2 == 0 {
+				must(t, h.store.SetOnline(ctx, ids[i], "inst", time.Minute))
+			}
+		}
+		got, err := h.store.Presence(ctx, ids)
+		must(t, err)
+		if len(got) != len(ids) {
+			t.Fatalf("answered %d of %d", len(got), len(ids))
+		}
+		for i, id := range ids {
+			if p := got[id]; p.Playing != (i%3 == 0) || p.Online != (i%2 == 0) {
+				t.Fatalf("%s = %+v", id, p)
+			}
+		}
 	})
 
 	t.Run("ResumeOffers", func(t *testing.T) {

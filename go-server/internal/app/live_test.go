@@ -486,7 +486,14 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 	// bought which — a catalogue and receipts, like the pictures'. A sent
 	// emoji is a chat line, and chat lives with the room in the live store;
 	// nothing here records one.
-	want := []string{"chip_ledger", "diamond_purchases", "emojis", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users"}
+	//
+	// player_stats, friend_requests and friendships (Friends V1, 26 Sep 2026)
+	// are account facts: the career counters a checkpoint adds to — the six
+	// that sat on users — and who asked whom and who is friends with whom.
+	// Whether a friend is online or at a table is the live store's
+	// (kt:online, kt:playing:<userId>); no row here says so, and none names a
+	// room.
+	want := []string{"chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "player_stats", "profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users"}
 	if !slices.Equal(tables, want) {
 		t.Fatalf("schema tables = %v, want %v", tables, want)
 	}

@@ -90,10 +90,10 @@ func (h *hooked) DeleteChat(ctx context.Context, roomID string) (err error) {
 	return err
 }
 
-func (h *hooked) SetSeated(ctx context.Context, userID, roomID string) (err error) {
+func (h *hooked) SetSeated(ctx context.Context, userID, roomID string, playing Playing, playingTTL time.Duration) (err error) {
 	start := time.Now()
 	defer func() { h.observe("set_seated", err, time.Since(start)) }()
-	err = h.Store.SetSeated(ctx, userID, roomID)
+	err = h.Store.SetSeated(ctx, userID, roomID, playing, playingTTL)
 	return err
 }
 
@@ -137,6 +137,13 @@ func (h *hooked) OnlineCount(ctx context.Context) (n int, err error) {
 	defer func() { h.observe("online_count", err, time.Since(start)) }()
 	n, err = h.Store.OnlineCount(ctx)
 	return n, err
+}
+
+func (h *hooked) Presence(ctx context.Context, userIDs []string) (out map[string]Presence, err error) {
+	start := time.Now()
+	defer func() { h.observe("presence", err, time.Since(start)) }()
+	out, err = h.Store.Presence(ctx, userIDs)
+	return out, err
 }
 
 func (h *hooked) PutResumeOffer(ctx context.Context, userID string, offer ResumeOffer, ttl time.Duration) (err error) {

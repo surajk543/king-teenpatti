@@ -197,9 +197,13 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	// user_table_pictures and user_table_choice (15 Sep 2026) are the first
 	// tables added after §7 was written, and are exactly the case it foresaw.
 	// user_lucky_draws (24 Sep 2026), the Lucky Draw's spins, is the next, and
-	// user_emojis (26 Sep 2026), who has bought which emoji, the one after.
+	// user_emojis (26 Sep 2026), who has bought which emoji, the one after —
+	// then Friends V1's three the same day: player_stats, whose backfill also
+	// reads users (SELECT, granted), friend_requests and friendships, which
+	// reference users twice each.
 	referencing := []string{"diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends",
-		"user_table_pictures", "user_table_choice", "user_lucky_draws", "user_emojis"}
+		"user_table_pictures", "user_table_choice", "user_lucky_draws", "user_emojis",
+		"player_stats", "friend_requests", "friendships"}
 	for _, table := range referencing {
 		if _, err := admin.Exec(ctx, `DROP TABLE `+qualified(table)); err != nil {
 			t.Fatal(err)
@@ -216,8 +220,12 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 			qualified(table), qualified("users")).Scan(&foreignKeys); err != nil {
 			t.Fatal(err)
 		}
-		if foreignKeys != 1 {
-			t.Fatalf("%s should reference users once, found %d foreign keys", table, foreignKeys)
+		want := int64(1)
+		if table == "friend_requests" || table == "friendships" {
+			want = 2 // both players of the pair
+		}
+		if foreignKeys != want {
+			t.Fatalf("%s should reference users %d time(s), found %d foreign keys", table, want, foreignKeys)
 		}
 	}
 	if n := usersIndexes(); n != 1 {
@@ -276,6 +284,44 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	if len(cat.Engines) != 2 || len(cat.Categories) != 7 || len(cat.Public) != 12 || len(cat.Private) != 7 {
 		t.Fatalf("the table catalogue after six boots: %d engines, %d categories, %d public, %d private, want 2, 7, 12 and 7",
 			len(cat.Engines), len(cat.Categories), len(cat.Public), len(cat.Private))
+	}
+
+	// 8. Friends V1 (26 Sep 2026) on §7's grants: a friend request locks both
+	// accounts FOR KEY SHARE (which takes the UPDATE privilege on users §7
+	// grants) and an accept writes the friendship both ways; a hand's
+	// counters land in player_stats; a deletion clears the graph.
+	friend, _, err := db.NewUsers(d, welcome, nil).UpsertFromProfile(ctx, db.Profile{
+		Provider: db.ProviderGuest, ProviderUserID: "handover-friend-" + suffix, DisplayName: "Friend",
+	})
+	if err != nil {
+		t.Fatalf("a second account on §7's grants: %v", err)
+	}
+	friends := db.NewFriends(d, nil)
+	requestID, err := friends.Send(ctx, u.ID, friend.ID)
+	if err != nil {
+		t.Fatalf("a friend request on §7's grants: %v", err)
+	}
+	if _, err := friends.Accept(ctx, friend.ID, requestID); err != nil {
+		t.Fatalf("an accept on §7's grants: %v", err)
+	}
+	if found, err := friends.Lookup(ctx, u.ID, friend.ID); err != nil || found.FriendStatus != db.FriendStatusFriends {
+		t.Fatalf("a lookup on §7's grants: %+v %v", found, err)
+	}
+	hand := "handover-hand-" + suffix
+	if _, err := db.NewLedger(d, nil, nil).Settle(ctx, game.SettleRequest{RoomID: "handover", HandID: hand, Entries: []game.SettleEntry{{
+		UserID: friend.ID, Delta: 0, Reason: game.LedgerReasonHandLoss, ActionID: game.SettleActionID(hand, friend.ID),
+		Outcome: true, DidChaal: true,
+	}}}); err != nil {
+		t.Fatalf("a hand's counters on §7's grants: %v", err)
+	}
+	if got, err := db.NewUsers(d, welcome, nil).FindByID(ctx, friend.ID); err != nil || got == nil || got.HandsPlayed != 1 || got.HandsLost != 1 {
+		t.Fatalf("the counters read back on §7's grants: %+v %v", got, err)
+	}
+	if err := db.NewUsers(d, welcome, nil).DeleteAccount(ctx, friend.ID); err != nil {
+		t.Fatalf("a deletion clearing the graph on §7's grants: %v", err)
+	}
+	if list, err := friends.List(ctx, u.ID); err != nil || len(list) != 0 {
+		t.Fatalf("the friend list after the deletion: %+v %v", list, err)
 	}
 }
 

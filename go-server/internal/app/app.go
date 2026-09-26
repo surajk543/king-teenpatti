@@ -172,7 +172,7 @@ const (
 //  8. mux routes (Go 1.22 patterns):
 //     GET  {metricsPath}     → m.Handler(Guard{Token, AllowIPs})
 //     GET  /health           → Health
-//     auth.Handler.Register(mux)   (the 8 API routes)
+//     auth.Handler.Register(mux)   (the API routes, Friends V1's eight among them)
 //     GET  /api/rooms        → (signed in) {tables: ListTables({category: ?category if blind|seen|variation}) less code and pot, options}
 //     GET  /api/tables       → rooms.TableConfig(), ETag / If-None-Match → 304 (tablesHandler)
 //     /socket.io/            → sio
@@ -250,6 +250,7 @@ func New(opts Options) (*App, error) {
 	hammers := db.NewHammers(opts.DB, a.metrics, clock.Now)
 	missiles := db.NewMissiles(opts.DB, users, a.metrics, clock.Now)
 	luckyDraws := db.NewLuckyDraws(opts.DB, users, clock.Now, logger)
+	friends := db.NewFriends(opts.DB, clock.Now)
 	tokens := auth.NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, clock.Now)
 	verifier := auth.NewVerifier(cfg)
 
@@ -303,6 +304,12 @@ func New(opts Options) (*App, error) {
 		Live:     a.live,
 		Instance: cfg.LiveInstanceID,
 		LiveTTL:  cfg.LiveStateTTL,
+		// The playing record beside every seat mirror (Friends V1): what a
+		// seated player's friends are shown. Written for three reconcile
+		// intervals — the reconciler rewrites every seat, so it never lapses
+		// under a seated player — and with no expiry at all when the
+		// reconciler is off (LIVE_RECONCILE_MS=0), cleared with the seat.
+		PlayingTTL: game.PlayingTTLFor(cfg.LiveReconcile),
 		Metrics: game.MetricsHooks{
 			ObserveCreation: func(d time.Duration) { metrics.Observe(a.metrics.CreationDuration, d) },
 			// game_hand_start_duration_seconds used to be timed around the
@@ -438,7 +445,12 @@ func New(opts Options) (*App, error) {
 		// The Lucky Draw (owner, 24 Sep 2026): a spin runs under the seat lock
 		// below, as a reward does — its prize may be chips.
 		LuckyDraws: luckyDraws,
-		Logger:     logger,
+		// Friends V1 (owner, 26 Sep 2026): the social graph in PostgreSQL,
+		// and each friend's presence read from the live store — kt:online
+		// and the seats' playing records — in one batch per answer.
+		Friends:  friends,
+		Presence: a.live,
+		Logger:   logger,
 
 		// Rewards and chip-priced pictures run under the player's seat lock,
 		// the lock every lobby seat reads the wallet under (LoadPlayer above).

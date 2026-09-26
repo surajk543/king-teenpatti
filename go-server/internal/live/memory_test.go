@@ -70,12 +70,13 @@ func TestMemorySweepDropsExpiredEntries(t *testing.T) {
 		id := string(rune('a' + i%26))
 		must(t, store.SaveTable(ctx, id, int64(i), []byte("x"), ttl))
 		must(t, store.SetOnline(ctx, "u"+id, "inst", ttl))
+		must(t, store.SetSeated(ctx, "u"+id, id, Playing{Game: "TEEN_PATTI", Variant: "SEEN"}, ttl))
 		must(t, store.PutResumeOffer(ctx, "u"+id, ResumeOffer{RoomID: id}, ttl))
 		must(t, store.AppendChat(ctx, id, []byte("hi"), 10))
 		must(t, store.PublishTable(ctx, TableSummary{RoomID: id, Category: "blind", BootAmount: 200, Players: 1}))
 	}
 	store.mu.Lock()
-	before := len(store.tables) + len(store.online) + len(store.offers)
+	before := len(store.tables) + len(store.online) + len(store.offers) + len(store.playing)
 	store.mu.Unlock()
 	if before == 0 {
 		t.Fatal("nothing stored")
@@ -83,9 +84,9 @@ func TestMemorySweepDropsExpiredEntries(t *testing.T) {
 	// Expire the short-ttl entries but stay under the sweep interval: a
 	// write leaves them in place (reads still see them as gone).
 	clock.Advance(ttl + time.Second)
-	must(t, store.SetSeated(ctx, "someone", "r"))
+	must(t, store.SetSeated(ctx, "someone", "r", Playing{}, 0))
 	store.mu.Lock()
-	lingering := len(store.tables) + len(store.online) + len(store.offers)
+	lingering := len(store.tables) + len(store.online) + len(store.offers) + len(store.playing)
 	store.mu.Unlock()
 	if lingering != before {
 		t.Fatalf("swept before the interval: %d → %d", before, lingering)
@@ -96,9 +97,9 @@ func TestMemorySweepDropsExpiredEntries(t *testing.T) {
 	// Past the interval the next mutation sweeps everything expired; chat and
 	// summaries live for auxTTL and must survive.
 	clock.Advance(memorySweepEvery)
-	must(t, store.SetSeated(ctx, "someone", "r"))
+	must(t, store.SetSeated(ctx, "someone", "r", Playing{}, 0))
 	store.mu.Lock()
-	after := len(store.tables) + len(store.online) + len(store.offers)
+	after := len(store.tables) + len(store.online) + len(store.offers) + len(store.playing)
 	chats, summaries := len(store.chats), len(store.summaries)
 	store.mu.Unlock()
 	if after != 0 {
@@ -114,7 +115,7 @@ func TestMemorySweepDropsExpiredEntries(t *testing.T) {
 	if len(out) != 0 {
 		t.Fatalf("expired summaries still listed: %d", len(out))
 	}
-	must(t, store.SetSeated(ctx, "someone", "r"))
+	must(t, store.SetSeated(ctx, "someone", "r", Playing{}, 0))
 	store.mu.Lock()
 	chats, summaries, lobby := len(store.chats), len(store.summaries), len(store.lobby)
 	store.mu.Unlock()

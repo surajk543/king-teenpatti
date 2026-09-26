@@ -27,6 +27,7 @@ type Memory struct {
 	tables    map[string]*memTable   // roomID → snapshot
 	chats     map[string]*memChat    // roomID → capped messages
 	seats     map[string]string      // userID → roomID
+	playing   map[string]memPlaying  // userID → the seat's playing record
 	online    map[string]memOnline   // userID → presence
 	offers    map[string]memOffer    // userID → resume offer
 	summaries map[string]*memSummary // roomID → lobby summary
@@ -47,6 +48,11 @@ type memChat struct {
 
 type memOnline struct {
 	instance  string
+	expiresAt time.Time
+}
+
+type memPlaying struct {
+	record    Playing
 	expiresAt time.Time
 }
 
@@ -74,6 +80,7 @@ func NewMemoryWithClock(now func() time.Time) Store {
 		tables:    make(map[string]*memTable),
 		chats:     make(map[string]*memChat),
 		seats:     make(map[string]string),
+		playing:   make(map[string]memPlaying),
 		online:    make(map[string]memOnline),
 		offers:    make(map[string]memOffer),
 		summaries: make(map[string]*memSummary),
@@ -133,6 +140,11 @@ func (m *Memory) sweep(now time.Time) {
 	for id, o := range m.online {
 		if !o.expiresAt.After(now) {
 			delete(m.online, id)
+		}
+	}
+	for id, p := range m.playing {
+		if !p.expiresAt.After(now) {
+			delete(m.playing, id)
 		}
 	}
 	for id, o := range m.offers {
@@ -324,18 +336,27 @@ func (m *Memory) DeleteChat(ctx context.Context, roomID string) error {
 
 // ---- presence -------------------------------------------------------------
 
-// SetSeated implements Store.
-func (m *Memory) SetSeated(ctx context.Context, userID, roomID string) error {
+// SetSeated implements Store: the seat and its playing record together (a
+// zero Playing removes the record); playingTTL <= 0 never expires.
+func (m *Memory) SetSeated(ctx context.Context, userID, roomID string, playing Playing, playingTTL time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.enter(ctx); err != nil {
 		return err
 	}
 	m.seats[userID] = roomID
+	if playing.Game == "" {
+		delete(m.playing, userID)
+		return nil
+	}
+	if playing.UpdatedAt == 0 {
+		playing.UpdatedAt = m.now().UnixMilli()
+	}
+	m.playing[userID] = memPlaying{record: playing, expiresAt: m.expiry(playingTTL)}
 	return nil
 }
 
-// ClearSeated implements Store.
+// ClearSeated implements Store: the seat and its playing record.
 func (m *Memory) ClearSeated(ctx context.Context, userID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -343,6 +364,7 @@ func (m *Memory) ClearSeated(ctx context.Context, userID string) error {
 		return err
 	}
 	delete(m.seats, userID)
+	delete(m.playing, userID)
 	return nil
 }
 
@@ -413,6 +435,30 @@ func (m *Memory) OnlineCount(ctx context.Context) (int, error) {
 		n++
 	}
 	return n, nil
+}
+
+// Presence implements Store: both maps read under the one mutex, expiry
+// judged against the store's clock.
+func (m *Memory) Presence(ctx context.Context, userIDs []string) (map[string]Presence, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.enter(ctx); err != nil {
+		return nil, err
+	}
+	now := m.now()
+	ids := distinctIDs(userIDs)
+	out := make(map[string]Presence, len(ids))
+	for _, id := range ids {
+		var p Presence
+		if o, ok := m.online[id]; ok && o.expiresAt.After(now) {
+			p.Online = true
+		}
+		if rec, ok := m.playing[id]; ok && rec.expiresAt.After(now) {
+			p.Playing, p.Game, p.Variant, p.UpdatedAt = true, rec.record.Game, rec.record.Variant, rec.record.UpdatedAt
+		}
+		out[id] = p
+	}
+	return out, nil
 }
 
 // ---- resume offers --------------------------------------------------------
