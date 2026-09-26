@@ -19,6 +19,7 @@ import '../net/game_connection.dart';
 import '../net/purchases.dart';
 import '../net/social_sign_in.dart';
 import 'consent.dart';
+import 'friends_state.dart';
 import 'hammer_strike.dart';
 import 'missile_strike.dart';
 import 'quick_message_order.dart';
@@ -166,6 +167,17 @@ class GameState extends ChangeNotifier {
 
   final String serverUrl;
   final ApiClient _api;
+
+  /// Friends (owner, 26 Sep 2026): the friend list, the requests and the
+  /// lobby key's count. A notifier of its own, beside this one rather than
+  /// inside it, so the Friends page rebuilds for a friend's news and never
+  /// for this one's one-second tick; it signs in and out with this session.
+  late final FriendsState friends = FriendsState(
+    api: _api,
+    token: () => _token,
+    strings: () => t,
+    say: say,
+  );
 
   /// Google Play. Subscribed at startup, not when the store opens: Play
   /// delivers a purchase whenever it can — days later, on a new device, after
@@ -1056,6 +1068,9 @@ class GameState extends ChangeNotifier {
         // session is a sign-in too — and a 304 makes that cheap.
         unawaited(_loadTableConfig());
         unawaited(loadLuckyDraw());
+        // The lobby's Friends key counts the requests waiting, read at
+        // every sign-in (owner, 26 Sep 2026).
+        unawaited(friends.refreshBadge());
         next = Screen.lobby;
         // An install that signed in before the statement existed meets it on
         // its next launch, once, like everyone else.
@@ -1996,6 +2011,7 @@ class GameState extends ChangeNotifier {
       unawaited(_loadPictures());
       unawaited(_loadTableConfig());
       unawaited(loadLuckyDraw());
+      unawaited(friends.refreshBadge());
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('token', r.token);
@@ -2055,6 +2071,7 @@ class GameState extends ChangeNotifier {
       unawaited(_loadPictures());
       unawaited(_loadTableConfig());
       unawaited(loadLuckyDraw());
+      unawaited(friends.refreshBadge());
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('token', r.token);
@@ -2123,6 +2140,8 @@ class GameState extends ChangeNotifier {
     luckyDraw = null;
     luckyDrawFailed = false;
     consentPending = false;
+    // The next player on this phone never sees this one's friends.
+    friends.reset();
     // The next account starts at the front, not where this one stood.
     _lobbyEngine = null;
     _lobbyCategory = null;
@@ -2529,6 +2548,7 @@ class GameState extends ChangeNotifier {
     user = null;
     luckyDraw = null;
     luckyDrawFailed = false;
+    friends.reset();
     screen = Screen.login;
     notifyListeners();
     return null;
@@ -4093,6 +4113,7 @@ class GameState extends ChangeNotifier {
   @override
   void dispose() {
     unawaited(purchases.dispose());
+    friends.dispose();
     _rentalWatch?.cancel();
     _clearSideshow();
     _clearVariation();
