@@ -5,6 +5,7 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:uuid/uuid.dart';
 
 import '../models/dtos.dart';
+import 'api_client.dart' show accountDisabledCode;
 
 /// A hand's reveal or its end, as `game:showdown` and `game:handEnded` carry
 /// them. `reason` is the server's (`missile` for a hand a missile ended);
@@ -248,6 +249,13 @@ class GameConnection {
       // sign-out, Delete account, a new sign-in) has nothing to tell the
       // player now.
       if (!identical(_socket, socket)) return;
+      // The handshake's refusal is {message: <code>}. A disabled account is
+      // passed on by its code, so the app can say so rather than blame the
+      // network.
+      if (e is Map && e['message'] == accountDisabledCode) {
+        _errors.add((code: accountDisabledCode, message: accountDisabledCode));
+        return;
+      }
       _errors.add((code: null, message: 'Could not reach the table: $e'));
     });
 

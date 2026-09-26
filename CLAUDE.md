@@ -813,7 +813,7 @@ event-by-event contract is also written down in `go-server/PORT_NOTES/specs/spec
 
 ### 7.1 Socket.IO contract (`socket/index.js` → `internal/socket/handler.go`, `wire.go`)
 Handshake: JWT in `handshake.auth.token`; `io.use` is async (`await findById`). Failures →
-`connect_error` `missing_token | invalid_session | unknown_user | unauthorized`. One live socket per
+`connect_error` `missing_token | invalid_session | unknown_user | account_disabled | unauthorized`. One live socket per
 user (`session:replaced` to the old one). On connect: `session:ready {user, config}`; if still seated
 → `room:joined` + `chat:history` (**why restarted bots land on their previous table**).
 
@@ -1024,6 +1024,19 @@ from the player's last row in `user_lucky_draws` (409 `lucky_draw_not_ready` wit
 slotNumber, reward:{type, value, refId, picture?|tablePicture?}, alreadyOwned, replayed, nextSpinAt, user}`. An `actionId` (1–64,
 else 400 `invalid_action_id`) that has already spun answers that spin again, `replayed:true`, granting nothing; it rides the wallet
 limiter (§7.4);
+**A disabled account** (owner, 26 Sep 2026: "Add a flag is_active in users table by default keep its value true and
+when it is marked false, it means user is disabled … he cannot join the table also"): `users.is_active` (§7.3), switched
+off by hand — `UPDATE users SET is_active = FALSE WHERE id = …` — and back on the same way, with nothing else about the
+account touched (wallet, ledger, pictures). Read with every account read (`db.User.Disabled`, `json:"-"`: never on the
+wire, and negated so a `User` built anywhere but from a row — a test's fake store — is enabled). Every door answers
+**`account_disabled`** "Your account is disabled. Please contact support." (`auth.AccountDisabledError`, 403): the
+LOGIN (refused inside `UpsertFromProfile` before the row is touched — `db.ErrAccountDisabled`, so `last_login_at` does
+not move; logged `login refused`), `RequireAuth` (`GET /api/auth/me` — a cold start's restored session — and every
+signed-in request), the socket HANDSHAKE (`connect_error account_disabled`, so no seat is resumed), and every way into a
+seat — the socket layer's `freshUser` (quickJoin, joinCode, create, switch) and the RoomManager's `LoadPlayer` under the
+seat lock — after which the guard ends the session as it does a deleted account's. A seat already taken plays on while
+its socket lasts; once that drops, the reconnect is refused and the seat lapses after the grace.
+`internal/app/accountdisabled_test.go`; the app's popup is §8.1.
 `GET /health` (since 23 Sep 2026 it ends with `tableConfig: {source, version, fallback}` — where the tables came
 from; `fallback:true` is a `TABLE_CONFIG_SOURCE=db` boot that could not use the database's catalogue and runs the env
 composition, the one state an operator must go and fix). Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
@@ -1048,7 +1061,7 @@ fail the first time — it fails on the next restart, in production.
 `table_configs`). The seed was `V1.0.1__seed_profile_pictures.sql` until then; nothing records a script's name, so the
 rename changed nothing for any database. `TestMigrationsAreVersionedOrderedAndSplitByKind` (`db_test.go`) pins the pair:
 two files, no CREATE/ALTER/INDEX in the seed, and in the baseline an `ALTER TABLE` only as an `EXECUTE` string inside a
-catalogue-guarded block (exactly three: `users.is_bot`, `chip_ledger.game`, `chip_ledger.variant`). How it got here: the 14 Sep 2026 consolidation (owner, for a
+catalogue-guarded block (exactly four: `users.is_bot`, `users.is_active` (26 Sep 2026, written straight into the baseline the same way), `chip_ledger.game`, `chip_ledger.variant`). How it got here: the 14 Sep 2026 consolidation (owner, for a
 production deploy onto an EMPTY database) folded V1.0.2–V1.0.5 in and dropped the blocks that brought older databases
 forward (git history, `ccff445`); later that day `duration_hours`, `V1.0.2__timed_bonus_milestone.sql`,
 `V1.0.3__seed_new_pictures.sql`, the 9-diamond default and the HAMMER currency were folded in too, so a database built
@@ -1090,7 +1103,7 @@ catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`,
 Draw** — `lucky_draws`, `lucky_draw_slots`, `user_lucky_draws` (the paragraph before the ledger reasons). `users` (wallet = `chips BIGINT
 CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 9 CHECK ≥ 0`** — the premium currency, nine per new account (owner, 14 Sep 2026; two, and one before that, earlier the same day), never
 ledgered —, **`hammer INTEGER NOT NULL DEFAULT 20 CHECK ≥ 0`** — what a Force Sideshow costs, 20 per account, never ledgered —, **`missile INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — what a missile costs, one per new account, never ledgered —,
-counters, `active_picture_id`, `deleted_at`, and since 22 Sep 2026 **`is_bot BOOLEAN NOT NULL DEFAULT FALSE`** (in the baseline's `CREATE TABLE users` and its guarded block since 23 Sep 2026) — true for the `bot-play/` fleet, set at login from the guest DEVICE ID's namespace (`config.BotDevicePrefix`, env `BOT_DEVICE_PREFIX`, default `botplay-`, which covers a rotated bot's `botplay-v1-<n>-g<gen>` too). A **label, never a permission**: nothing in the game reads it, it is absent from every wire struct (`TestMarkingABotDoesNotLeakToTheClient` — a seat that announced itself as a bot would tell a player exactly what the fleet exists not to tell them), and the login **ORs** rather than assigns so a mark is never cleared. Empty prefix marks nobody, never everybody),
+counters, `active_picture_id`, `deleted_at`, and since 22 Sep 2026 **`is_bot BOOLEAN NOT NULL DEFAULT FALSE`** (in the baseline's `CREATE TABLE users` and its guarded block since 23 Sep 2026) — true for the `bot-play/` fleet, set at login from the guest DEVICE ID's namespace (`config.BotDevicePrefix`, env `BOT_DEVICE_PREFIX`, default `botplay-`, which covers a rotated bot's `botplay-v1-<n>-g<gen>` too). A **label, never a permission**: nothing in the game reads it, it is absent from every wire struct (`TestMarkingABotDoesNotLeakToTheClient` — a seat that announced itself as a bot would tell a player exactly what the fleet exists not to tell them), and the login **ORs** rather than assigns so a mark is never cleared. Empty prefix marks nobody, never everybody), and since 26 Sep 2026 **`is_active BOOLEAN NOT NULL DEFAULT TRUE`** (column and guarded block, as `is_bot`; §7.2 "A disabled account"),
 **`user_milestones`** (owner, 14 Sep 2026: the rewards each player has collected, moved off `users`, where they were `milestone_claimed` and `next_bonus_at` — `user_id`, `milestone` HANDS_PLAYED|TIMED_BONUS|DAILY_BONUS (TIMED_BONUS in the baseline's CHECK since `V1.0.2__timed_bonus_milestone.sql` was folded into it; production's table, built by go-server/v1.1.0, keeps the two-value CHECK — and refuses every four-hour bonus claim — until a fresh start or the hand ALTER in the baseline's header), PK on the pair, `claimed_up_to`, `next_claim_at`, `times_claimed`, `last_claimed_at`; one row per player per milestone, inserted on the first claim and updated in place after (`db.collectMilestone`), read through two LEFT JOINs in `userFrom`, so no row reads as nothing collected and both bonuses ready),
 **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`, and since 19 Sep 2026 `game`/`variant` — `'poker'` + the poker category on a poker row, NULL on every Teen Patti row, §6.5; append-only trigger),
 and the picture catalogue added 12 Sep 2026 (owner): **`profile_pictures`** (`name`, `asset_url`
@@ -1615,6 +1628,16 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   Patti one) and `table_screen`'s blind-move dots — `GameConfig.entryFor` tries a PRIVATE room's template in
   `privateTables` by category first, then the public entry of the pair, then 4. Seats are still laid out from the one
   global `config.maxPlayers`.
+- **A disabled account** (owner, 26 Sep 2026; server side §7.2): every door answers `account_disabled`
+  (`accountDisabledCode`, `net/api_client.dart`), and the app turns it into ONE popup wherever it arrives —
+  `ApiClient.onAccountDisabled` fires from `_decode` for the login, a cold start's `me()` and any signed-in request;
+  `GameConnection` passes the handshake's `connect_error {message: account_disabled}` and a table's refusal on as
+  that code. `GameState._accountWasDisabled` signs out (the token goes; the DEVICE ID STAYS, so a guest cannot sign
+  straight into a fresh account) and raises `accountDisabled`; on a cold start it leaves the splash to finish. The sign-in
+  screen then shows `AccountDisabledDialog` ("Account disabled", "Your account is disabled. Please contact support.",
+  `ServerConfig.supportEmail` support@sungamestudio.com selectable, Close) once, and `dismissAccountDisabled` clears
+  it; the sign-in flows write no error line for that code. `test/account_disabled_test.dart` (the hook, the guest
+  sign-in, the popup, 640x360 x1.25 in all five languages).
 - **No-winnings confirmation** (`state/consent.dart`, `_ConsentGate` in `main.dart`, added 11 Sep 2026):
   after sign-in (either door, or a restored session) the lobby/table is covered by a panel — "I confirm
   that I do not have any expectations of winning any monetary or other enrichment from playing this

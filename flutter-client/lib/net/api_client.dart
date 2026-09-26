@@ -60,8 +60,19 @@ final class TableConfigAbsent extends TableConfigAnswer {
 /// Gameplay itself runs over the socket — see [GameConnection]. These calls are
 /// the ones that make sense as one-shot requests: signing in, re-reading the
 /// account, and claiming rewards.
+/// The code every door answers an account support has disabled with
+/// (users.is_active; owner, 26 Sep 2026): the login, a restored session
+/// (`GET /api/auth/me`), any signed-in request, the socket handshake and a
+/// table's join.
+const accountDisabledCode = 'account_disabled';
+
 class ApiClient {
   ApiClient(this.baseUrl, {this.client});
+
+  /// Called when an answer says the account is disabled
+  /// ([accountDisabledCode]), before its [ApiException] is thrown, so the app
+  /// puts up its popup whichever request met the refusal.
+  void Function()? onAccountDisabled;
 
   final String baseUrl;
 
@@ -95,6 +106,7 @@ class ApiClient {
           : error is Map && error['code'] is String
           ? error['code'] as String
           : null;
+      if (code == accountDisabledCode) onAccountDisabled?.call();
       throw ApiException(
         '$message'.isEmpty || message == null
             ? 'Request failed (${r.statusCode})'
