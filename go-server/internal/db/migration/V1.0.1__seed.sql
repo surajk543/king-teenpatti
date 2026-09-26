@@ -20,25 +20,39 @@
 --                 lucky_draws, lucky_draw_slots).
 --   THE EMOJIS    the emoji catalogue (owner, 26 Sep 2026): the animations a
 --                 player buys and sends at a table (emojis).
---   THE PLAYER LEVELS  the level ladder (owner, 26 Sep 2026): fifty levels
---                 reached by XP and the VIP tier, each with its title, icon
---                 and winning tax (player_levels); what earns XP and how much
---                 (xp_sources); and the daily cap and its 24-hour window
---                 (xp_settings). No player_xp row is ever seeded; the VIP
---                 tier is given BY HAND, with:
+--   THE PLAYER LEVELS  the level ladder (owner, 26 Sep 2026; the tax bracket
+--                 of 27 Sep 2026): fifty levels reached by XP, each with its
+--                 title, icon and winning tax (player_levels); the badges a
+--                 player may hold beside their level (badges; owner, 27 Sep
+--                 2026: "Vip is not a level, it is badge"); what earns XP and
+--                 how much (xp_sources); and the 24-hour window, with no
+--                 daily cap (xp_settings). No player_xp or user_badges row is
+--                 ever seeded. Levels and XP never expire — XP is only ever
+--                 added to, and the window resets what may still be EARNED
+--                 today, never what was. A Royal badge asked for through
+--                 support is given BY HAND, for its validity_days (7 for
+--                 Royal Ace up to 90 for Royal King of Kings), with:
 --
---     INSERT INTO player_xp (user_id, level_override, created_at, updated_at)
---     VALUES ('<users.id>', (SELECT level FROM player_levels WHERE is_vip),
---             (EXTRACT(EPOCH FROM now()) * 1000)::bigint, (EXTRACT(EPOCH FROM now()) * 1000)::bigint)
---     ON CONFLICT (user_id) DO UPDATE SET level_override = (SELECT level FROM player_levels WHERE is_vip),
---                                         updated_at = EXCLUDED.updated_at;
+--     INSERT INTO user_badges (user_id, badge_code) VALUES ('<users.id>', 'ROYAL_KING')
+--     ON CONFLICT (user_id, badge_code) DO UPDATE
+--        SET granted_at = EXCLUDED.granted_at, expires_at = EXCLUDED.expires_at;
 --
---                 and taken away with `UPDATE player_xp SET level_override =
---                 NULL, updated_at = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
---                 WHERE user_id = '<users.id>';` — the player's XP is left as
---                 it was either way, so they drop back to the level it has
---                 earned. XP never grants VIP (V1.0.0's PLAYER LEVELS). A seat
---                 takes the new rate at its next sit-down or hand end.
+--                 — which also RENEWS it for another validity from now — or
+--                 for a term of its own, naming expires_at (epoch ms; 0: for
+--                 ever): `INSERT INTO user_badges (user_id, badge_code,
+--                 expires_at) VALUES ('<users.id>', 'ROYAL_ACE', 0) ON
+--                 CONFLICT (user_id, badge_code) DO UPDATE SET expires_at =
+--                 EXCLUDED.expires_at;`. It is taken away early with `UPDATE
+--                 user_badges SET expires_at = (EXTRACT(EPOCH FROM now()) *
+--                 1000)::bigint WHERE user_id = '<users.id>' AND badge_code =
+--                 'ROYAL_KING';` (the row stays as the record). A player holds every
+--                 badge whose grant has not run out, and Regular always
+--                 (is_default; owner, 27 Sep 2026: "By default every user will
+--                 hold this Regular badge"); the winning tax they pay is the
+--                 LOWEST of their
+--                 level's and their badges' (V1.0.0's PLAYER LEVELS). XP
+--                 never grants a badge. A seat takes the new rate at its next
+--                 sit-down or hand end.
 --
 -- Data, not structure: V1.0.0__baseline.sql builds every table these rows go
 -- into, and it runs FIRST — before this file and before anything numbered
@@ -513,9 +527,12 @@ SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost,
 --     Teen Patti, three_card_poker, five_card_draw, texas_holdem and omaha
 --     under Poker (config.DefaultTableEngines, DefaultTableCategories);
 --   * the settings row: a 200 boot when a quick-join names none, the stakes
---     200 / 5,000 / 50,000 / 10 Lakh, five seats and two to start, the 25 s
+--     200 / 5,000 / 50,000 / 20 Lakh (owner, 27 Sep 2026: "Change 10 Lakh
+--     boot table to 20Lakh boot table"), five seats and two to start, the 25 s
 --     turn, 20 rounds and the 6 s sideshow as advertised, and requirement 30's
---     entry cap — nobody holding more than 5 Lakh sits at the 200 blind table;
+--     entry cap — nobody holding more than 20 Lakh sits at the 200 blind
+--     table (owner, 27 Sep 2026: "for blind 200 keep the entry upto 20 lakh";
+--     5 Lakh before, which a new account's 10 Lakh welcome would have outgrown);
 --   * the twelve tables of the default LOBBY_TABLES menu, in its order
 --     (sort_order 10 to 120), each with its stack band;
 --   * a private template for each of the seven categories (sort_order 1010 to
@@ -530,11 +547,18 @@ SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost,
 -- to exchange (only 5-Card Draw reads it), and none of Teen Patti's figures.
 -- Every table: three missed turns before the idle kick, a 4 s pause between
 -- hands, 30 s to buy chips before a short seat is kicked; every Teen Patti
--- table, four blind moves and 3 s more after a missile. Blind and variation
--- at 10 Lakh TAX THEIR WINNERS (winner_tax; owner, 26 Sep 2026): the winner of
--- each hand pays their level's share of the whole pot (THE PLAYER LEVELS,
--- below). No other table, private template or poker room does. This build
--- goes onto a FRESH database (owner, 26 Sep 2026), which these rows seed.
+-- table, four blind moves and 3 s more after a missile. Every public Seen,
+-- Blind and Variation table TAXES ITS WINNERS (winner_tax; owner, 26 Sep
+-- 2026, and 27 Sep 2026: "Apply this tax rule on all the tables, blind, seen,
+-- variation", then "tax will be on total pot amount - amount player
+-- contributed … 30 lakh is the limit on winning amount not on pot limit", and
+-- then "no tax for winning amount less than 50 Lakh"): the winner of each
+-- hand pays their rate (THE PLAYER LEVELS, below) of what they won — the pot
+-- less their own contribution — on winnings of 50,00,000 or more
+-- (tax_min_winnings). No private template — its pot stops at 5 Lakh — and no
+-- poker room does.
+-- This build goes onto a FRESH database (owner, 26 Sep 2026), which these rows
+-- seed.
 --
 -- The VALUES below were GENERATED from that composition, and
 -- TestTheSeededTableCatalogueIsTheDefaults loads them back out of a fresh
@@ -600,9 +624,9 @@ VALUES ('seen',             'teen_patti', 'Seen',           10, TRUE),
 INSERT INTO table_settings (id, default_boot_amount, stakes, max_players, min_players, turn_timeout_ms,
                             max_bet_rounds, sideshow_timeout_ms, sideshow_min_players,
                             entry_cap_boot, entry_cap_category, entry_cap_max_chips)
-VALUES (1, 200, ARRAY[200, 5000, 50000, 1000000]::bigint[], 5, 2, 25000,
+VALUES (1, 200, ARRAY[200, 5000, 50000, 2000000]::bigint[], 5, 2, 25000,
         20, 6000, 3,
-        200, 'blind', 500000)
+        200, 'blind', 2000000)
     ON CONFLICT (id) DO NOTHING;
 
 -- The public tables: the default menu, in LOBBY_TABLES order. The column names
@@ -613,33 +637,33 @@ INSERT INTO table_configs (category, boot_amount, is_private, min_chips, max_chi
                            turn_timeout_ms, max_missed_turns, sideshow_timeout_ms, sideshow_min_players,
                            next_hand_delay_ms, unfunded_grace_ms, missile_reveal_extra_ms,
                            variation_select_timeout_ms, five_card_pick_timeout_ms, min_buy_in, max_discards,
-                           winner_tax, sort_order, is_active)
+                           winner_tax, tax_min_winnings, sort_order, is_active)
 SELECT v.category, v.boot_amount, FALSE, v.min_chips, v.max_chips,
        v.max_pot, v.max_raise_steps, v.max_bet_rounds, v.pot_limit_multiplier, v.max_blind_moves,
        v.turn_timeout_ms, v.max_missed_turns, v.sideshow_timeout_ms, v.sideshow_min_players,
        v.next_hand_delay_ms, v.unfunded_grace_ms, v.missile_reveal_extra_ms,
        v.variation_select_timeout_ms, v.five_card_pick_timeout_ms, v.min_buy_in, v.max_discards,
-       v.winner_tax, v.sort_order, fresh.empty
+       v.winner_tax, v.tax_min_winnings, v.sort_order, fresh.empty
   FROM (VALUES
-    -- category          boot         min_chips  max_chips   max_pot          steps rounds ceiling       blind turn   missed side  side_min next  grace  missile select pick  buy_in     disc tax             sort
-    ('seen',             200::bigint, 0::bigint, 0::bigint,  2000000::bigint, 2,    7,     1024::bigint, 4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0::bigint, 0,   FALSE::boolean,   10),
-    ('blind',            200,         0,         0,          0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   FALSE,            20),
-    ('blind',            5000,        0,         50000000,   0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   FALSE,            30),
-    ('blind',            50000,       0,         1000000000, 0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   FALSE,            40),
-    ('blind',            1000000,     500000000, 0,          0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   TRUE,             50),
-    ('variation',        50000,       0,         1000000000, 0,               2,    7,     1024,         4,    25000, 3,     6000, 3,       4000, 30000, 3000,   10000, 8000, 0,         0,   FALSE,            60),
-    ('variation',        1000000,     500000000, 0,          0,               2,    7,     1024,         4,    25000, 3,     6000, 3,       4000, 30000, 3000,   10000, 8000, 0,         0,   TRUE,             70),
-    ('seen',             50000,       0,         0,          50000000,        2,    7,     1024,         4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   FALSE,            80),
-    ('three_card_poker', 50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    500000,    3,   FALSE,            90),
-    ('five_card_draw',   50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    500000,    3,   FALSE,           100),
-    ('texas_holdem',     50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    500000,    3,   FALSE,           110),
-    ('omaha',            50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    500000,    3,   FALSE,           120)
+    -- category          boot         min_chips  max_chips   max_pot          steps rounds ceiling       blind turn   missed side  side_min next  grace  missile select pick  buy_in     disc tax       tax_min   sort
+    ('seen',             200::bigint, 0::bigint, 0::bigint,  2000000::bigint, 2,    7,     1024::bigint, 4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0::bigint, 0,   TRUE::boolean, 5000000::bigint, 10),
+    ('blind',            200,         0,         0,          0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  20),
+    ('blind',            5000,        0,         200000000,  0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  30),
+    ('blind',            50000,       0,         2000000000, 0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  40),
+    ('blind',            2000000,     500000000, 0,          0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  50),
+    ('variation',        50000,       0,         2000000000, 0,               2,    7,     1024,         4,    25000, 3,     6000, 3,       4000, 30000, 3000,   10000, 8000, 0,         0,   TRUE,     5000000,  60),
+    ('variation',        2000000,     500000000, 0,          0,               2,    7,     1024,         4,    25000, 3,     6000, 3,       4000, 30000, 3000,   10000, 8000, 0,         0,   TRUE,     5000000,  70),
+    ('seen',             50000,       0,         0,          50000000,        2,    7,     1024,         4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  80),
+    ('three_card_poker', 50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    500000,    3,   FALSE,    0,        90),
+    ('five_card_draw',   50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    500000,    3,   FALSE,    0,        100),
+    ('texas_holdem',     50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    500000,    3,   FALSE,    0,        110),
+    ('omaha',            50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    500000,    3,   FALSE,    0,        120)
   ) AS v(category, boot_amount, min_chips, max_chips,
          max_pot, max_raise_steps, max_bet_rounds, pot_limit_multiplier, max_blind_moves,
          turn_timeout_ms, max_missed_turns, sideshow_timeout_ms, sideshow_min_players,
          next_hand_delay_ms, unfunded_grace_ms, missile_reveal_extra_ms,
          variation_select_timeout_ms, five_card_pick_timeout_ms, min_buy_in, max_discards,
-         winner_tax, sort_order)
+         winner_tax, tax_min_winnings, sort_order)
  CROSS JOIN fresh
     ON CONFLICT (table_key) DO NOTHING;
 
@@ -652,28 +676,28 @@ INSERT INTO table_configs (category, boot_amount, is_private, min_chips, max_chi
                            turn_timeout_ms, max_missed_turns, sideshow_timeout_ms, sideshow_min_players,
                            next_hand_delay_ms, unfunded_grace_ms, missile_reveal_extra_ms,
                            variation_select_timeout_ms, five_card_pick_timeout_ms, min_buy_in, max_discards,
-                           winner_tax, sort_order, is_active)
+                           winner_tax, tax_min_winnings, sort_order, is_active)
 SELECT v.category, v.boot_amount, TRUE, v.min_chips, v.max_chips,
        v.max_pot, v.max_raise_steps, v.max_bet_rounds, v.pot_limit_multiplier, v.max_blind_moves,
        v.turn_timeout_ms, v.max_missed_turns, v.sideshow_timeout_ms, v.sideshow_min_players,
        v.next_hand_delay_ms, v.unfunded_grace_ms, v.missile_reveal_extra_ms,
        v.variation_select_timeout_ms, v.five_card_pick_timeout_ms, v.min_buy_in, v.max_discards,
-       v.winner_tax, v.sort_order, fresh.empty
+       v.winner_tax, v.tax_min_winnings, v.sort_order, fresh.empty
   FROM (VALUES
-    -- category          boot         min_chips  max_chips  max_pot         steps rounds ceiling       blind turn   missed side  side_min next  grace  missile select pick  buy_in     disc tax             sort
-    ('seen',             200::bigint, 0::bigint, 0::bigint, 500000::bigint, 2,    7,     1024::bigint, 4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0::bigint, 0,   FALSE::boolean, 1010),
-    ('blind',            200,         0,         0,         500000,         2,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   FALSE,          1020),
-    ('variation',        200,         0,         0,         500000,         2,    7,     1024,         4,    25000, 3,     6000, 3,       4000, 30000, 3000,   10000, 8000, 0,         0,   FALSE,          1030),
-    ('three_card_poker', 200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    2000,      3,   FALSE,          1040),
-    ('five_card_draw',   200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    2000,      3,   FALSE,          1050),
-    ('texas_holdem',     200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    2000,      3,   FALSE,          1060),
-    ('omaha',            200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    2000,      3,   FALSE,          1070)
+    -- category          boot         min_chips  max_chips  max_pot         steps rounds ceiling       blind turn   missed side  side_min next  grace  missile select pick  buy_in     disc tax       tax_min   sort
+    ('seen',             200::bigint, 0::bigint, 0::bigint, 500000::bigint, 2,    7,     1024::bigint, 4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0::bigint, 0,   FALSE::boolean, 0::bigint, 1010),
+    ('blind',            200,         0,         0,         500000,         2,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   FALSE,    0,        1020),
+    ('variation',        200,         0,         0,         500000,         2,    7,     1024,         4,    25000, 3,     6000, 3,       4000, 30000, 3000,   10000, 8000, 0,         0,   FALSE,    0,        1030),
+    ('three_card_poker', 200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    2000,      3,   FALSE,    0,        1040),
+    ('five_card_draw',   200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    2000,      3,   FALSE,    0,        1050),
+    ('texas_holdem',     200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    2000,      3,   FALSE,    0,        1060),
+    ('omaha',            200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    2000,      3,   FALSE,    0,        1070)
   ) AS v(category, boot_amount, min_chips, max_chips,
          max_pot, max_raise_steps, max_bet_rounds, pot_limit_multiplier, max_blind_moves,
          turn_timeout_ms, max_missed_turns, sideshow_timeout_ms, sideshow_min_players,
          next_hand_delay_ms, unfunded_grace_ms, missile_reveal_extra_ms,
          variation_select_timeout_ms, five_card_pick_timeout_ms, min_buy_in, max_discards,
-         winner_tax, sort_order)
+         winner_tax, tax_min_winnings, sort_order)
  CROSS JOIN fresh
     ON CONFLICT (table_key) DO NOTHING;
 
@@ -880,10 +904,12 @@ ON CONFLICT (asset_url) DO NOTHING;
 --
 -- The owner's level ladder (26 Sep 2026: "create table which stores every
 -- player xp and ac to their level, tax will be applied, use below table"),
--- exactly as given: Level 1 at 0 XP, Newbie, 20.00% winning tax, down to
--- Level 50 at 20,00,000 XP, King of Kings, 10.00%, and the VIP tier, 51,
--- which no XP reaches (min_xp NULL — V1.0.0's CHECK) and which pays 4.00%.
--- tax_bps is basis points (2000 = 20.00%). Each level's icon is the owner's
+-- with the tax bracket the owner gave on 27 Sep 2026 ("use this tax
+-- bracket"), exactly as given: Level 1 at 0 XP, Newbie, 20.00% winning tax,
+-- down to Level 50 at 20,00,000 XP, King of Kings, 6.00% — an even 28.57
+-- points a level, rounded to the basis point. tax_bps is basis points
+-- (2000 = 20.00%). A badge is not a level (owner, 27 Sep 2026: "Vip is not a
+-- level, it is badge"): the badges follow the ladder. Each level's icon is the owner's
 -- emoji ("use these icons for each tag"), byte for byte: keep the U+FE0F
 -- variation selectors, and some icons are two emoji
 -- (TestTheSeededLevelsAreTheOwnersTable compares every one code point for
@@ -893,80 +919,142 @@ ON CONFLICT (asset_url) DO NOTHING;
 -- so an owner's UPDATE — a re-priced tax, a renamed title, a moved threshold —
 -- survives every restart, and a changed row here reaches only a fresh
 -- database (the picture rule, THE PICTURES).
-INSERT INTO player_levels (level, min_xp, title, icon, tax_bps, is_vip)
+INSERT INTO player_levels (level, min_xp, title, icon, tax_bps)
 VALUES
-  (1,  0,       'Newbie',           '🌱',   2000, FALSE),
-  (2,  100,     'Rookie',           '🔰',   1980, FALSE),
-  (3,  250,     'Beginner',         '⭐',   1959, FALSE),
-  (4,  500,     'Player',           '🎮',   1939, FALSE),
-  (5,  800,     'Regular',          '🟢',   1918, FALSE),
-  (6,  1200,    'Challenger',       '⚔️',  1898, FALSE),
-  (7,  1700,    'Skilled',          '🎯',   1878, FALSE),
-  (8,  2300,    'Contender',        '🛡️',  1857, FALSE),
-  (9,  3000,    'Fighter',          '⚔️',  1837, FALSE),
-  (10, 4000,    'Rising Star',      '🌟',   1816, FALSE),
-  (11, 5200,    'Pro Player',       '🏅',   1796, FALSE),
-  (12, 6700,    'Veteran',          '🎖️',  1776, FALSE),
-  (13, 8500,    'Expert',           '🧠',   1755, FALSE),
-  (14, 10500,   'Specialist',       '💠',   1735, FALSE),
-  (15, 13000,   'Ace',              '🃏',   1714, FALSE),
-  (16, 16000,   'Elite',            '💎',   1694, FALSE),
-  (17, 20000,   'Master',           '👑',   1673, FALSE),
-  (18, 25000,   'Grand Master',     '👑⚔️', 1653, FALSE),
-  (19, 31000,   'Champion',         '🏆',   1633, FALSE),
-  (20, 38000,   'High Roller',      '💰',   1612, FALSE),
-  (21, 46000,   'Royal',            '👑',   1592, FALSE),
-  (22, 55000,   'Royal Ace',        '🃏👑',  1571, FALSE),
-  (23, 65000,   'Royal Master',     '👑💎',  1551, FALSE),
-  (24, 76000,   'Supreme',          '🔱',   1531, FALSE),
-  (25, 88000,   'Supreme Ace',      '🔱🃏',  1510, FALSE),
-  (26, 102000,  'Legend',           '🌠',   1490, FALSE),
-  (27, 118000,  'Legendary',        '✨',   1469, FALSE),
-  (28, 136000,  'Grand Legend',     '🌟👑',  1449, FALSE),
-  (29, 156000,  'Immortal',         '♾️',  1429, FALSE),
-  (30, 178000,  'Titan',            '⚡',   1408, FALSE),
-  (31, 202000,  'Elite Titan',      '⚡💎',  1388, FALSE),
-  (32, 228000,  'Royal Titan',      '⚡👑',  1367, FALSE),
-  (33, 256000,  'Emperor',          '👑',   1347, FALSE),
-  (34, 286000,  'Royal Emperor',    '👑💎',  1327, FALSE),
-  (35, 318000,  'Supreme Emperor',  '🔱👑',  1306, FALSE),
-  (36, 352000,  'King',             '👑',   1286, FALSE),
-  (37, 390000,  'Grand King',       '👑🏆',  1265, FALSE),
-  (38, 432000,  'Royal King',       '👑💎',  1245, FALSE),
-  (39, 478000,  'Supreme King',     '🔱👑',  1224, FALSE),
-  (40, 528000,  'Master King',      '👑⚔️', 1204, FALSE),
-  (41, 585000,  'Overlord',         '🔥',   1184, FALSE),
-  (42, 650000,  'Grand Overlord',   '🔥👑',  1163, FALSE),
-  (43, 725000,  'Royal Overlord',   '🔥💎',  1143, FALSE),
-  (44, 810000,  'Supreme Overlord', '🔥🔱',  1122, FALSE),
-  (45, 900000,  'Mythic',           '🌌',   1102, FALSE),
-  (46, 1000000, 'Mythic King',      '🌌👑',  1082, FALSE),
-  (47, 1150000, 'Immortal King',    '♾️👑', 1061, FALSE),
-  (48, 1350000, 'Legendary King',   '🌟👑',  1041, FALSE),
-  (49, 1600000, 'Supreme Legend',   '🔱🌟',  1020, FALSE),
-  (50, 2000000, 'King of Kings',    '👑👑',  1000, FALSE),
-  (51, NULL,    'VIP',              '💎👑',  400,  TRUE)
+  (1,  0,       'Newbie',           '🌱',   2000),
+  (2,  100,     'Rookie',           '🔰',   1971),
+  (3,  250,     'Beginner',         '⭐',   1943),
+  (4,  500,     'Player',           '🎮',   1914),
+  (5,  800,     'Regular',          '🟢',   1886),
+  (6,  1200,    'Challenger',       '⚔️',  1857),
+  (7,  1700,    'Skilled',          '🎯',   1829),
+  (8,  2300,    'Contender',        '🛡️',  1800),
+  (9,  3000,    'Fighter',          '⚔️',  1771),
+  (10, 4000,    'Rising Star',      '🌟',   1743),
+  (11, 5200,    'Pro Player',       '🏅',   1714),
+  (12, 6700,    'Veteran',          '🎖️',  1686),
+  (13, 8500,    'Expert',           '🧠',   1657),
+  (14, 10500,   'Specialist',       '💠',   1629),
+  (15, 13000,   'Ace',              '🃏',   1600),
+  (16, 16000,   'Elite',            '💎',   1571),
+  (17, 20000,   'Master',           '👑',   1543),
+  (18, 25000,   'Grand Master',     '👑⚔️', 1514),
+  (19, 31000,   'Champion',         '🏆',   1486),
+  (20, 38000,   'High Roller',      '💰',   1457),
+  (21, 46000,   'Royal',            '👑',   1429),
+  (22, 55000,   'Royal Ace',        '🃏👑',  1400),
+  (23, 65000,   'Royal Master',     '👑💎',  1371),
+  (24, 76000,   'Supreme',          '🔱',   1343),
+  (25, 88000,   'Supreme Ace',      '🔱🃏',  1314),
+  (26, 102000,  'Legend',           '🌠',   1286),
+  (27, 118000,  'Legendary',        '✨',   1257),
+  (28, 136000,  'Grand Legend',     '🌟👑',  1229),
+  (29, 156000,  'Immortal',         '♾️',  1200),
+  (30, 178000,  'Titan',            '⚡',   1171),
+  (31, 202000,  'Elite Titan',      '⚡💎',  1143),
+  (32, 228000,  'Royal Titan',      '⚡👑',  1114),
+  (33, 256000,  'Emperor',          '👑',   1086),
+  (34, 286000,  'Royal Emperor',    '👑💎',  1057),
+  (35, 318000,  'Supreme Emperor',  '🔱👑',  1029),
+  (36, 352000,  'King',             '👑',   1000),
+  (37, 390000,  'Grand King',       '👑🏆',  971),
+  (38, 432000,  'Royal King',       '👑💎',  943),
+  (39, 478000,  'Supreme King',     '🔱👑',  914),
+  (40, 528000,  'Master King',      '👑⚔️', 886),
+  (41, 585000,  'Overlord',         '🔥',   857),
+  (42, 650000,  'Grand Overlord',   '🔥👑',  829),
+  (43, 725000,  'Royal Overlord',   '🔥💎',  800),
+  (44, 810000,  'Supreme Overlord', '🔥🔱',  771),
+  (45, 900000,  'Mythic',           '🌌',   743),
+  (46, 1000000, 'Mythic King',      '🌌👑',  714),
+  (47, 1150000, 'Immortal King',    '♾️👑', 686),
+  (48, 1350000, 'Legendary King',   '🌟👑',  657),
+  (49, 1600000, 'Supreme Legend',   '🔱🌟',  629),
+  (50, 2000000, 'King of Kings',    '👑👑',  600)
     ON CONFLICT (level) DO NOTHING;
 
--- What earns XP (owner, 26 Sep 2026: "XP source / XP: Complete a hand 1 · Win
--- a game 1 · 30 minutes active gameplay 5 · 60 minutes active gameplay 15 ·
--- Daily play bonus 5 — for each user"): a hand completed and a hand won, at
--- the hand-end settle; 30 and 60 minutes of active play in a window, once
--- each, as the live store's play time crosses them; and the daily play bonus,
--- with the hand that opens a window. Every award is held to the daily cap
--- below (db.awardXP). ON CONFLICT (code) DO NOTHING: an owner's UPDATE — a
--- source re-valued or switched off — survives every restart.
-INSERT INTO xp_sources (code, name, xp, is_active, sort_order)
-VALUES ('HAND_COMPLETED',   'Complete a hand',            1,  TRUE, 10),
-       ('HAND_WON',         'Win a game',                 1,  TRUE, 20),
-       ('ACTIVE_30_MIN',    '30 minutes active gameplay', 5,  TRUE, 30),
-       ('ACTIVE_60_MIN',    '60 minutes active gameplay', 15, TRUE, 40),
-       ('DAILY_PLAY_BONUS', 'Daily play bonus',           5,  TRUE, 50)
+-- The badges (owner, 27 Sep 2026: "Vip is not a level, it is badge, User can
+-- hold multiple badges"; then "add validity column in badges so that when it
+-- expires, player will not get tax benefit"). REGULAR is every player's by default, with no
+-- row, for life (owner, 27 Sep 2026: "By default every user will hold this
+-- Regular badge 20 percent tax … validaity life time, do not show this badge
+-- in store, its price zero"; is_default — the store never lists a default
+-- badge): 20%, which no level's rate is above, so for a player with no other
+-- badge their level decides; its art is the owner's Lottie (500x500, a
+-- one-second loop, nothing a phone cannot draw). It replaces the Standard
+-- badge of the owner's first list.
+-- Then the ROYAL badges the store lists (owner, 27 Sep 2026: "for badges use
+-- this entry, not vips entry … Add this in UI store and with their lottie
+-- animation u can store in db"): 0% winning tax for 7 to 90 days at ₹499 to
+-- ₹4,499, each with the owner's Lottie (asset_url: their Drive uploads, public,
+-- as the download link; every one checked for what a phone's player cannot
+-- draw — no 3D layers, no images, no text; Royal King of Kings's crown pulse
+-- is a loopOut('pingpong') a phone plays once a loop rather than throughout,
+-- and Royal Ace's 16:9 canvas has its crown in the middle, which a square
+-- shows whole). They name no Play product: every royal badge is asked for
+-- through support ("for all type of royal badges Add a button to contact
+-- support in store") and granted by hand (this file's header); a
+-- play_product_id on one (a managed product in the Play Console) would sell it
+-- in the app instead. price_inr is the price in rupees, always INR ("price in
+-- badges will always be in inr currency"). They replace the two badges of the
+-- owner's first list, Tax Free Ace and Tax Free King; the VIP, Royal VIP and
+-- Elite VIP badges of the same day are gone (owner, 27 Sep 2026: "remove the
+-- entry vip, royal vip and elite vip"). Written only where the code is
+-- missing, so an owner's UPDATE — a re-priced badge, a new icon, a longer
+-- validity — survives every restart.
+INSERT INTO badges (code, title, icon, tax_bps, validity_days, price_inr, play_product_id,
+                    asset_url, asset_format, is_default, is_active, sort_order)
+VALUES
+  ('REGULAR',   'Regular',   '',    2000, 0,    0,    NULL,
+   'https://drive.google.com/uc?export=download&id=1zz4gVBpw579xeR1LLn3dBd3Os3cG8jQT', 'LOTTIE', TRUE, TRUE, 10),
+  ('ROYAL_ACE',           'Royal Ace',           '', 0, 7,  499,  NULL,
+   'https://drive.google.com/uc?export=download&id=1lwt8uXauqnX77WEb73xZAbTz_TR-rJKm', 'LOTTIE', FALSE, TRUE, 20),
+  ('ROYAL_KING',          'Royal King',          '', 0, 15, 999,  NULL,
+   'https://drive.google.com/uc?export=download&id=1Frs4uv6oAkxK9YgHhh52Rwi_kCRpngNU', 'LOTTIE', FALSE, TRUE, 30),
+  ('ROYAL_MASTER',        'Royal Master',        '', 0, 30, 1799, NULL,
+   'https://drive.google.com/uc?export=download&id=1ifJxiC6l59fQ1i-RulfLn2SzJfw5sgiJ', 'LOTTIE', FALSE, TRUE, 40),
+  ('ROYAL_EMPEROR',       'Royal Emperor',       '', 0, 45, 2499, NULL,
+   'https://drive.google.com/uc?export=download&id=1gBUNiLrdoSqkL29UEKCI7DjqAr8wZiSd', 'LOTTIE', FALSE, TRUE, 50),
+  ('ROYAL_LEGEND',        'Royal Legend',        '', 0, 60, 3299, NULL,
+   'https://drive.google.com/uc?export=download&id=1kn5KJLW96mcMaXLygpvM_sIxPA7L1Ov-', 'LOTTIE', FALSE, TRUE, 60),
+  ('ROYAL_KING_OF_KINGS', 'Royal King of Kings', '', 0, 90, 4499, NULL,
+   'https://drive.google.com/uc?export=download&id=1A1ckgYQjocbcYfeJsOKFNO8hCrCDCWNI', 'LOTTIE', FALSE, TRUE, 70)
     ON CONFLICT (code) DO NOTHING;
 
--- The daily cap (owner: "daily xp cap limit is 50XP for each user") and the
--- window it is counted in: 24 hours from the award that opens it, per player
--- ("it will be reset after 24 hours"). Written only where there is none.
+-- The daily XP (owner, 27 Sep 2026: "Daily XP user can get store this info in
+-- db … After 24 hours this will be reset, so user can claim this again"),
+-- exactly as given — each ONCE a window:
+--
+--   🎮 Play 15 active minutes    +3 XP     🎮 Play 60 active minutes   +20 XP
+--   🎮 Play 120 active minutes   +50 XP    👥 Win by Pair              +1 XP
+--   🎨 Win by Color              +2 XP     🃏 Win by Sequence          +4 XP
+--   💎 Win by Pure Sequence      +8 XP     🔥 Win by Trail             +20 XP
+--
+-- A PLAY_TIME source is earned when the window's active play (the live
+-- store's, of hands played out) reaches its minutes; a WIN_HAND source when
+-- the player wins a Teen Patti or Variation hand holding that hand, as the
+-- table ranks it. 108 XP a window at most. These replaced the first sources
+-- (26 Sep 2026: a hand completed 1, a hand won 1, 30 and 60 minutes 5 and 15,
+-- a daily bonus 5). ON CONFLICT (code) DO NOTHING: an owner's UPDATE — a
+-- source re-valued, re-timed or switched off — survives every restart.
+INSERT INTO xp_sources (code, name, icon, kind, play_minutes, hand_rank, xp, times_per_window, is_active, sort_order)
+VALUES ('PLAY_15_MIN',       'Play 15 active minutes',  '🎮', 'PLAY_TIME', 15,   NULL,            3,  1, TRUE, 10),
+       ('PLAY_60_MIN',       'Play 60 active minutes',  '🎮', 'PLAY_TIME', 60,   NULL,            20, 1, TRUE, 20),
+       ('PLAY_120_MIN',      'Play 120 active minutes', '🎮', 'PLAY_TIME', 120,  NULL,            50, 1, TRUE, 30),
+       ('WIN_PAIR',          'Win by Pair',             '👥', 'WIN_HAND',  NULL, 'PAIR',          1,  1, TRUE, 40),
+       ('WIN_COLOR',         'Win by Color',            '🎨', 'WIN_HAND',  NULL, 'COLOR',         2,  1, TRUE, 50),
+       ('WIN_SEQUENCE',      'Win by Sequence',         '🃏', 'WIN_HAND',  NULL, 'SEQUENCE',      4,  1, TRUE, 60),
+       ('WIN_PURE_SEQUENCE', 'Win by Pure Sequence',    '💎', 'WIN_HAND',  NULL, 'PURE_SEQUENCE', 8,  1, TRUE, 70),
+       ('WIN_TRAIL',         'Win by Trail',            '🔥', 'WIN_HAND',  NULL, 'TRAIL',         20, 1, TRUE, 80)
+    ON CONFLICT (code) DO NOTHING;
+
+-- The window (owner: "it will be reset after 24 hours", "After 24 hours this
+-- will be reset, so user can claim this again"): 24 hours from the first hand
+-- a player completes in it — how often every daily XP source comes round. NO
+-- daily cap (owner, 27 Sep 2026:
+-- "Don't set any daily limit to xp"; 50 XP until then): daily_cap NULL, and
+-- every hand's XP counts however many are played. Written only where there is
+-- none.
 INSERT INTO xp_settings (id, daily_cap, window_ms)
-VALUES (1, 50, 86400000)
+VALUES (1, NULL, 86400000)
     ON CONFLICT (id) DO NOTHING;

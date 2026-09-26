@@ -56,6 +56,12 @@ type TablePictureStore interface {
 	ExpireLapsed(ctx context.Context, userID string) (bool, error)
 }
 
+// LevelStore is the slice of db.XP GET /api/levels reads (owner, 27 Sep
+// 2026): the whole level ladder, configuration only.
+type LevelStore interface {
+	Ladder(ctx context.Context) (db.LevelLadder, error)
+}
+
 // EmojiStore is the slice of db.Emojis the handlers use (owner, 26 Sep 2026;
 // Go only): the catalogue of animated emojis a player sends to their table, and
 // the till they are bought at. Sending one is the socket's (chat:emoji).
@@ -120,6 +126,9 @@ type Deps struct {
 	// empty catalogue: GET /api/emojis lists nothing and a buy is
 	// unknown_emoji — there is no emoji to sell.
 	Emojis EmojiStore
+	// Levels is the level ladder (owner, 27 Sep 2026), served by GET
+	// /api/levels. Nil reads as an empty ladder.
+	Levels LevelStore
 	// Purchases credits a verified Google Play purchase. Nil when the server
 	// has no Play credentials, and then the endpoint refuses every request
 	// rather than crediting on the client's word.
@@ -192,6 +201,18 @@ type PurchaseOutcome struct {
 	// the Play transaction so the player is not asked again.
 	Credited bool
 	User     *db.User
+	// Badge is the badge a badge purchase granted (owner, 27 Sep 2026: "Add
+	// a icon in Store to buy badges"), or on a replay the grant the first
+	// purchase left; nil for every other product, whose answer is then
+	// exactly what it was.
+	Badge *BoughtBadge
+}
+
+// BoughtBadge is the answer's `badge` after a badge purchase: which badge,
+// and when the player's grant of it now runs out (epoch ms, 0: never).
+type BoughtBadge struct {
+	Code      string `json:"code"`
+	ExpiresAt int64  `json:"expiresAt"`
 }
 
 // Handler serves the REST API. Routes (Node authRoutes + playerRoutes),
@@ -218,6 +239,7 @@ type PurchaseOutcome struct {
 //	POST /api/lucky-draw/spin    → SpinLuckyDraw    (RequireAuth; Go only)
 //	GET  /api/emojis             → Emojis           (token optional; Go only)
 //	POST /api/emojis/buy         → BuyEmoji         (RequireAuth; Go only)
+//	GET  /api/levels             → Levels           (public; Go only)
 //
 // and, when Deps.Friends is set, Friends V1's eight (friends.go; Go only):
 //
@@ -293,6 +315,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/lucky-draw/spin", methods(http.MethodPost, wallet(h.SpinLuckyDraw)))
 	mux.Handle("/api/emojis", methods(http.MethodGet, http.HandlerFunc(h.Emojis)))
 	mux.Handle("/api/emojis/buy", methods(http.MethodPost, wallet(h.BuyEmoji)))
+	mux.Handle("/api/levels", methods(http.MethodGet, http.HandlerFunc(h.Levels)))
 	if h.deps.Friends != nil {
 		h.registerFriends(mux, wallet)
 	}

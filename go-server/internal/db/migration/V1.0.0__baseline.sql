@@ -117,8 +117,10 @@
 -- and the two friends tables (after the Lucky Draw). The Lucky Draw's three
 -- follow the purchase tables — its draws, their slots (which
 -- name a draw), and the spins (which name a player, a draw and a slot) — then
--- the player levels and XP (player_levels, xp_sources, xp_settings, then
--- player_xp, which names a player and a level). The four table-configuration
+-- the player levels, badges and XP (player_levels, badges, then user_badges,
+-- which names a player and a badge, xp_sources, xp_settings, player_xp, which
+-- names a player, then player_xp_claims, which names a player and a source).
+-- The four table-configuration
 -- tables come last, in the order they
 -- reference one another — `table_engines`, `table_categories` (each category
 -- names its engine), then `table_settings` and `table_configs` (each names a
@@ -146,9 +148,10 @@
 -- tables (26 Sep 2026): career counters a checkpoint adds to, and who asked
 -- whom and who is friends with whom — account facts; whether a friend is
 -- online or at a table lives in the live store and nowhere here. Nor the
--- player levels and XP (26 Sep 2026): player_levels, xp_sources and
--- xp_settings are configuration, and player_xp an account fact — a settle adds
--- to it, and no table reads it to play a hand. The active play time the 30-
+-- player levels, badges and XP (26–27 Sep 2026): player_levels, badges,
+-- xp_sources and xp_settings are configuration, and user_badges, player_xp and
+-- player_xp_claims account facts — a settle adds to player_xp, and no table
+-- reads any of them to play a hand. The active play time the 30-
 -- and 60-minute XP is earned by lives in the live store, never here.
 
 
@@ -1044,126 +1047,312 @@ CREATE TABLE IF NOT EXISTS friendships (
 
 -- --------------------------------------------------------- player levels
 
--- Player levels and XP (owner, 26 Sep 2026: "create table which stores every
--- player xp and ac to their level, tax will be applied", and "XP source / XP:
--- Complete a hand 1 · Win a game 1 · 30 minutes active gameplay 5 · 60 minutes
--- active gameplay 15 · Daily play bonus 5 … daily xp cap limit is 50XP for
--- each user … these XP source and XP store in diff table"). Four tables:
+-- Player levels, badges and XP (owner, 26 Sep 2026: "create table which stores
+-- every player xp and ac to their level, tax will be applied", and "XP source
+-- / XP: Complete a hand 1 · Win a game 1 · 30 minutes active gameplay 5 · 60
+-- minutes active gameplay 15 · Daily play bonus 5 … daily xp cap limit is 50XP
+-- for each user … these XP source and XP store in diff table" — sources the
+-- daily list below replaced the next day; then 27 Sep 2026: "Vip is not a
+-- level, it is badge, User can hold multiple badges,
+-- Rookie, beginner is level, and badge and level both are different … the tax
+-- will be applied acc to minimum of badge or player level"; "Daily XP user can
+-- get store this info in db";
+-- then the Royal badges the store lists, each with its Lottie, validity, price
+-- and 0% winning tax, "Add a icon in Store to buy badges"). Eight tables:
 --
---   player_levels  CONFIGURATION: the ladder a player climbs — fifty levels,
---                  each reached at its min_xp, and the VIP tier (51), which XP
---                  never reaches — with the title and icon each is shown by and
---                  the WINNING TAX each carries: the share of the whole pot, in
---                  basis points (2000 = 20.00%), that a table which taxes its
---                  winners (table_configs.winner_tax) takes from the winner of
---                  a hand.
---   xp_sources     CONFIGURATION: what earns XP and how much — a hand completed,
---                  a hand won, 30 and 60 minutes of active play in a window,
---                  the daily play bonus (db.XPSource* are the codes this build
---                  knows; an inactive source, or one it does not know, awards
---                  nothing).
---   xp_settings    CONFIGURATION, ONE row: the daily cap — the most XP any
---                  player earns in one window — and the window's length.
---   player_xp      an ACCOUNT FACT, one row per player who has earned any: the
---                  lifetime XP that decides their level, the window their daily
---                  XP is counted in (window_start, window_xp), and
---                  level_override, a level set BY HAND — the VIP tier — which XP
---                  never changes. No row = 0 XP, no override, no window: Level 1.
+--   player_levels  CONFIGURATION: the ladder a player climbs by XP — fifty
+--                  levels, each reached at its min_xp — with the title and
+--                  icon each is shown by and the WINNING TAX each carries: the
+--                  share of the winnings (the pot less the winner's own
+--                  contribution), in basis points (2000 = 20.00%), that a
+--                  table which taxes its winners (table_configs.winner_tax)
+--                  takes from the winner of a hand.
+--   badges         CONFIGURATION: the badges a player may hold beside their
+--                  level — Regular, every player's by default for life at 20%
+--                  (is_default; owner, 27 Sep 2026: "By default every user
+--                  will hold this Regular badge") — and the Royal badges the
+--                  store lists, granted by hand or bought —
+--                  each with the winning tax it brings its holder's down to
+--                  (NULL: none) and its VALIDITY: how long a grant of it lasts
+--                  (owner, 27 Sep 2026: "add validity column in badges so that
+--                  when it expires, player will not get tax benefit"; 0 = for
+--                  ever), its price in rupees and its art (a Lottie), and —
+--                  for a badge the app sells through Play — the product it is
+--                  bought as.
+--   user_badges    an ACCOUNT FACT: the badges each player has been given
+--                  beyond the default one — as many as they are given — each
+--                  with the instant it runs out. Granted BY HAND (V1.0.1's
+--                  header) or bought in the store (badge_purchases); no amount
+--                  of XP ever grants one.
+--   badge_purchases  an ACCOUNT FACT: every store purchase of a badge, keyed
+--                  by its Play purchase token — the replay guard and the
+--                  receipt.
+--   xp_sources     CONFIGURATION: the DAILY XP a player can earn (owner,
+--                  27 Sep 2026: "Daily XP user can get store this info in db
+--                  … After 24 hours this will be reset, so user can claim
+--                  this again") — each source what earns it (its kind: so many
+--                  minutes of active play in the window, or a hand won with a
+--                  given Teen Patti hand), the XP it gives, and how many times
+--                  a window it can be earned. A kind this build does not know
+--                  earns nothing (db.XPKind*).
+--   player_xp_claims  an ACCOUNT FACT: how many times each player has earned
+--                  each source in their current window — what makes "1 time"
+--                  once a day, and what the app ticks off.
+--   xp_settings    CONFIGURATION, ONE row: the window's length — how long a
+--                  day lasts for the daily sources, each earned its
+--                  times_per_window in it — and an optional daily cap on the
+--                  XP a player earns in one window: NULL, as seeded, is no cap
+--                  at all (owner, 27 Sep 2026: "Don't set any daily limit to
+--                  xp").
+--   player_xp      an ACCOUNT FACT, one row per player who has played a hand
+--                  out: the lifetime XP that decides their level and the
+--                  window their daily XP is counted in (window_start,
+--                  window_xp) — opened by the first hand they complete, and
+--                  rolled 24 hours later by the next. No row = 0 XP, no
+--                  window: Level 1.
 --
--- The three configuration tables are read on demand and never cached — every
--- account read resolves a level afresh, and every award reads the sources and
--- the settings in its own transaction — so an owner's UPDATE shows at the next
--- read, with no restart, and reaches a seat's winning-tax rate at its next
--- sit-down or hand end. V1.0.1 seeds all three.
+-- The four configuration tables are read on demand and never cached — every
+-- account read resolves a level and the badges afresh, and every award reads
+-- the sources and the settings in its own transaction — so an owner's UPDATE
+-- (or a badge granted) shows at the next read, with no restart, and reaches a
+-- seat's winning-tax rate at its next sit-down or hand end. V1.0.1 seeds all
+-- four.
 --
--- A player's level is their level_override when set, else the highest non-VIP
--- level whose min_xp their XP has reached (db.levelLateral). VIP is a property
--- of a TIER, never of an XP total, and structurally so: a VIP tier has no
--- min_xp and every other level has one (the two CHECKs on player_levels),
--- resolution by XP never considers a VIP tier, and the XP award never writes
--- level_override — no amount of play makes a player VIP; only the hand
--- statement in V1.0.1's header does.
+-- A player's LEVEL is the highest level whose min_xp their XP has reached —
+-- and, should the ladder have no level that low (an owner's edit), the lowest
+-- rung. A level never expires ("there is no validity on player level"): it is
+-- the XP, and XP is never taken away. Their BADGES are every active default
+-- badge and every active badge user_badges gives them that has not run out.
+-- The WINNING TAX they pay is the LOWEST of their level's tax_bps and the
+-- tax_bps of every badge they hold (a badge with none sets no rate):
+-- db.playerLevelJoins, the one statement of the rule — so a badge that runs
+-- out stops lowering the rate at the next account read, and a seated player's
+-- at the next hand end. A badge is a property of its HOLDER, never of an XP
+-- total: XP only ever moves a player up the ladder.
 --
 -- XP is written by ONE function (db.awardXP), whatever the source: it opens a
--- new window when the last one has run out, grants what the daily cap leaves
--- of the source's XP, and adds it to both the lifetime and the window's XP. A
--- hand's sources are awarded in the ledger transaction that settles the hand;
--- the active-play ones asynchronously, once the play time kept in the live
--- store (Redis, never here) crosses 30 and 60 minutes in a window.
+-- new window when the last one has run out, grants each source asked for that
+-- the player has not yet earned its times_per_window in the window
+-- (player_xp_claims) — its XP, or what a daily cap, where an owner sets one,
+-- leaves of it — and adds the XP to both the lifetime and the window's XP. The
+-- ledger transaction that settles a hand opens or rolls the window of every
+-- player who completed it and awards the winner's WIN_HAND source; the
+-- PLAY_TIME ones are awarded asynchronously, once the play time kept in the
+-- live store (Redis, never here) for the window reaches their minutes.
 --
 -- None of it is game state. The rate a seat pays is captured on the seat when
 -- its player sits down and refreshed from every hand-end settle, and kept in
 -- the table's Redis snapshot; nothing at a table reads these tables at any
--- other moment. All four are the app role's, and player_xp's foreign key to
--- users needs only the REFERENCES grant ops/DEPLOY.md §7 gives.
+-- other moment. All seven are the app role's, and the foreign keys of
+-- user_badges, player_xp and player_xp_claims to users need only the
+-- REFERENCES grant ops/DEPLOY.md §7 gives.
 --
--- At the seeded cap (50 XP a day) a player needs at least 80 days to reach
--- Level 10 (4,000 XP) and 760 to reach Level 20 (38,000): the ladder, the
--- sources and the cap are all rows the owner can edit.
+-- As seeded, a window's XP is at most 108 — 15, 60 and 120 minutes of play
+-- (3 + 20 + 50) and a win with each of Pair, Color, Sequence, Pure Sequence
+-- and Trail (1 + 2 + 4 + 8 + 20), each once — so Level 10 (4,000 XP) is at
+-- least 38 days away. The ladder, the sources, the window and any cap are all
+-- rows the owner can edit.
 CREATE TABLE IF NOT EXISTS player_levels (
   level      SMALLINT PRIMARY KEY CHECK (level >= 1),
-  -- The XP that reaches this level; NULL on a VIP tier, which XP never
-  -- reaches. UNIQUE: two levels at one threshold would be one level twice.
-  min_xp     BIGINT   UNIQUE CHECK (min_xp >= 0),
+  -- The XP that reaches this level. UNIQUE: two levels at one threshold would
+  -- be one level twice.
+  min_xp     BIGINT   NOT NULL UNIQUE CHECK (min_xp >= 0),
   title      TEXT     NOT NULL,
   -- The level's emoji, exactly as the owner gave it — some are two emoji, and
   -- the crossed swords, shield, medal and infinity carry a U+FE0F variation
   -- selector that must not be lost. Sent as user.playerLevel.icon; the app
   -- draws it from the phone's colour emoji font.
   icon       TEXT     NOT NULL,
-  -- The winning tax in basis points: 2000 = 20.00%, 10000 = the whole pot.
+  -- The winning tax in basis points: 2000 = 20.00%, 10000 = all the winnings.
   tax_bps    INTEGER  NOT NULL CHECK (tax_bps BETWEEN 0 AND 10000),
-  -- A property of the TIER, never of an account.
-  is_vip     BOOLEAN  NOT NULL,
   created_at BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
-  updated_at BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
-  -- VIP is granted by hand, never by XP (owner: "remember VIP Tag is not
-  -- granted by XP"): a VIP tier has no XP threshold, and every other level has.
-  CONSTRAINT player_levels_vip_has_no_min_xp CHECK (NOT is_vip OR min_xp IS NULL),
-  CONSTRAINT player_levels_level_has_min_xp CHECK (is_vip OR min_xp IS NOT NULL)
+  updated_at BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
 );
 
--- One row per source of XP. code is what the server knows it by
--- (db.XPSource*); name is an admin label. Retire a source with
--- is_active = FALSE — the seed would put a deleted row back (inactive rows are
--- left as they are).
+-- One row per badge. code is what the server and the app know it by; title
+-- and icon are what a player is shown (icon an emoji or a playing-card symbol,
+-- like a level's mark, or empty for none). tax_bps is the winning tax the
+-- badge brings its holder's down to — NULL on a badge that sets no rate.
+-- validity_days is how long a grant of the badge lasts from the moment it is
+-- given (0: for ever) — what user_badges.expires_at is filled from when a
+-- grant does not name its own. is_default: every player holds it with no
+-- user_badges row, for ever — Regular, as seeded (owner, 27 Sep 2026: "By
+-- default every user will hold this Regular badge"), which the store never
+-- lists. price_inr is what the badge costs, ALWAYS in
+-- Indian rupees, whole (owner, 27 Sep 2026: "include price column in badge
+-- with validity", "price in badges will always be in inr currency") — NULL
+-- where no price is set. The store's Badges shelf LISTS every
+-- active badge but the default one that has a price (owner, 27 Sep 2026:
+-- "Add a icon in Store to buy badges", then "for badges use this entry, not
+-- vips entry": the Royal badges).
+-- play_product_id makes a listed badge BUYABLE in the app: the Google Play
+-- managed product the shelf sells it as, bought through POST
+-- /api/purchases/google and granted by db.CreditBadgePurchase for its
+-- validity; a listed badge with none — every Royal badge, as seeded — is
+-- asked for through support ("for all type of royal badges Add a button to
+-- contact support in store") and granted by hand. Play holds the real price
+-- and currency a buyer pays; price_inr is what the shelf shows, and the record
+-- a purchase keeps. asset_url and asset_format are the badge's ART — a LOTTIE
+-- the store's card plays ("with their lottie animation u can store in db"),
+-- hosted as the picture catalogue's is (a Drive uc?export=download&id= link),
+-- IMAGE, SVG or RIVE as for a picture; NULL on a badge shown by its icon
+-- alone. Retire a badge with is_active = FALSE — its holders keep their rows
+-- and simply stop holding it — rather than deleting it, which would take every
+-- grant of it too.
+CREATE TABLE IF NOT EXISTS badges (
+  code            TEXT     PRIMARY KEY,
+  title           TEXT     NOT NULL,
+  icon            TEXT     NOT NULL DEFAULT '',
+  tax_bps         INTEGER  CHECK (tax_bps BETWEEN 0 AND 10000),
+  validity_days   INTEGER  NOT NULL DEFAULT 0 CHECK (validity_days >= 0),
+  price_inr       INTEGER  CHECK (price_inr >= 0),
+  play_product_id TEXT     UNIQUE,
+  asset_url       TEXT,
+  asset_format    TEXT     CHECK (asset_format IN ('IMAGE', 'SVG', 'LOTTIE', 'RIVE')),
+  is_default      BOOLEAN  NOT NULL DEFAULT FALSE,
+  is_active       BOOLEAN  NOT NULL DEFAULT TRUE,
+  sort_order      INTEGER  NOT NULL,
+  created_at      BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at      BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
+);
+
+-- The badges each player has been given, one row a badge (a player may hold
+-- several). Written by hand (V1.0.1's header has the statements) and by a
+-- store purchase of a buyable badge (db.CreditBadgePurchase, which extends a
+-- running grant by the badge's validity rather than restarting it).
+-- expires_at is when the grant runs out, epoch ms (0: never): a grant that
+-- leaves it out gets the badge's validity from granted_at
+-- (user_badges_expiry, below), so granting a badge is one plain INSERT and
+-- renewing it the same INSERT ON CONFLICT DO UPDATE. A grant past its
+-- expires_at is kept — the record of it — and simply no longer held.
+CREATE TABLE IF NOT EXISTS user_badges (
+  user_id    TEXT   NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  badge_code TEXT   NOT NULL REFERENCES badges (code) ON DELETE CASCADE,
+  granted_at BIGINT NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  expires_at BIGINT NOT NULL CHECK (expires_at >= 0),
+  PRIMARY KEY (user_id, badge_code)
+);
+
+-- A grant that does not say when it ends lasts the badge's validity_days from
+-- granted_at (0 days: for ever). NOT NULL is checked after BEFORE triggers,
+-- so a statement that leaves expires_at out reaches this with NULL. The
+-- function is replaced on every boot (a function takes no table lock); the
+-- trigger is created only when missing, so a boot never queues behind a
+-- reader of user_badges — every account read is one.
+CREATE OR REPLACE FUNCTION user_badges_expiry() RETURNS trigger AS $$
+BEGIN
+  IF NEW.expires_at IS NULL THEN
+    SELECT CASE WHEN b.validity_days = 0 THEN 0
+                ELSE NEW.granted_at + b.validity_days::bigint * 86400000 END
+      INTO NEW.expires_at
+      FROM badges b
+     WHERE b.code = NEW.badge_code;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgname = 'user_badges_expiry'
+       AND tgrelid = 'user_badges'::regclass
+  ) THEN
+    CREATE TRIGGER user_badges_expiry
+      BEFORE INSERT ON user_badges
+      FOR EACH ROW EXECUTE FUNCTION user_badges_expiry();
+  END IF;
+END;
+$$;
+
+-- The badges bought in the store (owner, 27 Sep 2026: "Add a icon in Store to
+-- buy badges"): the replay guard and the record of every Google Play purchase
+-- of a buyable badge (badges.play_product_id). The Play purchase token IS the
+-- primary key — db.CreditBadgePurchase inserts it ON CONFLICT DO NOTHING and
+-- grants the badge only when the insert took, in the same transaction, so a
+-- retry, a restore on a new install or the same token sent from another
+-- account grants nothing a second time. Like diamond_purchases, never
+-- chip_ledger's business: a badge is not chips. price_inr is the badge's
+-- price when it was bought (badges.price_inr; Play holds what was actually
+-- charged), and expires_at the end of the grant the purchase left — for
+-- support, and for reconciling a Play payout report.
+CREATE TABLE IF NOT EXISTS badge_purchases (
+  purchase_token TEXT    PRIMARY KEY,
+  user_id        TEXT    NOT NULL REFERENCES users (id),
+  product_id     TEXT    NOT NULL,
+  badge_code     TEXT    NOT NULL REFERENCES badges (code),
+  price_inr      INTEGER CHECK (price_inr >= 0),
+  expires_at     BIGINT  NOT NULL CHECK (expires_at >= 0),
+  created_at     BIGINT  NOT NULL
+);
+
+-- A player's badge purchases, newest first, for support.
+CREATE INDEX IF NOT EXISTS badge_purchases_user_idx ON badge_purchases (user_id, created_at);
+
+-- One row per daily XP source. code is its name for the app and the claims;
+-- name is the owner's label (the app names the kinds it knows in its own
+-- languages); icon the emoji the owner gave it. kind says what earns it —
+-- 'PLAY_TIME': play_minutes of active play in the window; 'WIN_HAND': a Teen
+-- Patti or Variation hand won with hand_rank (HIGH_CARD, PAIR, COLOR,
+-- SEQUENCE, PURE_SEQUENCE or TRAIL, as the table ranks it) — TEXT checked by
+-- the server, so a future kind is a row and code, never a migration. xp is
+-- what one earning gives; times_per_window how many times a window it can be
+-- earned. Retire a source with is_active = FALSE — the seed would put a
+-- deleted row back (inactive rows are left as they are).
 CREATE TABLE IF NOT EXISTS xp_sources (
-  code       TEXT    PRIMARY KEY,
-  name       TEXT    NOT NULL,
-  xp         INTEGER NOT NULL CHECK (xp >= 0),
-  is_active  BOOLEAN NOT NULL,
-  sort_order INTEGER NOT NULL,
-  created_at BIGINT  NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
-  updated_at BIGINT  NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
+  code             TEXT    PRIMARY KEY,
+  name             TEXT    NOT NULL,
+  icon             TEXT    NOT NULL DEFAULT '',
+  kind             TEXT    NOT NULL,
+  play_minutes     INTEGER CHECK (play_minutes > 0),
+  hand_rank        TEXT,
+  xp               INTEGER NOT NULL CHECK (xp >= 0),
+  times_per_window INTEGER NOT NULL DEFAULT 1 CHECK (times_per_window >= 1),
+  is_active        BOOLEAN NOT NULL,
+  sort_order       INTEGER NOT NULL,
+  created_at       BIGINT  NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at       BIGINT  NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
 );
 
 -- The one row of XP rules that belong to no source. id is always 1 — the CHECK
 -- makes a second row impossible. daily_cap is the most XP a player earns in one
--- window (0 = none at all); window_ms how long a window lasts from the award
--- that opened it — a rolling 24 hours per player, not a calendar day.
+-- window: NULL (as seeded) is no cap, 0 is none at all; window_ms how long a
+-- window lasts from the award that opened it — a rolling 24 hours per player,
+-- not a calendar day.
 CREATE TABLE IF NOT EXISTS xp_settings (
   id         SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
-  daily_cap  INTEGER  NOT NULL CHECK (daily_cap >= 0),
+  daily_cap  INTEGER  CHECK (daily_cap >= 0),
   window_ms  BIGINT   NOT NULL CHECK (window_ms > 0),
   created_at BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
   updated_at BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
 );
 
--- One row per player who has earned XP or been given a level by hand. Only
--- db.awardXP writes xp, window_start and window_xp, and it never names
--- level_override, which is set and cleared by hand (V1.0.1's header). An
--- override cannot name a level that does not exist, and a level somebody holds
--- by override cannot be deleted from under them. window_start is the epoch ms
--- the current window opened (0: none yet); window_xp what the player has
--- earned in it, never more than the cap it was earned under.
+-- One row per player who has completed a hand. Only db.awardXP writes it.
+-- window_start is the epoch ms the current window opened (0: none yet);
+-- window_xp what the player has earned in it, never more than a cap it was
+-- earned under.
 CREATE TABLE IF NOT EXISTS player_xp (
   user_id        TEXT     PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
   xp             BIGINT   NOT NULL DEFAULT 0 CHECK (xp >= 0),
-  level_override SMALLINT REFERENCES player_levels (level),
   window_start   BIGINT   NOT NULL DEFAULT 0 CHECK (window_start >= 0),
   window_xp      INTEGER  NOT NULL DEFAULT 0 CHECK (window_xp >= 0),
   created_at     BIGINT   NOT NULL,
   updated_at     BIGINT   NOT NULL
+);
+
+-- How many times each player has earned each source in the window that
+-- opened at window_start — a row from an earlier window counts as none. Only
+-- db.awardXP writes it, under the player's player_xp row lock, so a source is
+-- never earned more than its times_per_window in a window however many hands
+-- end at once.
+CREATE TABLE IF NOT EXISTS player_xp_claims (
+  user_id      TEXT    NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  source_code  TEXT    NOT NULL REFERENCES xp_sources (code) ON DELETE CASCADE,
+  window_start BIGINT  NOT NULL CHECK (window_start > 0),
+  claims       INTEGER NOT NULL CHECK (claims >= 0),
+  updated_at   BIGINT  NOT NULL,
+  PRIMARY KEY (user_id, source_code)
 );
 
 
@@ -1363,12 +1552,17 @@ CREATE TABLE IF NOT EXISTS table_configs (
   min_buy_in   BIGINT  NOT NULL CHECK (min_buy_in >= 0),
   max_discards INTEGER NOT NULL CHECK (max_discards BETWEEN 0 AND 5),
   -- Teen Patti only (owner, 26 Sep 2026): TRUE makes the table TAX ITS
-  -- WINNERS — the winner of each hand pays a share of the whole pot at the
-  -- rate of their player level (player_levels.tax_bps, below). Seeded TRUE on
-  -- blind and variation at 10 Lakh and FALSE everywhere else; a poker row's is
-  -- read as FALSE. No DEFAULT here, like every rule column; the guarded block
-  -- after this table gives an older database's rows FALSE.
+  -- WINNERS — the winner of each hand pays a share of what they WON, the pot
+  -- less their own contribution, at the rate they pay (their player level's,
+  -- or a badge's, below) — on winnings of tax_min_winnings or more, and never
+  -- on less (owner, 27 Sep 2026: "Apply this tax rule on all the tables,
+  -- blind, seen, variation", then "tax will be on total pot amount - amount
+  -- player contributed … 30 lakh is the limit on winning amount not on pot
+  -- limit"). Seeded TRUE with 30,00,000 on every public Seen, Blind and
+  -- Variation table; a private template's and a poker row's are read as
+  -- FALSE. No DEFAULT here, like every rule column.
   winner_tax   BOOLEAN NOT NULL,
+  tax_min_winnings  BIGINT  NOT NULL CHECK (tax_min_winnings >= 0),
   -- The menu position; the private templates sit after the public tables.
   sort_order INTEGER NOT NULL,
   is_active  BOOLEAN NOT NULL DEFAULT TRUE,

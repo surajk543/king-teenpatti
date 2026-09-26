@@ -57,7 +57,7 @@ test('quick-join: ack shape, snapshot shape, and the joiner hears room:state bef
   assert.equal(ready.config.privateMaxPot, 500000);
   assert.equal(ready.config.entryCapBoot, 200);
   assert.equal(ready.config.entryCapCategory, 'blind');
-  assert.equal(ready.config.entryCapMaxChips, 500000);
+  assert.equal(ready.config.entryCapMaxChips, 2000000, 'blind 200 is open up to 20 Lakh (owner, 27 Sep 2026)');
   assert.equal(ready.config.sideshowMinPlayers, 3);
 
   const bootAmount = uniqueStake();
@@ -511,8 +511,8 @@ test('the entry cap guards the cheapest blind table from the lobby, not from a s
   const exact = await guestLogin('device-parity-lobby-cap-exact', 'Exact');
   const filler = await guestLogin('device-parity-lobby-cap-filler', 'Filler');
   const modest = await guestLogin('device-parity-lobby-cap-modest', 'Modest');
-  await setWallet(rich.user.id, 500001, 'parity-lobby-cap-rich');
-  await setWallet(exact.user.id, 500000, 'parity-lobby-cap-exact');
+  await setWallet(rich.user.id, 2000001, 'parity-lobby-cap-rich');
+  await setWallet(exact.user.id, 2000000, 'parity-lobby-cap-exact');
   const cr = await openClient(rich.token);
   const ce = await openClient(exact.token);
   const cf = await openClient(filler.token);
@@ -520,7 +520,7 @@ test('the entry cap guards the cheapest blind table from the lobby, not from a s
 
   let ack = await cr.emit('room:quickJoin', { bootAmount: 200, category: 'blind' });
   assert.deepEqual(ack, {
-    ok: false, code: 'over_entry_cap', message: 'Players with more than 500,000 chips cannot join this table',
+    ok: false, code: 'over_entry_cap', message: 'Players with more than 2,000,000 chips cannot join this table',
   });
   ack = await ce.emit('room:quickJoin', { bootAmount: 200, category: 'blind' });
   assert.equal(ack.ok, true, 'a stack exactly at the cap may still join');
@@ -554,11 +554,11 @@ test('the entry cap guards the cheapest blind table from the lobby, not from a s
   await setWallet(rich.user.id, 1000, 'parity-lobby-cap-rich-drop');
   ack = await cr.emit('room:joinCode', { code: second.code });
   assert.equal(ack.ok, true, JSON.stringify(ack));
-  await setWallet(rich.user.id, 500001, 'parity-lobby-cap-rich-topup');
+  await setWallet(rich.user.id, 2000001, 'parity-lobby-cap-rich-topup');
   const sw = await cr.emit('room:switch', {});
   assert.equal(sw.ok, true, `switch is not capped: ${JSON.stringify(sw)}`);
   assert.equal(sw.roomId, capped.roomId, 'moved onto the other blind-200 table');
-  assert.equal(cr.last('room:joined').you.chips, 500001, 'the seat takes the live wallet');
+  assert.equal(cr.last('room:joined').you.chips, 2000001, 'the seat takes the live wallet');
 
   await closeAll(cr, ce, cf, cm);
 });

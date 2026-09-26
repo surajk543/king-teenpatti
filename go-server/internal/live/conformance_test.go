@@ -670,6 +670,89 @@ func runConformance(t *testing.T, newHarness func(t *testing.T) *harness) {
 		}
 	})
 
+	// The XP play time (owner, 26–27 Sep 2026): a player's active play in the
+	// XP window the database opened, counted per window and gone with it.
+	t.Run("PlayClockCountsAWindow", func(t *testing.T) {
+		h := newHarness(t)
+		pc, ok := PlayClockOf(h.store)
+		if !ok {
+			t.Fatalf("the %s store keeps no play time", h.kind)
+		}
+		const w1, w2 = int64(1_800_000_000_000), int64(1_800_086_400_000)
+		add := func(user string, window int64, play time.Duration) (time.Duration, time.Duration) {
+			t.Helper()
+			before, after, err := pc.AddPlayTime(ctx, user, window, play, h.ttl)
+			must(t, err)
+			return before, after
+		}
+		check := func(what string, gotBefore, gotAfter, before, after time.Duration) {
+			t.Helper()
+			if gotBefore != before || gotAfter != after {
+				t.Fatalf("%s: %v → %v, want %v → %v", what, gotBefore, gotAfter, before, after)
+			}
+		}
+		b, a := add("u1", w1, 10*time.Minute)
+		check("the first play", b, a, 0, 10*time.Minute)
+		b, a = add("u1", w1, 6*time.Minute)
+		check("more play", b, a, 10*time.Minute, 16*time.Minute)
+		b, a = add("u1", w1, 0)
+		check("no play", b, a, 16*time.Minute, 16*time.Minute)
+		b, a = add("u1", w1, -time.Minute)
+		check("negative play", b, a, 16*time.Minute, 16*time.Minute)
+		b, a = add("u2", w1, time.Minute)
+		check("another player's", b, a, 0, time.Minute)
+		// A new window starts from nothing, and the old one is gone for good.
+		b, a = add("u1", w2, 3*time.Minute)
+		check("a new window", b, a, 0, 3*time.Minute)
+		b, a = add("u1", w1, time.Minute)
+		check("the old window again", b, a, 0, time.Minute)
+		// The record lasts ttl from the last add.
+		add("u3", w1, 20*time.Minute)
+		h.advance(h.ttl / 2)
+		b, _ = add("u3", w1, 0)
+		check("half a ttl on", b, b, 20*time.Minute, 20*time.Minute)
+		past(h)
+		b, a = add("u3", w1, time.Minute)
+		check("past the ttl", b, a, 0, time.Minute)
+	})
+
+	t.Run("PlayClockConcurrentAdds", func(t *testing.T) {
+		h := newHarness(t)
+		pc, ok := PlayClockOf(h.store)
+		if !ok {
+			t.Fatalf("the %s store keeps no play time", h.kind)
+		}
+		const n = 32
+		befores := make([]time.Duration, n)
+		var wg sync.WaitGroup
+		for i := range n {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				before, _, err := pc.AddPlayTime(ctx, "u1", 7, time.Minute, h.ttl)
+				if err != nil {
+					t.Error(err)
+				}
+				befores[i] = before
+			}()
+		}
+		wg.Wait()
+		// Every add saw the others' play exactly once: the befores are 0..31
+		// minutes, each once, and the window holds 32.
+		seen := map[time.Duration]bool{}
+		for _, b := range befores {
+			seen[b] = true
+		}
+		for i := range n {
+			if !seen[time.Duration(i)*time.Minute] {
+				t.Fatalf("no add saw %d minutes before it: %v", i, befores)
+			}
+		}
+		if _, total, err := pc.AddPlayTime(ctx, "u1", 7, 0, h.ttl); err != nil || total != n*time.Minute {
+			t.Fatalf("the window holds %v (%v), want %v", total, err, n*time.Minute)
+		}
+	})
+
 	t.Run("CancelledContext", func(t *testing.T) {
 		h := newHarness(t)
 		cctx, cancel := context.WithCancel(ctx)

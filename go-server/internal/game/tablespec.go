@@ -37,11 +37,13 @@ func tableConfigFromSpec(resolved Category, spec config.TableSpec, chat config.C
 		NextHandDelay:      spec.NextHandDelay,
 		UnfundedGrace:      spec.UnfundedGrace,
 		MissileRevealExtra: spec.MissileRevealExtra,
-		// Whether it taxes its winners (owner, 26 Sep 2026): false on every
-		// other spec, so such a table's config and snapshot are what they were.
-		WinnerTax:      spec.WinnerTax,
-		ChatMaxHistory: chat.MaxHistory,
-		ChatMaxLength:  chat.MaxLength,
+		// Whether it taxes its winners (owner, 26 Sep 2026), and from what
+		// pot (27 Sep 2026): false and 0 on every other spec, so such a
+		// table's config and snapshot are what they were.
+		WinnerTax:            spec.WinnerTax,
+		WinnerTaxMinWinnings: spec.WinnerTaxMinWinnings,
+		ChatMaxHistory:       chat.MaxHistory,
+		ChatMaxLength:        chat.MaxLength,
 	}
 	if resolved.HasVariation() {
 		cfg.VariationSelectTimeout = spec.VariationSelectTimeout
@@ -58,24 +60,25 @@ func tableConfigFromSpec(resolved Category, spec config.TableSpec, chat config.C
 func (t *Table) RulesSpec() config.TableSpec {
 	c := t.cfg
 	spec := config.TableSpec{
-		Category:           string(c.Category),
-		BootAmount:         c.BootAmount,
-		Private:            t.isPrivate,
-		MaxPot:             c.MaxPot,
-		MaxRaiseSteps:      c.MaxRaiseSteps,
-		MaxBetRounds:       c.MaxBetRounds,
-		PotLimitMultiplier: c.PotLimitMultiplier,
-		MaxBlindMoves:      c.MaxBlindMoves,
-		MaxPlayers:         c.MaxPlayers,
-		MinPlayers:         c.MinPlayers,
-		TurnTimeout:        c.TurnTimeout,
-		MaxMissedTurns:     c.MaxMissedTurns,
-		SideshowTimeout:    c.SideshowTimeout,
-		SideshowMinPlayers: c.SideshowMinPlayers,
-		NextHandDelay:      c.NextHandDelay,
-		UnfundedGrace:      c.UnfundedGrace,
-		MissileRevealExtra: c.MissileRevealExtra,
-		WinnerTax:          c.WinnerTax,
+		Category:             string(c.Category),
+		BootAmount:           c.BootAmount,
+		Private:              t.isPrivate,
+		MaxPot:               c.MaxPot,
+		MaxRaiseSteps:        c.MaxRaiseSteps,
+		MaxBetRounds:         c.MaxBetRounds,
+		PotLimitMultiplier:   c.PotLimitMultiplier,
+		MaxBlindMoves:        c.MaxBlindMoves,
+		MaxPlayers:           c.MaxPlayers,
+		MinPlayers:           c.MinPlayers,
+		TurnTimeout:          c.TurnTimeout,
+		MaxMissedTurns:       c.MaxMissedTurns,
+		SideshowTimeout:      c.SideshowTimeout,
+		SideshowMinPlayers:   c.SideshowMinPlayers,
+		NextHandDelay:        c.NextHandDelay,
+		UnfundedGrace:        c.UnfundedGrace,
+		MissileRevealExtra:   c.MissileRevealExtra,
+		WinnerTax:            c.WinnerTax,
+		WinnerTaxMinWinnings: c.WinnerTaxMinWinnings,
 	}
 	if c.Category.HasVariation() {
 		spec.VariationSelectTimeout = c.VariationSelectTimeout

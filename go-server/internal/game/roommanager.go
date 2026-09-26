@@ -76,11 +76,16 @@ type LobbyTableOption struct {
 	MaxChips int64 `json:"maxChips"`
 
 	// WinnerTax is true on a table that TAXES ITS WINNERS (owner, 26 Sep 2026;
-	// config.TableSpec.WinnerTax): the winner of each hand pays their level's
-	// share of the whole pot. ABSENT on every other entry, whose bytes are
-	// unchanged. The rate is the player's own — their user.playerLevel — so
-	// the menu carries none. Go only.
+	// config.TableSpec.WinnerTax): the winner of each hand pays a share of
+	// what they won, the pot less their own contribution. ABSENT on every
+	// other entry, whose bytes are unchanged. The rate is the player's own —
+	// user.taxBps, from their level and badges — so the menu carries none. Go
+	// only.
 	WinnerTax bool `json:"winnerTax,omitempty"`
+	// WinnerTaxMinWinnings are the smallest winnings that table taxes (owner,
+	// 27 Sep 2026: "no tax for winning amount less than 50 Lakh"); ABSENT
+	// where it is 0 and on every table that does not tax.
+	WinnerTaxMinWinnings int64 `json:"winnerTaxMinWinnings,omitempty"`
 
 	// ---- poker entries only (POKER_PLAN.md §4); ABSENT on every Teen Patti
 	// entry, whose bytes are unchanged ----

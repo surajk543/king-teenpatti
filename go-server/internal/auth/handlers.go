@@ -377,7 +377,10 @@ func (h *Handler) Daily(w http.ResponseWriter, r *http.Request, user *db.User) {
 // answer carries all four figures — chips, diamonds, hammers, missiles. A
 // chip, diamond or hammer pack sets exactly one of them; a premium package
 // (owner, 14 Sep 2026) sets chips, missiles and hammers, and the user in the
-// answer holds all three.
+// answer holds all three. It serves the store's badges too (owner, 27 Sep
+// 2026): a product id no pack has but a buyable badge names grants that badge
+// for its validity, all four figures 0, the answer's `badge` naming it and
+// the user in the answer holding it.
 //
 // The client sends only what Play gave it: which product, and the purchase
 // token. It does NOT send an amount, and the server would not read one if it
@@ -426,6 +429,9 @@ func (h *Handler) BuyChips(w http.ResponseWriter, r *http.Request, user *db.User
 		// A premium package carries hammers too, but it is a chip purchase
 		// with missiles and hammers beside it, not a hammer pack.
 		switch {
+		case out.Badge != nil:
+			h.deps.Logger.Info("badge purchased",
+				"userId", user.ID, "productId", body.ProductID, "badge", out.Badge.Code, "expiresAt", out.Badge.ExpiresAt)
 		case out.Diamonds > 0:
 			h.deps.Logger.Info("diamonds purchased",
 				"userId", user.ID, "productId", body.ProductID, "diamonds", out.Diamonds)
@@ -438,7 +444,7 @@ func (h *Handler) BuyChips(w http.ResponseWriter, r *http.Request, user *db.User
 				"missiles", out.Missiles, "hammers", out.Hammers)
 		}
 	}
-	WriteJSON(w, http.StatusOK, map[string]any{
+	answer := map[string]any{
 		"credited": out.Credited,
 		"chips":    out.Chips,
 		"diamonds": out.Diamonds,
@@ -446,7 +452,13 @@ func (h *Handler) BuyChips(w http.ResponseWriter, r *http.Request, user *db.User
 		"missiles": out.Missiles,
 		"balance":  out.Balance,
 		"user":     out.User,
-	})
+	}
+	// A badge purchase says which badge and until when; every other
+	// product's answer keeps exactly its seven keys.
+	if out.Badge != nil {
+		answer["badge"] = out.Badge
+	}
+	WriteJSON(w, http.StatusOK, answer)
 }
 
 // logRefusedLogin leaves one `login refused` line (provider, code, status,
@@ -1030,6 +1042,29 @@ func (h *Handler) Emojis(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	WriteJSON(w, http.StatusOK, EmojisResponse{Emojis: emojis})
+}
+
+// Levels is GET /api/levels (owner, 27 Sep 2026: the table's tax pill,
+// tapped, shows "everything in detail and … all levels and taxes"): the whole
+// level ladder — every level with its title, icon, the XP that reaches it and
+// the winning tax it carries —, every active badge with the rate it brings a
+// holder's down to and how long a grant of it lasts, the active XP sources and
+// the day's cap (db.LevelLadder). PUBLIC, like
+// GET /api/tables: it is configuration and says nothing about any player, so
+// no token is read. Cache-Control: no-cache — an owner's UPDATE to a row is on
+// it at the next read.
+func (h *Handler) Levels(w http.ResponseWriter, r *http.Request) {
+	ladder := db.LevelLadder{Levels: []db.LadderLevel{}, XPSources: []db.LadderSource{}}
+	if h.deps.Levels != nil {
+		got, err := h.deps.Levels.Ladder(r.Context())
+		if err != nil {
+			h.writeError(w, r, err)
+			return
+		}
+		ladder = got
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+	WriteJSON(w, http.StatusOK, ladder)
 }
 
 // BuyEmoji is POST /api/emojis/buy {emojiId} (owner, 26 Sep 2026; Go only):

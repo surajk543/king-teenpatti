@@ -36,13 +36,12 @@ type Memory struct {
 	xpDays map[string]*memXPDay // userID → XP play-time window (PlayClock)
 }
 
-// memXPDay is one player's XP play-time window: when it opened, the play in
-// it, the marks claimed (PlayMark.Field), and when it is gone.
+// memXPDay is one player's XP play-time record: the window it counts in (its
+// epoch-ms start), the play in it, and when the record is gone.
 type memXPDay struct {
-	start     time.Time
-	play      time.Duration
-	claimed   map[string]bool
-	expiresAt time.Time
+	windowStart int64
+	play        time.Duration
+	expiresAt   time.Time
 }
 
 type memTable struct {
@@ -103,46 +102,27 @@ func NewMemoryWithClock(now func() time.Time) Store {
 
 var _ PlayClock = (*Memory)(nil)
 
-// AddPlayTime implements PlayClock under the one mutex, so a mark is claimed
-// by exactly one call.
-func (m *Memory) AddPlayTime(ctx context.Context, userID string, play time.Duration, now time.Time, window time.Duration) (PlayTime, error) {
+// AddPlayTime implements PlayClock under the one mutex.
+func (m *Memory) AddPlayTime(ctx context.Context, userID string, windowStart int64, play, ttl time.Duration) (time.Duration, time.Duration, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.enter(ctx); err != nil {
-		return PlayTime{}, err
+		return 0, 0, err
 	}
 	day := m.xpDays[userID]
-	if day != nil && !day.expiresAt.After(m.now()) {
+	if day != nil && (!day.expiresAt.After(m.now()) || day.windowStart != windowStart) {
 		day = nil
 	}
 	if day == nil {
-		day = &memXPDay{start: now, claimed: map[string]bool{}, expiresAt: now.Add(window)}
+		day = &memXPDay{windowStart: windowStart}
 		m.xpDays[userID] = day
 	}
+	before := day.play
 	if play > 0 {
 		day.play += play
 	}
-	out := PlayTime{Start: day.start, Play: day.play, Claimed: []string{}}
-	for _, mark := range PlayMarks() {
-		if day.play >= mark.At && !day.claimed[mark.Field] {
-			day.claimed[mark.Field] = true
-			out.Claimed = append(out.Claimed, mark.Field)
-		}
-	}
-	return out, nil
-}
-
-// ClearPlayMark implements PlayClock.
-func (m *Memory) ClearPlayMark(ctx context.Context, userID, mark string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.enter(ctx); err != nil {
-		return err
-	}
-	if day := m.xpDays[userID]; day != nil && day.expiresAt.After(m.now()) {
-		delete(day.claimed, mark)
-	}
-	return nil
+	day.expiresAt = m.now().Add(ttl)
+	return before, day.play, nil
 }
 
 // Kind implements Store.

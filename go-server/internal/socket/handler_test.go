@@ -464,13 +464,14 @@ func TestPublicCreateIsValidatedLikeQuickJoin(t *testing.T) {
 	st.mustFail(p.c, EvRoomCreate, map[string]any{"isPrivate": false, "bootAmount": 5000, "category": "seen"}, game.CodeTableNotOffered)
 	st.users.setChips(p.user.ID, 100)
 	st.mustFail(p.c, EvRoomCreate, map[string]any{"isPrivate": false, "bootAmount": 200}, game.CodeInsufficientChips)
-	st.users.setChips(p.user.ID, 600000)
+	st.users.setChips(p.user.ID, 2_000_001)
 	ack := st.mustFail(p.c, EvRoomCreate, map[string]any{"isPrivate": null(), "bootAmount": 200, "category": "blind"}, game.CodeOverEntryCap)
-	if ack.Message != "Players with more than 500,000 chips cannot join this table" {
+	if ack.Message != "Players with more than 2,000,000 chips cannot join this table" {
 		t.Fatalf("over_entry_cap message %q", ack.Message)
 	}
 	// The table's stack band too, as a quick join checks it: blind 5000 here is
 	// for 10 Lakh or more.
+	st.users.setChips(p.user.ID, 600000)
 	band := st.mustFail(p.c, EvRoomCreate, map[string]any{"isPrivate": false, "bootAmount": 5000, "category": "blind"}, game.CodeBelowTableMinimum)
 	if band.Message != "This table is for players with 1,000,000 chips or more" {
 		t.Fatalf("below_table_minimum message %q", band.Message)

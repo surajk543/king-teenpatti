@@ -126,8 +126,9 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	// table taxes its winners) and no guarded block: the build goes onto a
 	// fresh database (owner: "treat this as fresh deployment not a migration
 	// one").
-	if configs := squash(createTableBody(t, baseline, "table_configs")); !strings.Contains(configs, "winner_tax BOOLEAN NOT NULL,") {
-		t.Errorf("CREATE TABLE table_configs must declare winner_tax BOOLEAN NOT NULL with no DEFAULT:\n%s", configs)
+	if configs := squash(createTableBody(t, baseline, "table_configs")); !strings.Contains(configs, "winner_tax BOOLEAN NOT NULL,") ||
+		!strings.Contains(configs, "tax_min_winnings BIGINT NOT NULL CHECK (tax_min_winnings >= 0),") {
+		t.Errorf("CREATE TABLE table_configs must declare winner_tax BOOLEAN NOT NULL and tax_min_winnings BIGINT NOT NULL CHECK (tax_min_winnings >= 0), with no DEFAULT:\n%s", configs)
 	}
 	// The table catalogue's key is declared in its CREATE TABLE, generated and
 	// UNIQUE, not built by a CREATE INDEX: a boot that changes nothing then
@@ -335,44 +336,101 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 			t.Errorf("%s lacks %q", migrations[0].File, want)
 		}
 	}
-	// Player levels and XP (owner, 26 Sep 2026): four more tables in the
-	// baseline, after the Lucky Draw and before the table catalogue —
-	// player_xp last of them, since it names a player and a level — and their
-	// rows in the seed, never any player's. VIP is structural: a VIP tier has
-	// no XP threshold and every other level has one.
+	// Player levels, badges and XP (owner, 26–27 Sep 2026): six more tables
+	// in the baseline, after the Lucky Draw and before the table catalogue —
+	// user_badges after the badges it names, player_xp last — and their rows
+	// in the seed, never any player's. A level is XP alone: every level has a
+	// threshold, and a badge is not a level ("Vip is not a level, it is
+	// badge"); a badge grant has an end, filled from the badge's validity.
 	if !inOrder(baseline, "CREATE TABLE IF NOT EXISTS user_lucky_draws", "CREATE TABLE IF NOT EXISTS player_levels",
+		"CREATE TABLE IF NOT EXISTS badges", "CREATE TABLE IF NOT EXISTS user_badges", "CREATE TABLE IF NOT EXISTS badge_purchases",
 		"CREATE TABLE IF NOT EXISTS xp_sources", "CREATE TABLE IF NOT EXISTS xp_settings", "CREATE TABLE IF NOT EXISTS player_xp",
-		"CREATE TABLE IF NOT EXISTS table_engines") {
-		t.Error("the baseline must create player_levels, xp_sources, xp_settings and player_xp in that order, after the Lucky Draw")
+		"CREATE TABLE IF NOT EXISTS player_xp_claims", "CREATE TABLE IF NOT EXISTS table_engines") {
+		t.Error("the baseline must create player_levels, badges, user_badges, badge_purchases, xp_sources, xp_settings, player_xp and player_xp_claims in that order, after the Lucky Draw")
+	}
+	// The store's badges (owner, 27 Sep 2026): a price, always in rupees, and
+	// the Play product that makes a badge buyable; every purchase a receipt
+	// keyed by its token.
+	badgeRows := squash(createTableBody(t, baseline, "badges"))
+	for _, want := range []string{"price_inr INTEGER CHECK (price_inr >= 0)", "play_product_id TEXT UNIQUE"} {
+		if !strings.Contains(badgeRows, want) {
+			t.Errorf("CREATE TABLE badges must declare %q:\n%s", want, badgeRows)
+		}
+	}
+	receipts := squash(createTableBody(t, baseline, "badge_purchases"))
+	for _, want := range []string{"purchase_token TEXT PRIMARY KEY", "user_id TEXT NOT NULL REFERENCES users (id)",
+		"badge_code TEXT NOT NULL REFERENCES badges (code)", "price_inr INTEGER CHECK (price_inr >= 0)",
+		"expires_at BIGINT NOT NULL CHECK (expires_at >= 0)"} {
+		if !strings.Contains(receipts, want) {
+			t.Errorf("CREATE TABLE badge_purchases must declare %q:\n%s", want, receipts)
+		}
+	}
+	sources := squash(createTableBody(t, baseline, "xp_sources"))
+	for _, want := range []string{"code TEXT PRIMARY KEY", "icon TEXT NOT NULL DEFAULT ''", "kind TEXT NOT NULL",
+		"play_minutes INTEGER CHECK (play_minutes > 0)", "hand_rank TEXT", "xp INTEGER NOT NULL CHECK (xp >= 0)",
+		"times_per_window INTEGER NOT NULL DEFAULT 1 CHECK (times_per_window >= 1)"} {
+		if !strings.Contains(sources, want) {
+			t.Errorf("CREATE TABLE xp_sources must declare %q:\n%s", want, sources)
+		}
+	}
+	claims := squash(createTableBody(t, baseline, "player_xp_claims"))
+	for _, want := range []string{"user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE",
+		"source_code TEXT NOT NULL REFERENCES xp_sources (code) ON DELETE CASCADE",
+		"window_start BIGINT NOT NULL CHECK (window_start > 0)", "claims INTEGER NOT NULL CHECK (claims >= 0)",
+		"PRIMARY KEY (user_id, source_code)"} {
+		if !strings.Contains(claims, want) {
+			t.Errorf("CREATE TABLE player_xp_claims must declare %q:\n%s", want, claims)
+		}
 	}
 	levels := squash(createTableBody(t, baseline, "player_levels"))
-	for _, want := range []string{"level SMALLINT PRIMARY KEY", "min_xp BIGINT UNIQUE CHECK (min_xp >= 0)", "title TEXT NOT NULL",
-		"icon TEXT NOT NULL", "tax_bps INTEGER NOT NULL CHECK (tax_bps BETWEEN 0 AND 10000)", "is_vip BOOLEAN NOT NULL",
-		"CHECK (NOT is_vip OR min_xp IS NULL)", "CHECK (is_vip OR min_xp IS NOT NULL)"} {
+	for _, want := range []string{"level SMALLINT PRIMARY KEY", "min_xp BIGINT NOT NULL UNIQUE CHECK (min_xp >= 0)", "title TEXT NOT NULL",
+		"icon TEXT NOT NULL", "tax_bps INTEGER NOT NULL CHECK (tax_bps BETWEEN 0 AND 10000)"} {
 		if !strings.Contains(levels, want) {
 			t.Errorf("CREATE TABLE player_levels must declare %q:\n%s", want, levels)
 		}
 	}
+	if strings.Contains(levels, "is_vip") {
+		t.Error("player_levels must not carry a VIP tier: VIP is a badge")
+	}
+	badges := squash(createTableBody(t, baseline, "badges"))
+	for _, want := range []string{"code TEXT PRIMARY KEY", "tax_bps INTEGER CHECK (tax_bps BETWEEN 0 AND 10000)",
+		"validity_days INTEGER NOT NULL DEFAULT 0 CHECK (validity_days >= 0)", "is_default BOOLEAN NOT NULL DEFAULT FALSE",
+		"is_active BOOLEAN NOT NULL DEFAULT TRUE"} {
+		if !strings.Contains(badges, want) {
+			t.Errorf("CREATE TABLE badges must declare %q:\n%s", want, badges)
+		}
+	}
+	grants := squash(createTableBody(t, baseline, "user_badges"))
+	for _, want := range []string{"user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE",
+		"badge_code TEXT NOT NULL REFERENCES badges (code) ON DELETE CASCADE",
+		"expires_at BIGINT NOT NULL CHECK (expires_at >= 0)", "PRIMARY KEY (user_id, badge_code)"} {
+		if !strings.Contains(grants, want) {
+			t.Errorf("CREATE TABLE user_badges must declare %q:\n%s", want, grants)
+		}
+	}
 	xpRows := squash(createTableBody(t, baseline, "player_xp"))
 	for _, want := range []string{"user_id TEXT PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE",
-		"xp BIGINT NOT NULL DEFAULT 0 CHECK (xp >= 0)", "level_override SMALLINT REFERENCES player_levels (level)",
+		"xp BIGINT NOT NULL DEFAULT 0 CHECK (xp >= 0)",
 		"window_start BIGINT NOT NULL DEFAULT 0", "window_xp INTEGER NOT NULL DEFAULT 0"} {
 		if !strings.Contains(xpRows, want) {
 			t.Errorf("CREATE TABLE player_xp must declare %q:\n%s", want, xpRows)
 		}
 	}
+	if strings.Contains(xpRows, "level_override") {
+		t.Error("player_xp must not carry a level set by hand: a level is XP alone")
+	}
 	if settings := squash(createTableBody(t, baseline, "xp_settings")); !strings.Contains(settings, "CHECK (id = 1)") ||
-		!strings.Contains(settings, "daily_cap INTEGER NOT NULL CHECK (daily_cap >= 0)") || !strings.Contains(settings, "window_ms BIGINT NOT NULL CHECK (window_ms > 0)") {
+		!strings.Contains(settings, "daily_cap INTEGER CHECK (daily_cap >= 0)") || !strings.Contains(settings, "window_ms BIGINT NOT NULL CHECK (window_ms > 0)") {
 		t.Errorf("CREATE TABLE xp_settings must be one row with its cap and window:\n%s", settings)
 	}
-	for _, want := range []string{"INSERT INTO player_levels", "ON CONFLICT (level) DO NOTHING", "INSERT INTO xp_sources",
-		"ON CONFLICT (code) DO NOTHING", "INSERT INTO xp_settings"} {
+	for _, want := range []string{"INSERT INTO player_levels", "ON CONFLICT (level) DO NOTHING", "INSERT INTO badges",
+		"INSERT INTO xp_sources", "ON CONFLICT (code) DO NOTHING", "INSERT INTO xp_settings"} {
 		if !strings.Contains(seed, want) {
 			t.Errorf("%s lacks %q", migrations[1].File, want)
 		}
 	}
-	if strings.Contains(seed, "INTO player_xp") {
-		t.Errorf("%s must seed no player's XP", migrations[1].File)
+	if strings.Contains(statementsOf(seed), "INTO player_xp") || strings.Contains(statementsOf(seed), "INTO user_badges") {
+		t.Errorf("%s must seed no player's XP or claims and give nobody a badge", migrations[1].File)
 	}
 
 	if !strings.Contains(db.SchemaSQL(), "chip_ledger_no_rewrite") {
@@ -488,9 +546,10 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	// owns which (26 Sep 2026), the Lucky Draw's three, the four
 	// configuration tables, Friends V1's three (26 Sep 2026: the gameplay
 	// counters moved off users into player_stats, and the social graph,
-	// friend_requests and friendships), and the player levels and XP (26 Sep
-	// 2026: the ladder, the XP sources and settings, and each player's XP) —
-	// twenty-nine, and no game state (the baseline's header).
+	// friend_requests and friendships), and the player levels, badges and XP
+	// (26–27 Sep 2026: the ladder, the badges and who holds which, the XP
+	// sources and settings, each player's XP and what they have earned of the
+	// daily XP) — thirty-two, and no game state (the baseline's header).
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
 	if err != nil {
@@ -508,11 +567,11 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends",
+	want := []string{"badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends",
 		"lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends",
-		"player_levels", "player_stats", "player_xp",
+		"player_levels", "player_stats", "player_xp", "player_xp_claims",
 		"profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
-		"user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users",
+		"user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users",
 		"xp_settings", "xp_sources"}
 	if strings.Join(tables, ",") != strings.Join(want, ",") {
 		t.Fatalf("schema %s has tables\n %v\nwant\n %v", f.d.Schema, tables, want)

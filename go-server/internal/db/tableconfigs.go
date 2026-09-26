@@ -79,7 +79,8 @@ func (s *TableConfigs) Load(ctx context.Context) (config.TableCatalogue, error) 
        t.max_pot, t.max_raise_steps, t.max_bet_rounds, t.pot_limit_multiplier, t.max_blind_moves,
        t.turn_timeout_ms, t.max_missed_turns, t.sideshow_timeout_ms, t.sideshow_min_players,
        t.next_hand_delay_ms, t.unfunded_grace_ms, t.missile_reveal_extra_ms,
-       t.variation_select_timeout_ms, t.five_card_pick_timeout_ms, t.min_buy_in, t.max_discards, t.winner_tax, t.sort_order
+       t.variation_select_timeout_ms, t.five_card_pick_timeout_ms, t.min_buy_in, t.max_discards, t.winner_tax, t.tax_min_winnings,
+       t.sort_order
   FROM `+s.table("table_configs")+` t
   JOIN `+s.table("table_categories")+` c ON c.code = t.category
   JOIN `+s.table("table_engines")+` e ON e.code = c.engine
@@ -96,7 +97,8 @@ func (s *TableConfigs) Load(ctx context.Context) (config.TableCatalogue, error) 
 			&spec.MaxPot, &spec.MaxRaiseSteps, &spec.MaxBetRounds, &spec.PotLimitMultiplier, &spec.MaxBlindMoves,
 			&turn, &spec.MaxMissedTurns, &sideshow, &spec.SideshowMinPlayers,
 			&nextHand, &grace, &missile,
-			&selectWindow, &pickWindow, &spec.MinBuyIn, &spec.MaxDiscards, &spec.WinnerTax, &spec.SortOrder); err != nil {
+			&selectWindow, &pickWindow, &spec.MinBuyIn, &spec.MaxDiscards, &spec.WinnerTax, &spec.WinnerTaxMinWinnings,
+			&spec.SortOrder); err != nil {
 			return config.TableCatalogue{}, fmt.Errorf("read table_configs: %w", err)
 		}
 		spec.TurnTimeout = millis(turn)
@@ -385,7 +387,7 @@ func tableConfigFigureColumns() []string {
 		"next_hand_delay_ms", "unfunded_grace_ms", "missile_reveal_extra_ms",
 		"variation_select_timeout_ms", "five_card_pick_timeout_ms",
 		"min_buy_in", "max_discards",
-		"winner_tax",
+		"winner_tax", "tax_min_winnings",
 	}
 }
 
@@ -404,8 +406,9 @@ func tableConfigFigures(spec config.TableSpec) []string {
 	for _, v := range values {
 		out = append(out, strconv.FormatInt(v, 10))
 	}
-	// Whether the table taxes its winners (owner, 26 Sep 2026).
-	return append(out, sqlBool(spec.WinnerTax))
+	// Whether the table taxes its winners (owner, 26 Sep 2026), and the
+	// smallest pot it taxes (27 Sep 2026).
+	return append(out, sqlBool(spec.WinnerTax), strconv.FormatInt(spec.WinnerTaxMinWinnings, 10))
 }
 
 // tableKeyOf is the table_key PostgreSQL generates for spec's row. Computed

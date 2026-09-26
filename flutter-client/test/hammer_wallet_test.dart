@@ -69,6 +69,7 @@ void main() {
         StoreTab.pictures,
         StoreTab.tables,
         StoreTab.emojis,
+        StoreTab.badges,
       ]);
     });
   });

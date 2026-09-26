@@ -174,14 +174,16 @@ func New(deps Deps) *Handler {
 	}
 }
 
-// PushPlayerLevel sends player:level — the account's own level, XP and
-// winning-tax rate — to that account's live socket, and to nobody else
+// PushPlayerLevel sends player:level — the account's own standing: level and
+// XP, badges and the winning tax they pay (db.Standing: {playerLevel, badges,
+// taxBps}, the user object's three keys of the same names) — to that
+// account's live socket, and to nobody else
 // (owner, 26 Sep 2026): the app calls it after an XP award that changed the
 // player's XP has committed. Nothing when the account has no socket here; it
 // reads its level with the account next time. Safe from any goroutine,
 // including a table's actor (it takes the socket index lock only to look the
 // socket up, as every table event's delivery does).
-func (h *Handler) PushPlayerLevel(userID string, level db.PlayerLevel) {
+func (h *Handler) PushPlayerLevel(userID string, level db.Standing) {
 	h.emitToUser(userID, EvPlayerLevel, level)
 }
 

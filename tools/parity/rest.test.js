@@ -28,8 +28,9 @@ const USER_KEYS = [
   'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'tablePicture', 'chips', 'diamond', 'hammer', 'missile',
   'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'rewards',
   'createdAt', 'lastLoginAt',
-  // The player's own level, XP and winning-tax rate (owner, 26 Sep 2026; Go only).
-  'playerLevel',
+  // The player's own standing (owner, 26–27 Sep 2026; Go only): their level
+  // and XP, the badges they hold, and the winning tax they pay.
+  'playerLevel', 'badges', 'taxBps',
 ];
 const REWARD_KEYS = [
   'milestoneAvailable', 'milestoneAt', 'milestoneReward', 'milestoneEvery', 'handsToNextMilestone',
@@ -915,7 +916,7 @@ const ENGINES = [
 ];
 /** The public tables V1.0.1__seed.sql writes into a fresh schema, in menu order. */
 const SEEDED_TABLE_KEYS = [
-  'seen:200', 'blind:200', 'blind:5000', 'blind:50000', 'blind:1000000', 'variation:50000', 'variation:1000000',
+  'seen:200', 'blind:200', 'blind:5000', 'blind:50000', 'blind:2000000', 'variation:50000', 'variation:2000000',
   'seen:50000', 'three_card_poker:50000', 'five_card_draw:50000', 'texas_holdem:50000', 'omaha:50000',
 ];
 
@@ -1002,7 +1003,7 @@ test('GET /api/tables carries the figures its source gives: the seeded rows from
     assert.equal(body.bootAmount, 200);
     assert.equal(body.turnTimeoutMs, 25000);
     assert.equal(body.sideshowTimeoutMs, 6000);
-    assert.deepEqual(body.stakes, [200, 5000, 50000, 1000000]);
+    assert.deepEqual(body.stakes, [200, 5000, 50000, 2000000]);
     assert.deepEqual(body.categories, CATEGORY_ORDER);
     assert.deepEqual(body.tables.map((entry) => entry.key), SEEDED_TABLE_KEYS);
     assert.deepEqual(body.tables.map((entry) => entry.sortOrder), SEEDED_TABLE_KEYS.map((_, i) => (i + 1) * 10));

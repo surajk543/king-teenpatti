@@ -1,15 +1,18 @@
 package db_test
 
 // Player levels and XP (owner, 26 Sep 2026; db/levels.go, V1.0.0's PLAYER
-// LEVELS): the owner's ladder as seeded, the level rule — VIP never reached by
+// LEVELS): the owner's ladder as seeded, the level rule — a badge never reached by
 // XP — the one award function with its daily cap and rolling window, the XP a
 // hand-end settle awards in its own transaction, and the two ledger rows of a
 // taxed win.
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,79 +23,76 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 )
 
-func xpAt(n int64) *int64 { return &n }
-
-// ownersLevels is the owner's table, exactly (26 Sep 2026): level, the XP that
-// reaches it (nil: never — the VIP tier), title, icon, winning tax in basis
-// points, and whether it is the VIP tier. The icons are written with escapes
+// ownersLevels is the owner's table, exactly (26 Sep 2026, with the tax bracket
+// of 27 Sep 2026: 20% at Level 1 to 6% at Level 50): level, the XP that
+// reaches it, title, icon and winning tax in basis points. A badge is not a
+// level (owner, 27 Sep 2026: "Vip is not a level, it is badge"). The icons are written with escapes
 // so an editor cannot drop a U+FE0F variation selector or merge two emoji.
 var ownersLevels = []struct {
 	level  int
-	minXP  *int64
+	minXP  int64
 	title  string
 	icon   string
 	taxBps int
-	vip    bool
 }{
-	{1, xpAt(0), "Newbie", "\U0001F331", 2000, false},
-	{2, xpAt(100), "Rookie", "\U0001F530", 1980, false},
-	{3, xpAt(250), "Beginner", "\u2B50", 1959, false},
-	{4, xpAt(500), "Player", "\U0001F3AE", 1939, false},
-	{5, xpAt(800), "Regular", "\U0001F7E2", 1918, false},
-	{6, xpAt(1200), "Challenger", "\u2694\uFE0F", 1898, false},
-	{7, xpAt(1700), "Skilled", "\U0001F3AF", 1878, false},
-	{8, xpAt(2300), "Contender", "\U0001F6E1\uFE0F", 1857, false},
-	{9, xpAt(3000), "Fighter", "\u2694\uFE0F", 1837, false},
-	{10, xpAt(4000), "Rising Star", "\U0001F31F", 1816, false},
-	{11, xpAt(5200), "Pro Player", "\U0001F3C5", 1796, false},
-	{12, xpAt(6700), "Veteran", "\U0001F396\uFE0F", 1776, false},
-	{13, xpAt(8500), "Expert", "\U0001F9E0", 1755, false},
-	{14, xpAt(10500), "Specialist", "\U0001F4A0", 1735, false},
-	{15, xpAt(13000), "Ace", "\U0001F0CF", 1714, false},
-	{16, xpAt(16000), "Elite", "\U0001F48E", 1694, false},
-	{17, xpAt(20000), "Master", "\U0001F451", 1673, false},
-	{18, xpAt(25000), "Grand Master", "\U0001F451\u2694\uFE0F", 1653, false},
-	{19, xpAt(31000), "Champion", "\U0001F3C6", 1633, false},
-	{20, xpAt(38000), "High Roller", "\U0001F4B0", 1612, false},
-	{21, xpAt(46000), "Royal", "\U0001F451", 1592, false},
-	{22, xpAt(55000), "Royal Ace", "\U0001F0CF\U0001F451", 1571, false},
-	{23, xpAt(65000), "Royal Master", "\U0001F451\U0001F48E", 1551, false},
-	{24, xpAt(76000), "Supreme", "\U0001F531", 1531, false},
-	{25, xpAt(88000), "Supreme Ace", "\U0001F531\U0001F0CF", 1510, false},
-	{26, xpAt(102000), "Legend", "\U0001F320", 1490, false},
-	{27, xpAt(118000), "Legendary", "\u2728", 1469, false},
-	{28, xpAt(136000), "Grand Legend", "\U0001F31F\U0001F451", 1449, false},
-	{29, xpAt(156000), "Immortal", "\u267E\uFE0F", 1429, false},
-	{30, xpAt(178000), "Titan", "\u26A1", 1408, false},
-	{31, xpAt(202000), "Elite Titan", "\u26A1\U0001F48E", 1388, false},
-	{32, xpAt(228000), "Royal Titan", "\u26A1\U0001F451", 1367, false},
-	{33, xpAt(256000), "Emperor", "\U0001F451", 1347, false},
-	{34, xpAt(286000), "Royal Emperor", "\U0001F451\U0001F48E", 1327, false},
-	{35, xpAt(318000), "Supreme Emperor", "\U0001F531\U0001F451", 1306, false},
-	{36, xpAt(352000), "King", "\U0001F451", 1286, false},
-	{37, xpAt(390000), "Grand King", "\U0001F451\U0001F3C6", 1265, false},
-	{38, xpAt(432000), "Royal King", "\U0001F451\U0001F48E", 1245, false},
-	{39, xpAt(478000), "Supreme King", "\U0001F531\U0001F451", 1224, false},
-	{40, xpAt(528000), "Master King", "\U0001F451\u2694\uFE0F", 1204, false},
-	{41, xpAt(585000), "Overlord", "\U0001F525", 1184, false},
-	{42, xpAt(650000), "Grand Overlord", "\U0001F525\U0001F451", 1163, false},
-	{43, xpAt(725000), "Royal Overlord", "\U0001F525\U0001F48E", 1143, false},
-	{44, xpAt(810000), "Supreme Overlord", "\U0001F525\U0001F531", 1122, false},
-	{45, xpAt(900000), "Mythic", "\U0001F30C", 1102, false},
-	{46, xpAt(1000000), "Mythic King", "\U0001F30C\U0001F451", 1082, false},
-	{47, xpAt(1150000), "Immortal King", "\u267E\uFE0F\U0001F451", 1061, false},
-	{48, xpAt(1350000), "Legendary King", "\U0001F31F\U0001F451", 1041, false},
-	{49, xpAt(1600000), "Supreme Legend", "\U0001F531\U0001F31F", 1020, false},
-	{50, xpAt(2000000), "King of Kings", "\U0001F451\U0001F451", 1000, false},
-	{51, nil, "VIP", "\U0001F48E\U0001F451", 400, true},
+	{1, 0, "Newbie", "\U0001F331", 2000},
+	{2, 100, "Rookie", "\U0001F530", 1971},
+	{3, 250, "Beginner", "\u2B50", 1943},
+	{4, 500, "Player", "\U0001F3AE", 1914},
+	{5, 800, "Regular", "\U0001F7E2", 1886},
+	{6, 1200, "Challenger", "\u2694\uFE0F", 1857},
+	{7, 1700, "Skilled", "\U0001F3AF", 1829},
+	{8, 2300, "Contender", "\U0001F6E1\uFE0F", 1800},
+	{9, 3000, "Fighter", "\u2694\uFE0F", 1771},
+	{10, 4000, "Rising Star", "\U0001F31F", 1743},
+	{11, 5200, "Pro Player", "\U0001F3C5", 1714},
+	{12, 6700, "Veteran", "\U0001F396\uFE0F", 1686},
+	{13, 8500, "Expert", "\U0001F9E0", 1657},
+	{14, 10500, "Specialist", "\U0001F4A0", 1629},
+	{15, 13000, "Ace", "\U0001F0CF", 1600},
+	{16, 16000, "Elite", "\U0001F48E", 1571},
+	{17, 20000, "Master", "\U0001F451", 1543},
+	{18, 25000, "Grand Master", "\U0001F451\u2694\uFE0F", 1514},
+	{19, 31000, "Champion", "\U0001F3C6", 1486},
+	{20, 38000, "High Roller", "\U0001F4B0", 1457},
+	{21, 46000, "Royal", "\U0001F451", 1429},
+	{22, 55000, "Royal Ace", "\U0001F0CF\U0001F451", 1400},
+	{23, 65000, "Royal Master", "\U0001F451\U0001F48E", 1371},
+	{24, 76000, "Supreme", "\U0001F531", 1343},
+	{25, 88000, "Supreme Ace", "\U0001F531\U0001F0CF", 1314},
+	{26, 102000, "Legend", "\U0001F320", 1286},
+	{27, 118000, "Legendary", "\u2728", 1257},
+	{28, 136000, "Grand Legend", "\U0001F31F\U0001F451", 1229},
+	{29, 156000, "Immortal", "\u267E\uFE0F", 1200},
+	{30, 178000, "Titan", "\u26A1", 1171},
+	{31, 202000, "Elite Titan", "\u26A1\U0001F48E", 1143},
+	{32, 228000, "Royal Titan", "\u26A1\U0001F451", 1114},
+	{33, 256000, "Emperor", "\U0001F451", 1086},
+	{34, 286000, "Royal Emperor", "\U0001F451\U0001F48E", 1057},
+	{35, 318000, "Supreme Emperor", "\U0001F531\U0001F451", 1029},
+	{36, 352000, "King", "\U0001F451", 1000},
+	{37, 390000, "Grand King", "\U0001F451\U0001F3C6", 971},
+	{38, 432000, "Royal King", "\U0001F451\U0001F48E", 943},
+	{39, 478000, "Supreme King", "\U0001F531\U0001F451", 914},
+	{40, 528000, "Master King", "\U0001F451\u2694\uFE0F", 886},
+	{41, 585000, "Overlord", "\U0001F525", 857},
+	{42, 650000, "Grand Overlord", "\U0001F525\U0001F451", 829},
+	{43, 725000, "Royal Overlord", "\U0001F525\U0001F48E", 800},
+	{44, 810000, "Supreme Overlord", "\U0001F525\U0001F531", 771},
+	{45, 900000, "Mythic", "\U0001F30C", 743},
+	{46, 1000000, "Mythic King", "\U0001F30C\U0001F451", 714},
+	{47, 1150000, "Immortal King", "\u267E\uFE0F\U0001F451", 686},
+	{48, 1350000, "Legendary King", "\U0001F31F\U0001F451", 657},
+	{49, 1600000, "Supreme Legend", "\U0001F531\U0001F31F", 629},
+	{50, 2000000, "King of Kings", "\U0001F451\U0001F451", 600},
 }
 
 // TestTheSeededLevelsAreTheOwnersTable: a fresh database holds the owner's
-// fifty-one levels exactly — thresholds, titles, rates, the VIP tier's missing
-// threshold — and every icon code point for code point.
+// fifty levels exactly — thresholds, titles, rates — and every icon code point
+// for code point.
 func TestTheSeededLevelsAreTheOwnersTable(t *testing.T) {
 	f := newFixture(t)
-	rows, err := f.d.Pool.Query(f.ctx, `SELECT level, min_xp, title, icon, tax_bps, is_vip FROM player_levels ORDER BY level`)
+	rows, err := f.d.Pool.Query(f.ctx, `SELECT level, min_xp, title, icon, tax_bps FROM player_levels ORDER BY level`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,10 +100,9 @@ func TestTheSeededLevelsAreTheOwnersTable(t *testing.T) {
 	i := 0
 	for rows.Next() {
 		var level, bps int
-		var minXP *int64
+		var minXP int64
 		var title, icon string
-		var vip bool
-		if err := rows.Scan(&level, &minXP, &title, &icon, &bps, &vip); err != nil {
+		if err := rows.Scan(&level, &minXP, &title, &icon, &bps); err != nil {
 			t.Fatal(err)
 		}
 		if i >= len(ownersLevels) {
@@ -111,8 +110,8 @@ func TestTheSeededLevelsAreTheOwnersTable(t *testing.T) {
 		}
 		want := ownersLevels[i]
 		i++
-		if level != want.level || !reflect.DeepEqual(minXP, want.minXP) || title != want.title || bps != want.taxBps || vip != want.vip {
-			t.Errorf("level %d: %v %q %d %v, want %d %v %q %d %v", level, minXP, title, bps, vip, want.level, want.minXP, want.title, want.taxBps, want.vip)
+		if level != want.level || minXP != want.minXP || title != want.title || bps != want.taxBps {
+			t.Errorf("level %d: %d %q %d, want %d %d %q %d", level, minXP, title, bps, want.level, want.minXP, want.title, want.taxBps)
 		}
 		if icon != want.icon {
 			t.Errorf("level %d's icon is %+q, want %+q", level, icon, want.icon)
@@ -121,24 +120,107 @@ func TestTheSeededLevelsAreTheOwnersTable(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if i != len(ownersLevels) {
-		t.Fatalf("%d levels, want %d", i, len(ownersLevels))
+	if i != len(ownersLevels) || i != 50 {
+		t.Fatalf("%d levels, want the owner's 50", i)
 	}
-	// What earns XP and the daily cap, as the owner gave them.
-	if n := f.count(`SELECT count(*) FROM xp_sources WHERE is_active AND (code, xp) IN
-	    (('HAND_COMPLETED', 1), ('HAND_WON', 1), ('ACTIVE_30_MIN', 5), ('ACTIVE_60_MIN', 15), ('DAILY_PLAY_BONUS', 5))`); n != 5 ||
-		f.count(`SELECT count(*) FROM xp_sources`) != 5 {
-		t.Errorf("xp_sources: %d of the owner's five", n)
+	// The daily XP, as the owner gave it (27 Sep 2026): each once a window.
+	srcRows, err := f.d.Pool.Query(f.ctx, `SELECT code, name, icon, kind, COALESCE(play_minutes, 0), COALESCE(hand_rank, ''),
+	       xp, times_per_window, is_active FROM xp_sources ORDER BY sort_order`)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if f.count(`SELECT count(*) FROM xp_settings WHERE id = 1 AND daily_cap = 50 AND window_ms = 86400000`) != 1 {
-		t.Error("xp_settings must be the 50 XP cap in a 24-hour window")
+	var sources []string
+	for srcRows.Next() {
+		var code, name, icon, kind, hand string
+		var minutes, xp, times int
+		var active bool
+		if err := srcRows.Scan(&code, &name, &icon, &kind, &minutes, &hand, &xp, &times, &active); err != nil {
+			t.Fatal(err)
+		}
+		sources = append(sources, fmt.Sprintf("%s|%s|%+q|%s|%d|%s|%d|%d|%v", code, name, icon, kind, minutes, hand, xp, times, active))
+	}
+	srcRows.Close()
+	wantSources := []string{
+		`PLAY_15_MIN|Play 15 active minutes|"\U0001f3ae"|PLAY_TIME|15||3|1|true`,
+		`PLAY_60_MIN|Play 60 active minutes|"\U0001f3ae"|PLAY_TIME|60||20|1|true`,
+		`PLAY_120_MIN|Play 120 active minutes|"\U0001f3ae"|PLAY_TIME|120||50|1|true`,
+		`WIN_PAIR|Win by Pair|"\U0001f465"|WIN_HAND|0|PAIR|1|1|true`,
+		`WIN_COLOR|Win by Color|"\U0001f3a8"|WIN_HAND|0|COLOR|2|1|true`,
+		`WIN_SEQUENCE|Win by Sequence|"\U0001f0cf"|WIN_HAND|0|SEQUENCE|4|1|true`,
+		`WIN_PURE_SEQUENCE|Win by Pure Sequence|"\U0001f48e"|WIN_HAND|0|PURE_SEQUENCE|8|1|true`,
+		`WIN_TRAIL|Win by Trail|"\U0001f525"|WIN_HAND|0|TRAIL|20|1|true`,
+	}
+	if strings.Join(sources, "\n") != strings.Join(wantSources, "\n") {
+		t.Errorf("xp_sources:\n%s\nwant:\n%s", strings.Join(sources, "\n"), strings.Join(wantSources, "\n"))
+	}
+	if f.count(`SELECT count(*) FROM xp_settings WHERE id = 1 AND daily_cap IS NULL AND window_ms = 86400000`) != 1 {
+		t.Error("xp_settings must be a 24-hour window with no daily cap (owner: \"Don't set any daily limit to xp\")")
 	}
 	if f.count(`SELECT count(*) FROM player_xp`) != 0 {
 		t.Error("the seed gives nobody XP")
 	}
 }
 
-// setXP gives a player xp (and optionally a level set by hand) directly.
+// TestTheSeededBadgesAreTheOwners (owner, 27 Sep 2026: the Royal badges; "By
+// default every user will hold this Regular badge 20 percent tax … validaity
+// life time, do not show this badge in store, its price zero"; "remove the
+// entry vip, royal vip and elite vip"): Regular is everyone's, for life, at
+// 20% and ₹0, with its Lottie; then the six Royal badges and nothing else;
+// nobody is given one by the seed.
+func TestTheSeededBadgesAreTheOwners(t *testing.T) {
+	f := newFixture(t)
+	rows, err := f.d.Pool.Query(f.ctx, `SELECT code, title, icon, tax_bps, validity_days, price_inr, COALESCE(play_product_id, ''),
+	       COALESCE(asset_url, ''), COALESCE(asset_format, ''), is_default, is_active FROM badges ORDER BY sort_order`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var code, title, icon, product, asset, format string
+		var bps, price *int
+		var days int
+		var def, active bool
+		if err := rows.Scan(&code, &title, &icon, &bps, &days, &price, &product, &asset, &format, &def, &active); err != nil {
+			t.Fatal(err)
+		}
+		rate, rupees := "none", "no price"
+		if bps != nil {
+			rate = fmt.Sprint(*bps)
+		}
+		if price != nil {
+			rupees = fmt.Sprintf("₹%d", *price)
+		}
+		asset = strings.TrimPrefix(asset, "https://drive.google.com/uc?export=download&id=")
+		got = append(got, fmt.Sprintf("%s/%s/%+q/%s/%dd/%s/%q/%s:%s/default=%v/active=%v",
+			code, title, icon, rate, days, rupees, product, format, asset, def, active))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	// The Royal badges the store lists (owner, 27 Sep 2026: "for badges use
+	// this entry, not vips entry"): 0% for 7 to 90 days at ₹499 to ₹4,499,
+	// each with the owner's Lottie on Drive, and no Play product — asked for
+	// through support. The store does not list Regular, everyone's by
+	// default.
+	want := []string{
+		`REGULAR/Regular/""/2000/0d/₹0/""/LOTTIE:1zz4gVBpw579xeR1LLn3dBd3Os3cG8jQT/default=true/active=true`,
+		`ROYAL_ACE/Royal Ace/""/0/7d/₹499/""/LOTTIE:1lwt8uXauqnX77WEb73xZAbTz_TR-rJKm/default=false/active=true`,
+		`ROYAL_KING/Royal King/""/0/15d/₹999/""/LOTTIE:1Frs4uv6oAkxK9YgHhh52Rwi_kCRpngNU/default=false/active=true`,
+		`ROYAL_MASTER/Royal Master/""/0/30d/₹1799/""/LOTTIE:1ifJxiC6l59fQ1i-RulfLn2SzJfw5sgiJ/default=false/active=true`,
+		`ROYAL_EMPEROR/Royal Emperor/""/0/45d/₹2499/""/LOTTIE:1gBUNiLrdoSqkL29UEKCI7DjqAr8wZiSd/default=false/active=true`,
+		`ROYAL_LEGEND/Royal Legend/""/0/60d/₹3299/""/LOTTIE:1kn5KJLW96mcMaXLygpvM_sIxPA7L1Ov-/default=false/active=true`,
+		`ROYAL_KING_OF_KINGS/Royal King of Kings/""/0/90d/₹4499/""/LOTTIE:1A1ckgYQjocbcYfeJsOKFNO8hCrCDCWNI/default=false/active=true`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("badges:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if f.count(`SELECT count(*) FROM user_badges`) != 0 {
+		t.Error("the seed gives nobody a badge")
+	}
+}
+
+// setXP gives a player xp directly.
 func (f *fixture) setXP(userID string, xp int64) {
 	f.t.Helper()
 	if _, err := f.d.Pool.Exec(f.ctx, `INSERT INTO player_xp (user_id, xp, created_at, updated_at) VALUES ($1, $2, 1, 1)
@@ -147,31 +229,69 @@ func (f *fixture) setXP(userID string, xp int64) {
 	}
 }
 
-// makeVIP runs the seed header's statement, as an owner would.
-func (f *fixture) makeVIP(userID string) {
+// grant gives a player a badge with the seed header's statement, as an owner
+// would — for the badge's validity from now, which renews a grant already
+// there.
+func (f *fixture) grant(userID, code string) {
 	f.t.Helper()
-	if _, err := f.d.Pool.Exec(f.ctx, `INSERT INTO player_xp (user_id, level_override, created_at, updated_at)
-     VALUES ($1, (SELECT level FROM player_levels WHERE is_vip),
-             (EXTRACT(EPOCH FROM now()) * 1000)::bigint, (EXTRACT(EPOCH FROM now()) * 1000)::bigint)
-     ON CONFLICT (user_id) DO UPDATE SET level_override = (SELECT level FROM player_levels WHERE is_vip),
-                                         updated_at = EXCLUDED.updated_at`, userID); err != nil {
+	if _, err := f.d.Pool.Exec(f.ctx, `INSERT INTO user_badges (user_id, badge_code) VALUES ($1, $2)
+     ON CONFLICT (user_id, badge_code) DO UPDATE
+        SET granted_at = EXCLUDED.granted_at, expires_at = EXCLUDED.expires_at`, userID, code); err != nil {
 		f.t.Fatal(err)
 	}
 }
 
+// grantUntil gives a player a badge until expiresAt (epoch ms; 0: for ever) —
+// the seed header's statement for a term of the grant's own.
+func (f *fixture) grantUntil(userID, code string, expiresAt int64) {
+	f.t.Helper()
+	if _, err := f.d.Pool.Exec(f.ctx, `INSERT INTO user_badges (user_id, badge_code, expires_at) VALUES ($1, $2, $3)
+     ON CONFLICT (user_id, badge_code) DO UPDATE SET expires_at = EXCLUDED.expires_at`, userID, code, expiresAt); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// ownerBadge adds a badge the way an owner would, by hand: a rate, a validity
+// in days and a place in the badges' order (the seed's are Regular at 10 and
+// the Royal badges at 20 to 70). The seed's own badges are Regular's 20% and
+// the Royal badges' 0%, so a test of the lowest-rate rule makes the ones in
+// between it needs.
+func (f *fixture) ownerBadge(code, title string, taxBps, validityDays, sortOrder int) {
+	f.t.Helper()
+	if _, err := f.d.Pool.Exec(f.ctx, `INSERT INTO badges (code, title, icon, tax_bps, validity_days, sort_order)
+	     VALUES ($1, $2, '', $3, $4, $5)`, code, title, taxBps, validityDays, sortOrder); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// badgeCodes are the codes of the badges a standing holds, in order.
+func badgeCodes(s db.Standing) string {
+	codes := make([]string, len(s.Badges))
+	for i, b := range s.Badges {
+		codes[i] = b.Code
+	}
+	return strings.Join(codes, ",")
+}
+
 // TestTheLevelFollowsTheXP: the highest level whose threshold the XP has
-// reached, with the next one beside it; a level set by hand wins and has no
-// next; the ladder's lowest rung when an owner's edit leaves no level that
-// low; and the account a seat is built from carries the rate.
+// reached, with the next one beside it; the ladder's lowest rung when an
+// owner's edit leaves no level that low; and the account — Regular its only
+// badge (owner, 27 Sep 2026: "By default every user will hold this Regular
+// badge 20 percent tax") — pays its level's rate, which the seat it is built
+// from carries.
 func TestTheLevelFollowsTheXP(t *testing.T) {
 	f := newFixture(t)
 	u := f.user("Climber")
 	fresh := f.find(u.ID).PlayerLevel
 	want := db.PlayerLevel{Level: 1, Title: "Newbie", Icon: "\U0001F331", XP: 0, TaxBps: 2000,
-		Next:  &db.NextLevel{Level: 2, Title: "Rookie", Icon: "\U0001F530", MinXP: 100, TaxBps: 1980},
-		Today: db.XPToday{Cap: 50}}
+		Next: &db.NextLevel{Level: 2, Title: "Rookie", Icon: "\U0001F530", MinXP: 100, TaxBps: 1971}}
 	if !reflect.DeepEqual(fresh, want) {
 		t.Fatalf("a new account: %+v, want %+v", fresh, want)
+	}
+	if got := f.find(u.ID); badgeCodes(got.Standing) != "REGULAR" || got.TaxBps != 2000 ||
+		got.Badges[0].TaxBps == nil || *got.Badges[0].TaxBps != 2000 || got.Badges[0].ExpiresAt != 0 ||
+		got.Badges[0].Title != "Regular" || !got.Badges[0].IsDefault || got.Badges[0].AssetFormat != "LOTTIE" {
+		t.Errorf("a new account holds Regular alone, for life, and pays its level's rate: %+v", got.Standing)
 	}
 	if p := f.find(u.ID).Player(); p.TaxBps != 2000 {
 		t.Errorf("the seat is built at the account's rate: %d", p.TaxBps)
@@ -184,27 +304,23 @@ func TestTheLevelFollowsTheXP(t *testing.T) {
 		next  int
 	}{
 		{99, 1, "Newbie", 2000, 2},
-		{100, 2, "Rookie", 1980, 3},
-		{4000, 10, "Rising Star", 1816, 11},
-		{5199, 10, "Rising Star", 1816, 11},
-		{1_999_999, 49, "Supreme Legend", 1020, 50},
-		{2_000_000, 50, "King of Kings", 1000, 0},
+		{100, 2, "Rookie", 1971, 3},
+		{4000, 10, "Rising Star", 1743, 11},
+		{5199, 10, "Rising Star", 1743, 11},
+		{1_999_999, 49, "Supreme Legend", 629, 50},
+		{2_000_000, 50, "King of Kings", 600, 0},
 	} {
 		f.setXP(u.ID, tc.xp)
 		got := f.find(u.ID).PlayerLevel
-		if got.Level != tc.level || got.Title != tc.title || got.TaxBps != tc.bps || got.XP != tc.xp || got.VIP {
+		if got.Level != tc.level || got.Title != tc.title || got.TaxBps != tc.bps || got.XP != tc.xp {
 			t.Errorf("%d XP: %+v, want level %d %q at %d", tc.xp, got, tc.level, tc.title, tc.bps)
+		}
+		if paid := f.find(u.ID).TaxBps; paid != tc.bps {
+			t.Errorf("%d XP pays %d, want the level's %d", tc.xp, paid, tc.bps)
 		}
 		if tc.next == 0 && got.Next != nil || tc.next != 0 && (got.Next == nil || got.Next.Level != tc.next) {
 			t.Errorf("%d XP: next %+v, want level %d", tc.xp, got.Next, tc.next)
 		}
-	}
-	// A level set by hand wins, whatever the XP, and XP leads nowhere from it.
-	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE player_xp SET level_override = 10 WHERE user_id = $1`, u.ID); err != nil {
-		t.Fatal(err)
-	}
-	if got := f.find(u.ID).PlayerLevel; got.Level != 10 || got.TaxBps != 1816 || got.Next != nil || got.VIP {
-		t.Errorf("a level set by hand: %+v", got)
 	}
 	// An owner's edit that leaves no level as low as the XP: the lowest rung.
 	other := f.user("Bottom")
@@ -216,43 +332,30 @@ func TestTheLevelFollowsTheXP(t *testing.T) {
 	}
 }
 
-// TestXPNeverMakesAPlayerVIP (owner: "remember VIP Tag is not granted by XP"):
-// any amount of XP stops at level 50 with nothing next; only a level set by
-// hand is the VIP tier; the award never touches that setting; and the
-// database refuses a VIP tier with an XP threshold, or a level without one.
-func TestXPNeverMakesAPlayerVIP(t *testing.T) {
+// TestXPNeverGrantsABadge (owner, 26 Sep 2026: "remember VIP Tag is not
+// granted by XP" — true of every badge; 27 Sep 2026: "Vip is not a level, it is badge"): any amount
+// of XP stops at level 50 with nothing next and leaves the player with
+// Regular alone; an award never writes a badge; levels and XP never expire
+// ("there is no validity on player level", "XP also never expire").
+func TestXPNeverGrantsABadge(t *testing.T) {
 	f := newFixture(t)
 	u := f.user("Grinder")
 	f.setXP(u.ID, 9_000_000_000)
-	got := f.find(u.ID).PlayerLevel
-	if got.Level != 50 || got.VIP || got.TaxBps != 1000 || got.Next != nil {
-		t.Fatalf("more XP than level 50 needs: %+v, want level 50, not VIP, nothing next", got)
+	got := f.find(u.ID)
+	if got.PlayerLevel.Level != 50 || got.PlayerLevel.TaxBps != 600 || got.PlayerLevel.Next != nil ||
+		badgeCodes(got.Standing) != "REGULAR" || got.TaxBps != 600 {
+		t.Fatalf("more XP than level 50 needs: %+v, want level 50 at 6%%, Regular alone, nothing next", got.Standing)
 	}
-
-	f.makeVIP(u.ID)
-	got = f.find(u.ID).PlayerLevel
-	if got.Level != 51 || !got.VIP || got.Title != "VIP" || got.Icon != "\U0001F48E\U0001F451" || got.TaxBps != 400 || got.Next != nil || got.XP != 9_000_000_000 {
-		t.Fatalf("a VIP: %+v", got)
-	}
-	// XP earned as a VIP moves the XP and leaves the tier alone.
+	// A win with a trail and two hours of play, all the XP a day holds.
+	h := f.playHand(f.ledger, u.ID, f.user("Rival").ID, "TRAIL")
 	xp := db.NewXP(f.d, nil)
-	if _, changed, err := xp.Award(f.ctx, u.ID, db.XPSourceActive60Min); err != nil || !changed {
-		t.Fatalf("award to a VIP: %v %v", changed, err)
+	if _, changed, err := xp.AwardPlayTime(f.ctx, u.ID, h.Windows[u.ID], 2*time.Hour); err != nil || !changed {
+		t.Fatalf("award: %v %v", changed, err)
 	}
-	if n := f.count(`SELECT count(*) FROM player_xp WHERE user_id = $1 AND level_override = 51`, u.ID); n != 1 {
-		t.Fatal("an award must never touch level_override")
+	if n := f.count(`SELECT count(*) FROM user_badges WHERE user_id = $1`, u.ID); n != 0 {
+		t.Fatal("an award must never grant a badge")
 	}
-	if got := f.find(u.ID).PlayerLevel; !got.VIP || got.Level != 51 {
-		t.Fatalf("still VIP after an award: %+v", got)
-	}
-	// Taken away by hand, the XP decides again — and it reaches level 50.
-	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE player_xp SET level_override = NULL WHERE user_id = $1`, u.ID); err != nil {
-		t.Fatal(err)
-	}
-	if got := f.find(u.ID).PlayerLevel; got.Level != 50 || got.VIP {
-		t.Fatalf("VIP taken away: %+v", got)
-	}
-	// The next level is never the VIP tier.
+	// The next level is only ever a level.
 	f.setXP(u.ID, 1_700_000)
 	if got := f.find(u.ID).PlayerLevel; got.Next == nil || got.Next.Level != 50 {
 		t.Fatalf("level 49's next is level 50: %+v", got.Next)
@@ -260,18 +363,193 @@ func TestXPNeverMakesAPlayerVIP(t *testing.T) {
 
 	var pgErr *pgconn.PgError
 	for name, sql := range map[string]string{
-		"an XP threshold on the VIP tier": `UPDATE player_levels SET min_xp = 3000000 WHERE is_vip`,
-		"a level with no XP threshold":    `UPDATE player_levels SET min_xp = NULL WHERE level = 50`,
-		"a new VIP tier with a threshold": `INSERT INTO player_levels (level, min_xp, title, icon, tax_bps, is_vip) VALUES (52, 5000000, 'VIP+', 'x', 100, TRUE)`,
-		"a rate above the whole pot":      `UPDATE player_levels SET tax_bps = 10001 WHERE level = 1`,
-		"a negative XP":                   `UPDATE player_xp SET xp = -1 WHERE user_id = '` + u.ID + `'`,
+		"a rate above the whole pot": `UPDATE player_levels SET tax_bps = 10001 WHERE level = 1`,
+		"a negative XP":              `UPDATE player_xp SET xp = -1 WHERE user_id = '` + u.ID + `'`,
+		"a badge above the pot":      `UPDATE badges SET tax_bps = 10001 WHERE code = 'ROYAL_KING'`,
+		"a negative validity":        `UPDATE badges SET validity_days = -1 WHERE code = 'ROYAL_KING'`,
+		"a grant ending before 1970": `INSERT INTO user_badges (user_id, badge_code, expires_at) VALUES ('` + u.ID + `', 'ROYAL_KING', -1)`,
 	} {
 		if _, err := f.d.Pool.Exec(f.ctx, sql); !errors.As(err, &pgErr) || pgErr.Code != "23514" {
 			t.Errorf("%s must be refused by a CHECK, got %v", name, err)
 		}
 	}
-	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE player_xp SET level_override = 77 WHERE user_id = $1`, u.ID); !errors.As(err, &pgErr) || pgErr.Code != "23503" {
-		t.Errorf("an override naming no level must be refused by the foreign key, got %v", err)
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE player_levels SET min_xp = NULL WHERE level = 50`); !errors.As(err, &pgErr) || pgErr.Code != "23502" {
+		t.Errorf("a level with no XP threshold must be refused, got %v", err)
+	}
+	if _, err := f.d.Pool.Exec(f.ctx, `INSERT INTO user_badges (user_id, badge_code) VALUES ($1, 'NOBODY')`, u.ID); !errors.As(err, &pgErr) || (pgErr.Code != "23503" && pgErr.Code != "23502") {
+		t.Errorf("a grant of a badge that does not exist must be refused, got %v", err)
+	}
+}
+
+// TestTheWinningTaxIsTheLowestOfTheLevelAndTheBadges (owner, 27 Sep 2026:
+// "the tax will be applied acc to minimum of badge or player level"): a badge
+// given by the seed header's plain INSERT lasts its validity from the grant;
+// the player holds Regular and every badge given, in the badges' order; the
+// rate they pay — on the account, on the seat built from it, and in a
+// settlement's rates — is the lowest of their level's and their badges'; a
+// retired badge stops counting; and deleting the account takes its badges.
+func TestTheWinningTaxIsTheLowestOfTheLevelAndTheBadges(t *testing.T) {
+	f := newFixture(t)
+	f.ownerBadge("GOLD", "Gold", 500, 1825, 12)
+	f.ownerBadge("PLATINUM", "Platinum", 300, 1825, 14)
+	u := f.user("Maharaja")
+	before := time.Now().UnixMilli()
+	f.grant(u.ID, "GOLD")
+	after := time.Now().UnixMilli()
+	got := f.find(u.ID)
+	if badgeCodes(got.Standing) != "REGULAR,GOLD" || got.TaxBps != 500 || got.PlayerLevel.TaxBps != 2000 {
+		t.Fatalf("Level 1 with Gold: %+v, want Regular and Gold, paying Gold's 5%%", got.Standing)
+	}
+	gold := got.Badges[1]
+	const fiveYears = int64(1825 * 24 * time.Hour / time.Millisecond)
+	if gold.Title != "Gold" || gold.TaxBps == nil || *gold.TaxBps != 500 || gold.ExpiresAt < before+fiveYears || gold.ExpiresAt > after+fiveYears {
+		t.Errorf("the Gold grant: %+v, want 5%% for its validity (1825 days) from the grant", gold)
+	}
+	if p := got.Player(); p.TaxBps != 500 {
+		t.Errorf("the seat is built at the rate paid: %d", p.TaxBps)
+	}
+	// A level whose rate is lower than every badge's is what is paid.
+	f.setXP(u.ID, 2_000_000)
+	if paid := f.find(u.ID).TaxBps; paid != 500 {
+		t.Errorf("Level 50 (6%%) with Gold (5%%) pays %d, want 500", paid)
+	}
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE player_levels SET tax_bps = 450 WHERE level = 50`); err != nil {
+		t.Fatal(err)
+	}
+	if paid := f.find(u.ID).TaxBps; paid != 450 {
+		t.Errorf("a level at 4.5%% under Gold's 5%% pays %d, want 450", paid)
+	}
+	// Several badges: the lowest counts, and they read in the badges' order.
+	f.grant(u.ID, "ROYAL_KING")
+	f.grant(u.ID, "PLATINUM")
+	got = f.find(u.ID)
+	if badgeCodes(got.Standing) != "REGULAR,GOLD,PLATINUM,ROYAL_KING" || got.TaxBps != 0 {
+		t.Fatalf("four badges: %+v, want all four and Royal King's 0%%", got.Standing)
+	}
+	// The settlement hands the seat the rate paid.
+	other := f.user("Rival")
+	hand := "hand-badges-" + randomSuffix(t)
+	settled, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: "r", HandID: hand, Entries: []game.SettleEntry{
+		settleEntry(hand, u.ID, 100, true, true, 200), settleEntry(hand, other.ID, -100, false, true, 0),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.TaxBps[u.ID] != 0 || settled.TaxBps[other.ID] != 2000 {
+		t.Errorf("the rates the seats take: %+v", settled.TaxBps)
+	}
+	// A retired badge stops counting; the next lowest decides.
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE badges SET is_active = FALSE WHERE code = 'ROYAL_KING'`); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.find(u.ID); badgeCodes(got.Standing) != "REGULAR,GOLD,PLATINUM" || got.TaxBps != 300 {
+		t.Errorf("Royal King retired: %+v, want Platinum's 3%%", got.Standing)
+	}
+	// Regular is 20%, above any level's: with no other badge, the level
+	// decides.
+	if _, err := f.d.Pool.Exec(f.ctx, `DELETE FROM user_badges WHERE user_id = $1`, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.find(u.ID); badgeCodes(got.Standing) != "REGULAR" || got.TaxBps != 450 {
+		t.Errorf("Regular alone: %+v, want the level's 4.5%%", got.Standing)
+	}
+	// A default badge is every player's with no row, for ever, and counts
+	// like any other: another an owner adds with a lower rate is what they
+	// pay.
+	if _, err := f.d.Pool.Exec(f.ctx, `INSERT INTO badges (code, title, icon, tax_bps, validity_days, is_default, sort_order)
+	     VALUES ('HOUSE', 'House', '🏠', 400, 0, TRUE, 5)`); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.find(u.ID); badgeCodes(got.Standing) != "HOUSE,REGULAR" || got.TaxBps != 400 || got.Badges[0].ExpiresAt != 0 ||
+		!got.Badges[0].IsDefault {
+		t.Errorf("an owner's default badge: %+v, want everyone holding it at its 4%%", got.Standing)
+	}
+	if got := f.find(other.ID); badgeCodes(got.Standing) != "HOUSE,REGULAR" {
+		t.Errorf("the default badge is every player's: %+v", got.Standing)
+	}
+	if _, err := f.d.Pool.Exec(f.ctx, `DELETE FROM badges WHERE code = 'HOUSE'`); err != nil {
+		t.Fatal(err)
+	}
+	// An account deleted takes its badges with it.
+	f.grant(u.ID, "GOLD")
+	if err := f.users.DeleteAccount(f.ctx, u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.count(`SELECT count(*) FROM user_badges WHERE user_id = $1`, u.ID); n != 0 {
+		t.Errorf("a deleted account keeps %d badges", n)
+	}
+}
+
+// TestABadgeStopsCountingWhenItsGrantRunsOut (owner, 27 Sep 2026: "add
+// validity column in badges so that when it expires, player will not get tax
+// benefit"): a badge counts until the instant its grant runs out and not from
+// then on — on the account, and in the rate a settlement hands the seat —
+// while the level and the XP never run out; the plain grant renews it for
+// another validity; and a grant naming 0 lasts for ever.
+func TestABadgeStopsCountingWhenItsGrantRunsOut(t *testing.T) {
+	f := newFixture(t)
+	clock := &testClock{now: time.Now()}
+	users := db.NewUsers(f.d, welcome, clock.Now)
+	ledger := db.NewLedger(f.d, nil, clock.Now)
+	u := f.user("Temporary")
+	f.setXP(u.ID, 4000) // Level 10, 17.43%, never to expire
+	ends := clock.Now().UnixMilli() + int64(time.Hour/time.Millisecond)
+	f.grantUntil(u.ID, "ROYAL_KING", ends)
+	read := func() *db.User {
+		t.Helper()
+		got, err := users.FindByID(f.ctx, u.ID)
+		if err != nil || got == nil {
+			t.Fatalf("read: %v", err)
+		}
+		return got
+	}
+	if got := read(); got.TaxBps != 0 || badgeCodes(got.Standing) != "REGULAR,ROYAL_KING" || got.Badges[1].ExpiresAt != ends {
+		t.Fatalf("while it runs: %+v", got.Standing)
+	}
+	clock.Advance(time.Hour - time.Millisecond)
+	if got := read(); got.TaxBps != 0 {
+		t.Fatalf("a millisecond before it runs out: %d, want 0", got.TaxBps)
+	}
+	clock.Advance(time.Millisecond)
+	got := read()
+	if got.TaxBps != 1743 || badgeCodes(got.Standing) != "REGULAR" || got.PlayerLevel.Level != 10 || got.PlayerLevel.XP != 4000 {
+		t.Fatalf("run out: %+v, want Level 10's 17.43%% and the level and XP kept", got.Standing)
+	}
+	// The settlement hands the seat the rate without it.
+	other := f.user("Opponent")
+	hand := "hand-expiry-" + randomSuffix(t)
+	settled, err := ledger.Settle(f.ctx, game.SettleRequest{RoomID: "r", HandID: hand, Entries: []game.SettleEntry{
+		settleEntry(hand, u.ID, 100, true, true, 200), settleEntry(hand, other.ID, -100, false, true, 0),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.TaxBps[u.ID] != 1743 {
+		t.Errorf("the settled rate after the grant ran out: %d, want 1743", settled.TaxBps[u.ID])
+	}
+	// The row stays as the record; the plain grant renews it for its
+	// validity, fifteen days, from the database's now.
+	if n := f.count(`SELECT count(*) FROM user_badges WHERE user_id = $1`, u.ID); n != 1 {
+		t.Fatalf("an expired grant is kept as the record: %d rows", n)
+	}
+	f.grant(u.ID, "ROYAL_KING")
+	if f.count(`SELECT count(*) FROM user_badges WHERE user_id = $1 AND badge_code = 'ROYAL_KING'
+	     AND expires_at = granted_at + 15::bigint * 86400000`, u.ID) != 1 {
+		t.Error("the plain grant renews the badge for its validity from now")
+	}
+	// A grant naming 0 is for ever, whatever the badge's validity.
+	f.grantUntil(u.ID, "ROYAL_ACE", 0)
+	clock.Advance(10 * 365 * 24 * time.Hour)
+	if got := read(); badgeCodes(got.Standing) != "REGULAR,ROYAL_ACE" || got.TaxBps != 0 || got.Badges[1].ExpiresAt != 0 {
+		t.Errorf("ten years on: %+v, want Royal Ace for ever and Royal King run out", got.Standing)
+	}
+	// A badge with no validity lasts for ever when granted plainly.
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE badges SET validity_days = 0 WHERE code = 'ROYAL_MASTER'`); err != nil {
+		t.Fatal(err)
+	}
+	f.grant(u.ID, "ROYAL_MASTER")
+	if n := f.count(`SELECT count(*) FROM user_badges WHERE user_id = $1 AND badge_code = 'ROYAL_MASTER' AND expires_at = 0`, u.ID); n != 1 {
+		t.Error("a badge of 0 days is granted for ever")
 	}
 }
 
@@ -293,97 +571,206 @@ func (c *testClock) Advance(d time.Duration) {
 	c.mu.Unlock()
 }
 
-// TestTheAwardHoldsTheDailyCapInARollingWindow: the first award of a window
-// opens it and brings the daily play bonus; every source is held to what the
-// cap leaves; the window runs 24 hours from its opening and then everything
-// starts over; an inactive or unknown source earns nothing; and with no
-// settings row there is no XP at all.
-func TestTheAwardHoldsTheDailyCapInARollingWindow(t *testing.T) {
+// playHand settles a two-player Teen Patti hand through ledger — winner beats
+// loser holding wonWith ("" for a poker-style entry that names no hand) — and
+// returns what the ledger told its OnSettled hook.
+func (f *fixture) playHand(ledger *db.Ledger, winner, loser, wonWith string) db.SettledHand {
+	f.t.Helper()
+	seen := &settledHands{}
+	ledger.OnSettled(seen.hook)
+	defer ledger.OnSettled(nil)
+	hand := "hand-xp-" + randomSuffix(f.t)
+	w := settleEntry(hand, winner, 100, true, true, 200)
+	w.WonWith = wonWith
+	if _, err := ledger.Settle(f.ctx, game.SettleRequest{RoomID: "r", HandID: hand, PlayedMs: 60_000, Entries: []game.SettleEntry{
+		w, settleEntry(hand, loser, -100, false, true, 0),
+	}}); err != nil {
+		f.t.Fatal(err)
+	}
+	hands := seen.all()
+	if len(hands) != 1 {
+		f.t.Fatalf("OnSettled heard %d settlements, want 1", len(hands))
+	}
+	return hands[0]
+}
+
+// TestEachDailyXPSourceIsEarnedOnceAWindow (owner, 27 Sep 2026: "Daily XP user
+// can get … 1 time … After 24 hours this will be reset, so user can claim this
+// again"; "Don't set any daily limit to xp"): the first hand a player completes
+// opens their window; a win earns the source of the hand it was won with, once
+// a window, and a hand no source names earns nothing; play reaches the
+// 15-, 60- and 120-minute sources once each, and play counted for a window
+// gone by earns nothing; the account carries what has been earned in the
+// window and when it resets, and no "today" (there is no cap); and 24 hours
+// on, every source is there to be earned again.
+func TestEachDailyXPSourceIsEarnedOnceAWindow(t *testing.T) {
 	f := newFixture(t)
 	clock := &testClock{now: time.UnixMilli(1_800_000_000_000)}
+	ledger := db.NewLedger(f.d, nil, clock.Now)
 	xp := db.NewXP(f.d, clock.Now)
 	users := db.NewUsers(f.d, welcome, clock.Now)
-	u := f.user("Daily")
-	award := func(source string) (db.PlayerLevel, bool) {
+	a, b := f.user("Daily"), f.user("Other")
+	read := func(id string) db.PlayerLevel {
 		t.Helper()
-		level, changed, err := xp.Award(f.ctx, u.ID, source)
-		if err != nil {
-			t.Fatalf("award %s: %v", source, err)
+		got, err := users.FindByID(f.ctx, id)
+		if err != nil || got == nil {
+			t.Fatalf("read %s: %v", id, err)
 		}
-		return level, changed
+		return got.PlayerLevel
 	}
-
 	opened := clock.Now().UnixMilli()
-	level, changed := award(db.XPSourceActive30Min)
-	if !changed || level.XP != 10 || level.Today != (db.XPToday{XP: 10, Cap: 50, ResetsAt: opened + 86_400_000}) {
-		t.Fatalf("the window's first award: %+v %v, want 5 and the daily bonus's 5", level, changed)
+
+	// A win with a pair: +1, and both players' windows open.
+	h := f.playHand(ledger, a.ID, b.ID, "PAIR")
+	if h.Windows[a.ID] != opened || h.Windows[b.ID] != opened || h.Window != 24*time.Hour {
+		t.Fatalf("the windows: %+v, want both opened at %d", h.Windows, opened)
 	}
-	level, _ = award(db.XPSourceActive60Min)
-	if level.XP != 25 || level.Today.XP != 25 || level.Today.ResetsAt != opened+86_400_000 {
-		t.Fatalf("the second award: %+v, want 25 and the same window", level)
+	if got := read(a.ID); got.XP != 1 || got.Today != nil || got.Daily == nil ||
+		!reflect.DeepEqual(got.Daily.Claimed, map[string]int{"WIN_PAIR": 1}) || got.Daily.ResetsAt != opened+86_400_000 {
+		t.Fatalf("after a pair: %+v (daily %+v), want 1 XP, WIN_PAIR earned, reset in 24 h", got, got.Daily)
 	}
-	// Up to the cap and no further: 25 + 15 + 15 would be 55.
-	level, _ = award(db.XPSourceActive60Min)
-	level, changed = award(db.XPSourceActive60Min)
-	if level.XP != 50 || level.Today.XP != 50 || !changed {
-		t.Fatalf("the cap: %+v, want exactly 50", level)
+	if got := read(b.ID); got.XP != 0 || got.Daily == nil || len(got.Daily.Claimed) != 0 {
+		t.Fatalf("the loser: %+v, want no XP and an open window with nothing earned", got)
 	}
-	if level, changed = award(db.XPSourceHandCompleted); changed || level.XP != 50 {
-		t.Fatalf("a capped window earns nothing: %+v %v", level, changed)
+	if raw, _ := json.Marshal(read(a.ID)); strings.Contains(string(raw), `"today"`) || !strings.Contains(string(raw), `"daily":{"claimed":{"WIN_PAIR":1}`) {
+		t.Errorf("the wire: %s", raw)
 	}
-	// The account read says the same.
-	if got, err := users.FindByID(f.ctx, u.ID); err != nil || got.PlayerLevel.Today != level.Today {
-		t.Fatalf("the account's today: %+v %v", got.PlayerLevel.Today, err)
+	// Another pair: nothing (once a window); a trail: +20; a high card, which
+	// no source names: nothing.
+	f.playHand(ledger, a.ID, b.ID, "PAIR")
+	f.playHand(ledger, a.ID, b.ID, "TRAIL")
+	f.playHand(ledger, a.ID, b.ID, "HIGH_CARD")
+	if got := read(a.ID); got.XP != 21 || !reflect.DeepEqual(got.Daily.Claimed, map[string]int{"WIN_PAIR": 1, "WIN_TRAIL": 1}) {
+		t.Fatalf("pair, trail, high card: %+v %+v, want 21 XP", got, got.Daily)
 	}
 
-	// 24 hours after the window opened it has run out: the next award opens a
-	// new one, with the daily bonus again.
-	clock.Advance(24*time.Hour - time.Millisecond)
-	if _, changed = award(db.XPSourceHandCompleted); changed {
-		t.Fatal("a millisecond before the window runs out, the cap still holds")
+	// Play time: 14 minutes earns nothing, 15 the 15-minute source, 119 the
+	// 60-minute one, 120 the 120-minute one, and asking again nothing more.
+	window := h.Windows[a.ID]
+	for _, step := range []struct {
+		play    time.Duration
+		changed bool
+		xp      int64
+	}{
+		{14 * time.Minute, false, 21},
+		{15 * time.Minute, true, 24},
+		{15 * time.Minute, false, 24},
+		{119 * time.Minute, true, 44},
+		{120 * time.Minute, true, 94},
+		{5 * time.Hour, false, 94},
+	} {
+		got, changed, err := xp.AwardPlayTime(f.ctx, a.ID, window, step.play)
+		if err != nil || changed != step.changed {
+			t.Fatalf("%v of play: changed %v %v, want %v", step.play, changed, err, step.changed)
+		}
+		if changed && got.PlayerLevel.XP != step.xp {
+			t.Fatalf("%v of play: %d XP, want %d", step.play, got.PlayerLevel.XP, step.xp)
+		}
+		if lvl := read(a.ID); lvl.XP != step.xp {
+			t.Fatalf("%v of play: the account holds %d XP, want %d", step.play, lvl.XP, step.xp)
+		}
 	}
-	clock.Advance(time.Millisecond)
-	level, changed = award(db.XPSourceHandWon)
-	if !changed || level.XP != 56 || level.Today.XP != 6 || level.Today.ResetsAt != clock.Now().UnixMilli()+86_400_000 {
-		t.Fatalf("a new window: %+v, want 1 + the daily 5 on top of 50", level)
+	// Play counted for another window earns nothing.
+	if _, changed, err := xp.AwardPlayTime(f.ctx, b.ID, window-1, 3*time.Hour); err != nil || changed {
+		t.Fatalf("play for a window gone by: %v %v", changed, err)
 	}
-	// No window is running once it has run out, and the account reads 0 today.
-	clock.Advance(25 * time.Hour)
-	if got, _ := users.FindByID(f.ctx, u.ID); got.PlayerLevel.Today != (db.XPToday{Cap: 50}) || got.PlayerLevel.XP != 56 {
-		t.Fatalf("no window running: %+v", got.PlayerLevel)
+	// Nor does a player with no window at all.
+	if _, changed, err := xp.AwardPlayTime(f.ctx, f.user("Nobody").ID, window, 3*time.Hour); err != nil || changed {
+		t.Fatalf("no window: %v %v", changed, err)
 	}
 
-	// An inactive source earns nothing — but the award still opens the
-	// window, and its daily bonus.
-	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE xp_sources SET is_active = FALSE WHERE code = 'HAND_WON'`); err != nil {
+	// 24 hours on the window has run out: nothing is running, the next hand
+	// opens a new one, and every source can be earned again.
+	clock.Advance(24 * time.Hour)
+	if got := read(a.ID); got.Daily != nil {
+		t.Fatalf("a window run out: daily %+v, want none", got.Daily)
+	}
+	if _, changed, err := xp.AwardPlayTime(f.ctx, a.ID, window, 3*time.Hour); err != nil || changed {
+		t.Fatalf("the old window's play: %v %v", changed, err)
+	}
+	h = f.playHand(ledger, a.ID, b.ID, "PAIR")
+	if h.Windows[a.ID] != clock.Now().UnixMilli() {
+		t.Fatalf("the new window opened at %d, want now", h.Windows[a.ID])
+	}
+	if got := read(a.ID); got.XP != 95 || !reflect.DeepEqual(got.Daily.Claimed, map[string]int{"WIN_PAIR": 1}) {
+		t.Fatalf("a new window's pair: %+v %+v, want 95 XP", got, got.Daily)
+	}
+	if got, changed, err := xp.AwardPlayTime(f.ctx, a.ID, h.Windows[a.ID], 15*time.Minute); err != nil || !changed || got.PlayerLevel.XP != 98 {
+		t.Fatalf("a new window's 15 minutes: %+v %v %v, want 98 XP", got.PlayerLevel, changed, err)
+	}
+	// XP never falls and never expires: it is all still there.
+	if marks, win, err := xp.PlayMarks(f.ctx); err != nil || !reflect.DeepEqual(marks, []time.Duration{15 * time.Minute, time.Hour, 2 * time.Hour}) || win != 24*time.Hour {
+		t.Fatalf("play marks %v over %v: %v", marks, win, err)
+	}
+	// An inactive source earns nothing, and a source of a kind this build
+	// does not know is never offered.
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE xp_sources SET is_active = FALSE WHERE code = 'WIN_TRAIL';
+	     INSERT INTO xp_sources (code, name, kind, xp, is_active, sort_order) VALUES ('MYSTERY', 'x', 'MOON_PHASE', 99, TRUE, 5)`); err != nil {
 		t.Fatal(err)
 	}
-	level, _ = award(db.XPSourceHandWon)
-	if level.XP != 61 || level.Today.XP != 5 {
-		t.Fatalf("an inactive source: %+v, want the daily bonus alone", level)
+	f.playHand(ledger, a.ID, b.ID, "TRAIL")
+	if got := read(a.ID); got.XP != 98 {
+		t.Fatalf("an inactive source: %d XP, want 98", got.XP)
 	}
-	if level, changed = award("BOGUS"); changed || level.XP != 61 {
-		t.Fatalf("a source this build does not know earns nothing: %+v", level)
+	if marks, _, _ := xp.PlayMarks(f.ctx); len(marks) != 3 {
+		t.Fatalf("an unknown kind among the marks: %v", marks)
 	}
-	// An owner's cap of 0 stops every award; no settings row stops XP.
+}
+
+// TestAnOwnersDailyCapHoldsTheWindow: where an owner sets a daily cap (the seed
+// sets none), a window's XP stops at it — a source the cap leaves nothing of
+// is not counted as earned, so a later window can still earn it — a cap of 0
+// earns nothing, and with no settings row there is no XP (and no window) at
+// all.
+func TestAnOwnersDailyCapHoldsTheWindow(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE xp_settings SET daily_cap = 50`); err != nil {
+		t.Fatal(err)
+	}
+	clock := &testClock{now: time.UnixMilli(1_800_000_000_000)}
+	ledger := db.NewLedger(f.d, nil, clock.Now)
+	xp := db.NewXP(f.d, clock.Now)
+	users := db.NewUsers(f.d, welcome, clock.Now)
+	a, b := f.user("Capped"), f.user("Rival")
+	h := f.playHand(ledger, a.ID, b.ID, "TRAIL")
+	// 20, then 3 + 20 of play, then 7 of the 120-minute 50: 50 in all.
+	got, changed, err := xp.AwardPlayTime(f.ctx, a.ID, h.Windows[a.ID], 2*time.Hour)
+	if err != nil || !changed || got.PlayerLevel.XP != 50 || got.PlayerLevel.Today == nil ||
+		*got.PlayerLevel.Today != (db.XPToday{XP: 50, Cap: 50, ResetsAt: h.Windows[a.ID] + 86_400_000}) {
+		t.Fatalf("a capped window: %+v %v %v", got.PlayerLevel, changed, err)
+	}
+	// Capped: a pair earns nothing, and is not counted as earned.
+	f.playHand(ledger, a.ID, b.ID, "PAIR")
+	u, _ := users.FindByID(f.ctx, a.ID)
+	if u.PlayerLevel.XP != 50 || u.PlayerLevel.Daily.Claimed["WIN_PAIR"] != 0 {
+		t.Fatalf("past the cap: %+v %+v", u.PlayerLevel, u.PlayerLevel.Daily)
+	}
+	// The next window starts over.
+	clock.Advance(24 * time.Hour)
+	f.playHand(ledger, a.ID, b.ID, "PAIR")
+	if u, _ := users.FindByID(f.ctx, a.ID); u.PlayerLevel.XP != 51 || u.PlayerLevel.Today.XP != 1 {
+		t.Fatalf("the next window: %+v", u.PlayerLevel)
+	}
+	// A cap of 0 earns nothing; no settings row, no XP and no window.
 	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE xp_settings SET daily_cap = 0`); err != nil {
 		t.Fatal(err)
 	}
-	if _, changed = award(db.XPSourceActive60Min); changed {
-		t.Fatal("a cap of 0 earns nothing")
+	f.playHand(ledger, a.ID, b.ID, "TRAIL")
+	if u, _ := users.FindByID(f.ctx, a.ID); u.PlayerLevel.XP != 51 {
+		t.Fatalf("a cap of 0: %d XP", u.PlayerLevel.XP)
 	}
 	if _, err := f.d.Pool.Exec(f.ctx, `DELETE FROM xp_settings`); err != nil {
 		t.Fatal(err)
 	}
 	other := f.user("NoRules")
-	if _, changed, err := xp.Award(f.ctx, other.ID, db.XPSourceActive60Min); err != nil || changed {
-		t.Fatalf("no settings row, no XP: %v %v", changed, err)
+	if h := f.playHand(ledger, other.ID, b.ID, "TRAIL"); len(h.Windows) != 0 || h.Window != 0 {
+		t.Fatalf("no settings row: windows %v over %v", h.Windows, h.Window)
 	}
 	if n := f.count(`SELECT count(*) FROM player_xp WHERE user_id = $1`, other.ID); n != 0 {
-		t.Fatal("with XP off an award writes nothing")
+		t.Fatal("with XP off a settle writes no player_xp")
 	}
-	if window, err := xp.Window(f.ctx); err != nil || window != 0 {
-		t.Fatalf("no settings row: window %v %v", window, err)
+	if marks, win, err := xp.PlayMarks(f.ctx); err != nil || marks != nil || win != 0 {
+		t.Fatalf("no settings row: marks %v over %v: %v", marks, win, err)
 	}
 }
 
@@ -421,6 +808,7 @@ func TestATaxedWinIsTheWinGrossAndTheTaxAsItsOwnRow(t *testing.T) {
 	tax := game.TableTax(pot, 2000)
 	winner := settleEntry(hand, a.ID, pot-stake-tax, true, true, pot)
 	winner.Tax = tax
+	winner.WonWith = "SEQUENCE"
 	req := game.SettleRequest{RoomID: room, HandID: hand, PlayedMs: 95_000, Entries: []game.SettleEntry{
 		winner, settleEntry(hand, b.ID, -stake, false, true, 0),
 	}}
@@ -467,13 +855,13 @@ func TestATaxedWinIsTheWinGrossAndTheTaxAsItsOwnRow(t *testing.T) {
 		t.Errorf("the winner's counters: %+v", u)
 	}
 
-	// The hand's XP, in the same transaction: both completed it, a won it,
-	// and it opened both windows (the daily bonus).
-	if got := f.find(a.ID).PlayerLevel.XP; got != 7 {
-		t.Errorf("the winner's XP %d, want 1 + 1 + 5", got)
+	// The hand's XP, in the same transaction: a won it with a sequence (4),
+	// and it opened both windows.
+	if got := f.find(a.ID).PlayerLevel.XP; got != 4 {
+		t.Errorf("the winner's XP %d, want the sequence's 4", got)
 	}
-	if got := f.find(b.ID).PlayerLevel.XP; got != 6 {
-		t.Errorf("the loser's XP %d, want 1 + 5", got)
+	if got := f.find(b.ID).PlayerLevel.XP; got != 0 {
+		t.Errorf("the loser's XP %d, want 0", got)
 	}
 	if settled.TaxBps[a.ID] != 2000 || settled.TaxBps[b.ID] != 2000 {
 		t.Errorf("the rates the seats take: %+v", settled.TaxBps)
@@ -484,7 +872,7 @@ func TestATaxedWinIsTheWinGrossAndTheTaxAsItsOwnRow(t *testing.T) {
 	}
 	h := hands[0]
 	if h.HandID != hand || h.PlayedMs != 95_000 || h.Window != 24*time.Hour || len(h.Players) != 2 ||
-		h.Levels[a.ID].XP != 7 || h.Levels[b.ID].XP != 6 {
+		len(h.Levels) != 1 || h.Levels[a.ID].PlayerLevel.XP != 4 || len(h.Windows) != 2 {
 		t.Errorf("the settled hand: %+v", h)
 	}
 
@@ -495,7 +883,7 @@ func TestATaxedWinIsTheWinGrossAndTheTaxAsItsOwnRow(t *testing.T) {
 	if n := len(f.handLedgerRows(hand)); n != 3 || f.chips(a.ID) != welcome+pot-stake-tax {
 		t.Fatalf("the replay wrote something: %d rows, wallet %d", n, f.chips(a.ID))
 	}
-	if f.find(a.ID).PlayerLevel.XP != 7 || f.find(b.ID).PlayerLevel.XP != 6 {
+	if f.find(a.ID).PlayerLevel.XP != 4 || f.find(b.ID).PlayerLevel.XP != 0 {
 		t.Fatal("the replay awarded XP again")
 	}
 	if len(seen.all()) != 1 {
@@ -504,11 +892,12 @@ func TestATaxedWinIsTheWinGrossAndTheTaxAsItsOwnRow(t *testing.T) {
 	f.reconcile()
 }
 
-// TestTheSettleAwardsXPOnlyToThoseWhoCompletedTheHand: HAND_COMPLETED to every
-// outcome row of a player still at the table — a push included — HAND_WON to
-// the winner as well, and nothing to a leaver's row or a money-only row; in
-// every game (a poker hand's rows too).
-func TestTheSettleAwardsXPOnlyToThoseWhoCompletedTheHand(t *testing.T) {
+// TestTheSettleOpensTheWindowOfThoseWhoCompletedTheHand: every outcome row of
+// a player still at the table — a push included — has its player's window
+// opened (their play time counts in it), a leaver's row and a money-only row
+// do not; and a poker hand's winner, whose entry names no Teen Patti hand,
+// earns no "Win by …" XP.
+func TestTheSettleOpensTheWindowOfThoseWhoCompletedTheHand(t *testing.T) {
 	f := newFixture(t)
 	seen := &settledHands{}
 	f.ledger.OnSettled(seen.hook)
@@ -529,14 +918,17 @@ func TestTheSettleAwardsXPOnlyToThoseWhoCompletedTheHand(t *testing.T) {
 	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: "poker", HandID: hand, PlayedMs: 60_000, Entries: entries}); err != nil {
 		t.Fatal(err)
 	}
-	for id, want := range map[string]int64{win.ID: 7, lose.ID: 6, push.ID: 6, leaver.ID: 0, money.ID: 0} {
-		if got := f.find(id).PlayerLevel.XP; got != want {
-			t.Errorf("%s: %d XP, want %d", f.find(id).DisplayName, got, want)
+	for _, id := range []string{win.ID, lose.ID, push.ID, leaver.ID, money.ID} {
+		if got := f.find(id).PlayerLevel.XP; got != 0 {
+			t.Errorf("%s: %d XP, want 0", f.find(id).DisplayName, got)
 		}
 	}
 	h := seen.all()[0]
-	if len(h.Players) != 3 || len(h.Levels) != 3 {
-		t.Errorf("the settled hand's players %v and levels %v: the three who completed it", h.Players, h.Levels)
+	if len(h.Players) != 3 || len(h.Levels) != 0 || len(h.Windows) != 3 {
+		t.Errorf("the settled hand's players %v, windows %v and levels %v: the three who completed it", h.Players, h.Windows, h.Levels)
+	}
+	if n := f.count(`SELECT count(*) FROM player_xp WHERE window_start > 0 AND user_id IN ($1, $2, $3)`, win.ID, lose.ID, push.ID); n != 3 {
+		t.Errorf("%d windows opened, want 3", n)
 	}
 	for _, id := range h.Players {
 		if id == leaver.ID || id == money.ID {
@@ -572,17 +964,99 @@ func TestTableTaxRowsAreNeverPurged(t *testing.T) {
 	}
 }
 
-// TestAnAccountReadIsOneQueryStill: the level rides the account's own read —
-// a Users store with no player_xp row, a deleted level ladder or no settings
-// row still reads the account (Level 0, no rate, no cap), never an error.
+// TestAnAccountReadSurvivesAnEmptyLadder: the standing rides the account's
+// own read — a Users store with no player_xp row, a deleted level ladder, no
+// settings row or no badges still reads the account (Level 0, no rate, no
+// cap, no badge), never an error.
 func TestAnAccountReadSurvivesAnEmptyLadder(t *testing.T) {
 	f := newFixture(t)
 	u := f.user("Ladderless")
-	if _, err := f.d.Pool.Exec(context.Background(), `DELETE FROM player_levels; DELETE FROM xp_settings`); err != nil {
+	if _, err := f.d.Pool.Exec(context.Background(), `DELETE FROM player_levels; DELETE FROM xp_settings; DELETE FROM badges`); err != nil {
 		t.Fatal(err)
 	}
-	got := f.find(u.ID).PlayerLevel
-	if got != (db.PlayerLevel{}) {
-		t.Fatalf("no ladder: %+v, want the zero level", got)
+	got := f.find(u.ID)
+	if got.PlayerLevel != (db.PlayerLevel{}) || got.TaxBps != 0 || got.Badges == nil || len(got.Badges) != 0 {
+		t.Fatalf("no ladder: %+v, want the zero level and an empty badge list", got.Standing)
+	}
+}
+
+// GET /api/levels' read (owner, 27 Sep 2026: the tax pill, tapped, shows "all
+// levels and taxes"): every level in order, every active badge with its rate
+// and validity, the active XP sources in their order and the day's cap — and
+// an owner's UPDATE is on it at the next read.
+func TestTheLadderIsEveryLevelAndBadgeWithTheSourcesAndTheCap(t *testing.T) {
+	f := newFixture(t)
+	x := db.NewXP(f.d, nil)
+	ladder, err := x.Ladder(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ladder.Levels) != 50 {
+		t.Fatalf("%d rungs, want 50", len(ladder.Levels))
+	}
+	for i, l := range ladder.Levels {
+		if l.Level != i+1 || l.TaxBps != ownersLevels[i].taxBps || l.MinXP != ownersLevels[i].minXP {
+			t.Fatalf("rung %d = %+v: levels 1..50 in order", i, l)
+		}
+	}
+	first, top := ladder.Levels[0], ladder.Levels[49]
+	if first.Title != "Newbie" || first.Icon != "\U0001F331" || first.MinXP != 0 || first.TaxBps != 2000 {
+		t.Errorf("level 1 = %+v", first)
+	}
+	if top.Title != "King of Kings" || top.MinXP != 2000000 || top.TaxBps != 600 {
+		t.Errorf("level 50 = %+v", top)
+	}
+	var badges []string
+	for _, b := range ladder.Badges {
+		rate, rupees := "none", "-"
+		if b.TaxBps != nil {
+			rate = fmt.Sprint(*b.TaxBps)
+		}
+		if b.PriceInr != nil {
+			rupees = fmt.Sprint(*b.PriceInr)
+		}
+		badges = append(badges, fmt.Sprintf("%s:%s:%d:%v:%s:%s:%s", b.Code, rate, b.ValidityDays, b.IsDefault, rupees, b.ProductID, b.AssetFormat))
+	}
+	if got := strings.Join(badges, ","); got != "REGULAR:2000:0:true:0::LOTTIE,"+
+		"ROYAL_ACE:0:7:false:499::LOTTIE,ROYAL_KING:0:15:false:999::LOTTIE,ROYAL_MASTER:0:30:false:1799::LOTTIE,"+
+		"ROYAL_EMPEROR:0:45:false:2499::LOTTIE,ROYAL_LEGEND:0:60:false:3299::LOTTIE,ROYAL_KING_OF_KINGS:0:90:false:4499::LOTTIE" {
+		t.Errorf("badges = %s", got)
+	}
+	if url := ladder.Badges[1].AssetURL; url != "https://drive.google.com/uc?export=download&id=1lwt8uXauqnX77WEb73xZAbTz_TR-rJKm" {
+		t.Errorf("Royal Ace's Lottie is %q", url)
+	}
+	var codes []string
+	for _, s := range ladder.XPSources {
+		codes = append(codes, fmt.Sprintf("%s:%d", s.Code, s.XP))
+	}
+	if got := strings.Join(codes, ","); got != "PLAY_15_MIN:3,PLAY_60_MIN:20,PLAY_120_MIN:50,WIN_PAIR:1,WIN_COLOR:2,WIN_SEQUENCE:4,WIN_PURE_SEQUENCE:8,WIN_TRAIL:20" {
+		t.Errorf("sources = %s", got)
+	}
+	play15, pair := ladder.XPSources[0], ladder.XPSources[3]
+	if play15.Name != "Play 15 active minutes" || play15.Icon != "\U0001F3AE" || play15.Kind != db.XPKindPlayTime ||
+		play15.PlayMinutes == nil || *play15.PlayMinutes != 15 || play15.Times != 1 || play15.HandRank != "" {
+		t.Errorf("the first source: %+v", play15)
+	}
+	if pair.Kind != db.XPKindWinHand || pair.HandRank != "PAIR" || pair.PlayMinutes != nil || pair.Icon != "\U0001F465" {
+		t.Errorf("the pair source: %+v", pair)
+	}
+	if ladder.DailyCap != nil || ladder.WindowMs != 86400000 {
+		t.Errorf("cap %v over %d ms, want none over 24 h", ladder.DailyCap, ladder.WindowMs)
+	}
+
+	// An owner's edit is on the next read; an inactive source is left out.
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE xp_sources SET is_active = FALSE WHERE code = 'WIN_PAIR'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE player_levels SET tax_bps = 1990 WHERE level = 2;
+	     UPDATE badges SET is_active = FALSE WHERE code = 'ROYAL_LEGEND'`); err != nil {
+		t.Fatal(err)
+	}
+	ladder, err = x.Ladder(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ladder.XPSources) != 7 || ladder.Levels[1].TaxBps != 1990 || len(ladder.Badges) != 6 {
+		t.Errorf("after the edits: %d sources, level 2 at %d bps, %d badges", len(ladder.XPSources), ladder.Levels[1].TaxBps, len(ladder.Badges))
 	}
 }

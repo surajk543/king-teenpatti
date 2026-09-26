@@ -1,10 +1,11 @@
 package game
 
-// The winning tax (owner, 26 Sep 2026; tabletax.go): at a table that taxes its
-// winners the ONE winner of every hand pays their level's rate of the WHOLE
-// pot, rounded down; nobody else pays anything; the seat is credited the pot
-// less the tax, the ledger records the win gross and the tax as a row of its
-// own, and every other table is exactly what it was.
+// The winning tax (owner, 26–27 Sep 2026; tabletax.go): at a table that taxes
+// its winners the ONE winner of every hand pays their rate of what they WON —
+// the pot less their own contribution — rounded down, and only on winnings of
+// the table's WinnerTaxMinWinnings or more; nobody else pays anything; the
+// seat is credited the pot less the tax, the ledger records the win gross and
+// the tax as a row of its own, and every other table is exactly what it was.
 
 import (
 	"encoding/json"
@@ -161,24 +162,60 @@ func (o *taxObserver) total() (int64, int) {
 	return sum, len(o.calls)
 }
 
+// winningsOf is what the winner of ended WON: the pot less the winner's own
+// contribution, read from the hand's summary.
+func winningsOf(t *testing.T, ended HandEndedEvent) int64 {
+	t.Helper()
+	if ended.WinnerID == nil {
+		t.Fatal("no winner")
+	}
+	for _, e := range ended.Summary {
+		if e.UserID == *ended.WinnerID {
+			return WinnerWinnings(ended.Pot, e.Contributed)
+		}
+	}
+	t.Fatalf("the winner %s is not in the hand's summary", *ended.WinnerID)
+	return 0
+}
+
 // ------------------------------------------------------------- the function
 
-// TestTheWinningTaxIsTheRateOfTheWholePotRoundedDown: basis points of the
-// whole pot, never a chip more than the rate (floor), nothing for a rate or a
-// pot of nothing, a rate above 100% read as 100%, and no overflow on a pot the
-// product would not fit — checked against exact big-integer arithmetic.
-func TestTheWinningTaxIsTheRateOfTheWholePotRoundedDown(t *testing.T) {
+// TestTheWinningsAreThePotLessTheWinnersOwnChips (owner, 27 Sep 2026: "tax
+// will be on total pot amount - amount player contributed"): what the others
+// put in, never below nothing.
+func TestTheWinningsAreThePotLessTheWinnersOwnChips(t *testing.T) {
+	for _, tc := range []struct {
+		pot, contributed, want int64
+	}{
+		{2000, 1000, 1000},
+		{50_00_000, 10_00_000, 40_00_000},
+		{300, 300, 0}, // a pot of the winner's own chips alone is no winnings
+		{300, 500, 0},
+		{0, 0, 0},
+	} {
+		if got := WinnerWinnings(tc.pot, tc.contributed); got != tc.want {
+			t.Errorf("WinnerWinnings(%d, %d) = %d, want %d", tc.pot, tc.contributed, got, tc.want)
+		}
+	}
+}
+
+// TestTheWinningTaxIsTheRateOfTheWinningsRoundedDown: basis points of the
+// winnings, never a chip more than the rate (floor), nothing for a rate or
+// winnings of nothing, a rate above 100% read as 100%, and no overflow on
+// winnings the product would not fit — checked against exact big-integer
+// arithmetic.
+func TestTheWinningTaxIsTheRateOfTheWinningsRoundedDown(t *testing.T) {
 	for _, tc := range []struct {
 		pot  int64
 		bps  int
 		want int64
 	}{
 		{200, 2000, 40},            // Level 1: 20.00%
-		{200, 400, 8},              // VIP: 4.00%
-		{2_000_000, 1816, 363_200}, // Level 10: 18.16%
+		{200, 500, 10},             // a 5.00% rate
+		{2_000_000, 1743, 348_600}, // Level 10: 17.43%
 		{199, 2000, 39},            // 39.8 rounds down
-		{3, 1959, 0},               // 0.5877 rounds down to nothing
-		{1, 10000, 1},              // the whole pot at 100%
+		{3, 1943, 0},               // 0.5829 rounds down to nothing
+		{1, 10000, 1},              // all the winnings at 100%
 		{1000, 20000, 1000},        // a rate above 100% is 100%
 		{0, 2000, 0},
 		{-500, 2000, 0},
@@ -250,7 +287,7 @@ type taxedHand struct {
 
 func taxedHands() []taxedHand {
 	three := func(h *harness, book *taxBook) map[string]int {
-		rates := map[string]int{"a": 2000, "b": 400, "c": 1816}
+		rates := map[string]int{"a": 2000, "b": 500, "c": 1743}
 		for _, id := range []string{"a", "b", "c"} {
 			h.seatAt(book, id, settleStart, rates[id])
 		}
@@ -258,17 +295,17 @@ func taxedHands() []taxedHand {
 	}
 	return []taxedHand{
 		{name: "last standing", reason: WinLastStanding, cfg: taxConfig, play: func(t *testing.T, h *harness, book *taxBook) map[string]int {
-			rates := map[string]int{"a": 2000, "b": 400}
+			rates := map[string]int{"a": 2000, "b": 500}
 			h.seatAt(book, "a", settleStart, 2000)
-			h.seatAt(book, "b", settleStart, 400)
+			h.seatAt(book, "b", settleStart, 500)
 			h.advance(6 * time.Second)
 			h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
 			h.mustAct(h.turnUser(), ActionPack, ActRequest{})
 			return rates
 		}},
 		{name: "show", reason: WinShow, cfg: taxConfig, play: func(t *testing.T, h *harness, book *taxBook) map[string]int {
-			rates := map[string]int{"a": 400, "b": 2000}
-			h.seatAt(book, "a", settleStart, 400)
+			rates := map[string]int{"a": 500, "b": 2000}
+			h.seatAt(book, "a", settleStart, 500)
 			h.seatAt(book, "b", settleStart, 2000)
 			h.advance(6 * time.Second)
 			h.setCards("a", "As", "Ah", "Ad")
@@ -327,9 +364,9 @@ func taxedHands() []taxedHand {
 			return rates
 		}},
 		{name: "the last to leave", reason: WinAllLeft, cfg: taxConfig, play: func(t *testing.T, h *harness, book *taxBook) map[string]int {
-			rates := map[string]int{"a": 2000, "b": 400}
+			rates := map[string]int{"a": 2000, "b": 500}
 			h.seatAt(book, "a", settleStart, 2000)
-			h.seatAt(book, "b", settleStart, 400)
+			h.seatAt(book, "b", settleStart, 500)
 			h.advance(6 * time.Second)
 			// Both seats vacated without ending the hand, b the last to go (the
 			// all_left path of TestAllLeftWinnerNameFromContribution, with the
@@ -359,7 +396,8 @@ func taxedHands() []taxedHand {
 // TestATaxingTableTaxesTheWinnerOfEveryKindOfHandEnd: a show, the last
 // player standing, the forced and the pot-limit showdowns, a missile, a table
 // destroyed mid-hand and the pot of the last to leave — in every one the
-// winner pays their own rate of the whole pot and nothing else moves: the
+// winner pays their own rate of what they won (the pot less their own
+// contribution) and nothing else moves: the
 // winner's entry carries the Tax, its rows are the win gross and a table_tax
 // row, the hand's hand_* rows still sum to zero, the books lose exactly the
 // tax, the seat holds what the wallet does, handEnded says what was taken and
@@ -392,11 +430,15 @@ func TestATaxingTableTaxesTheWinnerOfEveryKindOfHandEnd(t *testing.T) {
 			}
 			winner := *ended.WinnerID
 			bps := rates[winner]
-			tax := TableTax(ended.Pot, bps)
-			if tax <= 0 {
-				t.Fatalf("pot %d at %d bps is no tax: the case proves nothing", ended.Pot, bps)
+			won := winningsOf(t, ended)
+			if won >= ended.Pot {
+				t.Fatalf("winnings %d of a pot of %d: the winner put nothing in, so the case cannot tell the pot from the winnings", won, ended.Pot)
 			}
-			eq(t, ended.Tax, tax, "handEnded.tax is the winner's rate of the whole pot")
+			tax := TableTax(won, bps)
+			if tax <= 0 {
+				t.Fatalf("winnings of %d at %d bps are no tax: the case proves nothing", won, bps)
+			}
+			eq(t, ended.Tax, tax, "handEnded.tax is the winner's rate of their winnings, never of the whole pot")
 			eq(t, ended.TaxBps, bps, "handEnded.taxBps is the rate applied: the winner's own")
 
 			req := book.lastSettle(t)
@@ -491,19 +533,19 @@ func TestAnUntaxedTableIsExactlyWhatItWas(t *testing.T) {
 
 // TestOnlyATaxingTableSaysSoAndEachViewerSeesTheirOwnRate: room:state at a
 // table that taxes its winners carries winnerTax and, in `you`, the rate that
-// viewer's seat pays — a VIP's 4%, a 0 when the level carries none — and no
+// viewer's seat pays — 5%, say, or a 0 when the rate is none — and no
 // other seat's; at any other table neither key exists.
 func TestOnlyATaxingTableSaysSoAndEachViewerSeesTheirOwnRate(t *testing.T) {
 	book := newTaxBook()
 	h := newHarness(t, taxConfig(), withLedger(book.ledger))
 	h.seatAt(book, "a", settleStart, 2000)
-	h.seatAt(book, "b", settleStart, 400)
+	h.seatAt(book, "b", settleStart, 500)
 	h.seatAt(book, "c", settleStart, 0)
 	for _, phase := range []string{"between hands", "mid-hand"} {
 		if phase == "mid-hand" {
 			h.advance(6 * time.Second)
 		}
-		for id, want := range map[string]int{"a": 2000, "b": 400, "c": 0} {
+		for id, want := range map[string]int{"a": 2000, "b": 500, "c": 0} {
 			v := h.view(id)
 			if !v.WinnerTax || v.You == nil || v.You.TaxBps == nil || *v.You.TaxBps != want {
 				t.Fatalf("%s %s: winnerTax %v, you.taxBps %v, want true and %d", phase, id, v.WinnerTax, v.You.TaxBps, want)
@@ -550,10 +592,10 @@ func TestOnlyATaxingTableSaysSoAndEachViewerSeesTheirOwnRate(t *testing.T) {
 // in progress's.
 func TestTheSeatPaysTheRateItsHandWasDealtWith(t *testing.T) {
 	book := newTaxBook()
-	book.rates = map[string]int{"a": 1980, "b": 400}
+	book.rates = map[string]int{"a": 1971, "b": 500}
 	h := newHarness(t, taxConfig(), withLedger(book.ledger))
 	h.seatAt(book, "a", settleStart, 2000)
-	h.seatAt(book, "b", settleStart, 400)
+	h.seatAt(book, "b", settleStart, 500)
 
 	// Hand 1 at the rates the seats sat down with.
 	h.advance(6 * time.Second)
@@ -561,18 +603,18 @@ func TestTheSeatPaysTheRateItsHandWasDealtWith(t *testing.T) {
 	h.mustAct(first, ActionPack, ActRequest{})
 	ended := h.lastHandEnded()
 	winner := *ended.WinnerID
-	eq(t, ended.TaxBps, map[string]int{"a": 2000, "b": 400}[winner], "hand 1 at the sit-down rate")
+	eq(t, ended.TaxBps, map[string]int{"a": 2000, "b": 500}[winner], "hand 1 at the sit-down rate")
 
-	// The settlement said a is now at 19.80%: between hands the seat pays it.
-	eq(t, *h.view("a").You.TaxBps, 1980, "the settle's rate reaches the seat")
-	eq(t, h.seatInfo("a").TaxBps, 1980, "…and SeatInfo carries it (a consolidation move takes it along)")
+	// The settlement said a is now at 19.71%: between hands the seat pays it.
+	eq(t, *h.view("a").You.TaxBps, 1971, "the settle's rate reaches the seat")
+	eq(t, h.seatInfo("a").TaxBps, 1971, "…and SeatInfo carries it (a consolidation move takes it along)")
 
-	// Hand 2 is dealt at 19.80%; a rate that changes mid-hand is the next
+	// Hand 2 is dealt at 19.71%; a rate that changes mid-hand is the next
 	// hand's, never this one's.
 	h.advance(6 * time.Second)
-	h.read(func() { h.table.adoptTaxRates(map[string]int{"a": 1816, "b": 400, "zed": 5, "c": 99999}) })
-	eq(t, *h.view("a").You.TaxBps, 1980, "mid-hand, you.taxBps is the rate the hand was dealt with")
-	eq(t, h.seatInfo("a").TaxBps, 1816, "the seat already holds the next hand's rate")
+	h.read(func() { h.table.adoptTaxRates(map[string]int{"a": 1743, "b": 500, "zed": 5, "c": 99999}) })
+	eq(t, *h.view("a").You.TaxBps, 1971, "mid-hand, you.taxBps is the rate the hand was dealt with")
+	eq(t, h.seatInfo("a").TaxBps, 1743, "the seat already holds the next hand's rate")
 	book.mu.Lock()
 	book.rates = map[string]int{} // no further change after this hand
 	book.mu.Unlock()
@@ -586,9 +628,9 @@ func TestTheSeatPaysTheRateItsHandWasDealtWith(t *testing.T) {
 	}
 	ended = h.lastHandEnded()
 	eq(t, *ended.WinnerID, "a", "a wins hand 2")
-	eq(t, ended.TaxBps, 1980, "hand 2 pays the rate it was dealt with, not the one set mid-hand")
-	eq(t, ended.Tax, TableTax(ended.Pot, 1980), "at 19.80% of the pot")
-	eq(t, *h.view("a").You.TaxBps, 1816, "between hands again, the seat's rate")
+	eq(t, ended.TaxBps, 1971, "hand 2 pays the rate it was dealt with, not the one set mid-hand")
+	eq(t, ended.Tax, TableTax(winningsOf(t, ended), 1971), "at 19.71% of the winnings")
+	eq(t, *h.view("a").You.TaxBps, 1743, "between hands again, the seat's rate")
 }
 
 // TestTheRatesSurviveARestoreAndABadOneIsRefused: the table's winner tax,
@@ -599,7 +641,7 @@ func TestTheRatesSurviveARestoreAndABadOneIsRefused(t *testing.T) {
 	book := newTaxBook()
 	h := newHarness(t, taxConfig(), withLedger(book.ledger))
 	h.seatAt(book, "a", settleStart, 2000)
-	h.seatAt(book, "b", settleStart, 400)
+	h.seatAt(book, "b", settleStart, 500)
 	h.advance(6 * time.Second)
 	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
 
@@ -608,7 +650,7 @@ func TestTheRatesSurviveARestoreAndABadOneIsRefused(t *testing.T) {
 		t.Fatal("the snapshot must keep that the table taxes its winners")
 	}
 	raw := mustJSON(t, snap)
-	if !strings.Contains(raw, `"winnerTax":true`) || strings.Count(raw, `"taxBps":2000`) != 2 || strings.Count(raw, `"taxBps":400`) != 2 {
+	if !strings.Contains(raw, `"winnerTax":true`) || strings.Count(raw, `"taxBps":2000}`) != 2 || strings.Count(raw, `"taxBps":500}`) != 2 {
 		t.Fatalf("each seat's rate and each contribution's dealt rate must be in the snapshot: %s", raw)
 	}
 
@@ -619,18 +661,18 @@ func TestTheRatesSurviveARestoreAndABadOneIsRefused(t *testing.T) {
 	if got := mustJSON(t, roundTrip(t, mustSnapshot(restored))); got != mustJSON(t, snap) {
 		t.Fatalf("the restore must keep every rate:\n got %s\nwant %s", got, mustJSON(t, snap))
 	}
-	eq(t, *restored.view("b").You.TaxBps, 400, "b's dealt rate came back")
+	eq(t, *restored.view("b").You.TaxBps, 500, "b's dealt rate came back")
 	loser := restored.turnUser()
 	restored.mustAct(loser, ActionPack, ActRequest{})
 	ended := restored.lastHandEnded()
 	winner := *ended.WinnerID
-	eq(t, ended.TaxBps, map[string]int{"a": 2000, "b": 400}[winner], "the restored hand is taxed at the rate it was dealt with")
+	eq(t, ended.TaxBps, map[string]int{"a": 2000, "b": 500}[winner], "the restored hand is taxed at the rate it was dealt with")
 
 	for name, spoil := range map[string]func(s *Snapshot){
 		"a seat's rate above 100%":         func(s *Snapshot) { s.Seats[0].TaxBps = 10001 },
 		"a negative seat rate":             func(s *Snapshot) { s.Seats[1].TaxBps = -1 },
 		"a contribution's rate above 100%": func(s *Snapshot) { s.Hand.Contributions[0].TaxBps = 20000 },
-		"a negative contribution's rate":   func(s *Snapshot) { s.Hand.Contributions[1].TaxBps = -400 },
+		"a negative contribution's rate":   func(s *Snapshot) { s.Hand.Contributions[1].TaxBps = -200 },
 	} {
 		bad := roundTrip(t, snap)
 		spoil(bad)
@@ -646,9 +688,9 @@ func TestTheRatesSurviveARestoreAndABadOneIsRefused(t *testing.T) {
 // would open now, and the RoomManager drains it (SameRules).
 func TestATableRestoredFromBeforeTheTaxIsDrained(t *testing.T) {
 	g := config.Defaults().Game
-	spec := g.Spec("blind", 1_000_000, false)
+	spec := g.Spec("blind", 2_000_000, false)
 	if !spec.WinnerTax {
-		t.Fatal("the default blind 10 Lakh table taxes its winners")
+		t.Fatal("the default blind 20 Lakh table taxes its winners")
 	}
 	taxed := NewTable(TableOptions{ID: "taxed", Code: "TAXED001", Config: tableConfigFromSpec(CategoryBlind, spec, config.ChatConfig{})})
 	defer func() { _ = taxed.Destroy() }()
@@ -662,9 +704,129 @@ func TestATableRestoredFromBeforeTheTaxIsDrained(t *testing.T) {
 	if old.RulesSpec().SameRules(spec) {
 		t.Fatal("a table that does not tax where the catalogue now does must be drained")
 	}
-	for _, c := range []string{"seen", "variation", "omaha"} {
-		if g.Spec(c, 200, false).WinnerTax {
-			t.Errorf("%s 200 must not tax its winners", c)
+	for _, c := range []struct {
+		category string
+		boot     int64
+		private  bool
+	}{
+		{"omaha", 50000, false},   // a poker room never taxes
+		{"seen", 200, true},       // nor does a private table
+		{"variation", 200, false}, // nor a pair the menu does not offer
+	} {
+		if g.Spec(c.category, c.boot, c.private).WinnerTax {
+			t.Errorf("%+v must not tax its winners", c)
 		}
+	}
+}
+
+// TestOnlyWinningsOfTheMinimumOrMoreAreTaxed (owner, 27 Sep 2026: "30 lakh is
+// the limit on winning amount not on pot limit"): a hand whose POT is over the
+// table's WinnerTaxMinWinnings but whose WINNINGS — the pot less the winner's
+// own chips — fall one chip short of it is paid out whole, with no table_tax
+// row and no tax key on the wire; winnings of exactly the minimum are taxed;
+// and the snapshot, the saved one included, says what the minimum is.
+func TestOnlyWinningsOfTheMinimumOrMoreAreTaxed(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		min   int64
+		taxed bool
+	}{
+		{"winnings one chip short, the pot well over", 101, false},
+		{"winnings of exactly the minimum", 100, true},
+		{"no minimum", 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			book := newTaxBook()
+			cfg := taxConfig()
+			cfg.WinnerTaxMinWinnings = tc.min
+			h := newHarness(t, cfg, withLedger(book.ledger))
+			h.seatAt(book, "a", settleStart, 2000)
+			h.seatAt(book, "b", settleStart, 2000)
+			raw := mustJSON(t, h.view("a"))
+			if tc.min > 0 && !strings.Contains(raw, `"winnerTaxMinWinnings":`+jsonInt(tc.min)) ||
+				tc.min == 0 && strings.Contains(raw, "winnerTaxMinWinnings") {
+				t.Fatalf("room:state must carry the minimum where there is one, and only there: %s", raw)
+			}
+			eq(t, roundTrip(t, mustSnapshot(h)).Config.WinnerTaxMinWinnings, tc.min, "the saved snapshot keeps the minimum")
+
+			h.advance(6 * time.Second)
+			h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+			h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+			ended := h.lastHandEnded()
+			won := winningsOf(t, ended)
+			eq(t, won, settleBoot, "the winner won the other player's boot")
+			if ended.Pot <= 101 {
+				t.Fatalf("a pot of %d: it must be over every minimum for the case to prove the pot is not what counts", ended.Pot)
+			}
+			want := int64(0)
+			if tc.taxed {
+				want = TableTax(won, 2000)
+			}
+			eq(t, ended.Tax, want, "the tax")
+			eq(t, book.total(), 2*settleStart-want, "only the tax leaves the game")
+			var taxRows int
+			for _, row := range book.rowsOf(ended.HandID) {
+				if row.Reason == LedgerReasonTableTax {
+					taxRows++
+				}
+			}
+			eq(t, taxRows, map[bool]int{true: 1, false: 0}[tc.taxed], "table_tax rows")
+			if raw := mustJSON(t, ended); !tc.taxed && (strings.Contains(raw, `"tax"`) || strings.Contains(raw, `"taxBps"`)) {
+				t.Errorf("an untaxed hand's handEnded carries a tax key: %s", raw)
+			}
+		})
+	}
+}
+
+// TestTheWinnersEntryNamesTheHandTheyWonWith (owner, 27 Sep 2026: "Win by
+// Pair +1 XP … Win by Trail +20 XP"): the winner's hand-end entry carries the
+// hand they won with, as the table ranks it — at a show, and when the others
+// packed alike — and every other entry names none.
+func TestTheWinnersEntryNamesTheHandTheyWonWith(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		cards  []string
+		fold   bool
+		wantIt string
+	}{
+		{"a show won with a trail", []string{"As", "Ah", "Ad"}, false, "TRAIL"},
+		{"a show won with a pure sequence", []string{"Qh", "Kh", "Ah"}, false, "PURE_SEQUENCE"},
+		{"a fold to a pair", []string{"9s", "9d", "2c"}, true, "PAIR"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			book := newTaxBook()
+			h := newHarness(t, taxConfig(), withLedger(book.ledger))
+			h.seatAt(book, "a", settleStart, 2000)
+			h.seatAt(book, "b", settleStart, 2000)
+			h.advance(6 * time.Second)
+			h.setCards("a", tc.cards...)
+			h.setCards("b", "2s", "7h", "9c")
+			if tc.fold {
+				for h.hasHand() {
+					player := h.turnUser()
+					if player == "a" {
+						h.mustAct(player, ActionChaal, ActRequest{})
+					} else {
+						h.mustAct(player, ActionPack, ActRequest{})
+					}
+				}
+			} else {
+				for h.hasHand() && h.turnUser() != "a" {
+					h.mustAct(h.turnUser(), ActionChaal, ActRequest{})
+				}
+				h.mustAct("a", ActionShow, ActRequest{})
+			}
+			ended := h.lastHandEnded()
+			if ended.WinnerID == nil || *ended.WinnerID != "a" {
+				t.Fatalf("the winner %v, want a", ended.WinnerID)
+			}
+			for _, e := range book.lastSettle(t).Entries {
+				want := ""
+				if e.IsWinner {
+					want = tc.wantIt
+				}
+				eq(t, e.WonWith, want, "the entry of "+e.UserID)
+			}
+		})
 	}
 }

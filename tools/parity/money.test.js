@@ -214,14 +214,18 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   // sat on users), and who asked whom and who is friends with whom — whether
   // a friend is online or at a table is Redis's (kt:online,
   // kt:playing:<userId>) and no row here names a room.
-  // player_levels, xp_sources and xp_settings (26 Sep 2026) are configuration:
-  // the level ladder — each level's title, icon and the winning tax it
-  // carries —, what earns XP and the daily cap; the seed and the owner write
-  // them. player_xp is an account fact, the kind of thing users holds: a
-  // player's lifetime XP, their day's window and a level set by hand, written
-  // by the hand-end settle in the ledger's own transaction and by the
-  // play-time award. No table reads either to play a hand — a seat takes its
-  // rate with the account when its player sits down, and from each hand-end
+  // player_levels, badges, xp_sources and xp_settings (26–27 Sep 2026) are
+  // configuration: the level ladder — each level's title, icon and the winning
+  // tax it carries —, the badges a player may hold beside it with their rates
+  // and validity, the daily XP sources and the window; the seed and the owner
+  // write them. player_xp, player_xp_claims and user_badges are account facts,
+  // the kind of thing users holds: a player's lifetime XP and their day's
+  // window, how many times they have earned each source in it, and the badges
+  // they were given and when each runs out — XP written by the hand-end settle
+  // in the ledger's own transaction and by the play-time award, badges by
+  // hand or by a store purchase, whose receipt badge_purchases keeps (a Play
+  // purchase record, as diamond_purchases is). No table reads any of them to play a hand — a seat takes its rate
+  // with the account when its player sits down, and from each hand-end
   // settle's answer — and the play TIME that earns XP is kept in the live
   // store, never here. The list is exact rather than a minimum, so a new table
   // has to be argued for here first.
@@ -245,20 +249,25 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
     assert.ok(!tables.includes(retired), `${retired} is game state and must not exist`);
   }
   assert.deepEqual(tables, [
-    'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships', 'hammer_purchases', 'hammer_spends',
-    'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends', 'player_levels', 'player_stats', 'player_xp',
-    'profile_pictures', 'table_categories', 'table_configs', 'table_engines', 'table_pictures', 'table_settings',
-    'user_emojis', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures', 'user_table_choice',
-    'user_table_pictures', 'users', 'xp_settings', 'xp_sources',
+    'badge_purchases', 'badges', 'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships', 'hammer_purchases',
+    'hammer_spends', 'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends', 'player_levels',
+    'player_stats', 'player_xp', 'player_xp_claims', 'profile_pictures', 'table_categories', 'table_configs',
+    'table_engines', 'table_pictures', 'table_settings', 'user_badges', 'user_emojis', 'user_lucky_draws',
+    'user_milestones', 'user_profile_pictures', 'user_table_choice', 'user_table_pictures', 'users', 'xp_settings',
+    'xp_sources',
   ], `the schema must hold money, audit, accounts, the picture catalogues and table configuration only, got ${tables.join(', ')}`);
   // Configuration, by construction: no column of the four — nor of the level
-  // ladder and the XP rules — refers to a room, a hand, a seat or a user.
+  // ladder, the badges and the XP rules — refers to a room, a hand, a seat or a
+  // user.
   const { rows: stateful } = await query(
     `SELECT table_name, column_name FROM information_schema.columns
       WHERE table_schema = current_schema()
         AND table_name IN ('table_engines', 'table_categories', 'table_settings', 'table_configs',
-                           'player_levels', 'xp_sources', 'xp_settings')
-        AND column_name ~ '^(room|hand|seat|user)_'`);
+                           'player_levels', 'badges', 'xp_sources', 'xp_settings')
+        AND column_name ~ '^(room|hand|seat|user)_'
+        -- the kind of hand a daily XP source is won with (PAIR … TRAIL): a
+        -- rule, never a hand
+        AND NOT (table_name = 'xp_sources' AND column_name = 'hand_rank')`);
   assert.deepEqual(stateful, [], 'a table configuration column names a room, a hand, a seat or a user');
 });
 

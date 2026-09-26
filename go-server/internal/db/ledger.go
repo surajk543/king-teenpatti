@@ -47,9 +47,13 @@ func NewLedger(d *DB, m *metrics.Metrics, clock func() time.Time) *Ledger {
 type SettledHand struct {
 	HandID string
 	// Players are the players the hand-end write resolved as having completed
-	// the hand — dealt in and at the table when it ended — the ones it awarded
-	// HAND_COMPLETED to, in ascending id order.
+	// the hand — dealt in and at the table when it ended — in ascending id
+	// order: the ones whose XP window it opened or rolled, and whose play the
+	// hand adds to.
 	Players []string
+	// Windows is the XP window each of Players' play counts in: the epoch ms
+	// it opened (player_xp.window_start), as the settle left it.
+	Windows map[string]int64
 	// PlayedMs is the hand's duration (game.SettleRequest.PlayedMs): the
 	// active play each of Players adds to their XP window in the live store.
 	PlayedMs int64
@@ -57,8 +61,8 @@ type SettledHand struct {
 	// the settle's transaction); 0 when no XP is awarded at all.
 	Window time.Duration
 	// Levels are the players whose XP the settlement changed, each with the
-	// level they now have — what each is told of in player:level.
-	Levels map[string]PlayerLevel
+	// standing they now have — what each is told of in player:level.
+	Levels map[string]Standing
 }
 
 // OnSettled sets the hook that hears of every hand-end settlement after it
@@ -214,14 +218,16 @@ var errAccountGone = errors.New("account gone")
 // is. That uniqueness is the settle-retry safety mechanism: a commit whose
 // acknowledgement is lost must never pay the winner the pot twice.
 //
-// The same transaction awards the hand's XP (owner, 26 Sep 2026; awardXP):
-// HAND_COMPLETED to every player it resolves as having completed the hand —
-// an outcome row of a player who did not leave mid-hand — and HAND_WON as
-// well to the winner, in every game; a replay's rollback takes the XP with
-// it, so a hand is never counted twice either. It then reads the level of
+// The same transaction does the hand's XP (owner, 26–27 Sep 2026; awardXP):
+// it opens or rolls the XP window of every player it resolves as having
+// completed the hand — an outcome row of a player who did not leave mid-hand —
+// and awards the winner the WIN_HAND source of the hand they won with
+// (SettleEntry.WonWith), once a window; a replay's rollback takes the XP with
+// it, so a hand is never counted twice either. It then reads the standing of
 // every player it wrote, AFTER that XP: SettleResult.TaxBps, the rate each
-// seat deals its next hand with. Only once it has committed is OnSettled's
-// hook told (SettledHand).
+// seat deals its next hand with — the lower of the level's and the badges',
+// so a badge that has run out since the last hand stops counting here. Only
+// once it has committed is OnSettled's hook told (SettledHand).
 func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.SettleResult, error) {
 	var result game.SettleResult
 	var settled SettledHand
@@ -230,7 +236,7 @@ func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.Settl
 		return l.db.WithTx(ctx, func(tx pgx.Tx) error {
 			at := now(l.clock)
 			result = game.SettleResult{Balances: make(map[string]int64, len(req.Entries))}
-			settled = SettledHand{HandID: req.HandID, PlayedMs: req.PlayedMs, Levels: map[string]PlayerLevel{}}
+			settled = SettledHand{HandID: req.HandID, PlayedMs: req.PlayedMs, Levels: map[string]Standing{}, Windows: map[string]int64{}}
 			ordered := make([]game.SettleEntry, len(req.Entries))
 			copy(ordered, req.Entries)
 			sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].UserID < ordered[j].UserID })
@@ -265,28 +271,35 @@ func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.Settl
 					continue // a leaver did not complete the hand
 				}
 				settled.Players = append(settled.Players, entry.UserID)
-				sources := []string{XPSourceHandCompleted}
+				// Every player who completed the hand has their window opened
+				// or rolled; the winner earns the WIN_HAND source of the hand
+				// they won with (owner, 27 Sep 2026: "Win by Pair +1 XP … 1
+				// time"), once a window.
+				var sources []xpSourceRow
 				if entry.IsWinner {
-					sources = append(sources, XPSourceHandWon)
+					sources = rules.wonWith(entry.WonWith)
 				}
-				award, err := awardXP(ctx, tx, rules, entry.UserID, at, sources...)
+				award, err := awardXP(ctx, tx, rules, entry.UserID, at, sources)
 				if err != nil {
 					return err
+				}
+				if rules.on {
+					settled.Windows[entry.UserID] = award.windowStart
 				}
 				if award.granted > 0 {
 					changed = append(changed, entry.UserID)
 				}
 			}
-			levels, err := playerLevelsOf(ctx, tx, at, written)
+			standings, err := standingsOf(ctx, tx, at, written)
 			if err != nil {
 				return err
 			}
-			result.TaxBps = make(map[string]int, len(levels))
-			for userID, level := range levels {
-				result.TaxBps[userID] = level.TaxBps
+			result.TaxBps = make(map[string]int, len(standings))
+			for userID, standing := range standings {
+				result.TaxBps[userID] = standing.TaxBps
 			}
 			for _, userID := range changed {
-				settled.Levels[userID] = levels[userID]
+				settled.Levels[userID] = standings[userID]
 			}
 			return nil
 		})

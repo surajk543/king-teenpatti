@@ -290,6 +290,25 @@ class ApiClient {
     );
   }
 
+  /// The level ladder (owner, 27 Sep 2026): `GET /api/levels`, public — every
+  /// level with the XP that reaches it and the winning tax it carries, every
+  /// badge with its rate and validity, the ways XP is earned and the day's
+  /// cap. Null from a server that predates it (404) or whose answer is not a
+  /// usable ladder; any other refusal, a timeout or a network failure throws,
+  /// and the caller keeps what it has.
+  Future<LevelLadder?> levels() async {
+    final uri = _uri('/api/levels');
+    const headers = {'Accept': 'application/json'};
+    final client = this.client;
+    final r =
+        await (client != null
+                ? client.get(uri, headers: headers)
+                : http.get(uri, headers: headers))
+            .timeout(tableConfigTimeout);
+    if (r.statusCode == 404) return null;
+    return LevelLadder.maybe(_decode(r));
+  }
+
   /// The emoji catalogue (owner, 26 Sep 2026): `GET /api/emojis`, active
   /// rows in the catalogue's order. The token is optional to the server and
   /// wanted here, as for [profilePictures]: without it every premium emoji
@@ -673,6 +692,8 @@ class ApiClient {
       int hammers,
       int missiles,
       int balance,
+      String? badge,
+      int badgeExpiresAt,
     })
   >
   redeemPurchase(String token, String productId, String purchaseToken) async {
@@ -699,6 +720,16 @@ class ApiClient {
       hammers: (j['hammers'] as num?)?.toInt() ?? 0,
       missiles: (j['missiles'] as num?)?.toInt() ?? 0,
       balance: (j['balance'] as num?)?.toInt() ?? 0,
+      // A badge bought in the store (owner, 27 Sep 2026): which badge, and
+      // when the player's grant of it now runs out. Absent on every pack.
+      badge: switch (j['badge']) {
+        {'code': final String code} when code.isNotEmpty => code,
+        _ => null,
+      },
+      badgeExpiresAt: switch (j['badge']) {
+        {'expiresAt': final num at} => at.toInt(),
+        _ => 0,
+      },
     );
   }
 

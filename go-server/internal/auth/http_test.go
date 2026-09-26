@@ -428,7 +428,7 @@ func TestGuestLoginCreatesAnAccountWithTheWelcomeGrant(t *testing.T) {
 	if res.status != 200 {
 		t.Fatalf("%d %s", res.status, res.raw)
 	}
-	if res.body["token"] == "" || res.body["isNew"] != true || res.body["welcomeChips"] != float64(300000) {
+	if res.body["token"] == "" || res.body["isNew"] != true || res.body["welcomeChips"] != float64(1000000) {
 		t.Errorf("%s", res.raw)
 	}
 	user := res.body["user"].(map[string]any)

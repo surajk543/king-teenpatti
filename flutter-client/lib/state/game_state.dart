@@ -369,23 +369,53 @@ class GameState extends ChangeNotifier {
 
   bool get iWon => winnerId != null && winnerId == user?.id;
 
-  /// Whether the viewer's table taxes its winners (owner, 26 Sep 2026: the
-  /// Blind and Variation tables at 10 Lakh). Never a poker room.
+  /// Whether the viewer's table taxes its winners (owner, 26–27 Sep 2026:
+  /// every public Seen, Blind and Variation table). Never a poker room.
   bool get tableTaxesWinner => room?.taxesWinner == true;
 
   /// The winning tax the viewer would pay at their table if they won a hand
   /// now, in basis points: their seat's rate as the server sent it
-  /// ([You.taxBps]), else their level's ([PlayerLevel.taxBps]); null where
-  /// neither is known, or the table does not tax. Only ever shown — the
-  /// server charges it.
+  /// ([You.taxBps]), else the rate their account pays — the lower of their
+  /// level's and their badges' ([User.paysTaxBps]); null where neither is
+  /// known, or the table does not tax. Only ever shown — the server charges
+  /// it.
   int? get myTaxBps {
     if (!tableTaxesWinner) return null;
-    return room?.you?.taxBps ?? user?.playerLevel?.taxBps;
+    return room?.you?.taxBps ?? user?.paysTaxBps;
   }
 
-  /// Whether the viewer's level is the VIP tier — set by hand on the server,
-  /// never reached by XP.
-  bool get isVip => user?.playerLevel?.vip == true;
+  /// The whole level ladder (`GET /api/levels`, owner, 27 Sep 2026): every
+  /// level with its winning tax, every badge with its rate, the ways XP is
+  /// earned and the day's cap — what the table's tax popup lays out in full.
+  /// Configuration, the same for every player, so it outlives a sign-out.
+  /// Null until first read, and from a server that predates it.
+  LevelLadder? levelLadder;
+
+  /// True while [loadLevelLadder] is asking.
+  bool levelLadderLoading = false;
+
+  /// True when the last [loadLevelLadder] failed and there is no ladder to
+  /// show; the popup offers Try again.
+  bool levelLadderFailed = false;
+
+  /// Reads the ladder afresh, so an owner's edit shows the next time it is
+  /// looked at. What is on screen stays while it is asked, and when the
+  /// asking fails; one read at a time.
+  Future<void> loadLevelLadder() async {
+    if (levelLadderLoading) return;
+    levelLadderLoading = true;
+    notifyListeners();
+    try {
+      final ladder = await _api.levels();
+      if (ladder != null) levelLadder = ladder;
+      levelLadderFailed = levelLadder == null;
+    } catch (_) {
+      levelLadderFailed = levelLadder == null;
+    } finally {
+      levelLadderLoading = false;
+      notifyListeners();
+    }
+  }
 
   /// Clears the winner's banner once its moment has passed.
   ///
@@ -1458,28 +1488,29 @@ class GameState extends ChangeNotifier {
     unawaited(refreshUser());
   }
 
-  /// `player:level`: the viewer's level after an XP award the server has
-  /// committed (owner, 26 Sep 2026). It replaces the account's level whole,
-  /// and when the level NUMBER rises — XP climbing the ladder, never the VIP
-  /// tier, which is set by hand — the player is told, with the winning tax
-  /// they pay now.
+  /// `player:level`: the viewer's standing after an XP award the server has
+  /// committed (owner, 26–27 Sep 2026) — their level, their badges and the
+  /// rate they pay. It replaces the account's three whole, and when the level
+  /// NUMBER rises (XP climbing the ladder; a badge is never reached by XP) the
+  /// player is told — with the winning tax they pay now when the level changed
+  /// it, and without when a badge keeps it lower than either level's.
   @visibleForTesting
-  void handlePlayerLevel(PlayerLevel level) {
+  void handlePlayerLevel(Standing standing) {
     final account = user;
     if (account == null) return;
     final before = account.playerLevel;
-    user = account.withPlayerLevel(level);
-    if (before != null &&
-        !before.vip &&
-        !level.vip &&
-        level.level > before.level) {
-      notice = t.levelUp(
-        [
-          if (level.icon.isNotEmpty) level.icon,
-          t.levelName(level.level, level.title),
-        ].join(' '),
-        formatTaxRate(level.taxBps),
-      );
+    final paidBefore = account.paysTaxBps;
+    user = account.withStanding(standing);
+    final level = standing.playerLevel;
+    if (before != null && level.level > before.level) {
+      final name = [
+        if (level.icon.isNotEmpty) level.icon,
+        t.levelName(level.level, level.title),
+      ].join(' ');
+      final paid = user!.paysTaxBps;
+      notice = paid != null && paid != paidBefore
+          ? t.levelUp(name, formatTaxRate(paid))
+          : t.levelUpOnly(name);
     }
     notifyListeners();
   }
@@ -3181,6 +3212,8 @@ class GameState extends ChangeNotifier {
           diamonds: r.diamonds,
           hammers: r.hammers,
           missiles: r.missiles,
+          badge: r.badge,
+          badgeExpiresAt: r.badgeExpiresAt,
         );
       }
       notifyListeners();
@@ -3219,7 +3252,34 @@ class GameState extends ChangeNotifier {
     required int diamonds,
     required int hammers,
     required int missiles,
+    String? badge,
+    int badgeExpiresAt = 0,
   }) {
+    // A badge (owner, 27 Sep 2026: "Add a icon in Store to buy badges"): the
+    // account the server answered with already holds it; the notice names
+    // it, with its mark, and the day it runs out.
+    if (badge != null) {
+      PlayerBadge? held;
+      for (final b in user?.badges ?? const <PlayerBadge>[]) {
+        if (b.code == badge) held = b;
+      }
+      final name = held == null
+          ? badge
+          : held.icon.isEmpty
+          ? held.title
+          : '${held.icon} ${held.title}';
+      final until = DateTime.fromMillisecondsSinceEpoch(
+        badgeExpiresAt > 0 ? badgeExpiresAt : held?.expiresAt ?? 0,
+      );
+      notice = badgeExpiresAt > 0 || (held?.expiresAt ?? 0) > 0
+          ? t.badgeBought(
+              name,
+              '${until.day.toString().padLeft(2, '0')}/'
+              '${until.month.toString().padLeft(2, '0')}/${until.year}',
+            )
+          : name;
+      return;
+    }
     if (chips > 0 && (missiles > 0 || hammers > 0)) {
       if (screen == Screen.table) {
         notice = t.premiumAdded(formatChips(chips), missiles, hammers);
@@ -4356,8 +4416,9 @@ String _grouped(int n) {
 }
 
 /// A winning tax rate in basis points as a player reads it (owner, 26 Sep
-/// 2026): two decimals, and a whole ".00" dropped — 2000 is "20%", 1980
-/// "19.80%", 1959 "19.59%", 400 "4%". Only ever shown: the server charges it.
+/// 2026): two decimals, and a whole ".00" dropped — 2000 is "20%", 1971
+/// "19.71%", 1905 "19.05%", 1810 "18.10%", 200 "2%". Only ever shown: the
+/// server charges it.
 String formatTaxRate(int bps) {
   final whole = bps ~/ 100;
   final cents = bps % 100;

@@ -514,6 +514,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   // Keyed so a lobby toast can stand clear of them
                   // (lobbyNoticeArea).
                   children: [
+                    // The level key (owner, 27 Sep 2026: "Add one icon in
+                    // lobby so that user can see his level"): the player's
+                    // level on it, and the level popup behind it.
+                    LevelKey(key: _levelKey),
                     FriendsKey(key: _friendsKey),
                     _MilestoneChip(key: _milestoneChip),
                   ],
@@ -2276,8 +2280,8 @@ class _TableCard extends StatelessWidget {
     // (owner, 18 Sep 2026), and it is a card of its own with its own name and
     // its own line about what happens there.
     final variation = category == TableCategory.variation;
-    // Whether the winner of each hand here pays winning tax (owner, 26 Sep
-    // 2026: the Blind and Variation tables at 10 Lakh) — the menu's word.
+    // Whether the winner of each hand here pays winning tax (owner, 26–27 Sep
+    // 2026: every public Seen, Blind and Variation table) — the menu's word.
     final taxes = table.taxesWinner;
     // A poker table is a different game altogether: its badge names the game
     // (Texas Hold'em, Omaha, 5-Card Draw, 3-Card Poker), its blurb says how
@@ -2499,8 +2503,7 @@ class _TableCard extends StatelessWidget {
                                 key: const ValueKey('winning-tax-pill'),
                                 label: taxPillLabel(
                                   t,
-                                  bps: state.user?.playerLevel?.taxBps,
-                                  vip: state.isVip,
+                                  bps: state.user?.paysTaxBps,
                                 ),
                                 style: text.labelSmall!,
                               ),
@@ -2982,13 +2985,17 @@ class _TableInfoDialog extends StatelessWidget {
         ),
       ],
       // A table that taxes its winners (owner, 26 Sep 2026): the rate THIS
-      // player would pay here, and the level that sets it.
+      // player would pay here — the lower of their level's and their
+      // badges' — and their level.
       if (table.taxesWinner) ...[
         _CardFact(
           icon: winningTaxIcon,
           palette: palette,
           label: t.winningTaxLabel,
-          value: level == null ? '—' : formatTaxRate(level.taxBps),
+          value: switch (state.user?.paysTaxBps) {
+            final bps? => formatTaxRate(bps),
+            null => '—',
+          },
           height: 26,
           ink: TableInk.taxOn(theme.brightness),
         ),
@@ -3055,6 +3062,15 @@ class _TableInfoDialog extends StatelessWidget {
             chipsShown,
             style: text.bodySmall?.copyWith(color: glass.textBody),
           ),
+          // Where the table taxes its winners from a floor (owner, 27 Sep
+          // 2026: "30 lakh is the limit on winning amount"): said once, under
+          // the chips line, rather than squeezed into the rate's row.
+          if (table.taxesWinner && table.winnerTaxMinWinnings > 0)
+            Text(
+              t.winningTaxFrom(formatChips(table.winnerTaxMinWinnings)),
+              key: const ValueKey('table-info-tax-from'),
+              style: text.bodySmall?.copyWith(color: glass.textBody),
+            ),
           const SizedBox(height: Space.md),
           for (final (i, row) in facts.indexed) ...[if (i > 0) rule(), row],
           if (standing.isNotEmpty) ...[
@@ -4513,13 +4529,15 @@ class _StatRow extends StatelessWidget {
 }
 
 /// The player's level at the head of their record: "Level 10 · 🌟 Rising
-/// Star · 4,180 XP" — a VIP's "💎👑 VIP" alone — and under it, while the day
-/// has an XP window, "Today 23 / 50 XP · resets in 5h 12m 3s". Every figure
-/// is the server's; the app counts no XP.
+/// Star · 4,180 XP"; under it, while the day has an XP window, "Today 23 / 50
+/// XP · resets in 5h 12m 3s"; and the badges they hold beside the level (owner,
+/// 27 Sep 2026: "Vip is not a level, it is badge") — "Regular · Royal King".
+/// Every figure is the server's; the app counts no XP.
 class _LevelRow extends StatelessWidget {
-  const _LevelRow({required this.level});
+  const _LevelRow({required this.level, this.badges = const []});
 
   final PlayerLevel level;
+  final List<PlayerBadge> badges;
 
   @override
   Widget build(BuildContext context) {
@@ -4530,7 +4548,12 @@ class _LevelRow extends StatelessWidget {
       theme.textTheme.bodyMedium!,
       colour: scheme.onSurface,
     );
-    final today = level.vip ? null : level.today;
+    final today = level.today;
+    final meta = AppTheme.money(
+      theme.textTheme.bodySmall!,
+      colour: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
+      weight: FontWeight.w500,
+    );
 
     return Padding(
       key: const ValueKey('stats-level'),
@@ -4565,13 +4588,18 @@ class _LevelRow extends StatelessWidget {
                     key: const ValueKey('stats-xp-today'),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: AppTheme.money(
-                      theme.textTheme.bodySmall!,
-                      colour: scheme.onSurface.withValues(
-                        alpha: AppTheme.inkMed,
-                      ),
-                      weight: FontWeight.w500,
-                    ),
+                    style: meta,
+                  ),
+                ],
+                if (badges.isNotEmpty) ...[
+                  const SizedBox(height: Space.xxs),
+                  Text(
+                    badges.map(badgeTitleOf).join(' · '),
+                    key: const ValueKey('stats-badges'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    strutStyle: levelStrut(meta),
+                    style: meta,
                   ),
                 ],
               ],
@@ -4712,10 +4740,10 @@ class _StatsDrawer extends StatelessWidget {
       children: [
         const SizedBox(height: Space.xs),
         // The player's level (owner, 26 Sep 2026): its name with its mark,
-        // their XP, and today's XP against the day's cap — none of which a
-        // VIP is shown, since VIP is set by hand and XP leads nowhere for one.
+        // their XP, today's XP against the day's cap, and the badges they
+        // hold beside it (27 Sep 2026).
         if (user?.playerLevel case final level?) ...[
-          _LevelRow(level: level),
+          _LevelRow(level: level, badges: user!.badges),
           const _DrawerRule(),
         ],
         for (var i = 0; i < rows.length; i++) ...[
@@ -6100,6 +6128,9 @@ final _dailyChip = GlobalKey(debugLabel: 'bonus chip');
 /// On the Friends key beside the milestone chip (owner, 26 Sep 2026).
 final _friendsKey = GlobalKey(debugLabel: 'friends key');
 
+/// On the level key beside the Friends key (owner, 27 Sep 2026).
+final _levelKey = GlobalKey(debugLabel: 'level key');
+
 /// The narrowest a lobby toast is made to keep clear of the Friends key: a
 /// toast squeezed any narrower between the foot's keys would break every few
 /// words, so below this it stands where it always stood and may cover the
@@ -6153,9 +6184,15 @@ Rect? lobbyNoticeArea(BuildContext context) {
     if (bonusRight.isFinite) start = math.max(start, bonusRight + Space.sm);
   }
   var end = chipLeft - Space.sm;
-  // The Friends key stands left of the milestone chip. The toast keeps clear
-  // of it as well wherever that still leaves it [_toastFloor] to stand in.
-  final friends = _friendsKey.currentContext?.findRenderObject();
+  // The Friends key — and the level key left of it — stand left of the
+  // milestone chip. The toast keeps clear of them as well wherever that still
+  // leaves it [_toastFloor] to stand in.
+  final level = _levelKey.currentContext?.findRenderObject();
+  final friends =
+      (level is RenderBox && level.hasSize && !level.size.isEmpty
+          ? level
+          : null) ??
+      _friendsKey.currentContext?.findRenderObject();
   if (friends is RenderBox &&
       friends.attached &&
       friends.hasSize &&

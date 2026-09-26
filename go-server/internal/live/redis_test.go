@@ -79,6 +79,18 @@ func TestRedisKeySchema(t *testing.T) {
 	r := openRedisStore(t, "redis://"+m.Addr(), "kt:")
 	before := time.Now().UnixMilli()
 
+	// The XP play time: kt:xpplay:<userId> {w: window start, ms: play}, gone
+	// with its ttl.
+	if _, _, err := r.AddPlayTime(ctx, "u9", 1_800_000_000_000, 90*time.Second, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if w, ms := m.HGet("kt:xpplay:u9", "w"), m.HGet("kt:xpplay:u9", "ms"); w != "1800000000000" || ms != "90000" {
+		t.Fatalf("kt:xpplay:u9 = {w: %q, ms: %q}, want {1800000000000, 90000}", w, ms)
+	}
+	if ttl := m.TTL("kt:xpplay:u9"); ttl <= 59*time.Minute || ttl > time.Hour {
+		t.Fatalf("kt:xpplay:u9 ttl = %v, want ≈1h", ttl)
+	}
+
 	snap := bigSnapshot("hand-42", 2048)
 	must(t, r.SaveTable(ctx, "room1", 9, snap, 24*time.Hour))
 	if got := m.HGet("kt:table:room1", "seq"); got != "9" {

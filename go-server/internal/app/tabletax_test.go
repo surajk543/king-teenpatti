@@ -3,8 +3,10 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,11 +18,12 @@ import (
 )
 
 // The winning tax and the player levels over real sockets and PostgreSQL
-// (owner, 26 Sep 2026). A table that taxes its winners says so on its menu
-// entry and its snapshot, tells each player their own rate, takes the rate of
-// the WINNER's level from the whole pot, and books the win gross with the tax
-// beside it; the hand's XP reaches each player as player:level. An untaxed
-// table's frames carry none of it.
+// (owner, 26–27 Sep 2026). A table that taxes its winners says so on its menu
+// entry and its snapshot, with the smallest winnings it taxes, tells each
+// player their own rate, takes the WINNER's rate — the lowest of their level's
+// and their badges' — of what they won (the pot less their own chips), and
+// books the win gross with the tax beside it; the hand's XP reaches each
+// player as player:level. An untaxed table's frames carry none of it.
 
 type taxPlayer struct {
 	id, token string
@@ -64,6 +67,10 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 			{Category: "blind", BootAmount: 1000, WinnerTax: true},
 			{Category: "seen", BootAmount: 200},
 		}
+		// The hand below is won with winnings of exactly 1,000, which a
+		// minimum of 1,000 taxes (30 Lakh in production: a figure a test
+		// hand would take hundreds of rounds to reach).
+		cfg.Game.WinnerTaxMinWinnings = 1000
 		cfg.Game.NextHandDelay = 1500 * time.Millisecond
 		cfg.Game.TurnTimeout = 20 * time.Second
 	})
@@ -75,48 +82,63 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 		token, id := login(t, ts.URL, device, name)
 		return taxPlayer{id: id, token: token}
 	}
-	rookie, vip := newPlayer("tax-socket-rookie", "Rookie"), newPlayer("tax-socket-vip", "Maharaja")
-	// VIP by hand — the seed header's statement, the only way there is.
-	if _, err := database.Pool.Exec(ctx, `INSERT INTO player_xp (user_id, level_override, created_at, updated_at)
-	     VALUES ($1, (SELECT level FROM player_levels WHERE is_vip), 1, 1)`, vip.id); err != nil {
+	rookie, gold := newPlayer("tax-socket-rookie", "Rookie"), newPlayer("tax-socket-gold", "Maharaja")
+	// A badge an owner adds at 5% — between Regular's 20% and the Royal
+	// badges' 0%, the only rates the seed has — given by hand with the seed
+	// header's statement (owner, 27 Sep 2026: "Vip is not a level, it is
+	// badge").
+	if _, err := database.Pool.Exec(ctx, `INSERT INTO badges (code, title, icon, tax_bps, validity_days, sort_order)
+	     VALUES ('GOLD', 'Gold', '', 500, 30, 15)`); err != nil {
 		t.Fatal(err)
 	}
-	rookie.c, vip.c = dial(t, ts.URL, rookie.token), dial(t, ts.URL, vip.token)
+	if _, err := database.Pool.Exec(ctx, `INSERT INTO user_badges (user_id, badge_code) VALUES ($1, 'GOLD')`, gold.id); err != nil {
+		t.Fatal(err)
+	}
+	rookie.c, gold.c = dial(t, ts.URL, rookie.token), dial(t, ts.URL, gold.token)
 
-	// session:ready: the player's own level, and the menu entry's flag.
+	// session:ready: the player's own standing, and the menu entry's flag.
 	ready, _ := rookie.c.Last(socket.EvSessionReady)
-	if got, _ := json.Marshal(jsonPath(ready, "user.playerLevel")); string(got) !=
-		`{"icon":"🌱","level":1,"next":{"icon":"🔰","level":2,"minXp":100,"taxBps":1980,"title":"Rookie"},"taxBps":2000,"title":"Newbie","today":{"cap":50,"resetsAt":0,"xp":0},"vip":false,"xp":0}` {
+	const newbie = `{"icon":"🌱","level":1,"next":{"icon":"🔰","level":2,"minXp":100,"taxBps":1971,"title":"Rookie"},"taxBps":2000,"title":"Newbie","xp":0}`
+	if got, _ := json.Marshal(jsonPath(ready, "user.playerLevel")); string(got) != newbie {
 		t.Errorf("a new account's playerLevel: %s", got)
 	}
-	vipReady, _ := vip.c.Last(socket.EvSessionReady)
-	if got, _ := json.Marshal(jsonPath(vipReady, "user.playerLevel")); string(got) !=
-		`{"icon":"💎👑","level":51,"taxBps":400,"title":"VIP","today":{"cap":50,"resetsAt":0,"xp":0},"vip":true,"xp":0}` {
-		t.Errorf("a VIP's playerLevel: %s", got)
+	// Regular, everyone's by default (owner, 27 Sep 2026: "By default every
+	// user will hold this Regular badge 20 percent tax"), with its Lottie.
+	if got, _ := json.Marshal(jsonPath(ready, "user.badges")); string(got) !=
+		`[{"assetFormat":"LOTTIE","assetUrl":"https://drive.google.com/uc?export=download\u0026id=1zz4gVBpw579xeR1LLn3dBd3Os3cG8jQT","code":"REGULAR","expiresAt":0,"icon":"","isDefault":true,"taxBps":2000,"title":"Regular"}]` ||
+		jsonPath(ready, "user.taxBps") != 2000.0 {
+		t.Errorf("a new account's badges %s and rate %v", got, jsonPath(ready, "user.taxBps"))
 	}
-	if e := menuEntry(t, ready, "blind", 1000); e["winnerTax"] != true {
+	goldReady, _ := gold.c.Last(socket.EvSessionReady)
+	if got, _ := json.Marshal(jsonPath(goldReady, "user.playerLevel")); string(got) != newbie {
+		t.Errorf("a badge holder's playerLevel is the level their XP has reached: %s", got)
+	}
+	if codes := badgeCodesOf(jsonPath(goldReady, "user.badges")); codes != "REGULAR,GOLD" || jsonPath(goldReady, "user.taxBps") != 500.0 {
+		t.Errorf("a badge holder's badges %s and rate %v, want Regular and Gold at 5%%", codes, jsonPath(goldReady, "user.taxBps"))
+	}
+	if e := menuEntry(t, ready, "blind", 1000); e["winnerTax"] != true || e["winnerTaxMinWinnings"] != 1000.0 {
 		t.Errorf("the taxing table's menu entry: %v", e)
 	}
-	if e := menuEntry(t, ready, "seen", 200); e["winnerTax"] != nil {
+	if e := menuEntry(t, ready, "seen", 200); e["winnerTax"] != nil || e["winnerTaxMinWinnings"] != nil {
 		t.Errorf("an untaxed table's menu entry has no winnerTax: %v", e)
 	}
 
-	marks := map[string]int{rookie.id: rookie.c.Mark(), vip.id: vip.c.Mark()}
-	for _, p := range []taxPlayer{rookie, vip} {
+	marks := map[string]int{rookie.id: rookie.c.Mark(), gold.id: gold.c.Mark()}
+	for _, p := range []taxPlayer{rookie, gold} {
 		mustOK(t, p.c, socket.EvRoomQuickJoin, map[string]any{"bootAmount": 1000, "category": "blind"})
 	}
 	betting := func(raw json.RawMessage) bool {
 		return jsonPath(raw, "state") == "betting" && jsonPath(raw, "handNo") == float64(1) && jsonPath(raw, "turn.userId") != nil
 	}
 	var onTurn string
-	for _, p := range []taxPlayer{rookie, vip} {
+	for _, p := range []taxPlayer{rookie, gold} {
 		state := decodeMap(t, p.frame(t, marks[p.id], socket.EvRoomState, betting))
-		if state["winnerTax"] != true {
-			t.Errorf("the taxing table's snapshot: winnerTax %v", state["winnerTax"])
+		if state["winnerTax"] != true || state["winnerTaxMinWinnings"] != 1000.0 {
+			t.Errorf("the taxing table's snapshot: winnerTax %v from %v", state["winnerTax"], state["winnerTaxMinWinnings"])
 		}
 		want := 2000.0
-		if p.id == vip.id {
-			want = 400
+		if p.id == gold.id {
+			want = 500
 		}
 		if you, _ := state["you"].(map[string]any); you["taxBps"] != want {
 			t.Errorf("%s's you.taxBps %v, want %v", p.id, you["taxBps"], want)
@@ -131,25 +153,28 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 		onTurn, _ = jsonPath(mustRaw(t, state), "turn.userId").(string)
 	}
 
-	// The player on turn packs; the other takes the whole pot, 2 × 1,000.
-	packer, winner := rookie, vip
-	if onTurn == vip.id {
-		packer, winner = vip, rookie
+	// The player on turn packs; the other takes the pot, 2 × 1,000, and has
+	// WON the packer's 1,000: the tax is the winner's rate of that, never of
+	// the pot (owner, 27 Sep 2026: "tax will be on total pot amount - amount
+	// player contributed").
+	packer, winner := rookie, gold
+	if onTurn == gold.id {
+		packer, winner = gold, rookie
 	}
 	wantBps := int64(2000)
-	if winner.id == vip.id {
-		wantBps = 400
+	if winner.id == gold.id {
+		wantBps = 500
 	}
 	const pot = int64(2000)
-	wantTax := game.TableTax(pot, int(wantBps))
+	wantTax := game.TableTax(pot/2, int(wantBps))
 	walletBefore, _ := walletAndLedger(t, database, winner.id)
-	for _, p := range []taxPlayer{rookie, vip} {
+	for _, p := range []taxPlayer{rookie, gold} {
 		marks[p.id] = p.c.Mark()
 	}
 	mustOK(t, packer.c, socket.EvGameAction, map[string]any{"action": "pack", "actionId": "tax-pack-1"})
 
 	var handID string
-	for _, p := range []taxPlayer{rookie, vip} {
+	for _, p := range []taxPlayer{rookie, gold} {
 		ended := decodeMap(t, p.frame(t, marks[p.id], socket.EvGameHandEnded, func(raw json.RawMessage) bool {
 			return jsonPath(raw, "handNo") == float64(1)
 		}))
@@ -202,7 +227,7 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 	if !sawWin || !sawTax || handSum != 0 {
 		t.Fatalf("the hand's rows %+v: a win, a tax, and hand_* rows summing to 0 (got %d)", got, handSum)
 	}
-	for _, p := range []taxPlayer{rookie, vip} {
+	for _, p := range []taxPlayer{rookie, gold} {
 		if wallet, ledger := walletAndLedger(t, database, p.id); wallet != ledger {
 			t.Errorf("%s: wallet %d, ledger %d", p.id, wallet, ledger)
 		}
@@ -214,22 +239,44 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 		t.Errorf("game_table_tax_chips_total{category=blind} = %v, want %d", v, wantTax)
 	}
 
-	// player:level: each player told their own XP — HAND_COMPLETED and the
-	// daily bonus for both, HAND_WON for the winner.
-	for _, p := range []taxPlayer{rookie, vip} {
-		lv := decodeMap(t, p.frame(t, marks[p.id], socket.EvPlayerLevel, nil))
-		wantXP := 6.0
+	// The daily XP (owner, 27 Sep 2026): the hand opened both players'
+	// windows, and the winner earned the "Win by …" of the hand they won with
+	// where one names it (a high card earns nothing) — told of it, and only
+	// then, in player:level. The loser earned nothing.
+	var winnerXP, loserXP, opened int64
+	if err := database.Pool.QueryRow(ctx, `SELECT COALESCE((SELECT xp FROM player_xp WHERE user_id = $1), -1),
+	       COALESCE((SELECT xp FROM player_xp WHERE user_id = $2), -1),
+	       (SELECT count(*) FROM player_xp WHERE user_id IN ($1, $2) AND window_start > 0)`,
+		winner.id, packer.id).Scan(&winnerXP, &loserXP, &opened); err != nil {
+		t.Fatal(err)
+	}
+	var claimed int64
+	if err := database.Pool.QueryRow(ctx, `SELECT COALESCE(SUM(s.xp), 0) FROM player_xp_claims c
+	       JOIN xp_sources s ON s.code = c.source_code WHERE c.user_id = $1`, winner.id).Scan(&claimed); err != nil {
+		t.Fatal(err)
+	}
+	if loserXP != 0 || opened != 2 || claimed != winnerXP ||
+		(winnerXP != 0 && winnerXP != 1 && winnerXP != 2 && winnerXP != 4 && winnerXP != 8 && winnerXP != 20) {
+		t.Fatalf("the hand's XP: winner %d (claims worth %d), loser %d, %d windows open", winnerXP, claimed, loserXP, opened)
+	}
+	if winnerXP > 0 {
+		standing := decodeMap(t, winner.frame(t, marks[winner.id], socket.EvPlayerLevel, nil))
+		lv, _ := standing["playerLevel"].(map[string]any)
+		daily, _ := lv["daily"].(map[string]any)
+		if _, has := lv["today"]; lv["xp"] != float64(winnerXP) || has || daily == nil || daily["resetsAt"].(float64) <= 0 {
+			t.Errorf("the winner's player:level %v, want %d XP, no today, a daily window", standing, winnerXP)
+		}
+	}
+	// /api/auth/me: each player's XP, badges and the rate they pay.
+	for _, p := range []taxPlayer{rookie, gold} {
+		wantXP := int64(0)
 		if p.id == winner.id {
-			wantXP = 7
+			wantXP = winnerXP
 		}
-		today, _ := lv["today"].(map[string]any)
-		if lv["xp"] != wantXP || today["xp"] != wantXP || today["cap"] != 50.0 || today["resetsAt"].(float64) <= 0 {
-			t.Errorf("%s's player:level %v, want %v XP today", p.id, lv, wantXP)
+		wantCodes, wantRate := "REGULAR", 2000
+		if p.id == gold.id {
+			wantCodes, wantRate = "REGULAR,GOLD", 500
 		}
-		if p.id == vip.id && (lv["vip"] != true || lv["level"] != 51.0 || lv["next"] != nil) {
-			t.Errorf("the VIP stays VIP: %v", lv)
-		}
-		// /api/auth/me reads the same.
 		req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/auth/me", nil)
 		req.Header.Set("Authorization", "Bearer "+p.token)
 		res, err := http.DefaultClient.Do(req)
@@ -239,8 +286,16 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 		var me struct {
 			User db.User `json:"user"`
 		}
-		if err := json.NewDecoder(res.Body).Decode(&me); err != nil || me.User.PlayerLevel.XP != int64(wantXP) {
-			t.Errorf("/api/auth/me for %s: %+v %v", p.id, me.User.PlayerLevel, err)
+		if err := json.NewDecoder(res.Body).Decode(&me); err != nil || me.User.PlayerLevel.XP != wantXP ||
+			me.User.PlayerLevel.Daily == nil || me.User.TaxBps != wantRate || me.User.PlayerLevel.Level != 1 {
+			t.Errorf("/api/auth/me for %s: %+v %v", p.id, me.User.Standing, err)
+		}
+		codes := make([]string, len(me.User.Badges))
+		for i, b := range me.User.Badges {
+			codes[i] = b.Code
+		}
+		if strings.Join(codes, ",") != wantCodes {
+			t.Errorf("%s holds %v, want %s", p.id, codes, wantCodes)
 		}
 		res.Body.Close()
 	}
@@ -267,6 +322,9 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 				if _, ok := m["winnerTax"]; ok {
 					t.Fatalf("an untaxed %s carries winnerTax: %s", name, raw)
 				}
+				if _, ok := m["winnerTaxMinWinnings"]; ok {
+					t.Fatalf("an untaxed %s carries winnerTaxMinWinnings: %s", name, raw)
+				}
 				if _, ok := you["taxBps"]; ok {
 					t.Fatalf("an untaxed %s carries you.taxBps: %s", name, raw)
 				}
@@ -284,6 +342,19 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 	}
 }
 
+// badgeCodesOf is the codes of a wire badge list, in order.
+func badgeCodesOf(v any) string {
+	list, _ := v.([]any)
+	codes := make([]string, 0, len(list))
+	for _, b := range list {
+		if m, ok := b.(map[string]any); ok {
+			code, _ := m["code"].(string)
+			codes = append(codes, code)
+		}
+	}
+	return strings.Join(codes, ",")
+}
+
 func mustRaw(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(v)
@@ -291,4 +362,76 @@ func mustRaw(t *testing.T, v any) json.RawMessage {
 		t.Fatal(err)
 	}
 	return raw
+}
+
+// GET /api/levels is public and says the whole ladder (owner, 27 Sep 2026):
+// no token, no-cache, every level, every badge with its rate and validity, the
+// sources and the cap — and nothing about any player.
+func TestTheLevelLadderIsPublicAndWhole(t *testing.T) {
+	a, _ := newApp(t, nil)
+	ts := httptest.NewServer(a.Handler())
+	defer ts.Close()
+	res, err := http.Get(ts.URL + "/api/levels")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK || res.Header.Get("Cache-Control") != "no-cache" {
+		t.Fatalf("GET /api/levels: %d, Cache-Control %q", res.StatusCode, res.Header.Get("Cache-Control"))
+	}
+	var body struct {
+		Levels []struct {
+			Level  int    `json:"level"`
+			Title  string `json:"title"`
+			Icon   string `json:"icon"`
+			MinXP  int64  `json:"minXp"`
+			TaxBps int    `json:"taxBps"`
+		} `json:"levels"`
+		Badges []struct {
+			Code         string `json:"code"`
+			Title        string `json:"title"`
+			TaxBps       *int   `json:"taxBps"`
+			ValidityDays int    `json:"validityDays"`
+			IsDefault    bool   `json:"isDefault"`
+			PriceInr     *int   `json:"priceInr"`
+			ProductID    string `json:"productId"`
+			AssetURL     string `json:"assetUrl"`
+			AssetFormat  string `json:"assetFormat"`
+		} `json:"badges"`
+		XPSources []struct {
+			Code string `json:"code"`
+			Name string `json:"name"`
+			XP   int    `json:"xp"`
+		} `json:"xpSources"`
+		DailyCap *int `json:"dailyCap"`
+	}
+	raw, _ := io.ReadAll(res.Body)
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("%s: %v", raw, err)
+	}
+	if len(body.Levels) != 50 || body.Levels[0].Title != "Newbie" || body.Levels[0].TaxBps != 2000 ||
+		body.Levels[49].TaxBps != 600 || body.Levels[49].MinXP != 2000000 {
+		t.Fatalf("the ladder: %+v … %+v (%d rungs), want 50 from 20%% to 6%%", body.Levels[0], body.Levels[len(body.Levels)-1], len(body.Levels))
+	}
+	if len(body.Badges) != 7 || body.Badges[0].Code != "REGULAR" || !body.Badges[0].IsDefault ||
+		body.Badges[0].TaxBps == nil || *body.Badges[0].TaxBps != 2000 || body.Badges[0].PriceInr == nil || *body.Badges[0].PriceInr != 0 ||
+		body.Badges[0].ValidityDays != 0 || body.Badges[0].AssetFormat != "LOTTIE" {
+		t.Errorf("the badges = %+v", body.Badges)
+	}
+	// The Royal badges the store lists (owner, 27 Sep 2026): each with its
+	// rupee price, its validity and its Lottie, and no Play product — asked
+	// for through support.
+	if ace, kings := body.Badges[1], body.Badges[6]; ace.Code != "ROYAL_ACE" || *ace.PriceInr != 499 || ace.ValidityDays != 7 ||
+		ace.ProductID != "" || *ace.TaxBps != 0 || ace.AssetFormat != "LOTTIE" || !strings.HasPrefix(ace.AssetURL, "https://drive.google.com/uc?export=download&id=") ||
+		kings.Code != "ROYAL_KING_OF_KINGS" || *kings.PriceInr != 4499 || kings.ValidityDays != 90 {
+		t.Errorf("the store's badges = %+v %+v", ace, kings)
+	}
+	if len(body.XPSources) != 8 || body.DailyCap != nil || body.XPSources[0].Code != "PLAY_15_MIN" || body.XPSources[0].XP != 3 {
+		t.Errorf("%d sources, cap %v, want no daily cap", len(body.XPSources), body.DailyCap)
+	}
+	for _, word := range []string{"userId", "chips", "\"xp\":0,\"window"} {
+		if strings.Contains(string(raw), word) {
+			t.Errorf("the ladder carries %q: it is configuration only", word)
+		}
+	}
 }

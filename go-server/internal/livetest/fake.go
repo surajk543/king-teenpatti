@@ -45,7 +45,6 @@ const (
 	OpPing              = "ping"
 	OpClose             = "close"
 	OpAddPlayTime       = "add_play_time"
-	OpClearPlayMark     = "clear_play_mark"
 )
 
 // Fake is the store. Zero value is not usable; use New / NewWithClock.
@@ -67,12 +66,12 @@ type Fake struct {
 	fail  map[string]error
 }
 
-// xpDayEntry is one player's XP play-time window (live.PlayClock).
+// xpDayEntry is one player's XP play-time record (live.PlayClock): the
+// window it counts in, the play in it, and when it is gone.
 type xpDayEntry struct {
-	start     time.Time
-	play      time.Duration
-	claimed   map[string]bool
-	expiresAt time.Time
+	windowStart int64
+	play        time.Duration
+	expiresAt   time.Time
 }
 
 type tableEntry struct {
@@ -124,59 +123,37 @@ var (
 	_ live.PlayClock = (*Fake)(nil)
 )
 
-// PlayTimeOf peeks at a player's XP play-time window: the play in it and the
-// marks claimed, ok=false when there is none (or it has gone). Not a call.
-func (f *Fake) PlayTimeOf(userID string) (play time.Duration, claimed []string, ok bool) {
+// PlayTimeOf peeks at a player's XP play-time record: the window it counts
+// in and the play in it, ok=false when there is none (or it has gone). Not a
+// call.
+func (f *Fake) PlayTimeOf(userID string) (windowStart int64, play time.Duration, ok bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	day := f.xpDays[userID]
 	if day == nil || !day.expiresAt.After(f.now()) {
-		return 0, nil, false
+		return 0, 0, false
 	}
-	for _, mark := range live.PlayMarks() {
-		if day.claimed[mark.Field] {
-			claimed = append(claimed, mark.Field)
-		}
-	}
-	return day.play, claimed, true
+	return day.windowStart, day.play, true
 }
 
 // AddPlayTime implements live.PlayClock.
-func (f *Fake) AddPlayTime(ctx context.Context, userID string, play time.Duration, now time.Time, window time.Duration) (live.PlayTime, error) {
+func (f *Fake) AddPlayTime(ctx context.Context, userID string, windowStart int64, play, ttl time.Duration) (time.Duration, time.Duration, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.enter(ctx, OpAddPlayTime); err != nil {
-		return live.PlayTime{}, err
+		return 0, 0, err
 	}
 	day := f.xpDays[userID]
-	if day == nil || !day.expiresAt.After(f.now()) {
-		day = &xpDayEntry{start: now, claimed: map[string]bool{}, expiresAt: now.Add(window)}
+	if day == nil || !day.expiresAt.After(f.now()) || day.windowStart != windowStart {
+		day = &xpDayEntry{windowStart: windowStart}
 		f.xpDays[userID] = day
 	}
+	before := day.play
 	if play > 0 {
 		day.play += play
 	}
-	out := live.PlayTime{Start: day.start, Play: day.play, Claimed: []string{}}
-	for _, mark := range live.PlayMarks() {
-		if day.play >= mark.At && !day.claimed[mark.Field] {
-			day.claimed[mark.Field] = true
-			out.Claimed = append(out.Claimed, mark.Field)
-		}
-	}
-	return out, nil
-}
-
-// ClearPlayMark implements live.PlayClock.
-func (f *Fake) ClearPlayMark(ctx context.Context, userID, mark string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if err := f.enter(ctx, OpClearPlayMark); err != nil {
-		return err
-	}
-	if day := f.xpDays[userID]; day != nil {
-		delete(day.claimed, mark)
-	}
-	return nil
+	day.expiresAt = f.now().Add(ttl)
+	return before, day.play, nil
 }
 
 // ---- test controls ---------------------------------------------------------

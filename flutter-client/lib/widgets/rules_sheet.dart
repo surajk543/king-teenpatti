@@ -64,11 +64,15 @@ class _RulesSheet extends StatelessWidget {
       if (!blind) t.ruleRoundsEnd,
       t.ruleShowTwo,
       // A table that taxes its winners (owner, 26 Sep 2026): the whole
-      // ladder in one sentence, and VIP named only as what VIPs pay.
+      // ladder in one sentence, that a badge can lower it (27 Sep 2026: "Vip
+      // is not a level, it is badge"), and the winnings it taxes from ("30
+      // lakh is the limit on winning amount not on pot limit").
       if (table.taxesWinner)
         t.winningTaxRule(
           formatTaxRate(WinningTaxLadder.levelOneBps),
-          formatTaxRate(WinningTaxLadder.vipBps),
+          from: table.winnerTaxMinWinnings > 0
+              ? formatChips(table.winnerTaxMinWinnings)
+              : null,
         ),
     ];
   }

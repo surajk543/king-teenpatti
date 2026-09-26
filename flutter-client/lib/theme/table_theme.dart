@@ -64,7 +64,7 @@ abstract final class TableType {
   static TextStyle handName(ThemeData theme, {required Color colour}) =>
       AppTheme.smallCaps(_t(theme).labelMedium!, tracking: 0.8, colour: colour);
 
-  /// The winning tax on its plate beside the tag ("18.16% TAX", owner,
+  /// The winning tax on its plate beside the tag ("17.43% TAX", owner,
   /// 26 Sep 2026): the tag's own size and weight, in the tax's amber
   /// ([TableInk.tax]) — a fact about the table, read with its name.
   static TextStyle tax(ThemeData theme) => AppTheme.label(

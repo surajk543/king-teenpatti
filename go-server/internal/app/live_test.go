@@ -460,8 +460,10 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 	// hammer_purchases and hammer_spends (13 Sep 2026) are the same for hammers:
 	// a pack's replay guard, and the one-hammer-per-key record a Force
 	// Sideshow is charged against — receipts, not game state. missile_purchases
-	// and missile_spends (14 Sep 2026) are the same for missiles. user_milestones
-	// (14 Sep 2026) is which rewards a player has collected, moved off users.
+	// and missile_spends (14 Sep 2026) are the same for missiles, and
+	// badge_purchases (27 Sep 2026) for a badge bought in the store.
+	// user_milestones (14 Sep 2026) is which rewards a player has collected,
+	// moved off users.
 	//
 	// The four configuration tables (23 Sep 2026, owner: "all table related
 	// config store in database", then "Teen Patti engines / Poker engines") —
@@ -499,7 +501,7 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 	// an account fact: the settle adds to it, and no table reads it to play a
 	// hand. The play TIME the 30- and 60-minute XP is earned by lives in the
 	// live store, never here.
-	want := []string{"chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "player_levels", "player_stats", "player_xp", "profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users", "xp_settings", "xp_sources"}
+	want := []string{"badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "player_levels", "player_stats", "player_xp", "player_xp_claims", "profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users", "xp_settings", "xp_sources"}
 	if !slices.Equal(tables, want) {
 		t.Fatalf("schema tables = %v, want %v", tables, want)
 	}

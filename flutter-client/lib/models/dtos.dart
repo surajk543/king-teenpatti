@@ -329,6 +329,8 @@ class User {
     required this.biggestPot,
     required this.rewards,
     this.playerLevel,
+    this.badges = const [],
+    this.taxBps,
   });
 
   final String id;
@@ -336,10 +338,61 @@ class User {
   final String displayName;
   final int chips;
 
-  /// The player's level, their XP and the winning tax it sets (owner, 26 Sep
-  /// 2026) — this viewer's own and nobody else's: the server never sends
-  /// another player's level. Null from a server that predates the levels.
+  /// The player's level, their XP and the winning tax the level sets (owner,
+  /// 26 Sep 2026) — this viewer's own and nobody else's: the server never
+  /// sends another player's level. Null from a server that predates the
+  /// levels.
   final PlayerLevel? playerLevel;
+
+  /// The badges the player holds (owner, 27 Sep 2026: "Vip is not a level, it
+  /// is badge, User can hold multiple badges"): Standard, which everyone
+  /// holds, and any given to them — each until its grant runs out. Empty from
+  /// a server that predates badges.
+  final List<PlayerBadge> badges;
+
+  /// The winning tax the player pays, in basis points: the lowest of their
+  /// level's and their badges' (owner, 27 Sep 2026: "the tax will be applied
+  /// acc to minimum of badge or player level"), as the server worked it out.
+  /// Null from a server that does not say — then the level's is what they pay
+  /// ([paysTaxBps]).
+  final int? taxBps;
+
+  /// The winning tax this player pays: the server's figure, else their
+  /// level's; null where neither is known.
+  int? get paysTaxBps => taxBps ?? playerLevel?.taxBps;
+
+  /// The badge the table's pill names (owner, 27 Sep 2026: "In table top also
+  /// the badge name current player holding"): of the badges the player holds,
+  /// the one that brings their rate lowest — a Royal badge's holder's Royal
+  /// badge, everybody else's Regular — the first of them in the server's
+  /// order on a tie, and the
+  /// first held where none carries a rate. Null where they hold none (a server
+  /// that predates badges).
+  PlayerBadge? get shownBadge {
+    PlayerBadge? best;
+    for (final b in badges) {
+      final rate = b.taxBps;
+      if (rate == null) continue;
+      if (best == null || rate < best.taxBps!) best = b;
+    }
+    return best ?? (badges.isEmpty ? null : badges.first);
+  }
+
+  /// The badge that sets the rate the player pays — the held badge with the
+  /// lowest rate, when that rate is BELOW the level's (so the badge is why
+  /// they pay less) — or null when the level's rate is what they pay.
+  PlayerBadge? get rateBadge {
+    final level = playerLevel?.taxBps;
+    PlayerBadge? best;
+    for (final b in badges) {
+      final rate = b.taxBps;
+      if (rate == null) continue;
+      if (best == null || rate < best.taxBps!) best = b;
+    }
+    if (best == null) return null;
+    if (level != null && best.taxBps! >= level) return null;
+    return best;
+  }
 
   /// Premium soft currency. Every account starts with 1; spends on
   /// DIAMOND-priced catalogue rows.
@@ -407,11 +460,14 @@ class User {
     biggestPot: biggestPot,
     rewards: rewards,
     playerLevel: playerLevel,
+    badges: badges,
+    taxBps: taxBps,
   );
 
-  /// The same account at a new level — what `player:level` reports after an
-  /// XP award, applied without waiting for the next `/api/auth/me`.
-  User withPlayerLevel(PlayerLevel? playerLevel) => User(
+  /// The same account at a new standing — what `player:level` reports after
+  /// an XP award (level, badges and the rate paid), applied without waiting
+  /// for the next `/api/auth/me`.
+  User withStanding(Standing standing) => User(
     id: id,
     provider: provider,
     displayName: displayName,
@@ -430,7 +486,9 @@ class User {
     totalWinnings: totalWinnings,
     biggestPot: biggestPot,
     rewards: rewards,
-    playerLevel: playerLevel,
+    playerLevel: standing.playerLevel,
+    badges: standing.badges,
+    taxBps: standing.taxBps,
   );
 
   /// The same account with a new missile count — what firing one reports in
@@ -455,6 +513,8 @@ class User {
     biggestPot: biggestPot,
     rewards: rewards,
     playerLevel: playerLevel,
+    badges: badges,
+    taxBps: taxBps,
   );
 
   factory User.fromJson(Map<String, dynamic> j) => User(
@@ -483,6 +543,8 @@ class User {
         ? Rewards.fromJson(Map<String, dynamic>.from(j['rewards'] as Map))
         : null,
     playerLevel: PlayerLevel.maybe(j['playerLevel']),
+    badges: PlayerBadge.listOf(j['badges']),
+    taxBps: _bpsOrNull(j['taxBps']),
   );
 }
 
@@ -512,7 +574,7 @@ class LevelStep {
   /// The XP that reaches it.
   final int minXp;
 
-  /// The winning tax at that level, in basis points (1796 is 17.96%).
+  /// The winning tax at that level, in basis points (1714 is 17.14%).
   final int taxBps;
 
   /// Null unless the server sent a level worth showing: a level number above
@@ -570,12 +632,56 @@ class XpToday {
   }
 }
 
+/// What the player has earned of the daily XP in their current window (owner,
+/// 27 Sep 2026: "Daily XP user can get … After 24 hours this will be reset, so
+/// user can claim this again"): how many times each source — by its code —
+/// and when the window resets, epoch ms. The server counts it; the app only
+/// shows it. Absent (null on [PlayerLevel.daily]) while no window is running,
+/// when every source is there to be earned.
+class XpDaily {
+  const XpDaily({this.claimed = const {}, this.resetsAt = 0});
+
+  /// Times earned in the window, by source code; a source not in it has not
+  /// been earned.
+  final Map<String, int> claimed;
+  final int resetsAt;
+
+  /// How many times [code] has been earned in the window.
+  int claimsOf(String code) => claimed[code] ?? 0;
+
+  /// How long until the window ends, or null when it already has by [now] —
+  /// and then everything is there to be earned again.
+  Duration? leftAt(DateTime now) {
+    if (resetsAt <= 0) return null;
+    final ms = resetsAt - now.millisecondsSinceEpoch;
+    return ms <= 0 ? null : Duration(milliseconds: ms);
+  }
+
+  /// Null unless the server sent a window: a reset time above 0.
+  static XpDaily? maybe(Object? raw) {
+    if (raw is! Map) return null;
+    final j = Map<String, dynamic>.from(raw);
+    final resetsAt = _int(j['resetsAt']);
+    if (resetsAt <= 0) return null;
+    final claimed = <String, int>{};
+    if (j['claimed'] case final Map<dynamic, dynamic> m) {
+      for (final e in m.entries) {
+        final code = '${e.key}'.trim();
+        final n = _int(e.value);
+        if (code.isNotEmpty && n > 0) claimed[code] = n;
+      }
+    }
+    return XpDaily(claimed: Map.unmodifiable(claimed), resetsAt: resetsAt);
+  }
+}
+
 /// The viewer's own level (owner, 26 Sep 2026: "create table which stores
 /// every player xp and ac to their level, tax will be applied"): the level
-/// their XP has reached — or the VIP tier, which is set by hand and never
-/// reached by XP — its name and mark, the XP itself, and the winning tax it
-/// sets, in basis points. What a seat pays is the server's to say
-/// ([You.taxBps]); this is what the lobby and the Stats drawer show.
+/// their XP has reached, its name and mark, the XP itself, and the winning tax
+/// the LEVEL sets, in basis points. A level is XP alone — it never expires,
+/// and VIP is not one (owner, 27 Sep 2026: "Vip is not a level, it is badge"):
+/// what the player pays is [User.paysTaxBps], which a badge may bring lower;
+/// what a seat pays is the server's to say ([You.taxBps]).
 class PlayerLevel {
   const PlayerLevel({
     required this.level,
@@ -583,17 +689,17 @@ class PlayerLevel {
     required this.xp,
     required this.taxBps,
     this.icon = '',
-    this.vip = false,
     this.next,
     this.today,
+    this.daily,
   });
 
   final int level;
 
-  /// "Rising Star", "VIP" — the server's, never translated.
+  /// "Rising Star", "Pro Player" — the server's, never translated.
   final String title;
 
-  /// The level's mark ("🌟", "💎👑"), drawn before the title; empty when the
+  /// The level's mark ("🌟", "🏅"), drawn before the title; empty when the
   /// server sent none.
   final String icon;
   final int xp;
@@ -601,38 +707,383 @@ class PlayerLevel {
   /// The winning tax this level sets, in basis points.
   final int taxBps;
 
-  /// The VIP tier: set by hand on the server, never earned (owner, 26 Sep
-  /// 2026: "VIP Tag is not granted by XP"). A VIP has no next level and the
-  /// app shows no XP progress for one.
-  final bool vip;
-
-  /// The next level XP reaches, or null — at the top of the ladder, for a
-  /// VIP, and for any level set by hand. Never the VIP tier.
+  /// The next level XP reaches, or null at the top of the ladder.
   final LevelStep? next;
 
-  /// What today's window has earned against its cap; null from a server that
-  /// does not say.
+  /// What today's window has earned against its cap; null where the server
+  /// sets no daily cap (as it does not, since the owner's "Don't set any
+  /// daily limit to xp").
   final XpToday? today;
 
+  /// What the player has earned of the daily XP in the running window; null
+  /// while none is running.
+  final XpDaily? daily;
+
   /// Null unless the server sent a level worth showing: a level number above
-  /// 0 and a rate in 0..10000. A VIP's [next] is dropped whatever came with
-  /// it: VIP is not a rung XP climbs to or from.
+  /// 0 and a rate in 0..10000.
   static PlayerLevel? maybe(Object? raw) {
     if (raw is! Map) return null;
     final j = Map<String, dynamic>.from(raw);
     final level = _int(j['level']);
     final bps = _bpsOrNull(j['taxBps']);
     if (level <= 0 || bps == null) return null;
-    final vip = j['vip'] == true;
     return PlayerLevel(
       level: level,
       title: _str(j['title']),
       icon: _str(j['icon']).trim(),
       xp: math.max(0, _int(j['xp'])),
       taxBps: bps,
-      vip: vip,
-      next: vip ? null : LevelStep.maybe(j['next']),
+      next: LevelStep.maybe(j['next']),
       today: XpToday.maybe(j['today']),
+      daily: XpDaily.maybe(j['daily']),
+    );
+  }
+}
+
+/// A badge the viewer holds (owner, 27 Sep 2026: "Vip is not a level, it is
+/// badge, User can hold multiple badges"): Regular, everyone's for life at 20%
+/// ("By default every user will hold this Regular badge 20 percent tax …
+/// validaity life time"); and a Royal badge where one has been given or bought
+/// — bringing the holder's winning tax down to its own rate until the grant
+/// runs out ("add validity column in badges so that when it expires, player
+/// will not get tax benefit"). Never earned by XP.
+class PlayerBadge {
+  const PlayerBadge({
+    required this.code,
+    required this.title,
+    this.icon = '',
+    this.taxBps,
+    this.expiresAt = 0,
+    this.isDefault = false,
+    this.assetUrl = '',
+    this.assetFormat = '',
+  });
+
+  /// "REGULAR", "ROYAL_KING" — what the app knows it by.
+  final String code;
+
+  /// "Regular", "Royal King" — the server's, never translated, like a
+  /// level's.
+  final String title;
+
+  /// The badge's mark (an emoji), drawn before the title; empty for none.
+  final String icon;
+
+  /// The winning tax the badge brings its holder's down to, in basis points;
+  /// null for a badge that sets no rate.
+  final int? taxBps;
+
+  /// When the grant runs out, epoch ms; 0 for a badge held for ever.
+  final int expiresAt;
+
+  /// The badge every player holds, for life (Standard).
+  final bool isDefault;
+
+  /// The badge's art — a Royal badge's Lottie — and how it is drawn; empty
+  /// for a badge shown by its [icon] alone.
+  final String assetUrl;
+  final String assetFormat;
+
+  /// How long the grant has left at [now], or null when it never runs out or
+  /// already has.
+  Duration? leftAt(DateTime now) {
+    if (expiresAt <= 0) return null;
+    final ms = expiresAt - now.millisecondsSinceEpoch;
+    return ms <= 0 ? null : Duration(milliseconds: ms);
+  }
+
+  /// The server's list, tolerant: anything that is not a badge with a code is
+  /// dropped, and a list that is not a list is none.
+  static List<PlayerBadge> listOf(Object? raw) {
+    if (raw is! List) return const [];
+    final out = <PlayerBadge>[];
+    for (final e in raw) {
+      if (e is! Map) continue;
+      final j = Map<String, dynamic>.from(e);
+      final code = _str(j['code']).trim();
+      if (code.isEmpty) continue;
+      out.add(
+        PlayerBadge(
+          code: code,
+          title: _str(j['title']),
+          icon: _str(j['icon']).trim(),
+          taxBps: _bpsOrNull(j['taxBps']),
+          expiresAt: math.max(0, _int(j['expiresAt'])),
+          isDefault: j['isDefault'] == true,
+          assetUrl: _str(j['assetUrl']).trim(),
+          assetFormat: _str(j['assetFormat']).trim(),
+        ),
+      );
+    }
+    return List.unmodifiable(out);
+  }
+}
+
+/// What `player:level` carries (owner, 26–27 Sep 2026): the viewer's level
+/// and XP, the badges they hold, and the winning tax they pay — the user
+/// object's `playerLevel`, `badges` and `taxBps`, which it replaces
+/// ([User.withStanding]).
+class Standing {
+  const Standing({
+    required this.playerLevel,
+    this.badges = const [],
+    this.taxBps,
+  });
+
+  final PlayerLevel playerLevel;
+  final List<PlayerBadge> badges;
+  final int? taxBps;
+
+  /// Null unless the payload carries a level worth showing.
+  static Standing? maybe(Object? raw) {
+    if (raw is! Map) return null;
+    final j = Map<String, dynamic>.from(raw);
+    final level = PlayerLevel.maybe(j['playerLevel']);
+    if (level == null) return null;
+    return Standing(
+      playerLevel: level,
+      badges: PlayerBadge.listOf(j['badges']),
+      taxBps: _bpsOrNull(j['taxBps']),
+    );
+  }
+}
+
+/// The whole level ladder (`GET /api/levels`, owner, 27 Sep 2026: the table's
+/// tax pill, tapped, "show everything in detail and it also show all levels
+/// and taxes"): every level with the XP that reaches it and the winning tax it
+/// carries, every badge with the rate it brings a holder's down to and how
+/// long a grant of it lasts, the ways XP is earned, and the day's cap.
+/// Configuration: the same for every player.
+class LevelLadder {
+  const LevelLadder({
+    required this.levels,
+    this.badges = const [],
+    this.sources = const [],
+    this.dailyCap = 0,
+    this.windowMs = 0,
+  });
+
+  /// Levels 1 up, in order.
+  final List<LadderLevel> levels;
+  final List<LadderBadge> badges;
+  final List<LadderSource> sources;
+
+  /// The most XP a player earns in one window; 0 where the server sets no
+  /// daily cap (owner, 27 Sep 2026: "Don't set any daily limit to xp").
+  final int dailyCap;
+
+  /// How long a window lasts, in ms.
+  final int windowMs;
+
+  /// The most XP the daily sources give in one window: each source's XP as
+  /// many times as it can be earned — 108 as seeded (owner, 27 Sep 2026) —
+  /// or the daily cap where an owner has set a lower one.
+  int get dailyMax {
+    var sum = 0;
+    for (final s in sources) {
+      sum += s.xp * s.times;
+    }
+    return dailyCap > 0 ? math.min(dailyCap, sum) : sum;
+  }
+
+  /// The rung [level] is on, or null.
+  LadderLevel? levelOf(int level) {
+    for (final l in levels) {
+      if (l.level == level) return l;
+    }
+    return null;
+  }
+
+  /// Null unless the server described at least one level.
+  static LevelLadder? maybe(Object? raw) {
+    if (raw is! Map) return null;
+    final j = Map<String, dynamic>.from(raw);
+    final levels = <LadderLevel>[
+      for (final e in (j['levels'] is List ? j['levels'] as List : const []))
+        ?LadderLevel.maybe(e),
+    ]..sort((a, b) => a.level.compareTo(b.level));
+    if (levels.isEmpty) return null;
+    return LevelLadder(
+      levels: List.unmodifiable(levels),
+      badges: List.unmodifiable(<LadderBadge>[
+        for (final e in (j['badges'] is List ? j['badges'] as List : const []))
+          ?LadderBadge.maybe(e),
+      ]),
+      sources: List.unmodifiable(<LadderSource>[
+        for (final e
+            in (j['xpSources'] is List ? j['xpSources'] as List : const []))
+          ?LadderSource.maybe(e),
+      ]),
+      dailyCap: math.max(0, _int(j['dailyCap'])),
+      windowMs: math.max(0, _int(j['windowMs'])),
+    );
+  }
+}
+
+/// One rung of [LevelLadder].
+class LadderLevel {
+  const LadderLevel({
+    required this.level,
+    required this.title,
+    required this.minXp,
+    required this.taxBps,
+    this.icon = '',
+  });
+
+  final int level;
+  final String title;
+  final String icon;
+  final int minXp;
+  final int taxBps;
+
+  static LadderLevel? maybe(Object? raw) {
+    if (raw is! Map) return null;
+    final j = Map<String, dynamic>.from(raw);
+    final level = _int(j['level']);
+    final bps = _bpsOrNull(j['taxBps']);
+    if (level <= 0 || bps == null || j['minXp'] is! num) return null;
+    return LadderLevel(
+      level: level,
+      title: _str(j['title']),
+      icon: _str(j['icon']).trim(),
+      minXp: math.max(0, _int(j['minXp'])),
+      taxBps: bps,
+    );
+  }
+}
+
+/// One badge of [LevelLadder]: the rate it brings a holder's down to (null:
+/// none), how long a grant lasts (0: for ever — Standard's lifetime), whether
+/// every player holds it, its price and — for the badges the store sells — the
+/// Play product it is bought as.
+class LadderBadge {
+  const LadderBadge({
+    required this.code,
+    required this.title,
+    this.icon = '',
+    this.taxBps,
+    this.validityDays = 0,
+    this.isDefault = false,
+    this.priceInr,
+    this.productId = '',
+    this.assetUrl = '',
+    this.assetFormat = '',
+  });
+
+  final String code;
+  final String title;
+  final String icon;
+  final int? taxBps;
+  final int validityDays;
+  final bool isDefault;
+
+  /// The badge's art — a Royal badge's Lottie (owner, 27 Sep 2026: "with
+  /// their lottie animation") — and how it is drawn (`LOTTIE`, `IMAGE`,
+  /// `SVG`); empty for a badge shown by its [icon] alone.
+  final String assetUrl;
+  final String assetFormat;
+
+  /// What the badge costs in whole rupees — always INR (owner, 27 Sep 2026:
+  /// "price in badges will always be in inr currency") — or null where none
+  /// is set (a badge an owner only gives by hand).
+  final int? priceInr;
+
+  /// The Google Play product the store sells the badge as; empty where the
+  /// store does not sell it — a badge given by hand, whose shelf card offers
+  /// support instead (owner, 27 Sep 2026: "for all type of royal badges Add a
+  /// button to contact support in store").
+  final String productId;
+
+  /// Whether the app sells it, through Play.
+  bool get buyable => productId.isNotEmpty;
+
+  /// Whether the store's Badges shelf lists it: every badge but the one
+  /// everybody holds that has a price (owner, 27 Sep 2026: "for badges use
+  /// this entry, not vips entry" — the Royal badges). One the app does not
+  /// sell asks for support.
+  bool get listed => !isDefault && priceInr != null;
+
+  static LadderBadge? maybe(Object? raw) {
+    if (raw is! Map) return null;
+    final j = Map<String, dynamic>.from(raw);
+    final code = _str(j['code']).trim();
+    if (code.isEmpty) return null;
+    return LadderBadge(
+      code: code,
+      title: _str(j['title']),
+      icon: _str(j['icon']).trim(),
+      taxBps: _bpsOrNull(j['taxBps']),
+      validityDays: math.max(0, _int(j['validityDays'])),
+      isDefault: j['isDefault'] == true,
+      priceInr: switch (_intOrNull(j['priceInr'])) {
+        final p? when p >= 0 => p,
+        _ => null,
+      },
+      productId: _str(j['productId']).trim(),
+      assetUrl: _str(j['assetUrl']).trim(),
+      assetFormat: _str(j['assetFormat']).trim(),
+    );
+  }
+}
+
+/// One source of the daily XP (owner, 27 Sep 2026: "🎮 Play 15 active
+/// minutes +3 XP … 🔥 Win by Trail +20 XP … After 24 hours this will be reset,
+/// so user can claim this again"): its code, its mark, what earns it — so
+/// many minutes of active play in the window ([kindPlayTime], [playMinutes])
+/// or a hand won with a given Teen Patti hand ([kindWinHand], [hand]) —
+/// the XP it gives and how many times a window it can be earned. The app
+/// names the kinds it knows in its own five languages, and any other by the
+/// server's admin [name].
+class LadderSource {
+  const LadderSource({
+    required this.code,
+    required this.xp,
+    this.name = '',
+    this.icon = '',
+    this.kind = '',
+    this.playMinutes,
+    this.hand = '',
+    this.times = 1,
+  });
+
+  static const String kindPlayTime = 'PLAY_TIME';
+  static const String kindWinHand = 'WIN_HAND';
+
+  final String code;
+  final String name;
+
+  /// The source's mark (an emoji, "🎮"), drawn before its name; empty for
+  /// none.
+  final String icon;
+  final String kind;
+
+  /// PLAY_TIME: the minutes of active play in the window that earn it.
+  final int? playMinutes;
+
+  /// WIN_HAND: the hand — `PAIR`, `COLOR`, `SEQUENCE`, `PURE_SEQUENCE`,
+  /// `TRAIL` — a win with which earns it, as the server named it; the app
+  /// only names it, never works it out.
+  final String hand;
+  final int xp;
+
+  /// How many times a window it can be earned (1 as seeded).
+  final int times;
+
+  static LadderSource? maybe(Object? raw) {
+    if (raw is! Map) return null;
+    final j = Map<String, dynamic>.from(raw);
+    final code = _str(j['code']).trim();
+    if (code.isEmpty) return null;
+    final minutes = _intOrNull(j['playMinutes']);
+    return LadderSource(
+      code: code,
+      name: _str(j['name']),
+      icon: _str(j['icon']).trim(),
+      kind: _str(j['kind']).trim(),
+      playMinutes: minutes != null && minutes > 0 ? minutes : null,
+      hand: _str(j['hand']).trim(),
+      xp: math.max(0, _int(j['xp'])),
+      times: math.max(1, _int(j['times'])),
     );
   }
 }
@@ -668,6 +1119,7 @@ class LobbyTable {
     this.holeCards = 0,
     this.maxDiscards = 0,
     this.winnerTax = false,
+    this.winnerTaxMinWinnings = 0,
     this.engine,
     this.key,
     this.isPrivate,
@@ -712,12 +1164,16 @@ class LobbyTable {
   /// 5-Card Draw only: how many cards a player may exchange. 0 elsewhere.
   final int maxDiscards;
 
-  /// Whether the winner of each hand here pays winning tax on the pot they
-  /// take (owner, 26 Sep 2026) — the rate their level sets
-  /// ([PlayerLevel.taxBps]). The server marks such a table `winnerTax: true`
-  /// and leaves the key off every other, so false is every table from a
+  /// Whether the winner of each hand here pays winning tax on what they win
+  /// — the pot less their own chips — at the rate they pay (owner, 26–27 Sep
+  /// 2026; [User.paysTaxBps]). The server marks such a table `winnerTax:
+  /// true` and leaves the key off every other, so false is every table from a
   /// server that predates it.
   final bool winnerTax;
+
+  /// The smallest winnings such a table taxes (owner, 27 Sep 2026: "30 lakh
+  /// is the limit on winning amount not on pot limit"); 0 where any are.
+  final int winnerTaxMinWinnings;
 
   /// [winnerTax], and never at a poker table, whose games do not read it.
   bool get taxesWinner => winnerTax && !isPoker;
@@ -829,6 +1285,7 @@ class LobbyTable {
     holeCards: _int(j['holeCards']),
     maxDiscards: _int(j['maxDiscards']),
     winnerTax: j['winnerTax'] == true,
+    winnerTaxMinWinnings: math.max(0, _int(j['winnerTaxMinWinnings'])),
     engine: _strOrNull(j['engine']),
     key: _strOrNull(j['key']),
     isPrivate: j['isPrivate'] is bool ? j['isPrivate'] as bool : null,
@@ -1117,7 +1574,9 @@ class GameConfig {
     privateMaxPot: 500000,
     entryCapBoot: 200,
     entryCapCategory: TableCategory.blind,
-    entryCapMaxChips: 500000,
+    // Blind 200 is open up to 20 Lakh (owner, 27 Sep 2026), as the server's
+    // default says.
+    entryCapMaxChips: 2000000,
     sideshowTimeoutMs: 6000,
     tables: [
       LobbyTable(
@@ -2259,15 +2718,21 @@ class RoomState {
     required this.seats,
     this.tablePicture,
     this.winnerTax = false,
+    this.winnerTaxMinWinnings = 0,
   });
 
   final String roomId;
   final String code;
 
-  /// Whether the winner of each hand here pays winning tax on the pot they
-  /// take (owner, 26 Sep 2026); what THIS viewer would pay is [You.taxBps].
-  /// The server sends it on a Teen Patti table that taxes and nowhere else.
+  /// Whether the winner of each hand here pays winning tax on what they win
+  /// — the pot less their own chips (owner, 26–27 Sep 2026); what THIS viewer
+  /// would pay is [You.taxBps]. The server sends it on a Teen Patti table
+  /// that taxes and nowhere else.
   final bool winnerTax;
+
+  /// The smallest winnings this table taxes (owner, 27 Sep 2026: "30 lakh is
+  /// the limit on winning amount not on pot limit"); 0 where any are.
+  final int winnerTaxMinWinnings;
 
   /// [winnerTax], and never at a poker room.
   bool get taxesWinner => winnerTax && !isPoker;
@@ -2366,6 +2831,7 @@ class RoomState {
           )
         : null,
     winnerTax: j['winnerTax'] == true,
+    winnerTaxMinWinnings: math.max(0, _int(j['winnerTaxMinWinnings'])),
   );
 }
 

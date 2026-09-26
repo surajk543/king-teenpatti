@@ -75,9 +75,12 @@ type TableConfig struct {
 	FiveCardPickTimeout time.Duration
 
 	// WinnerTax makes the table TAX ITS WINNERS (owner, 26 Sep 2026;
-	// tabletax.go): the winner of each hand pays their level's share of the
-	// whole pot. false on every table but the catalogue's taxing ones.
-	WinnerTax bool
+	// tabletax.go): the winner of each hand pays their share of what they won
+	// — the pot less their own contribution — when that comes to
+	// WinnerTaxMinWinnings or more, and never on less (owner, 27 Sep 2026:
+	// "no tax for winning amount less than 50 Lakh"; 0 taxes any winnings). false on every table but the catalogue's taxing ones.
+	WinnerTax            bool
+	WinnerTaxMinWinnings int64
 
 	ChatMaxHistory int // RoomChat caps; 0 → chat.js defaults (100 / 140)
 	ChatMaxLength  int
@@ -3090,15 +3093,22 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		winnerSeat = t.findSeat(*winnerID)
 	}
 	// The winning tax (tabletax.go): at a table that taxes its winners the
-	// winner pays their level's share of the whole pot — at the rate they
-	// were dealt this hand with — and is credited the rest. Nothing anywhere
-	// else, which leaves every untaxed hand exactly as it was.
+	// winner pays their share of what they WON — the pot less their own
+	// contribution to it (owner, 27 Sep 2026: "tax will be on total pot
+	// amount - amount player contributed, so the tax will be on winning
+	// amount") — at the rate they were dealt this hand with, and only when
+	// those winnings come to WinnerTaxMinWinnings or more ("no tax for winning
+	// amount less than 50 Lakh"); they are credited the rest.
+	// Nothing anywhere else, which leaves every untaxed hand exactly as it
+	// was.
 	var tax int64
 	var taxBps int
 	if winnerID != nil && t.cfg.WinnerTax {
 		if entry := h.contributions[*winnerID]; entry != nil {
-			taxBps = entry.taxBps
-			tax = TableTax(h.pot, taxBps)
+			if won := WinnerWinnings(h.pot, entry.contributed); won > 0 && won >= t.cfg.WinnerTaxMinWinnings {
+				taxBps = entry.taxBps
+				tax = TableTax(won, taxBps)
+			}
 		}
 	}
 	if winnerSeat != nil {
@@ -3115,6 +3125,15 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 			entry.status = SeatWon
 			entry.chips += h.pot - tax
 		}
+	}
+
+	// The hand the winner won with, as the table counts it — what the daily
+	// XP's "Win by …" sources are earned by (owner, 27 Sep 2026). Only for a
+	// winner still seated: one who won from outside the table did not play
+	// the hand out, and earns no XP by it.
+	var wonWith string
+	if winnerSeat != nil && len(winnerSeat.cards) > 0 {
+		wonWith = t.playedHand(t.handRules(), winnerSeat).Category.Code()
 	}
 
 	// Everyone who put chips in this hand, in the order they joined it.
@@ -3137,7 +3156,9 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 			rowReason = LedgerReasonHandWin
 		}
 		var pot, entryTax int64
+		var entryWonWith string
 		if isWinner {
+			entryWonWith = wonWith
 			pot = h.pot
 			// Delta below is already net of it (the seat was credited the pot
 			// less the tax); the ledger writes the win gross and the tax as a
@@ -3155,6 +3176,7 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 			LeftMidHand: entry.leftMidHand,
 			Pot:         pot,
 			Tax:         entryTax,
+			WonWith:     entryWonWith,
 		})
 	}
 
@@ -3512,7 +3534,8 @@ func snapshotConfig(cfg TableConfig) SnapshotConfig {
 		VariationSelectTimeoutMs: cfg.VariationSelectTimeout.Milliseconds(),
 		FiveCardPickTimeoutMs:    cfg.FiveCardPickTimeout.Milliseconds(),
 
-		WinnerTax: cfg.WinnerTax,
+		WinnerTax:            cfg.WinnerTax,
+		WinnerTaxMinWinnings: cfg.WinnerTaxMinWinnings,
 	}
 }
 
@@ -3539,7 +3562,8 @@ func tableConfigFrom(c SnapshotConfig) TableConfig {
 		VariationSelectTimeout: time.Duration(c.VariationSelectTimeoutMs) * time.Millisecond,
 		FiveCardPickTimeout:    time.Duration(c.FiveCardPickTimeoutMs) * time.Millisecond,
 
-		WinnerTax: c.WinnerTax,
+		WinnerTax:            c.WinnerTax,
+		WinnerTaxMinWinnings: c.WinnerTaxMinWinnings,
 
 		ChatMaxHistory: c.ChatMaxHistory,
 		ChatMaxLength:  c.ChatMaxLength,
@@ -3576,6 +3600,9 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 		MaxPot:        t.cfg.MaxPot,
 		WinnerTax:     t.cfg.WinnerTax,
 		Stake:         t.cfg.BootAmount,
+	}
+	if t.cfg.WinnerTax {
+		view.WinnerTaxMinWinnings = t.cfg.WinnerTaxMinWinnings
 	}
 	if t.startsAt != nil {
 		view.StartsAt = Int64Ptr(Millis(*t.startsAt))

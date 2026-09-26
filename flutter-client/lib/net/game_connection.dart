@@ -106,7 +106,7 @@ class GameConnection {
   final _cards = StreamController<List<String>>.broadcast();
   final _showdown = StreamController<ShowdownNews>.broadcast();
   final _handTax = StreamController<HandTaxNews>.broadcast();
-  final _playerLevel = StreamController<PlayerLevel>.broadcast();
+  final _playerLevel = StreamController<Standing>.broadcast();
   final _sideshowAsked = StreamController<PendingSideshow>.broadcast();
   final _sideshowReveal = StreamController<SideshowReveal>.broadcast();
   final _sideshowDone =
@@ -164,10 +164,11 @@ class GameConnection {
   Stream<HandTaxNews> get onHandTax => _handTax.stream;
 
   /// This player's level, XP and winning tax, sent to their own socket after
-  /// every XP award the server commits (`player:level`, owner, 26 Sep 2026)
-  /// — the same object `user.playerLevel` carries, so it simply replaces it.
+  /// every XP award the server commits (`player:level`, owner, 26–27 Sep
+  /// 2026): the level, the badges and the rate paid — the user object's
+  /// `playerLevel`, `badges` and `taxBps`, which it simply replaces.
   /// The server decides every point of XP; the app never counts any.
-  Stream<PlayerLevel> get onPlayerLevel => _playerLevel.stream;
+  Stream<Standing> get onPlayerLevel => _playerLevel.stream;
 
   /// Somebody asked for a sideshow. Everyone at the table hears this — it is
   /// what drives the animation between the two seats — but it carries no cards.
@@ -350,11 +351,11 @@ class GameConnection {
       _cards.add((j['cards'] as List? ?? []).map((e) => '$e').toList());
     });
 
-    // The player's own level after an XP award. A payload that is not a
-    // usable level says nothing, and the one held stays.
+    // The player's own standing after an XP award. A payload that carries
+    // no usable level says nothing, and the one held stays.
     socket.on('player:level', (data) {
-      final level = PlayerLevel.maybe(data);
-      if (level != null) _playerLevel.add(level);
+      final standing = Standing.maybe(data);
+      if (standing != null) _playerLevel.add(standing);
     });
 
     // The showdown is the reveal; the hand ending is who took it and for how

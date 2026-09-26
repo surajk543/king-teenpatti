@@ -142,7 +142,7 @@ func parseLobbyTables(raw string) ([]LobbyTable, error) {
 		// Anything after the boot is a stack band — "blind:5000:max=50000000"
 		// or "blind:1000000:min=500000000" — the table's own pot cap,
 		// "seen:50000:pot=50000000", or "tax=1", a table that taxes its winners
-		// (owner, 26 Sep 2026: the winner pays their level's share of the pot);
+		// (owner, 26 Sep 2026: the winner pays a share of their winnings);
 		// in any order and all optional. Suffixes rather than more colon-positions because a
 		// bare third number would be unreadable at a glance, and because
 		// "category:boot" has to keep parsing exactly as it always did.

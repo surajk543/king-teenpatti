@@ -56,57 +56,25 @@ type TableSummary struct {
 	Instance   string `json:"instance"`  // which server process owns the table
 }
 
-// PlayMark is one threshold of active play in a player's XP window (owner,
-// 26 Sep 2026: "30 minutes active gameplay 5 · 60 minutes active gameplay 15").
-// Field is the kt:xpday hash field that records who has claimed it; At the
-// play time that reaches it.
-type PlayMark struct {
-	Field string
-	At    time.Duration
-}
-
-// The two play marks: 30 and 60 minutes of active play in one window. What
-// each is worth is the database's business (xp_sources ACTIVE_30_MIN and
-// ACTIVE_60_MIN); this package only keeps the time and who claimed a mark.
-const (
-	PlayMark30 = "a30"
-	PlayMark60 = "a60"
-)
-
-// PlayMarks is every mark AddPlayTime claims, in order of play. A fresh slice
-// each call.
-func PlayMarks() []PlayMark {
-	return []PlayMark{{Field: PlayMark30, At: 30 * time.Minute}, {Field: PlayMark60, At: 60 * time.Minute}}
-}
-
-// PlayTime is AddPlayTime's answer: the window's opening, its play time after
-// the call, and the marks THIS call claimed (PlayMark.Field, in PlayMarks
-// order; never nil).
-type PlayTime struct {
-	Start   time.Time
-	Play    time.Duration
-	Claimed []string
-}
-
 // PlayClock is the live store's XP play time (owner, 26 Sep 2026: "game
 // duration will be stored in redis not in postgres"): per player, the active
-// play in their current XP window and which play marks have been claimed in
-// it — never PostgreSQL's business. A store that implements it is where a
-// server keeps the play time the 30- and 60-minute XP is earned by; a store
-// that does not keeps none, and those two sources are then never earned.
-// Memory implements it; PlayClockOf finds it behind a WithHooks wrapper.
+// play in their current XP window, and nothing else — never PostgreSQL's
+// business. The window itself is the database's (player_xp.window_start,
+// opened by the first hand a player completes in a day), and so is every
+// claim of the daily XP the play earns (player_xp_claims, owner, 27 Sep 2026:
+// "Play 15 active minutes +3 XP … 1 time"): the store only counts. A store
+// that implements it is where a server keeps the play time the PLAY_TIME XP is
+// earned by; a store that does not keeps none, and those sources are then
+// never earned. Memory and Redis implement it; PlayClockOf finds it behind a
+// WithHooks wrapper.
 type PlayClock interface {
-	// AddPlayTime adds play to the active play in userID's current XP window —
-	// a record {start, playMs, a30, a60} — opening the window (start = now,
-	// gone window after it) when there is none, and claims every PlayMarks
-	// mark the window's play has reached and nobody has claimed in it.
-	// Atomic: of calls that carry the play past a mark together, exactly one
-	// claims it. A play of 0 or less adds nothing (and still opens a window).
-	AddPlayTime(ctx context.Context, userID string, play time.Duration, now time.Time, window time.Duration) (PlayTime, error)
-	// ClearPlayMark releases a mark (PlayMark.Field) AddPlayTime claimed in
-	// userID's window — its award failed — so the next AddPlayTime at or past
-	// it claims it again. No window, or a mark not claimed: a no-op.
-	ClearPlayMark(ctx context.Context, userID, mark string) error
+	// AddPlayTime adds play to userID's active play in the XP window that
+	// opened at windowStart (epoch ms) and returns the window's play before
+	// and after the call. A record kept for any other window is replaced —
+	// the window has rolled, and its play starts from nothing — and the
+	// record lasts ttl from the call. Atomic: of calls that add together,
+	// each sees the others' play once. A play of 0 or less adds nothing.
+	AddPlayTime(ctx context.Context, userID string, windowStart int64, play, ttl time.Duration) (before, after time.Duration, err error)
 }
 
 // PlayClockOf is s's PlayClock — s itself, or the store a WithHooks wrapper

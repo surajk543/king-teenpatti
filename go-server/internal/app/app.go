@@ -462,6 +462,9 @@ func New(opts Options) (*App, error) {
 		// chip-priced one is bought in the lobby only, under the seat lock
 		// below.
 		Emojis: emojis,
+		// The level ladder (owner, 27 Sep 2026): GET /api/levels, the whole
+		// ladder the table's tax pill shows when tapped.
+		Levels: db.NewXP(opts.DB, clock.Now),
 		// The Lucky Draw (owner, 24 Sep 2026): a spin runs under the seat lock
 		// below, as a reward does — its prize may be chips.
 		LuckyDraws: luckyDraws,

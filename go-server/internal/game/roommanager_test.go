@@ -368,9 +368,9 @@ func TestRoomsLeavingTriggersAMergeImmediately(t *testing.T) {
 
 func TestRoomsBlindTablesAreBandedByStack(t *testing.T) {
 	const (
-		fiveCrore    int64 = 50000000
-		fiftyCrore   int64 = 500000000
-		hundredCrore int64 = 1000000000
+		twentyCrore     int64 = 200000000
+		fiftyCrore      int64 = 500000000
+		twoHundredCrore int64 = 2000000000
 	)
 	for _, tc := range []struct {
 		name   string
@@ -378,14 +378,14 @@ func TestRoomsBlindTablesAreBandedByStack(t *testing.T) {
 		chips  int64
 		reject string // "" = they get a seat
 	}{
-		{"exactly 5 Cr still fits the 5,000 table", 5000, fiveCrore, ""},
-		{"a chip over 5 Cr does not", 5000, fiveCrore + 1, game.CodeOverEntryCap},
-		{"5 Cr is welcome at 50,000", 50000, fiveCrore, ""},
-		{"exactly 100 Cr still fits 50,000", 50000, hundredCrore, ""},
-		{"a chip over 100 Cr does not", 50000, hundredCrore + 1, game.CodeOverEntryCap},
-		{"under 50 Cr cannot open the 10 lakh table", 1000000, fiftyCrore - 1, game.CodeBelowTableMinimum},
-		{"exactly 50 Cr can", 1000000, fiftyCrore, ""},
-		{"and so can far more", 1000000, hundredCrore, ""},
+		{"exactly 20 Cr still fits the 5,000 table", 5000, twentyCrore, ""},
+		{"a chip over 20 Cr does not", 5000, twentyCrore + 1, game.CodeOverEntryCap},
+		{"20 Cr is welcome at 50,000", 50000, twentyCrore, ""},
+		{"exactly 200 Cr still fits 50,000", 50000, twoHundredCrore, ""},
+		{"a chip over 200 Cr does not", 50000, twoHundredCrore + 1, game.CodeOverEntryCap},
+		{"under 50 Cr cannot open the 20 lakh table", 2000000, fiftyCrore - 1, game.CodeBelowTableMinimum},
+		{"exactly 50 Cr can", 2000000, fiftyCrore, ""},
+		{"and so can far more", 2000000, twoHundredCrore, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newRoomsFixture(t, nil)
@@ -410,10 +410,10 @@ func TestRoomsBlindTablesAreBandedByStack(t *testing.T) {
 func TestRoomsMenuCarriesEachTablesBand(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	want := map[int64][2]int64{ // boot -> {min, max}
-		200:     {0, 500000}, // requirement 30's cap, folded in
-		5000:    {0, 50000000},
-		50000:   {0, 1000000000},
-		1000000: {500000000, 0},
+		200:     {0, 2000000}, // requirement 30's cap, folded in: 20 Lakh (owner, 27 Sep 2026)
+		5000:    {0, 200000000},
+		50000:   {0, 2000000000},
+		2000000: {500000000, 0},
 	}
 	seen := map[int64]bool{}
 	for _, entry := range f.rooms.LobbyOptions().Tables {
@@ -443,11 +443,12 @@ func TestRoomsMenuCarriesEachTablesBand(t *testing.T) {
 func TestRoomsBandAppliesToJoinByCodeToo(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	opened, err := f.rooms.QuickJoin(f.player("Whale", 600000000),
-		game.QuickJoinOptions{BootAmount: 1000000, Category: "blind"})
+		game.QuickJoinOptions{BootAmount: 2000000, Category: "blind"})
 	if err != nil {
 		t.Fatalf("the whale could not open the table: %v", err)
 	}
-	_, err = f.rooms.JoinByCode(f.player("Minnow", 1000000), opened.Code())
+	// Enough to cover the 20 Lakh boot, far short of the 50 Crore floor.
+	_, err = f.rooms.JoinByCode(f.player("Minnow", 2000000), opened.Code())
 	expectCode(t, err, game.CodeBelowTableMinimum)
 }
 
@@ -497,7 +498,7 @@ func TestRoomsBigStackCannotJoinCappedTable(t *testing.T) {
 	cap := f.cfg.EntryCapMaxChips
 	_, err := f.rooms.QuickJoin(f.player("Rich", cap+1), game.QuickJoinOptions{BootAmount: f.cfg.EntryCapBoot, Category: f.cfg.EntryCapCategory})
 	expectCode(t, err, game.CodeOverEntryCap)
-	if want := "Players with more than 500,000 chips cannot join this table"; err.Error() != want {
+	if want := "Players with more than 2,000,000 chips cannot join this table"; err.Error() != want {
 		t.Fatalf("message %q, want %q", err.Error(), want)
 	}
 	if n := len(f.rooms.LiveTables()); n != 0 {
@@ -1007,14 +1008,19 @@ func TestRoomsCreateTableConfigIsExplicit(t *testing.T) {
 	seen := common
 	seen.Category, seen.BootAmount = game.CategorySeen, 200
 	seen.MaxRaiseSteps, seen.MaxBetRounds, seen.MaxPot, seen.PotLimitMultiplier = 2, 7, 2_000_000, 1024
+	// Every public Teen Patti table taxes its winners, on winnings of 50 Lakh
+	// or more (owner, 27 Sep 2026); no private one does.
+	seen.WinnerTax, seen.WinnerTaxMinWinnings = true, 5_000_000
 	blind := common
 	blind.Category, blind.BootAmount = game.CategoryBlind, 5000
 	blind.MaxRaiseSteps, blind.MaxBetRounds, blind.MaxPot, blind.PotLimitMultiplier = 0, 0, 0, 0
+	blind.WinnerTax, blind.WinnerTaxMinWinnings = true, 5_000_000
 	privateBlind := common
 	privateBlind.Category, privateBlind.BootAmount = game.CategoryBlind, 200
 	privateBlind.MaxRaiseSteps, privateBlind.MaxBetRounds, privateBlind.MaxPot, privateBlind.PotLimitMultiplier = 2, 0, 500_000, 0
 	privateSeen := seen
 	privateSeen.MaxPot = 500_000
+	privateSeen.WinnerTax, privateSeen.WinnerTaxMinWinnings = false, 0
 
 	cases := []struct {
 		name string
@@ -1087,7 +1093,7 @@ func TestRoomsSeenTableForcesAShowdownAfterSevenRounds(t *testing.T) {
 func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	o := f.rooms.LobbyOptions()
-	if !equalInt64s(o.Stakes, []int64{200, 5000, 50000, 1000000}) {
+	if !equalInt64s(o.Stakes, []int64{200, 5000, 50000, 2000000}) {
 		t.Fatalf("stakes %v", o.Stakes)
 	}
 	// seen and blind as ever, in their old order, the third because the default
@@ -1105,24 +1111,26 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 		}
 	}
 	// Each blind table carries the stack band it is for; requirement 30's cap
-	// on the 200 table is the same field, folded in from ENTRY_CAP_*.
+	// on the 200 table is the same field, folded in from ENTRY_CAP_*. Every
+	// Teen Patti table taxes its winners (owner, 26–27 Sep 2026: "Apply this
+	// tax rule on all the tables, blind, seen, variation"), on winnings of 50
+	// Lakh or more.
+	const tax = 5000000
 	wantTables := []game.LobbyTableOption{
-		{Category: "seen", BootAmount: 200, MaxPot: 2000000, MaxBlindMoves: 4},
-		{Category: "blind", BootAmount: 200, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 500000},
-		{Category: "blind", BootAmount: 5000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 50000000},
-		{Category: "blind", BootAmount: 50000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 1000000000},
-		// Blind at 10 Lakh taxes its winners (owner, 26 Sep 2026).
-		{Category: "blind", BootAmount: 1000000, MaxPot: 0, MaxBlindMoves: 4, MinChips: 500000000, WinnerTax: true},
+		{Category: "seen", BootAmount: 200, MaxPot: 2000000, MaxBlindMoves: 4, WinnerTax: true, WinnerTaxMinWinnings: tax},
+		{Category: "blind", BootAmount: 200, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 2000000, WinnerTax: true, WinnerTaxMinWinnings: tax},
+		{Category: "blind", BootAmount: 5000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 200000000, WinnerTax: true, WinnerTaxMinWinnings: tax},
+		{Category: "blind", BootAmount: 50000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 2000000000, WinnerTax: true, WinnerTaxMinWinnings: tax},
+		{Category: "blind", BootAmount: 2000000, MaxPot: 0, MaxBlindMoves: 4, MinChips: 500000000, WinnerTax: true, WinnerTaxMinWinnings: tax},
 		// Variation Teen Patti (owner, 18 Sep 2026): LAST, so the five entries
-		// above keep their places; two tables only, 50,000 and 10 Lakh, behind
+		// above keep their places; two tables only, 50,000 and 20 Lakh, behind
 		// the bands blind's tables of those stakes have; and with NO pot limit
-		// ("in all variation tables, do not keep any pot limit"). The 10 Lakh
-		// one taxes its winners, as blind's does.
-		{Category: "variation", BootAmount: 50000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 1000000000},
-		{Category: "variation", BootAmount: 1000000, MaxPot: 0, MaxBlindMoves: 4, MinChips: 500000000, WinnerTax: true},
+		// ("in all variation tables, do not keep any pot limit").
+		{Category: "variation", BootAmount: 50000, MaxPot: 0, MaxBlindMoves: 4, MaxChips: 2000000000, WinnerTax: true, WinnerTaxMinWinnings: tax},
+		{Category: "variation", BootAmount: 2000000, MaxPot: 0, MaxBlindMoves: 4, MinChips: 500000000, WinnerTax: true, WinnerTaxMinWinnings: tax},
 		// A second seen table (owner, 19 Sep 2026): boot 50,000, open to all,
 		// with a 5 Crore pot limit of its own rather than seen's 20 Lakh.
-		{Category: "seen", BootAmount: 50000, MaxPot: 50000000, MaxBlindMoves: 4},
+		{Category: "seen", BootAmount: 50000, MaxPot: 50000000, MaxBlindMoves: 4, WinnerTax: true, WinnerTaxMinWinnings: tax},
 		// The Poker family (owner, 19 Sep 2026): each entry carries its own
 		// facts — blinds or ante, buy-in, hole cards, the draw limit — and none
 		// of Teen Patti's (no pot cap, no blind moves). Last, so every entry
@@ -1148,21 +1156,23 @@ func TestRoomsLobbyOffersExactlyTheDefaultMenu(t *testing.T) {
 	}
 	// The entries that existed before variation and poker tables are byte for
 	// byte what they were: a later entry adds a row and adds no field to theirs
-	// (a poker entry's own fields are omitempty and absent here). The two
-	// tables that tax their winners say so, and only they do.
-	wantJSON := `{"categories":["seen","blind","variation","three_card_poker","five_card_draw","texas_holdem","omaha"],"stakes":[200,5000,50000,1000000],"tables":[` +
-		`{"category":"seen","bootAmount":200,"maxPot":2000000,"maxBlindMoves":4,"minChips":0,"maxChips":0},` +
-		`{"category":"blind","bootAmount":200,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":500000},` +
-		`{"category":"blind","bootAmount":5000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":50000000},` +
-		`{"category":"blind","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +
-		`{"category":"blind","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0,"winnerTax":true},` +
-		`{"category":"variation","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":1000000000},` +
-		`{"category":"variation","bootAmount":1000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0,"winnerTax":true},{"category":"seen","bootAmount":50000,"maxPot":50000000,"maxBlindMoves":4,"minChips":0,"maxChips":0},` +
+	// (a poker entry's own fields are omitempty and absent here). Every Teen
+	// Patti table taxes its winners and says from what winnings; no poker
+	// entry carries either key.
+	taxed := `"winnerTax":true,"winnerTaxMinWinnings":5000000`
+	wantJSON := `{"categories":["seen","blind","variation","three_card_poker","five_card_draw","texas_holdem","omaha"],"stakes":[200,5000,50000,2000000],"tables":[` +
+		`{"category":"seen","bootAmount":200,"maxPot":2000000,"maxBlindMoves":4,"minChips":0,"maxChips":0,` + taxed + `},` +
+		`{"category":"blind","bootAmount":200,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":2000000,` + taxed + `},` +
+		`{"category":"blind","bootAmount":5000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":200000000,` + taxed + `},` +
+		`{"category":"blind","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":2000000000,` + taxed + `},` +
+		`{"category":"blind","bootAmount":2000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0,` + taxed + `},` +
+		`{"category":"variation","bootAmount":50000,"maxPot":0,"maxBlindMoves":4,"minChips":0,"maxChips":2000000000,` + taxed + `},` +
+		`{"category":"variation","bootAmount":2000000,"maxPot":0,"maxBlindMoves":4,"minChips":500000000,"maxChips":0,` + taxed + `},{"category":"seen","bootAmount":50000,"maxPot":50000000,"maxBlindMoves":4,"minChips":0,"maxChips":0,` + taxed + `},` +
 		`{"category":"three_card_poker","bootAmount":50000,"maxPot":0,"maxBlindMoves":0,"minChips":500000,"maxChips":0,"game":"poker","ante":50000,"minBuyIn":500000,"holeCards":3},` +
 		`{"category":"five_card_draw","bootAmount":50000,"maxPot":0,"maxBlindMoves":0,"minChips":500000,"maxChips":0,"game":"poker","ante":50000,"minBuyIn":500000,"holeCards":5,"maxDiscards":3},` +
 		`{"category":"texas_holdem","bootAmount":50000,"maxPot":0,"maxBlindMoves":0,"minChips":500000,"maxChips":0,"game":"poker","smallBlind":25000,"bigBlind":50000,"minBuyIn":500000,"holeCards":2},` +
 		`{"category":"omaha","bootAmount":50000,"maxPot":0,"maxBlindMoves":0,"minChips":500000,"maxChips":0,"game":"poker","smallBlind":25000,"bigBlind":50000,"minBuyIn":500000,"holeCards":4}],` +
-		`"entryCapBoot":200,"entryCapCategory":"blind","entryCapMaxChips":500000,"privateBoot":200,"privateMaxPot":500000}`
+		`"entryCapBoot":200,"entryCapCategory":"blind","entryCapMaxChips":2000000,"privateBoot":200,"privateMaxPot":500000}`
 	if string(raw) != wantJSON {
 		t.Fatalf("json\n got  %s\n want %s", raw, wantJSON)
 	}
@@ -1237,7 +1247,7 @@ func TestRoomsPairNotOnMenuRefused(t *testing.T) {
 	// Both halves are offered on their own; the pair is not.
 	_, err := f.rooms.QuickJoin(f.player("P", rmStart), game.QuickJoinOptions{BootAmount: 5000, Category: "seen"})
 	expectCode(t, err, game.CodeTableNotOffered)
-	if want := "The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 1000000, variation 50000, variation 1000000, seen 50000, three_card_poker 50000, five_card_draw 50000, texas_holdem 50000, omaha 50000"; err.Error() != want {
+	if want := "The lobby offers: seen 200, blind 200, blind 5000, blind 50000, blind 2000000, variation 50000, variation 2000000, seen 50000, three_card_poker 50000, five_card_draw 50000, texas_holdem 50000, omaha 50000"; err.Error() != want {
 		t.Fatalf("message %q", err.Error())
 	}
 	if n := len(f.rooms.ListTables(game.ListOptions{})); n != 0 {
@@ -1250,7 +1260,7 @@ func TestRoomsStakeNotOfferedRefused(t *testing.T) {
 	for _, boot := range []int64{1, 100, 199, 4999, 10000} {
 		_, err := f.rooms.QuickJoin(f.player("P", rmStart), game.QuickJoinOptions{BootAmount: boot})
 		expectCode(t, err, game.CodeInvalidStake)
-		if want := "Stake must be one of: 200, 5000, 50000, 1000000"; err.Error() != want {
+		if want := "Stake must be one of: 200, 5000, 50000, 2000000"; err.Error() != want {
 			t.Fatalf("%d: message %q", boot, err.Error())
 		}
 	}
@@ -1439,14 +1449,15 @@ func TestRoomsAVariationTableIsOnlyOfferedAtTheBootOnTheMenu(t *testing.T) {
 	expectCode(t, err, game.CodeTableNotOffered)
 }
 
-// TestRoomsAVariationHandAtTenLakhIsPlayedNotEndedAtTheDeal is why a variation
-// table cannot share the seen table's fixed 20 Lakh cap — and, since the owner
-// asked for no pot limit on any variation table (18 Sep 2026), has none: five
-// boots of 10 Lakh are already past 20 Lakh, so the hand would be dealt
-// straight into the POT_LIMIT showdown and nobody would ever bet.
-func TestRoomsAVariationHandAtTenLakhIsPlayedNotEndedAtTheDeal(t *testing.T) {
+// TestRoomsAVariationHandAtTwentyLakhIsPlayedNotEndedAtTheDeal is why a
+// variation table cannot share the seen table's fixed 20 Lakh cap — and, since
+// the owner asked for no pot limit on any variation table (18 Sep 2026), has
+// none: a single boot of 20 Lakh (the top table's since 27 Sep 2026) already
+// reaches it, so the hand would be dealt straight into the POT_LIMIT showdown
+// and nobody would ever bet.
+func TestRoomsAVariationHandAtTwentyLakhIsPlayedNotEndedAtTheDeal(t *testing.T) {
 	f := newRoomsFixture(t, nil)
-	const boot, stack = int64(1000000), int64(600000000) // 10 Lakh; 60 Crore each
+	const boot, stack = int64(2000000), int64(600000000) // 20 Lakh; 60 Crore each
 	var table *game.Table
 	for i := 0; i < 5; i++ {
 		table = f.mustQuickJoin(f.player(fmt.Sprintf("High%d", i), stack), boot, "variation")
@@ -1484,7 +1495,8 @@ func TestRoomsAVariationHandAtTenLakhIsPlayedNotEndedAtTheDeal(t *testing.T) {
 	}
 }
 
-// Owner, 18 Sep 2026: "in variation keep only two tables, 50000 and 10 Lakh".
+// Owner, 18 Sep 2026: "in variation keep only two tables, 50000 and 10 Lakh" —
+// the second at 20 Lakh, and 50,000 open up to 200 Crore, since 27 Sep 2026.
 func TestRoomsVariationKeepsTwoTablesBehindBlindsBandsForThoseStakes(t *testing.T) {
 	f := newRoomsFixture(t, nil)
 	// 2 Lakh covers the 50,000 boot and sits there, at a table with a window.
@@ -1500,15 +1512,15 @@ func TestRoomsVariationKeepsTwoTablesBehindBlindsBandsForThoseStakes(t *testing.
 		_, err := f.rooms.QuickJoin(f.player(fmt.Sprintf("Low%d", boot), rmStart), game.QuickJoinOptions{BootAmount: boot, Category: "variation"})
 		expectCode(t, err, game.CodeTableNotOffered)
 	}
-	// 40 Crore has not grown into the 10 Lakh table (50 Crore to enter) …
-	_, err := f.rooms.QuickJoin(f.player("Small", 400000000), game.QuickJoinOptions{BootAmount: 1000000, Category: "variation"})
+	// 40 Crore has not grown into the 20 Lakh table (50 Crore to enter) …
+	_, err := f.rooms.QuickJoin(f.player("Small", 400000000), game.QuickJoinOptions{BootAmount: 2000000, Category: "variation"})
 	expectCode(t, err, game.CodeBelowTableMinimum)
-	// … and a stack over 100 Crore has outgrown the 50,000 one.
-	_, err = f.rooms.QuickJoin(f.player("Big", 1000000001), game.QuickJoinOptions{BootAmount: 50000, Category: "variation"})
+	// … and a stack over 200 Crore has outgrown the 50,000 one.
+	_, err = f.rooms.QuickJoin(f.player("Big", 2000000001), game.QuickJoinOptions{BootAmount: 50000, Category: "variation"})
 	expectCode(t, err, game.CodeOverEntryCap)
 	// Exactly the limit is allowed at either end.
-	f.mustQuickJoin(f.player("AtMax", 1000000000), 50000, "variation")
-	f.mustQuickJoin(f.player("AtMin", 500000000), 1000000, "variation")
+	f.mustQuickJoin(f.player("AtMax", 2000000000), 50000, "variation")
+	f.mustQuickJoin(f.player("AtMin", 500000000), 2000000, "variation")
 }
 
 func TestRoomsAMenuWithNoVariationEntryAdvertisesNoVariationCategory(t *testing.T) {

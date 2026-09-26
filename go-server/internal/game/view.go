@@ -43,11 +43,16 @@ type TableView struct {
 	// MaxPot is the pot ceiling, 0 when uncapped.
 	MaxPot int64 `json:"maxPot"`
 	// WinnerTax is true at a table that TAXES ITS WINNERS (owner, 26 Sep
-	// 2026; tabletax.go): the winner of each hand pays their level's share of
-	// the whole pot. ABSENT — never false — everywhere else, so every other
-	// snapshot is byte for byte what it was; the rate the viewer's seat pays
-	// is You.TaxBps. Go only.
+	// 2026; tabletax.go): the winner of each hand pays a share of what they
+	// won, the pot less their own contribution. ABSENT — never false —
+	// everywhere else, so every other snapshot is byte for byte what it was;
+	// the rate the viewer's seat pays is You.TaxBps. Go only.
 	WinnerTax bool `json:"winnerTax,omitempty"`
+	// WinnerTaxMinWinnings are the smallest winnings such a table taxes
+	// (owner, 27 Sep 2026: "no tax for winning amount less than 50 Lakh");
+	// ABSENT where it is 0 (any winnings taxed) and on every table
+	// that does not tax.
+	WinnerTaxMinWinnings int64 `json:"winnerTaxMinWinnings,omitempty"`
 	// Stake is hand.stake (blind units) or BootAmount between hands.
 	Stake int64 `json:"stake"`
 	Round int   `json:"round"` // hand.round or 0

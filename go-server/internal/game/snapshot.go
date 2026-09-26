@@ -81,9 +81,12 @@ type SnapshotConfig struct {
 	// in every snapshot of a table that does not tax its winners, and in one
 	// saved before the tax existed — which restores untaxed, and is drained if
 	// the catalogue now taxes its pair (config.TableSpec.SameRules).
-	WinnerTax      bool `json:"winnerTax,omitempty"`
-	ChatMaxHistory int  `json:"chatMaxHistory"`
-	ChatMaxLength  int  `json:"chatMaxLength"`
+	WinnerTax bool `json:"winnerTax,omitempty"`
+	// WinnerTaxMinWinnings is TableConfig.WinnerTaxMinWinnings (owner, 27 Sep 2026);
+	// absent (0) where any winnings are taxed or none are.
+	WinnerTaxMinWinnings int64 `json:"winnerTaxMinWinnings,omitempty"`
+	ChatMaxHistory       int   `json:"chatMaxHistory"`
+	ChatMaxLength        int   `json:"chatMaxLength"`
 }
 
 // SnapshotHand is Snapshot.hand.

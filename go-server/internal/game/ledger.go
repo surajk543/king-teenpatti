@@ -135,6 +135,15 @@ type SettleEntry struct {
 	// figure, Delta + Tax, and the tax as a table_tax row of −Tax. Never set
 	// by the poker family.
 	Tax int64
+	// WonWith is the Teen Patti hand the winner held, as the table counts it
+	// (handRules / playedHand: a variation's wild cards make the hand, under
+	// 5-Card the three that played) — HandCategory.Code: TRAIL,
+	// PURE_SEQUENCE, SEQUENCE, COLOR, PAIR or HIGH_CARD — on the winner's
+	// hand-end entry at a Teen Patti table, however the hand ended; "" on
+	// every other entry and in the poker family. The daily XP of the WIN_HAND
+	// sources is earned by it (owner, 27 Sep 2026: "Win by Pair +1 XP … Win by
+	// Trail +20 XP").
+	WonWith string
 	// Game and Variant name the family and variant the row was written by
 	// (chip_ledger.game / .variant, V1.0.0__baseline.sql): "" for a Teen
 	// Patti table, whose rows are byte for byte what they were; GamePoker and
