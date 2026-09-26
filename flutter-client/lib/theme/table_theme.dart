@@ -64,6 +64,15 @@ abstract final class TableType {
   static TextStyle handName(ThemeData theme, {required Color colour}) =>
       AppTheme.smallCaps(_t(theme).labelMedium!, tracking: 0.8, colour: colour);
 
+  /// The winning tax on its plate beside the tag ("18.16% TAX", owner,
+  /// 26 Sep 2026): the tag's own size and weight, in the tax's amber
+  /// ([TableInk.tax]) — a fact about the table, read with its name.
+  static TextStyle tax(ThemeData theme) => AppTheme.label(
+    _t(theme).labelMedium!,
+    colour: TableInk.tax,
+    weight: FontWeight.w700,
+  );
+
   /// A fixed Latin eyebrow the code owns — SIDESHOW over its question, the
   /// category at the head of the table's menu. Never a translated string.
   static TextStyle caps(
@@ -344,6 +353,16 @@ class SeatType {
     color: colour,
   );
 
+  /// What the winner paid in winning tax, on their ribbon under WINNER and
+  /// the hand ("Winning tax −1,360", owner, 26 Sep 2026): the hand line's
+  /// size, in the tax's amber ([TableInk.tax]), the figure tabular.
+  /// Translated, so in its natural case.
+  TextStyle tax() => AppTheme.money(
+    _t.titleLarge!,
+    fontSize: math.max(9.0, podWidth * 0.092),
+    colour: TableInk.tax,
+  );
+
   /// WINNER, struck across the winner's pod ([big]), and the hand it won with
   /// under it.
   TextStyle winner({required bool big, required FontWeight weight}) {
@@ -440,6 +459,18 @@ abstract final class TableInk {
   /// 6.5:1 on charcoal. The light scheme's brick, which it used to take on the
   /// light theme, read under 3:1 there.
   static const Color alarm = Color(0xFFFF6B5A);
+
+  /// The winning tax (owner, 26 Sep 2026) on a charcoal plate — its pill
+  /// beside the tag, its line on the winner's ribbon: an amber, 9.4:1 on
+  /// charcoal, warm and apart from the chips' gold, so a share leaving the pot
+  /// never reads as chips arriving.
+  static const Color tax = Color(0xFFFFC46B);
+
+  /// The same amber for a surface that follows the theme — a lobby card, a
+  /// popup: [tax] by night, a burnt amber by day, where the pale one is lost
+  /// on white (5.4:1 there).
+  static Color taxOn(Brightness b) =>
+      b == Brightness.dark ? tax : const Color(0xFF9A5B00);
 }
 
 /// The table's ambient light, turned down so it supports the game rather than

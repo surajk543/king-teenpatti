@@ -33,6 +33,7 @@ import '../widgets/premium_surface.dart';
 import '../widgets/seat_pod.dart';
 import '../widgets/seat_ring.dart';
 import '../widgets/table_chrome.dart';
+import '../widgets/table_tax.dart';
 import '../widgets/variation_prompt.dart';
 import '../widgets/wild_transform.dart';
 import 'poker_table_screen.dart';
@@ -601,6 +602,26 @@ class _Felt extends StatefulWidget {
   /// height. A name rather than a literal because the table's notices stand
   /// under it too ([tableNoticeArea]).
   static const double _tagDy = 0.075;
+
+  /// One of the table's one-line plates — the tag, the winning tax's pill,
+  /// the pot — as tall as one line of [style] at the phone's text size, the
+  /// plate's padding and its hairline.
+  static double plateHeight(TextScaler scaler, TextStyle style) =>
+      scaler.scale(style.fontSize ?? 14) * (style.height ?? 1.3) +
+      2 * Space.xs +
+      2 * Dim.hairline;
+
+  /// How far under the category tag's middle the winning tax's pill stands
+  /// (owner, 26 Sep 2026), middle to middle: half the tag, a step, half the
+  /// pill — both one line of the tag's type on a plate. The tag already
+  /// fills its slot at a 640dp phone's larger text sizes, so the pill hangs
+  /// under it rather than beside it, in the same slot: clear of every seat
+  /// the tag is clear of, and moving wherever the tag moves ([SeatRing.
+  /// tagSlot]).
+  static double taxBelowTag(TextScaler scaler, ThemeData theme) =>
+      plateHeight(scaler, TableType.boot(theme)) / 2 +
+      Space.sm +
+      plateHeight(scaler, TableType.tax(theme)) / 2;
 
   /// The viewer's own bet badge, over their cards, is scaled as if their pod
   /// were this much wider than it is: a step over a rim seat's badge, and no
@@ -1287,7 +1308,12 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               stackLanding: paid
                   ? party?.landed ?? kAlwaysDismissedAnimation
                   : null,
-              stackWon: paid ? state.winnerPot : 0,
+              // What lands on the stack: the pot less the winning tax the
+              // server took from it (owner, 26 Sep 2026) — the settled table
+              // holds exactly that, so the stack rises to it and never past.
+              stackWon: paid ? state.winnerLanded : 0,
+              // And what was taken, said on the winner's ribbon.
+              winnerTax: paid ? state.winnerTax : 0,
             );
           }
 
@@ -1495,6 +1521,37 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   child: _CategoryTag(room: room),
                 ),
               ),
+              // A table that taxes its winners says so under its tag, with
+              // the rate THIS viewer's seat pays (owner, 26 Sep 2026), and a
+              // tap says what the tax is and where they stand. In the tag's
+              // own slot, so it moves with the tag and is clear of every
+              // seat the tag is clear of.
+              if (room.taxesWinner)
+                Positioned(
+                  key: const ValueKey('winning-tax'),
+                  left: tagSlot.left,
+                  top:
+                      tagSlot.center.dy +
+                      _Felt.taxBelowTag(
+                        MediaQuery.textScalerOf(context),
+                        Theme.of(context),
+                      ),
+                  width: tagSlot.width,
+                  child: FractionalTranslation(
+                    translation: const Offset(0, -0.5),
+                    child: Center(
+                      child: WinningTaxTag(
+                        label: taxPillLabel(
+                          state.t,
+                          bps: state.myTaxBps,
+                          vip: state.isVip,
+                        ),
+                        semanticLabel: state.t.winningTaxTitle,
+                        onTap: () => showWinningTaxInfo(context),
+                      ),
+                    ),
+                  ),
+                ),
               // Narrower than the tag above it, and narrower again since the
               // cloth went: with no table under it the plinth is the largest
               // solid object on the screen, and at a third of the felt it was
@@ -1899,13 +1956,17 @@ Rect tableNoticeArea(BuildContext context) {
 
   // The tag and the pot are each one line of type on a plate: the line, the
   // plate's padding above and below it, and its hairline.
-  double plate(TextStyle style) =>
-      scaler.scale(style.fontSize ?? 14) * (style.height ?? 1.3) +
-      2 * Space.xs +
-      2 * Dim.hairline;
+  double plate(TextStyle style) => _Felt.plateHeight(scaler, style);
   final headPod = ring.headPod;
+  // Under the winning tax's pill too, where the table has one: a notice
+  // never covers the table's own terms.
+  final underTag = context.read<GameState>().tableTaxesWinner
+      ? _Felt.taxBelowTag(scaler, theme) +
+            plate(TableType.tax(theme)) / 2 +
+            Space.sm
+      : plate(TableType.boot(theme)) / 2 + Space.sm;
   final top = math.max(
-    feltTop + _Felt._tagDy * h + plate(TableType.boot(theme)) / 2 + Space.sm,
+    feltTop + _Felt._tagDy * h + underTag,
     headPod == null ? 0.0 : feltTop + headPod.bottom + Space.sm,
   );
   final bottom =

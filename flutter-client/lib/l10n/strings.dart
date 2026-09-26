@@ -424,6 +424,84 @@ class Strings {
   String get ruleRoundsEnd => _('ruleRoundsEnd');
   String get ruleShowTwo => _('ruleShowTwo');
   String get ruleVariationPick => _('ruleVariationPick');
+
+  // --- the winning tax (owner, 26 Sep 2026): at a table that taxes its
+  // winners, the winner of each hand pays a share of the whole pot — the rate
+  // their LEVEL sets, which falls as their XP climbs; the VIP tier, set by
+  // hand and never reached by XP, pays least. The server takes it and says how
+  // much; these only name it. Rates arrive formatted ("18.16%").
+
+  /// The pill on such a table's lobby card and beside its tag on the felt,
+  /// with the viewer's own rate: "18.16% TAX", a VIP's "4% TAX · VIP", and
+  /// "TAX" alone where the rate is not known.
+  String taxPill(String rate) => _('taxPill').replaceFirst('{rate}', rate);
+  String taxPillVip(String rate) =>
+      _('taxPillVip').replaceFirst('{rate}', rate);
+  String get taxPillNoRate => _('taxPillNoRate');
+
+  /// The felt pill's popup title, and the table info popup's row label.
+  String get winningTaxTitle => _('winningTaxTitle');
+  String get winningTaxLabel => _('winningTaxLabel');
+
+  /// The rows that say where the viewer stands: their level, their XP, the
+  /// rate they pay, and the next level up.
+  String get yourLevelLabel => _('yourLevelLabel');
+  String get xpLabel => _('xpLabel');
+  String get yourRateLabel => _('yourRateLabel');
+  String get nextLevelLabel => _('nextLevelLabel');
+
+  /// A level named by its number and its name (the server's, with its mark):
+  /// "Level 10 · 🌟 Rising Star".
+  String levelName(int level, String title) => _(
+    'levelName',
+  ).replaceFirst('{n}', '$level').replaceFirst('{title}', title);
+
+  /// The Stats drawer's line: "Level 10 · 🌟 Rising Star · 4,180 XP".
+  String levelLine(int level, String title, String xp) => _('levelLine')
+      .replaceFirst('{n}', '$level')
+      .replaceFirst('{title}', title)
+      .replaceFirst('{xp}', xp);
+
+  /// What reaches the next level and what it charges, under its name:
+  /// "5,200 XP · 17.96%".
+  String nextLevelValue(String xp, String rate) =>
+      _('nextLevelValue').replaceFirst('{xp}', xp).replaceFirst('{rate}', rate);
+
+  /// At the top of the ladder, where XP leads nowhere further.
+  String get topLevelNote => _('topLevelNote');
+
+  /// What the felt pill's popup says the tax is — and, to anybody but a VIP,
+  /// that climbing the levels lowers it.
+  String get winningTaxOnlyWinner => _('winningTaxOnlyWinner');
+  String get winningTaxFalls => _('winningTaxFalls');
+
+  /// A taxing table's rule, one bullet: "The winner of each hand pays a share
+  /// of the pot as winning tax — 20% at Level 1, less at every level up. VIP
+  /// players pay 4%." VIP named only here, where the rules are explained, and
+  /// never as something XP leads to.
+  String winningTaxRule(String top, String vip) =>
+      '${_('ruleWinningTax').replaceFirst('{top}', top)} '
+      '${_('ruleWinningTaxVip').replaceFirst('{vip}', vip)}';
+
+  /// On the winner's ribbon, with the celebration: "Winning tax −1,360".
+  String winnerTaxLine(String tax) =>
+      _('winnerTaxLine').replaceFirst('{tax}', tax);
+
+  /// The toast when XP lifts the player a level (never the VIP tier, which
+  /// XP does not reach): "Level up! 🌟 Level 10 · Rising Star — your winning
+  /// tax is now 18.16%."
+  String levelUp(String level, String rate) =>
+      _('levelUp').replaceFirst('{level}', level).replaceFirst('{rate}', rate);
+
+  /// Today's XP against the day's cap — "Today 23 / 50 XP" — and when the
+  /// 24-hour window ends: "resets in 5h 12m 3s".
+  String xpToday(int xp, int cap) =>
+      _('xpToday').replaceFirst('{xp}', '$xp').replaceFirst('{cap}', '$cap');
+  String xpResetsIn(String time) =>
+      _('xpResetsIn').replaceFirst('{time}', time);
+
+  /// The tax popup's row for today's XP.
+  String get todayLabel => _('todayLabel');
   String get variationChooseTitle => _('variationChooseTitle');
 
   // 5-Card Teen Patti: the player chooses which three of their five play
@@ -1372,6 +1450,30 @@ class Strings {
       'canSitHere': 'You can sit at this table.',
       'playersUpTo': 'Up to {n}',
       'secondsEach': '{n} seconds',
+      'taxPill': '{rate} TAX',
+      'taxPillVip': '{rate} TAX · VIP',
+      'taxPillNoRate': 'TAX',
+      'winningTaxTitle': 'Winning tax',
+      'winningTaxLabel': 'winning tax',
+      'yourLevelLabel': 'your level',
+      'xpLabel': 'XP',
+      'yourRateLabel': 'your rate',
+      'nextLevelLabel': 'next level',
+      'levelName': 'Level {n} · {title}',
+      'levelLine': 'Level {n} · {title} · {xp} XP',
+      'nextLevelValue': '{xp} XP · {rate}',
+      'topLevelNote': 'This is the top level.',
+      'winningTaxOnlyWinner':
+          'Only the winner of each hand pays winning tax, on the whole pot they take.',
+      'winningTaxFalls': 'The higher your level, the less you pay.',
+      'ruleWinningTax':
+          'The winner of each hand pays a share of the pot as winning tax — {top} at Level 1, less at every level up.',
+      'ruleWinningTaxVip': 'VIP players pay {vip}.',
+      'winnerTaxLine': 'Winning tax −{tax}',
+      'levelUp': 'Level up! {level} — your winning tax is now {rate}.',
+      'xpToday': 'Today {xp} / {cap} XP',
+      'xpResetsIn': 'resets in {time}',
+      'todayLabel': 'today',
       'variationRulesIntro':
           'The first player to act has 10 seconds to choose how the hand is decided; if they do not, it is Muflis. A wild card counts as whichever card makes your hand best. Other players\' chips are hidden and the pot has no limit.',
       'variationChooseTitle': 'Choose Variation',
@@ -2009,6 +2111,30 @@ class Strings {
       'canSitHere': 'आप इस टेबल पर बैठ सकते हैं।',
       'playersUpTo': '{n} तक',
       'secondsEach': '{n} सेकंड',
+      'taxPill': '{rate} टैक्स',
+      'taxPillVip': '{rate} टैक्स · VIP',
+      'taxPillNoRate': 'टैक्स',
+      'winningTaxTitle': 'जीत टैक्स',
+      'winningTaxLabel': 'जीत टैक्स',
+      'yourLevelLabel': 'आपका लेवल',
+      'xpLabel': 'XP',
+      'yourRateLabel': 'आपकी दर',
+      'nextLevelLabel': 'अगला लेवल',
+      'levelName': 'लेवल {n} · {title}',
+      'levelLine': 'लेवल {n} · {title} · {xp} XP',
+      'nextLevelValue': '{xp} XP · {rate}',
+      'topLevelNote': 'यह सबसे ऊँचा लेवल है।',
+      'winningTaxOnlyWinner':
+          'जीत टैक्स सिर्फ़ हर हाथ का विजेता देता है, पूरे पॉट पर जो वह जीतता है।',
+      'winningTaxFalls': 'आपका लेवल जितना ऊँचा, टैक्स उतना कम।',
+      'ruleWinningTax':
+          'हर हाथ का विजेता पॉट का एक हिस्सा जीत टैक्स के रूप में देता है — लेवल 1 पर {top}, हर अगले लेवल पर कम।',
+      'ruleWinningTaxVip': 'VIP खिलाड़ी {vip} देते हैं।',
+      'winnerTaxLine': 'जीत टैक्स −{tax}',
+      'levelUp': 'लेवल अप! {level} — अब आपका जीत टैक्स {rate} है।',
+      'xpToday': 'आज {xp} / {cap} XP',
+      'xpResetsIn': '{time} में रीसेट',
+      'todayLabel': 'आज',
       'variationRulesIntro':
           'पहली चाल वाले खिलाड़ी के पास यह चुनने के लिए 10 सेकंड होते हैं कि हाथ किस नियम से तय होगा; न चुनने पर मुफ़लिस खेला जाता है। जोकर पत्ता वही पत्ता माना जाता है जिससे आपका हाथ सबसे अच्छा बने। दूसरों के चिप्स छिपे रहते हैं और पॉट की कोई सीमा नहीं है।',
       'variationChooseTitle': 'वेरिएशन चुनें',
@@ -2626,6 +2752,30 @@ class Strings {
       'canSitHere': 'আপনি এই টেবিলে বসতে পারেন।',
       'playersUpTo': '{n} জন পর্যন্ত',
       'secondsEach': '{n} সেকেন্ড',
+      'taxPill': '{rate} ট্যাক্স',
+      'taxPillVip': '{rate} ট্যাক্স · VIP',
+      'taxPillNoRate': 'ট্যাক্স',
+      'winningTaxTitle': 'জয়ের ট্যাক্স',
+      'winningTaxLabel': 'জয়ের ট্যাক্স',
+      'yourLevelLabel': 'আপনার লেভেল',
+      'xpLabel': 'XP',
+      'yourRateLabel': 'আপনার হার',
+      'nextLevelLabel': 'পরের লেভেল',
+      'levelName': 'লেভেল {n} · {title}',
+      'levelLine': 'লেভেল {n} · {title} · {xp} XP',
+      'nextLevelValue': '{xp} XP · {rate}',
+      'topLevelNote': 'এটিই সর্বোচ্চ লেভেল।',
+      'winningTaxOnlyWinner':
+          'জয়ের ট্যাক্স শুধু প্রতিটি হাতের বিজয়ী দেন, পুরো পটের ওপর যা তিনি জেতেন।',
+      'winningTaxFalls': 'আপনার লেভেল যত উঁচু, ট্যাক্স তত কম।',
+      'ruleWinningTax':
+          'প্রতিটি হাতের বিজয়ী পটের একটি অংশ জয়ের ট্যাক্স হিসেবে দেন — লেভেল 1-এ {top}, প্রতিটি পরের লেভেলে কম।',
+      'ruleWinningTaxVip': 'VIP খেলোয়াড়রা {vip} দেন।',
+      'winnerTaxLine': 'জয়ের ট্যাক্স −{tax}',
+      'levelUp': 'লেভেল আপ! {level} — এখন আপনার জয়ের ট্যাক্স {rate}।',
+      'xpToday': 'আজ {xp} / {cap} XP',
+      'xpResetsIn': '{time} পরে রিসেট',
+      'todayLabel': 'আজ',
       'variationRulesIntro':
           'প্রথম চালের খেলোয়াড় ১০ সেকেন্ড সময় পান হাতটি কোন নিয়মে ঠিক হবে তা বেছে নিতে; না বাছলে মুফলিস খেলা হয়। জোকার তাস সেই তাস হিসেবে গণ্য হয় যাতে আপনার হাত সবচেয়ে ভালো হয়। অন্যদের চিপস লুকানো থাকে এবং পটের কোনো সীমা নেই।',
       'variationChooseTitle': 'ভেরিয়েশন বেছে নিন',
@@ -3250,6 +3400,30 @@ class Strings {
       'canSitHere': 'તમે આ ટેબલ પર બેસી શકો છો.',
       'playersUpTo': '{n} સુધી',
       'secondsEach': '{n} સેકન્ડ',
+      'taxPill': '{rate} ટેક્સ',
+      'taxPillVip': '{rate} ટેક્સ · VIP',
+      'taxPillNoRate': 'ટેક્સ',
+      'winningTaxTitle': 'જીત ટેક્સ',
+      'winningTaxLabel': 'જીત ટેક્સ',
+      'yourLevelLabel': 'તમારું લેવલ',
+      'xpLabel': 'XP',
+      'yourRateLabel': 'તમારો દર',
+      'nextLevelLabel': 'આગલું લેવલ',
+      'levelName': 'લેવલ {n} · {title}',
+      'levelLine': 'લેવલ {n} · {title} · {xp} XP',
+      'nextLevelValue': '{xp} XP · {rate}',
+      'topLevelNote': 'આ સૌથી ઊંચું લેવલ છે.',
+      'winningTaxOnlyWinner':
+          'જીત ટેક્સ ફક્ત દરેક હાથનો વિજેતા ચૂકવે છે, જીતેલા આખા પોટ પર.',
+      'winningTaxFalls': 'તમારું લેવલ જેટલું ઊંચું, ટેક્સ એટલો ઓછો.',
+      'ruleWinningTax':
+          'દરેક હાથનો વિજેતા પોટનો એક ભાગ જીત ટેક્સ તરીકે ચૂકવે છે — લેવલ 1 પર {top}, દરેક આગલા લેવલે ઓછો.',
+      'ruleWinningTaxVip': 'VIP ખેલાડીઓ {vip} ચૂકવે છે.',
+      'winnerTaxLine': 'જીત ટેક્સ −{tax}',
+      'levelUp': 'લેવલ અપ! {level} — હવે તમારો જીત ટેક્સ {rate} છે.',
+      'xpToday': 'આજે {xp} / {cap} XP',
+      'xpResetsIn': '{time} પછી રીસેટ',
+      'todayLabel': 'આજે',
       'variationRulesIntro':
           'પહેલી ચાલવાળા ખેલાડીને હાથ કયા નિયમથી નક્કી થશે તે પસંદ કરવા 10 સેકન્ડ મળે છે; ન પસંદ કરે તો મુફલિસ રમાય છે. જોકર પત્તું એ પત્તું ગણાય છે જેનાથી તમારો હાથ સૌથી સારો બને. બીજાની ચિપ્સ છુપાયેલી રહે છે અને પોટની કોઈ મર્યાદા નથી.',
       'variationChooseTitle': 'વેરિએશન પસંદ કરો',
@@ -3869,6 +4043,30 @@ class Strings {
       'canSitHere': 'ਤੁਸੀਂ ਇਸ ਟੇਬਲ ਤੇ ਬੈਠ ਸਕਦੇ ਹੋ।',
       'playersUpTo': '{n} ਤੱਕ',
       'secondsEach': '{n} ਸਕਿੰਟ',
+      'taxPill': '{rate} ਟੈਕਸ',
+      'taxPillVip': '{rate} ਟੈਕਸ · VIP',
+      'taxPillNoRate': 'ਟੈਕਸ',
+      'winningTaxTitle': 'ਜਿੱਤ ਟੈਕਸ',
+      'winningTaxLabel': 'ਜਿੱਤ ਟੈਕਸ',
+      'yourLevelLabel': 'ਤੁਹਾਡਾ ਲੈਵਲ',
+      'xpLabel': 'XP',
+      'yourRateLabel': 'ਤੁਹਾਡੀ ਦਰ',
+      'nextLevelLabel': 'ਅਗਲਾ ਲੈਵਲ',
+      'levelName': 'ਲੈਵਲ {n} · {title}',
+      'levelLine': 'ਲੈਵਲ {n} · {title} · {xp} XP',
+      'nextLevelValue': '{xp} XP · {rate}',
+      'topLevelNote': 'ਇਹ ਸਭ ਤੋਂ ਉੱਚਾ ਲੈਵਲ ਹੈ।',
+      'winningTaxOnlyWinner':
+          'ਜਿੱਤ ਟੈਕਸ ਸਿਰਫ਼ ਹਰ ਹੱਥ ਦਾ ਜੇਤੂ ਦਿੰਦਾ ਹੈ, ਜਿੱਤੇ ਪੂਰੇ ਪੌਟ ਤੇ।',
+      'winningTaxFalls': 'ਤੁਹਾਡਾ ਲੈਵਲ ਜਿੰਨਾ ਉੱਚਾ, ਟੈਕਸ ਓਨਾ ਘੱਟ।',
+      'ruleWinningTax':
+          'ਹਰ ਹੱਥ ਦਾ ਜੇਤੂ ਪੌਟ ਦਾ ਇੱਕ ਹਿੱਸਾ ਜਿੱਤ ਟੈਕਸ ਵਜੋਂ ਦਿੰਦਾ ਹੈ — ਲੈਵਲ 1 ਤੇ {top}, ਹਰ ਅਗਲੇ ਲੈਵਲ ਤੇ ਘੱਟ।',
+      'ruleWinningTaxVip': 'VIP ਖਿਡਾਰੀ {vip} ਦਿੰਦੇ ਹਨ।',
+      'winnerTaxLine': 'ਜਿੱਤ ਟੈਕਸ −{tax}',
+      'levelUp': 'ਲੈਵਲ ਅੱਪ! {level} — ਹੁਣ ਤੁਹਾਡਾ ਜਿੱਤ ਟੈਕਸ {rate} ਹੈ।',
+      'xpToday': 'ਅੱਜ {xp} / {cap} XP',
+      'xpResetsIn': '{time} ਵਿੱਚ ਰੀਸੈੱਟ',
+      'todayLabel': 'ਅੱਜ',
       'variationRulesIntro':
           'ਪਹਿਲੀ ਚਾਲ ਵਾਲੇ ਖਿਡਾਰੀ ਕੋਲ ਇਹ ਚੁਣਨ ਲਈ 10 ਸਕਿੰਟ ਹੁੰਦੇ ਹਨ ਕਿ ਹੱਥ ਕਿਸ ਨਿਯਮ ਨਾਲ ਤੈਅ ਹੋਵੇਗਾ; ਨਾ ਚੁਣੇ ਤਾਂ ਮੁਫ਼ਲਿਸ ਖੇਡਿਆ ਜਾਂਦਾ ਹੈ। ਜੋਕਰ ਪੱਤਾ ਉਹੀ ਪੱਤਾ ਗਿਣਿਆ ਜਾਂਦਾ ਹੈ ਜਿਸ ਨਾਲ ਤੁਹਾਡਾ ਹੱਥ ਸਭ ਤੋਂ ਵਧੀਆ ਬਣੇ। ਦੂਜਿਆਂ ਦੇ ਚਿਪਸ ਲੁਕੇ ਰਹਿੰਦੇ ਹਨ ਅਤੇ ਪੌਟ ਦੀ ਕੋਈ ਸੀਮਾ ਨਹੀਂ।',
       'variationChooseTitle': 'ਵੇਰੀਏਸ਼ਨ ਚੁਣੋ',

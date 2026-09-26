@@ -21,6 +21,16 @@ String _str(dynamic v) => v is String ? v : '';
 /// null, so "not sent" never passes for a name that is merely empty.
 String? _strOrNull(dynamic v) => v is String && v.isNotEmpty ? v : null;
 
+/// A rate in basis points — the winning tax (owner, 26 Sep 2026: 20.00% is
+/// 2000) — or null when it is absent, not a number, or outside 0..10000: a
+/// figure no table could charge is no figure at all, never a 0% that looks
+/// real.
+int? _bpsOrNull(dynamic v) {
+  if (v is! num) return null;
+  final n = v.toInt();
+  return n < 0 || n > 10000 ? null : n;
+}
+
 /// A list of card codes off the wire ("As", "Td"), tolerant as every DTO here:
 /// anything that is not a list reads as empty, and anything in it that is not
 /// a usable code is dropped rather than drawn as a broken card.
@@ -318,12 +328,18 @@ class User {
     required this.totalWinnings,
     required this.biggestPot,
     required this.rewards,
+    this.playerLevel,
   });
 
   final String id;
   final String provider;
   final String displayName;
   final int chips;
+
+  /// The player's level, their XP and the winning tax it sets (owner, 26 Sep
+  /// 2026) — this viewer's own and nobody else's: the server never sends
+  /// another player's level. Null from a server that predates the levels.
+  final PlayerLevel? playerLevel;
 
   /// Premium soft currency. Every account starts with 1; spends on
   /// DIAMOND-priced catalogue rows.
@@ -390,6 +406,31 @@ class User {
     totalWinnings: totalWinnings,
     biggestPot: biggestPot,
     rewards: rewards,
+    playerLevel: playerLevel,
+  );
+
+  /// The same account at a new level — what `player:level` reports after an
+  /// XP award, applied without waiting for the next `/api/auth/me`.
+  User withPlayerLevel(PlayerLevel? playerLevel) => User(
+    id: id,
+    provider: provider,
+    displayName: displayName,
+    chips: chips,
+    diamond: diamond,
+    hammer: hammer,
+    missile: missile,
+    avatarUrl: avatarUrl,
+    providerAvatarUrl: providerAvatarUrl,
+    activePictureId: activePictureId,
+    tablePicture: tablePicture,
+    handsPlayed: handsPlayed,
+    handsWon: handsWon,
+    handsLost: handsLost,
+    handsLeftMid: handsLeftMid,
+    totalWinnings: totalWinnings,
+    biggestPot: biggestPot,
+    rewards: rewards,
+    playerLevel: playerLevel,
   );
 
   /// The same account with a new missile count — what firing one reports in
@@ -413,6 +454,7 @@ class User {
     totalWinnings: totalWinnings,
     biggestPot: biggestPot,
     rewards: rewards,
+    playerLevel: playerLevel,
   );
 
   factory User.fromJson(Map<String, dynamic> j) => User(
@@ -440,7 +482,159 @@ class User {
     rewards: j['rewards'] is Map
         ? Rewards.fromJson(Map<String, dynamic>.from(j['rewards'] as Map))
         : null,
+    playerLevel: PlayerLevel.maybe(j['playerLevel']),
   );
+}
+
+/// One rung of the level ladder above the player's own — the next level they
+/// can reach by XP (owner, 26 Sep 2026): its number, name and mark, the XP
+/// that reaches it and the winning tax it sets.
+class LevelStep {
+  const LevelStep({
+    required this.level,
+    required this.title,
+    required this.minXp,
+    required this.taxBps,
+    this.icon = '',
+  });
+
+  final int level;
+
+  /// The server's name for the level ("Pro Player"). English, as the owner
+  /// wrote the ladder: a title, like a hand's name, is never translated.
+  final String title;
+
+  /// The level's mark: one or two emoji ("🏅", "👑⚔️") the phone draws from
+  /// its colour emoji font, before the title. Empty when the server sent
+  /// none, and the title stands alone.
+  final String icon;
+
+  /// The XP that reaches it.
+  final int minXp;
+
+  /// The winning tax at that level, in basis points (1796 is 17.96%).
+  final int taxBps;
+
+  /// Null unless the server sent a level worth showing: a level number above
+  /// 0 and a rate in 0..10000.
+  static LevelStep? maybe(Object? raw) {
+    if (raw is! Map) return null;
+    final j = Map<String, dynamic>.from(raw);
+    final level = _int(j['level']);
+    final bps = _bpsOrNull(j['taxBps']);
+    if (level <= 0 || bps == null) return null;
+    return LevelStep(
+      level: level,
+      title: _str(j['title']),
+      icon: _str(j['icon']).trim(),
+      minXp: _int(j['minXp']),
+      taxBps: bps,
+    );
+  }
+}
+
+/// Today's XP (owner, 26 Sep 2026: "daily xp cap limit is 50XP for each
+/// user … reset after 24 hours"): what the player's current 24-hour window
+/// has earned, the most it may earn, and when it ends — epoch ms, 0 while no
+/// window is running (the next completed hand opens one). The server counts
+/// it; the app only shows it.
+class XpToday {
+  const XpToday({required this.xp, required this.cap, this.resetsAt = 0});
+
+  final int xp;
+  final int cap;
+  final int resetsAt;
+
+  /// Whether the day's XP is all earned: nothing more comes until it resets.
+  bool get full => cap > 0 && xp >= cap;
+
+  /// How long until the window ends, or null when none is running or it has
+  /// already ended by [now].
+  Duration? leftAt(DateTime now) {
+    if (resetsAt <= 0) return null;
+    final ms = resetsAt - now.millisecondsSinceEpoch;
+    return ms <= 0 ? null : Duration(milliseconds: ms);
+  }
+
+  /// Null unless the server sent a window worth showing: a cap above 0.
+  static XpToday? maybe(Object? raw) {
+    if (raw is! Map) return null;
+    final j = Map<String, dynamic>.from(raw);
+    final cap = _int(j['cap']);
+    if (cap <= 0) return null;
+    return XpToday(
+      xp: math.max(0, _int(j['xp'])),
+      cap: cap,
+      resetsAt: math.max(0, _int(j['resetsAt'])),
+    );
+  }
+}
+
+/// The viewer's own level (owner, 26 Sep 2026: "create table which stores
+/// every player xp and ac to their level, tax will be applied"): the level
+/// their XP has reached — or the VIP tier, which is set by hand and never
+/// reached by XP — its name and mark, the XP itself, and the winning tax it
+/// sets, in basis points. What a seat pays is the server's to say
+/// ([You.taxBps]); this is what the lobby and the Stats drawer show.
+class PlayerLevel {
+  const PlayerLevel({
+    required this.level,
+    required this.title,
+    required this.xp,
+    required this.taxBps,
+    this.icon = '',
+    this.vip = false,
+    this.next,
+    this.today,
+  });
+
+  final int level;
+
+  /// "Rising Star", "VIP" — the server's, never translated.
+  final String title;
+
+  /// The level's mark ("🌟", "💎👑"), drawn before the title; empty when the
+  /// server sent none.
+  final String icon;
+  final int xp;
+
+  /// The winning tax this level sets, in basis points.
+  final int taxBps;
+
+  /// The VIP tier: set by hand on the server, never earned (owner, 26 Sep
+  /// 2026: "VIP Tag is not granted by XP"). A VIP has no next level and the
+  /// app shows no XP progress for one.
+  final bool vip;
+
+  /// The next level XP reaches, or null — at the top of the ladder, for a
+  /// VIP, and for any level set by hand. Never the VIP tier.
+  final LevelStep? next;
+
+  /// What today's window has earned against its cap; null from a server that
+  /// does not say.
+  final XpToday? today;
+
+  /// Null unless the server sent a level worth showing: a level number above
+  /// 0 and a rate in 0..10000. A VIP's [next] is dropped whatever came with
+  /// it: VIP is not a rung XP climbs to or from.
+  static PlayerLevel? maybe(Object? raw) {
+    if (raw is! Map) return null;
+    final j = Map<String, dynamic>.from(raw);
+    final level = _int(j['level']);
+    final bps = _bpsOrNull(j['taxBps']);
+    if (level <= 0 || bps == null) return null;
+    final vip = j['vip'] == true;
+    return PlayerLevel(
+      level: level,
+      title: _str(j['title']),
+      icon: _str(j['icon']).trim(),
+      xp: math.max(0, _int(j['xp'])),
+      taxBps: bps,
+      vip: vip,
+      next: vip ? null : LevelStep.maybe(j['next']),
+      today: XpToday.maybe(j['today']),
+    );
+  }
 }
 
 /// One room on the lobby's menu.
@@ -473,6 +667,7 @@ class LobbyTable {
     this.minBuyIn = 0,
     this.holeCards = 0,
     this.maxDiscards = 0,
+    this.winnerTax = false,
     this.engine,
     this.key,
     this.isPrivate,
@@ -516,6 +711,16 @@ class LobbyTable {
 
   /// 5-Card Draw only: how many cards a player may exchange. 0 elsewhere.
   final int maxDiscards;
+
+  /// Whether the winner of each hand here pays winning tax on the pot they
+  /// take (owner, 26 Sep 2026) — the rate their level sets
+  /// ([PlayerLevel.taxBps]). The server marks such a table `winnerTax: true`
+  /// and leaves the key off every other, so false is every table from a
+  /// server that predates it.
+  final bool winnerTax;
+
+  /// [winnerTax], and never at a poker table, whose games do not read it.
+  bool get taxesWinner => winnerTax && !isPoker;
 
   /// Whether this is a poker table: the server says so with `game` (and, in
   /// the table catalogue, with [engine]), and a poker category says the same
@@ -623,6 +828,7 @@ class LobbyTable {
     minBuyIn: _int(j['minBuyIn']),
     holeCards: _int(j['holeCards']),
     maxDiscards: _int(j['maxDiscards']),
+    winnerTax: j['winnerTax'] == true,
     engine: _strOrNull(j['engine']),
     key: _strOrNull(j['key']),
     isPrivate: j['isPrivate'] is bool ? j['isPrivate'] as bool : null,
@@ -1910,12 +2116,19 @@ class You {
     this.streetBet = 0,
     this.allIn = false,
     this.pokerOptions,
+    this.taxBps,
   });
 
   final int seatIndex;
   final int chips;
   final String status;
   final bool isBlind;
+
+  /// The winning tax THIS viewer's seat pays if they win a hand here, in
+  /// basis points (owner, 26 Sep 2026): their level's rate as of this hand.
+  /// Sent at a table that taxes its winners ([RoomState.winnerTax]) and
+  /// nowhere else, so null means "no tax here".
+  final int? taxBps;
 
   /// A poker seat's bet on the current street, and whether the whole stack is
   /// in. 0 / false on a Teen Patti table, which sends neither.
@@ -2015,6 +2228,7 @@ class You {
           : _int(j['unfundedDeadline']),
       streetBet: _int(j['streetBet']),
       allIn: j['allIn'] == true,
+      taxBps: _bpsOrNull(j['taxBps']),
     );
   }
 }
@@ -2044,10 +2258,19 @@ class RoomState {
     required this.you,
     required this.seats,
     this.tablePicture,
+    this.winnerTax = false,
   });
 
   final String roomId;
   final String code;
+
+  /// Whether the winner of each hand here pays winning tax on the pot they
+  /// take (owner, 26 Sep 2026); what THIS viewer would pay is [You.taxBps].
+  /// The server sends it on a Teen Patti table that taxes and nowhere else.
+  final bool winnerTax;
+
+  /// [winnerTax], and never at a poker room.
+  bool get taxesWinner => winnerTax && !isPoker;
 
   /// A table reached by its code alone (requirement 22). Its code is worth
   /// showing, since it is how friends are let in; a public table's is not.
@@ -2142,6 +2365,7 @@ class RoomState {
             Map<String, dynamic>.from(j['tablePicture'] as Map),
           )
         : null,
+    winnerTax: j['winnerTax'] == true,
   );
 }
 

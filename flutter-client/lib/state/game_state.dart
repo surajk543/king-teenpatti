@@ -336,7 +336,43 @@ class GameState extends ChangeNotifier {
   String winnerName = '';
   int winnerPot = 0;
 
+  /// What the winner paid in winning tax out of [winnerPot], and at what
+  /// rate in basis points (owner, 26 Sep 2026: at a table that taxes its
+  /// winners, the winner of each hand pays their level's share of the whole
+  /// pot). The server's own figures from `game:handEnded` — the client never
+  /// works a tax out — and 0 for every hand none was taken from.
+  int winnerTax = 0;
+  int winnerTaxBps = 0;
+
+  /// The chips that actually land on the winner's stack: the pot, less the
+  /// tax. What the stack is seen to rise by — never the whole pot and then a
+  /// drop, since the settled table already holds the pot less the tax.
+  int get winnerLanded => winnerTax >= winnerPot ? 0 : winnerPot - winnerTax;
+
+  /// The tax the latest `game:handEnded` named, until the news that names
+  /// its winner is applied ([handleHandTax], [_applyShowdown]). Held apart
+  /// because that news can itself be held back behind a missile volley.
+  HandTaxNews? _handTax;
+
   bool get iWon => winnerId != null && winnerId == user?.id;
+
+  /// Whether the viewer's table taxes its winners (owner, 26 Sep 2026: the
+  /// Blind and Variation tables at 10 Lakh). Never a poker room.
+  bool get tableTaxesWinner => room?.taxesWinner == true;
+
+  /// The winning tax the viewer would pay at their table if they won a hand
+  /// now, in basis points: their seat's rate as the server sent it
+  /// ([You.taxBps]), else their level's ([PlayerLevel.taxBps]); null where
+  /// neither is known, or the table does not tax. Only ever shown — the
+  /// server charges it.
+  int? get myTaxBps {
+    if (!tableTaxesWinner) return null;
+    return room?.you?.taxBps ?? user?.playerLevel?.taxBps;
+  }
+
+  /// Whether the viewer's level is the VIP tier — set by hand on the server,
+  /// never reached by XP.
+  bool get isVip => user?.playerLevel?.vip == true;
 
   /// Clears the winner's banner once its moment has passed.
   ///
@@ -1173,6 +1209,10 @@ class GameState extends ChangeNotifier {
         notifyListeners();
       }),
       _conn.onState.listen(handleState),
+      // Heard just before the showdown news of the same hand-ended frame, so
+      // the celebration it starts already knows what the winner paid.
+      _conn.onHandTax.listen(handleHandTax),
+      _conn.onPlayerLevel.listen(handlePlayerLevel),
       _conn.onShowdown.listen(handleShowdown),
       // Requirements 31 and 32: idled out, or out of chips for this table.
       // Shown out is not the same as leaving, so the reason is carried back to
@@ -1349,11 +1389,50 @@ class GameState extends ChangeNotifier {
       winnerId = s.winnerId;
       winnerName = s.winnerName;
       winnerPot = s.pot;
+      // The tax the same hand-ended frame named, for this winner only.
+      final tax = _handTax;
+      final paid = tax != null && tax.winnerId == s.winnerId && tax.tax > 0;
+      winnerTax = paid ? tax.tax : 0;
+      winnerTaxBps = paid ? tax.taxBps : 0;
+      _handTax = null;
     }
     _armCelebration(s.nextHandAt);
     notifyListeners();
     unawaited(refreshUser());
   }
+
+  /// `player:level`: the viewer's level after an XP award the server has
+  /// committed (owner, 26 Sep 2026). It replaces the account's level whole,
+  /// and when the level NUMBER rises — XP climbing the ladder, never the VIP
+  /// tier, which is set by hand — the player is told, with the winning tax
+  /// they pay now.
+  @visibleForTesting
+  void handlePlayerLevel(PlayerLevel level) {
+    final account = user;
+    if (account == null) return;
+    final before = account.playerLevel;
+    user = account.withPlayerLevel(level);
+    if (before != null &&
+        !before.vip &&
+        !level.vip &&
+        level.level > before.level) {
+      notice = t.levelUp(
+        [
+          if (level.icon.isNotEmpty) level.icon,
+          t.levelName(level.level, level.title),
+        ].join(' '),
+        formatTaxRate(level.taxBps),
+      );
+    }
+    notifyListeners();
+  }
+
+  /// `game:handEnded`'s winning tax: what the hand's winner paid, heard just
+  /// before the news that names them ([handleShowdown]), which takes it up.
+  /// Kept rather than applied: that news may be held back behind a missile
+  /// volley, and the tax belongs to the celebration it starts.
+  @visibleForTesting
+  void handleHandTax(HandTaxNews news) => _handTax = news;
 
   /// A table snapshot, already redacted for this viewer.
   @visibleForTesting
@@ -4064,6 +4143,9 @@ class GameState extends ChangeNotifier {
     winnerId = null;
     winnerName = '';
     winnerPot = 0;
+    winnerTax = 0;
+    winnerTaxBps = 0;
+    _handTax = null;
     // The poker hand's result stays in the snapshot until the next deal;
     // only the celebration of it ends here.
     pokerCelebrating = false;
@@ -4203,6 +4285,15 @@ String _grouped(int n) {
     b.write(s[i]);
   }
   return b.toString();
+}
+
+/// A winning tax rate in basis points as a player reads it (owner, 26 Sep
+/// 2026): two decimals, and a whole ".00" dropped — 2000 is "20%", 1980
+/// "19.80%", 1959 "19.59%", 400 "4%". Only ever shown: the server charges it.
+String formatTaxRate(int bps) {
+  final whole = bps ~/ 100;
+  final cents = bps % 100;
+  return cents == 0 ? '$whole%' : '$whole.${cents.toString().padLeft(2, '0')}%';
 }
 
 /// "3h 59m 54s" — with its units in the player's language when [t] is given
