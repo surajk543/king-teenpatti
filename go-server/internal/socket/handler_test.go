@@ -1280,6 +1280,91 @@ func TestIdleKick(t *testing.T) {
 	}
 }
 
+// A player idle-kicked while they had NO live socket — their phone locked or
+// their connection gone, inside the reconnect grace — is offered the table
+// back on their next session:ready, as a grace running out would have (owner,
+// 27 Sep 2026). Taking the offer seats them afresh, with no missed turns.
+// (TestIdleKick is the connected idler: no offer.)
+func TestAnIdleKickWhileDisconnectedLeavesAResumeOffer(t *testing.T) {
+	st := newStack(t, func(cfg *config.Config) {
+		cfg.Game.TurnTimeout = 250 * time.Millisecond
+		cfg.Game.SeenMaxBetRounds = 1
+		cfg.Game.MaxMissedTurns = 3
+		// Longer than three missed turns take, so the kick — not the grace —
+		// is what unseats them.
+		cfg.Game.ReconnectGrace = 20 * time.Second
+	})
+	boot := st.uniqueStake()
+	idle := st.player("Idle")
+	bots := []*player{st.player("Bot1"), st.player("Bot2")}
+	st.mustOK(idle.c, EvRoomQuickJoin, map[string]any{"bootAmount": boot, "category": "seen"})
+	for _, b := range bots {
+		st.mustOK(b.c, EvRoomQuickJoin, map[string]any{"bootAmount": boot, "category": "seen"})
+	}
+	table := st.rooms.GetTableForPlayer(idle.user.ID)
+	roomID, code := table.ID(), table.Code()
+	stop := make(chan struct{})
+	defer close(stop)
+	for _, b := range bots {
+		go func(p *player) {
+			seen := 0
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				turns := p.c.All(EvGameYourTurn)
+				if len(turns) > seen {
+					seen = len(turns)
+					_, _ = p.c.Request(EvGameAction, map[string]any{"action": "chaal"}, ackTimeout)
+					continue
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}(b)
+	}
+	// The phone goes quiet: the socket closes and the seat is held.
+	idle.c.Close()
+	eventually(t, 15*time.Second, func() bool {
+		return metricValue(st.metrics.KicksTotal.WithLabelValues("idle")) == 1
+	}, "idle kick while disconnected")
+	eventually(t, eventTimeout, func() bool { return st.rooms.GetTableForPlayer(idle.user.ID) == nil }, "kicked player unseated")
+	if st.rooms.GetTable(roomID) == nil {
+		t.Fatal("the table closed; the bots are still at it")
+	}
+
+	back := st.connect(idle.token)
+	ready, _ := back.Last(EvSessionReady)
+	resume, ok := field(ready, "resume").(map[string]any)
+	if !ok || resume["roomId"] != roomID || resume["code"] != code || resume["category"] != "seen" || resume["bootAmount"] != float64(boot) {
+		t.Fatalf("resume = %v (%s)", field(ready, "resume"), ready)
+	}
+	if v := metricValue(st.metrics.ReconnectsTotal.WithLabelValues("offer")); v != 1 {
+		t.Fatalf("reconnects_total{offer} = %v", v)
+	}
+	// One return, counted once: the kick took the seat the grace was holding,
+	// so this sign-in found no held seat.
+	if v := metricValue(st.metrics.ReconnectsTotal.WithLabelValues("seat_held")); v != 0 {
+		t.Fatalf("reconnects_total{seat_held} = %v, want 0 (no seat was held)", v)
+	}
+	st.mustOK(back, EvRoomJoinCode, map[string]any{"code": resume["code"]})
+	joined, err := back.Wait(EvRoomJoined, nil, eventTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if str(joined, "roomId") != roomID || num(joined, "you.missedTurns") != 0 {
+		t.Fatalf("seated again with a clean slate: %s", joined)
+	}
+	// Offered once: the next sign-in finds a seat, not an offer.
+	back.Close()
+	time.Sleep(50 * time.Millisecond)
+	again := st.connect(idle.token)
+	if ready2, _ := again.Last(EvSessionReady); has(ready2, "resume") {
+		t.Fatalf("offered twice: %s", ready2)
+	}
+}
+
 func mustJSON(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b

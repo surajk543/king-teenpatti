@@ -47,6 +47,11 @@ import 'package:in_app_purchase_android/in_app_purchase_android.dart';
 /// server also acknowledges the purchase when it credits it, so a purchase
 /// whose consume has not happened yet is not refunded by Play after 3 days.
 class Purchases {
+  /// What [onFailed] carries when Play gives no reason of its own — its
+  /// billing flow did not launch, or it reported an error with no message.
+  /// GameState shows it in the player's language (Strings.purchaseNotLaunched).
+  static const notLaunched = 'The purchase did not go through.';
+
   Purchases({
     InAppPurchase? iap,
     @visibleForTesting Future<bool> Function(PurchaseDetails purchase)? consume,
@@ -198,12 +203,48 @@ class Purchases {
       return;
     }
     final param = PurchaseParam(productDetails: product);
+    _buyStartedAt = DateTime.now();
     try {
-      await _iap.buyConsumable(purchaseParam: param, autoConsume: false);
+      // False, without a throw, when Play's billing flow did not launch: no
+      // sheet opened and nothing will arrive on the stream, so the sheet must
+      // not count as open ([buying]) — a seated phone put away would keep
+      // its socket for [buyingFor] and be shown out with no way back.
+      final launched = await _iap.buyConsumable(
+        purchaseParam: param,
+        autoConsume: false,
+      );
+      if (!launched) {
+        _buyStartedAt = null;
+        onFailed?.call(notLaunched);
+      }
     } catch (e) {
+      _buyStartedAt = null;
       onFailed?.call('$e');
     }
   }
+
+  /// When [buy] last opened Play's purchase sheet, until Play reports how it
+  /// went (any status but pending, in [handle]).
+  DateTime? _buyStartedAt;
+
+  /// How long a purchase sheet counts as open with nothing heard from Play.
+  /// Past it the sheet is taken to be gone, so a purchase Play never reports
+  /// cannot hold the app's table connection open for ever.
+  static const buyingFor = Duration(minutes: 10);
+
+  /// True while Play's purchase sheet is (as far as this app knows) in front
+  /// of the player: from [buy] until Play reports the result, at most
+  /// [buyingFor]. The sheet puts the app in the background, and GameState
+  /// does not close the table's connection meanwhile (owner, 27 Sep 2026;
+  /// [GameState.handleLifecycle]).
+  bool get buying {
+    final at = _buyStartedAt;
+    return at != null && DateTime.now().difference(at) < buyingFor;
+  }
+
+  /// Marks a purchase sheet as open, as [buy] does — for a test.
+  @visibleForTesting
+  void debugStartBuying() => _buyStartedAt = DateTime.now();
 
   /// Finishes a purchase the server has banked: consumes it, so the pack can
   /// be bought again and [redeliver] stops bringing it back. A consume that
@@ -249,14 +290,14 @@ class Purchases {
   @visibleForTesting
   Future<void> handle(List<PurchaseDetails> purchases) async {
     for (final p in purchases) {
+      // Play has answered: the sheet is closed, whatever it decided.
+      if (p.status != PurchaseStatus.pending) _buyStartedAt = null;
       switch (p.status) {
         case PurchaseStatus.pending:
           onPending?.call();
 
         case PurchaseStatus.error:
-          onFailed?.call(
-            p.error?.message ?? 'The purchase did not go through.',
-          );
+          onFailed?.call(p.error?.message ?? notLaunched);
           // Still complete it: an errored purchase that is never completed is
           // re-delivered on every launch forever.
           if (p.pendingCompletePurchase) await _iap.completePurchase(p);

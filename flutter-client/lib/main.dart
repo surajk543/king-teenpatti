@@ -49,7 +49,15 @@ Future<void> main() async {
   );
   unawaited(state.start());
   unawaited(feedback.load());
+  // A locked or backgrounded phone at a table closes its socket after a few
+  // seconds, and connects again when it is back (GameState.handleLifecycle;
+  // owner, 27 Sep 2026). Kept for the life of the app.
+  _lifecycle = AppLifecycleListener(onStateChange: state.handleLifecycle);
 }
+
+/// The app's one lifecycle listener, held so it is never collected.
+// ignore: unused_element
+AppLifecycleListener? _lifecycle;
 
 class KingTeenPattiApp extends StatelessWidget {
   const KingTeenPattiApp({super.key});

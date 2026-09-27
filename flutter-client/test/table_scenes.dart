@@ -62,6 +62,7 @@ RoomState _room({
   required Map<String, dynamic> you,
   Map<String, dynamic>? sideshow,
   Map<String, dynamic>? variation,
+  bool winnerTax = false,
 }) => RoomState.fromJson({
   'roomId': roomId,
   'code': 'ABCD2345',
@@ -90,6 +91,8 @@ RoomState _room({
   'seats': seats,
   'sideshow': ?sideshow,
   'variation': ?variation,
+  if (winnerTax) 'winnerTax': true,
+  if (winnerTax) 'winnerTaxMinWinnings': 5000000,
 });
 
 Map<String, dynamic> _you({
@@ -616,7 +619,78 @@ final tableScenes = <TableScene>[
     '35-sideshow-waiting',
     (s) => s.handleState(sideshowWaitingRoom()),
   ),
+  // The missed-turn warning (27 Sep 2026): the viewer packed by the clock
+  // once, somebody else on turn; then on their own turn one miss short of
+  // being shown out.
+  TableScene('36-missed-turn', (s) => s.handleState(missedTurnsRoom())),
+  TableScene(
+    '37-missed-turn-last',
+    (s) => s.handleState(missedTurnsRoom(missed: 2, myTurn: true)),
+  ),
+  TableScene('38-poker-missed-turn', (s) => s.handleState(pokerMissedRoom())),
+  TableScene(
+    '39-poker-missed-turn-last',
+    (s) => s.handleState(pokerMissedRoom(missed: 2, myTurn: true)),
+  ),
+  // At a table with a head seat the warning has a pocket right of the pot,
+  // clear of the head seat's pod and its turn ring.
+  for (final places in const [2, 4])
+    TableScene('${39 + places ~/ 2}-missed-turn-$places-places', (s) {
+      s.config = s.config.copyWith(maxPlayers: places);
+      s.handleState(missedTurnsRoom(places: places));
+    }),
 ];
+
+/// A blind table after the viewer has missed [missed] of [max] turns in a
+/// row (requirement 31): packed by the clock and somebody else on turn, or —
+/// [myTurn] — dealt into the next hand and on turn, every key on the console.
+///
+/// A public blind table taxes its winners, so the winning tax's pill stands
+/// under the tag as it does in play ([winnerTax]). At a table of fewer than
+/// five [places] (the config's `maxPlayers` must say so too), the first
+/// [places] seats are taken and, when it is not the viewer's turn, the last
+/// of them is on turn — the head seat at two places.
+RoomState missedTurnsRoom({
+  int missed = 1,
+  int max = 3,
+  bool myTurn = false,
+  int handNo = 7,
+  bool winnerTax = true,
+  int places = 5,
+}) {
+  final you = myTurn
+      ? _you(
+          canMissile: true,
+          options: {
+            'canSee': true,
+            'canPack': true,
+            'canSideshow': false,
+            'canForceSideshow': false,
+            'raiseSteps': [400, 800],
+            'chips': 245000,
+            'currentStake': 400,
+          },
+        )
+      : _you(status: 'packed');
+  you['missedTurns'] = missed;
+  you['maxMissedTurns'] = max;
+  if (winnerTax) you['taxBps'] = 2000;
+  final seats = _blindSeats().take(places).toList();
+  if (!myTurn) {
+    seats[0] = _seat(0, chips: 245000, status: 'packed', lastAction: 'pack');
+  }
+  return _room(
+    handNo: handNo,
+    turnSeat: myTurn
+        ? 0
+        : places == 5
+        ? 2
+        : places - 1,
+    seats: seats,
+    you: you,
+    winnerTax: winnerTax,
+  );
+}
 
 /// The viewer has asked Vikramaditya, on their right, for a sideshow and is
 /// waiting on the answer: still on turn, every move off until it comes (the
@@ -920,7 +994,32 @@ RoomState variationTurnRoom({bool yours = false}) => _room(
 
 /// A Hold'em flop with the viewer to call — the poker felt the shared chrome
 /// also serves.
-RoomState pokerRoom() => RoomState.fromJson({
+RoomState pokerRoom() => RoomState.fromJson(pokerRoomJson());
+
+/// [pokerRoom] after the viewer has missed [missed] turns in a row: on turn
+/// again ([myTurn]), or folded by the clock this hand ([folded]) with
+/// somebody else on turn.
+RoomState pokerMissedRoom({
+  int missed = 1,
+  bool myTurn = false,
+  bool folded = false,
+}) {
+  final j = pokerRoomJson();
+  final you = j['you'] as Map<String, dynamic>;
+  you['missedTurns'] = missed;
+  if (!myTurn) {
+    you.remove('options');
+    j['turn'] = {'seatIndex': 2, 'userId': _ids[2], 'deadline': _now + 15000};
+  }
+  if (folded) {
+    you['status'] = 'packed';
+    (j['seats'] as List)[0]['status'] = 'packed';
+  }
+  return RoomState.fromJson(j);
+}
+
+/// [pokerRoom]'s room:state JSON.
+Map<String, dynamic> pokerRoomJson() => ({
   'roomId': 'p1',
   'code': 'ABCD2345',
   'category': 'texas_holdem',

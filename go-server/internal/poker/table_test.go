@@ -1535,3 +1535,93 @@ func TestAThreeCardPokerPushIsNeitherWonNorLost(t *testing.T) {
 		t.Fatalf("handEnded says the pot was %d, want %d (two antes and two play bets)", ended.Pot, want)
 	}
 }
+
+// kickLog records the kicks a restored room announces (RoomHooks.OnRoomKick).
+type kickLog struct {
+	mu    sync.Mutex
+	kicks []game.KickEvent
+}
+
+func (k *kickLog) OnRoomState(game.Room)                                {}
+func (k *kickLog) OnRoomPersistError(game.Room, game.PersistErrorEvent) {}
+func (k *kickLog) OnRoomError(game.Room, error)                         {}
+func (k *kickLog) OnRoomKick(_ game.Room, e game.KickEvent) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.kicks = append(k.kicks, e)
+}
+func (k *kickLog) all() []game.KickEvent {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return append([]game.KickEvent(nil), k.kicks...)
+}
+
+// A poker turn whose deadline passed while the process was down is not timed
+// out at the restore (owner, 27 Sep 2026; game.Table's twin in
+// livestate_test.go): a fresh, full clock from the restore instant, no fold or
+// check played for them, no missed turn — so a player on their second miss is
+// not kicked at boot. Their own fresh clock running out is the ordinary miss.
+func TestAPokerTurnWhoseDeadlinePassedWhileDownGetsAFreshClockAndNoMiss(t *testing.T) {
+	h := newHarness(t, TexasHoldem)
+	h.seat("a", 10_000)
+	h.seat("b", 10_000)
+	h.seat("c", 10_000)
+	h.deal()
+	player := h.turn()
+	h.read(func() { h.table.findSeat(player).missedTurns = 2 })
+	snap, err := h.table.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := h.table.marshalSnapshot(snap.Seq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseSnapshot(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Down for 40 s: the 25 s deadline is 15 s in the past.
+	later := testclock.New(h.clock.Now().Add(40 * time.Second))
+	rec := newRecorder()
+	kicks := &kickLog{}
+	restored, err := RestoreTable(parsed, TableOptions{Listener: rec, Deps: game.RoomDeps{Clock: later, Ledger: h.books.ledger(), Hooks: kicks}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restored.Destroy() })
+	if err := restored.Resume(); err != nil {
+		t.Fatal(err)
+	}
+
+	var turn string
+	var missed int
+	var deadline time.Time
+	_ = restored.run(func() {
+		turn = restored.seats[restored.hand.turnSeat].userID
+		missed = restored.findSeat(player).missedTurns
+		deadline = restored.hand.turnDeadline
+	})
+	if turn != player {
+		t.Fatalf("turn %s, want %s still on turn", turn, player)
+	}
+	if missed != 2 {
+		t.Fatalf("missed %d, want the two real misses and nothing for the downtime", missed)
+	}
+	if !deadline.Equal(later.Now().Add(25 * time.Second)) {
+		t.Fatalf("deadline %v, want a full clock from the restore", deadline)
+	}
+	if len(kicks.all()) != 0 {
+		t.Fatalf("kicked at boot: %+v", kicks.all())
+	}
+	if got := rec.count("action"); got != 0 {
+		t.Fatalf("%d action(s) played at the restore", got)
+	}
+
+	// Their own fresh clock running out is the third miss in a row.
+	later.Advance(25 * time.Second)
+	if k := kicks.all(); len(k) != 1 || k[0].UserID != player || k[0].Reason != game.KickReasonIdle {
+		t.Fatalf("kicks %+v", k)
+	}
+}

@@ -24,6 +24,7 @@ import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/hand_fan.dart';
 import '../widgets/hammer_flight.dart';
+import '../widgets/missed_turns_notice.dart';
 import '../widgets/missile_flight.dart';
 import '../widgets/picture_shelf.dart';
 import '../widgets/playing_card.dart';
@@ -604,6 +605,9 @@ class _Felt extends StatefulWidget {
   /// (test/casino_table_test.dart).
   static const double _statusDy = 0.325;
 
+  /// How wide the pot's slot is, as a share of the felt's width.
+  static const double _potShare = 0.20;
+
   /// Where the middle of the category tag is, as a fraction of the felt's
   /// height. A name rather than a literal because the table's notices stand
   /// under it too ([tableNoticeArea]).
@@ -616,6 +620,49 @@ class _Felt extends StatefulWidget {
       scaler.scale(style.fontSize ?? 14) * (style.height ?? 1.3) +
       2 * Space.xs +
       2 * Dim.hairline;
+
+  /// How tall the status slot's notice may stand, centred on [statusY]: twice
+  /// the room between that line and the top of the pot's plate (centred at
+  /// [potY]), less a step — so a notice there can never reach the pot.
+  static double statusRoom(
+    TextScaler scaler,
+    ThemeData theme, {
+    required double statusY,
+    required double potY,
+  }) {
+    final potTop = potY - plateHeight(scaler, TableType.pot(theme)) / 2;
+    return math.max(24.0, 2 * (potTop - Space.sm - statusY));
+  }
+
+  /// Where the missed-turn notice stands at a table with a head seat (two or
+  /// four places), in the felt's coordinates: a pocket right of the pot, as
+  /// the poker felt has. The status line hangs 20dp under the head seat's
+  /// pod, room for one line of type, and the notice's two lines centred there
+  /// reached up into the pod (27 Sep 2026); between the pod's foot and the
+  /// pot's plate there is no room for them to be read.
+  ///
+  /// Across: from a step right of the pot's slot to a step short of [right] —
+  /// the right-hand seat's column at four places, the felt's edge at two.
+  /// Down: from under the head seat — [headPod] is its plaque
+  /// ([SeatRing.headPod]), and the pod hangs from its top, so the turn's ring
+  /// round it reaches twice its outset lower ([SeatPod.turnRingOutset]; kept
+  /// clear whoever is on turn, so the notice never jumps as the turn moves) —
+  /// to a step above the key cluster ([SeatRing.keysTopFor]).
+  static Rect headNoticePocket({
+    required double feltWidth,
+    required Rect headPod,
+    required double right,
+    required double keysTop,
+  }) {
+    final left = feltWidth * (0.5 + _potShare / 2) + Space.sm;
+    final top = headPod.bottom + 2 * SeatPod.turnRingOutset + Space.sm;
+    return Rect.fromLTRB(
+      left,
+      top,
+      math.max(left + Dim.minTouch, right - Space.sm),
+      math.max(top + 24, keysTop - Space.xs),
+    );
+  }
 
   /// How far under the category tag's middle the winning tax's pill's TOP
   /// stands (owner, 26 Sep 2026): half the tag, then a step. The tag already
@@ -1403,6 +1450,22 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
           final statusY = headPod == null
               ? _statusDy * h
               : math.max(_statusDy * h, headPod.bottom + Space.sm + 20);
+          // At a head seat's table the missed-turn notice has a pocket of
+          // its own, right of the pot ([_Felt.headNoticePocket]): clear of
+          // the right-hand seat's column where there is one.
+          final noticePocket = headPod == null
+              ? null
+              : _Felt.headNoticePocket(
+                  feltWidth: w,
+                  headPod: headPod,
+                  right: [
+                    w,
+                    for (final spot in ring.rim)
+                      if (!spot.head && spot.anchor.dx > w / 2)
+                        spot.anchor.dx - podW / 2,
+                  ].reduce(math.min),
+                  keysTop: SeatRing.keysTopFor(MediaQuery.sizeOf(context), h),
+                );
           // The winning tax's pill under the tag (owner, 26–27 Sep 2026): in
           // the slot's middle, and clear of every rim column its lines reach
           // down beside — at two and four places the slot's ends stand over
@@ -1673,12 +1736,21 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                     ),
                   ),
                 ),
-                width: w * 0.20,
+                width: w * _Felt._potShare,
                 key: const ValueKey('pot'),
               ),
               atPoint(
                 Offset(0.5 * w, statusY),
-                _Status(room: room),
+                _Status(
+                  room: room,
+                  noticeInPocket: noticePocket != null,
+                  maxHeight: _Felt.statusRoom(
+                    MediaQuery.textScalerOf(context),
+                    Theme.of(context),
+                    statusY: statusY,
+                    potY: _potDy * h,
+                  ),
+                ),
                 // Narrower than it looks like it needs to be: at this height
                 // the line sits between the two top seats, whose pods paint
                 // over it, so a long line (the buy-chips countdown) has to
@@ -1686,6 +1758,13 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 width: w * 0.28,
                 key: const ValueKey('status'),
               ),
+              if (noticePocket != null)
+                atPoint(
+                  noticePocket.center,
+                  _PocketNotice(room: room, maxHeight: noticePocket.height),
+                  width: noticePocket.width,
+                  key: const ValueKey('missed-turns-pocket'),
+                ),
 
               // Every place round the rim, each column hung by its middle from
               // the ring — and the head seat, if the table has one, by the top
@@ -2690,10 +2769,59 @@ class _PotChipsState extends State<_PotChips>
   }
 }
 
+/// The missed-turn notice at a table with a head seat, in its pocket right
+/// of the pot ([_Felt.headNoticePocket]) — the one [_Status] shows elsewhere,
+/// shown exactly when it would be ([_Status.warningFor]).
+class _PocketNotice extends StatelessWidget {
+  const _PocketNotice({required this.room, required this.maxHeight});
+  final RoomState room;
+  final double maxHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    if (state.missileStrike != null) return const SizedBox.shrink();
+    final warning = _Status.warningFor(state, room);
+    if (warning == null) return const SizedBox.shrink();
+    return MissedTurnsNotice(
+      key: ValueKey('missed-turns-${warning.last}'),
+      warning: warning,
+      maxHeight: maxHeight,
+    );
+  }
+}
+
 /// The one sentence on the table that costs money to miss.
 class _Status extends StatelessWidget {
-  const _Status({required this.room});
+  const _Status({
+    required this.room,
+    this.maxHeight = double.infinity,
+    this.noticeInPocket = false,
+  });
   final RoomState room;
+
+  /// The most the slot may take — the room between its line and the pot's
+  /// plate, counted both ways from its middle ([MissedTurnsNotice]).
+  final double maxHeight;
+
+  /// True at a table with a head seat, where the missed-turn notice stands
+  /// in its own pocket ([_PocketNotice]) and this slot keeps its line.
+  final bool noticeInPocket;
+
+  /// The missed-turn warning, when nothing in this slot outranks it: the
+  /// seat held for a purchase and the variation's notices (they pass in
+  /// seconds; this waits for the player). Over the waiting and starting
+  /// lines.
+  static MissedTurnsWarning? warningFor(GameState state, RoomState room) {
+    if (state.unfundedGraceLeft(DateTime.now()) != null) return null;
+    final window = state.variation;
+    if (window != null && window.selecting && !state.variationIsMine) {
+      return null;
+    }
+    if (state.someoneChoosingCards != null) return null;
+    if (state.variationAnnounced != null) return null;
+    return missedTurnsWarning(room.you, state.t);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2774,6 +2902,19 @@ class _Status extends StatelessWidget {
         detail: detail,
       );
     }
+    // A missed turn (requirement 31; owner, 27 Sep 2026: "warn before the
+    // kick"): said here until the player acts again, from the count the
+    // server keeps in their own snapshot ([warningFor]) — or, at a head
+    // seat's table, in its own pocket, and this slot says its line.
+    final warning = noticeInPocket ? null : warningFor(state, room);
+    if (warning != null) {
+      return MissedTurnsNotice(
+        key: ValueKey('missed-turns-${warning.last}'),
+        warning: warning,
+        maxHeight: maxHeight,
+      );
+    }
+
     final line = graceLeft != null ? state.t.buyChipsToStay(graceLeft) : text;
 
     if (line.isEmpty) return const SizedBox.shrink();

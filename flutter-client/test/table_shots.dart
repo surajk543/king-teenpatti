@@ -74,6 +74,8 @@ List<_Shot> _shots() => [
       '10-menu-drawer',
       '11-chat-drawer',
       '12-quick-messages',
+      '36-missed-turn',
+      '37-missed-turn-last',
     ].contains(s.name),
   ))
     for (final dark in [true, false])
@@ -95,6 +97,8 @@ List<_Shot> _shots() => [
           '03-your-turn-seen-sideshow',
           '20-opponent-turn-seen',
           '21-your-turn-variation',
+          '36-missed-turn',
+          '37-missed-turn-last',
         ].contains(s.name) ||
         s.name.endsWith('-places') ||
         s.name.contains('-cards-'),

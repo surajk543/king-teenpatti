@@ -220,6 +220,9 @@ func (t *Table) selectVariation(userID, raw string) (VariationResult, error) {
 		return VariationResult{}, NewGameError(CodeVariationExpired, MsgVariationExpired)
 	}
 
+	// Choosing proves the chooser is there (requirement 31; owner, 27 Sep
+	// 2026): their missed turns no longer count against them.
+	t.clearMissedTurns(userID)
 	t.closeVariation(chosen, VariationByPlayer, true)
 	return t.variationResult(w), nil
 }
