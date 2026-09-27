@@ -844,12 +844,18 @@ and column below is in `V1.0.0__baseline.sql`'s CREATE TABLEs and every row in `
   **lowest of their level's and every unexpired badge's** (`playerLevelJoins`, the one statement of the rule; `db.Standing`,
   embedded in `db.User`, so `user.playerLevel` / `user.badges` / `user.taxBps`). The seeded catalogue: **Regular** — every player's
   by default (`is_default`), 20%, lifetime, ₹0, a Lottie, never in the store; and the **Royal Ace / King / Master /
-  Emperor / Legend / King of Kings** — 0% for 7/15/30/45/60/90 days at **₹499 / 999 / 1,799 / 2,499 / 3,299 / 4,499**, each the
-  owner's Drive Lottie (`asset_url`/`asset_format`). **Prices are always whole rupees** (`price_inr`, "price in badges will always
-  be in inr currency"). The store LISTS a badge iff it is not default and has a price. A badge with a `play_product_id` is sold
+  Emperor / Legend / King of Kings** — 0% for 7/15/30/45/60/90 days at **₹500 / 1,000 / 1,800 / 2,500 / 3,300 / 4,500**
+  (Play's own India prices since 27 Sep 2026, owner: "change price to match"; ₹499 … ₹4,499 before), each the owner's Drive Lottie
+  (`asset_url`/`asset_format`). **Prices are always whole rupees** (`price_inr`, "price in badges will always be in inr currency"). The store LISTS a badge iff it is not default and has a price. A badge with a `play_product_id` is sold
   through Play (`POST /api/purchases/google` → `db.BadgeForProduct` → `db.CreditBadgePurchase`: one transaction, replay-guarded
-  by the purchase token in `badge_purchases`, a running grant EXTENDED by the validity); as seeded none has one, so every Royal
-  badge's key asks for it through support and it is granted by hand (the seed header's `INSERT INTO user_badges …`). The VIP,
+  by the purchase token in `badge_purchases`, a running grant EXTENDED by the validity); **every Royal badge has one** (owner,
+  27 Sep 2026, who created the six in the Play Console that day — `badge_royal_ace_499`, `badge_royal_king_999`,
+  `badge_royal_master_1799`, `badge_royal_emperor_2499`, `badge_royal_legend_3299`, `badge_royal_king_of_kings_4499`; in the seed
+  and set by hand on production's rows), so each badge's key shows Play's price and opens Play's sheet. Until then none had one and
+  every key asked for it through support; a product set to NULL takes a badge back to that key, and a grant without a purchase is
+  still the seed header's `INSERT INTO user_badges …`. `price_inr` is Play's India price for the badge's product (Play
+  charged a rupee more than the first list — ₹500 for ₹499, as `chips_a_99` is ₹100 — so the rows were moved to match; the ids keep
+  the old figures, since Play never renames a product). The VIP,
   Royal VIP and Elite VIP badges (5%/3%/0%, five years, by hand) were seeded for a day and removed (owner, 27 Sep 2026: "remove
   the entry vip, royal vip and elite vip"); the tests that need a rate between Regular's and the Royal badges' add their own
   badge row (`ownerBadge` in `db/levels_test.go`, a 5% GOLD in `app/tabletax_test.go`).
@@ -905,7 +911,7 @@ and column below is in `V1.0.0__baseline.sql`'s CREATE TABLEs and every row in `
   under it), an outlined capsule key beside it down to the badges (↑ back to the viewer's rung once there), Tax at the right —
   the 50 rungs (`LevelRow`: the number on a disc — solid gold for the viewer's, tinted for a rung passed — the mark at ONE size in a
   42dp slot (two emoji fit whole), title, threshold, "You" / "Next", the rate), scrolled to the viewer's, then the catalogue
-  (`CatalogueBadgeRow`: Lottie, "Everyone · Lifetime · Free" / "Lasts 15 days · ₹999"; a Royal badge on a struck-gold ring with a
+  (`CatalogueBadgeRow`: Lottie, "Everyone · Lifetime · Free" / "Lasts 15 days · ₹1,000"; a Royal badge on a struck-gold ring with a
   faint gold edge and "Available", or "Yours" and the time left where the viewer holds it) and "Badges are held beside your level;
   XP never earns one." Solid tags ("You", "Yours", MAX LEVEL) are struck gold (`AppTheme.goldFace`) under charcoal in both themes;
   the quiet ink is a step firmer by night (`levelQuietInk`); tabs and close keep their tap for a screen reader. The screen
