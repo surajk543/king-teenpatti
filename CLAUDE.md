@@ -2201,7 +2201,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `_awardsAwaitingLadder` while the award reads it, and is queued, in the order the awards came, when the read ends — as best it
   can when the read fails ("Daily XP mission"; an XP only for a lone mission, none for two sharing one award). **The bar** (`XpMissionHost`, in main.dart's builder in a Stack beside the toasts' Scaffold — above the
   Navigator, so over the lobby, both felts, drawers, sheets and dialogs): slides down from the top edge inside the safe area
-  (`topGap` 4dp), stays `hold` 5 s with a gold line draining along its foot, slides away; a tap sends it early; the next waits
+  (`topGap` 4dp), comes with the owner's `assets/sound/notification.mp3` (`FeedbackSettings.xpNotification`, full volume, behind the Sound switch, once a bar), stays `hold` **15 s** (owner, 27 Sep 2026: "toast message should remain for 15 seconds"; 5 s before) with a gold line draining along its foot, slides away; its **×** key (`xp-mission-close`, a 24dp disc in a 44dp target at the bar's right end — no Tooltip: the bar stands above the Navigator, with no Overlay; "give a cross button also in toast message") or a tap anywhere on it sends it early, one tap one bar; the next waits
   `between` 180 ms — never two at once. As wide as its words, centred, up to `maxWidthFor(w)`: at a table 0.6 of the safe width
   (260..440dp), clear of the Shop key and the wallet, the keys and the viewer's cards at 592x360–915x412 ×1.0/×1.25 on both felts
   (it covers the top seats' heads for the 5 s); in the lobby half (260..420dp), clear of the bonus chip and the drawer keys — the

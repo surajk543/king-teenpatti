@@ -82,6 +82,12 @@ class FeedbackSettings extends ChangeNotifier {
   /// owner's recording: a click 60 ms in, gone by 150 ms.
   static const cardClickClip = 'sound/Card click.mp3';
 
+  /// A daily XP mission done — the bar at the top of the screen sliding in
+  /// (owner, 27 Sep 2026: "play this sound when xp complete notification
+  /// toast message comes"). The owner's recording, 1.07 s, peaking where the
+  /// card click does.
+  static const xpNotificationClip = 'sound/notification.mp3';
+
   /// How many of [dealCardClip] may sound at once. The deal sends a card
   /// every 115 ms and the clip is heard for 440 ms, so four overlap; one voice
   /// would stop each card's sound for the next one before its swish began,
@@ -203,6 +209,11 @@ class FeedbackSettings extends ChangeNotifier {
   /// synthesised clips. A padlocked table card is not a tap that goes
   /// anywhere and stays quiet.
   void cardClick() => unawaited(_playAsset(cardClickClip, volume: 1));
+
+  /// A daily XP mission's bar coming down ([xpNotificationClip]), once a bar:
+  /// every mission of an award is its own bar and its own sound. At full
+  /// volume, as the card click, which it peaks with.
+  void xpNotification() => unawaited(_playAsset(xpNotificationClip, volume: 1));
 
   /// A tap on a control.
   ///

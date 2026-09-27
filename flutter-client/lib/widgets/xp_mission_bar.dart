@@ -1,12 +1,16 @@
 // The bar that says a daily XP mission is done (owner, 27 Sep 2026: "whenever
 // xp mission completed, show top notification bar for 5 seconds showing this
-// is completed and xp increased").
+// is completed and xp increased"; then "play this sound when xp complete
+// notification toast message comes, and toast message should remain for 15
+// seconds and give a cross button also in toast message which by click that
+// user can remove notification").
 //
 // [XpMissionHost] stands above the app's Navigator (main.dart's builder, as
 // the toasts' Scaffold does), so the bar is seen on the lobby and on both
 // felts, over any sheet, drawer or dialog. It slides down from the top edge,
-// inside the safe area, stays [XpMissionHost.hold], and slides away; a tap
-// sends it away early. Missions arriving together wait their turn — one bar at
+// inside the safe area, with the owner's notification sound
+// ([FeedbackSettings.xpNotification]), stays [XpMissionHost.hold], and slides
+// away; its × key — or a tap anywhere on it — sends it away early. Missions arriving together wait their turn — one bar at
 // a time, never two on top of each other ([XpMissions]).
 import 'dart:async';
 
@@ -15,6 +19,7 @@ import 'package:provider/provider.dart';
 
 import '../l10n/strings.dart';
 import '../models/dtos.dart';
+import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../state/xp_missions.dart';
 import '../theme/app_theme.dart';
@@ -27,8 +32,9 @@ import 'table_tax.dart' show xpSourceName, levelStrut;
 class XpMissionHost extends StatefulWidget {
   const XpMissionHost({super.key});
 
-  /// How long a bar stays once it is down (the owner's five seconds).
-  static const Duration hold = Duration(seconds: 5);
+  /// How long a bar stays once it is down (the owner's fifteen seconds; five
+  /// until 27 Sep 2026).
+  static const Duration hold = Duration(seconds: 15);
 
   /// Its way down, its way back up, and the breath between two bars.
   static const Duration slideIn = Duration(milliseconds: 360);
@@ -116,6 +122,9 @@ class _XpMissionHostState extends State<XpMissionHost>
     if (next == null) return;
     setState(() => _showing = next);
     _leaving = false;
+    // Its sound as it comes down — behind the Sound switch, and nowhere
+    // without the settings (a picture harness).
+    context.read<FeedbackSettings?>()?.xpNotification();
     _slide.forward(from: 0);
     _life.forward(from: 0);
     _hold?.cancel();
@@ -222,7 +231,7 @@ class XpMissionBar extends StatelessWidget {
   final XpMissionNews news;
   final VoidCallback onDismiss;
 
-  /// 0 → 1 over the bar's five seconds; null draws no line.
+  /// 0 → 1 over the bar's time on screen; null draws no line.
   final Animation<double>? life;
 
   /// The lines as they read, for the bar and for a screen reader.
@@ -329,7 +338,7 @@ class XpMissionBar extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(
                     Space.sm,
                     Space.xs + 1,
-                    Space.md,
+                    0,
                     Space.xs + 2,
                   ),
                   child: Row(
@@ -393,6 +402,7 @@ class XpMissionBar extends StatelessWidget {
                           ],
                         ),
                       ),
+                      _CloseKey(tooltip: t.close, onTap: onDismiss),
                     ],
                   ),
                 ),
@@ -406,6 +416,50 @@ class XpMissionBar extends StatelessWidget {
                   ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The bar's × (owner, 27 Sep 2026: "give a cross button also in toast
+/// message which by click that user can remove notification"): a quiet disc
+/// at the bar's right end in a full touch target, which sends the bar away as
+/// a tap anywhere on it does. Its own GestureDetector wins the tap over the
+/// bar's, so one tap is one dismissal.
+class _CloseKey extends StatelessWidget {
+  const _CloseKey({required this.tooltip, required this.onTap});
+
+  final String tooltip;
+  final VoidCallback onTap;
+
+  /// The disc drawn inside the target.
+  static const double disc = 24;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final glass = GlassColors.of(context);
+    // No Tooltip: the bar stands above the Navigator, where there is no
+    // Overlay for one to open in. The bar's own Semantics already offers its
+    // tap as [tooltip] ("Close").
+    return GestureDetector(
+      key: const ValueKey('xp-mission-close'),
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: SizedBox(
+        width: Dim.minTouch,
+        height: Dim.minTouch,
+        child: Center(
+          child: Container(
+            width: disc,
+            height: disc,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
+            ),
+            child: Icon(Icons.close_rounded, size: 16, color: glass.cardMuted),
           ),
         ),
       ),
