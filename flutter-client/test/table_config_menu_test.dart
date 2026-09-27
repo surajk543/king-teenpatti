@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:teenpatti/config/features.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/net/api_client.dart';
 import 'package:teenpatti/state/game_state.dart';
@@ -152,12 +153,23 @@ void main() {
         state.restoreCachedMenu(await SharedPreferences.getInstance());
         expect(state.config.tableConfigVersion, versionA);
         expect(state.config.minClientBuild, 0);
-        expect(state.lobbyEngines, [TableEngine.teenPatti, TableEngine.poker]);
+        // The default build shows Teen Patti alone (owner, 27 Sep 2026), but
+        // the copy is the server's whole menu, poker tables and all.
+        expect(state.lobbyEngines, [TableEngine.teenPatti]);
+        expect(state.lobbyTablesOf(TableEngine.poker), isEmpty);
+        expect(
+          state.config.tables.firstWhere((t) => t.isPoker).turnTimeoutMs,
+          90000,
+        );
         expect(state.lobbyCategoriesIn(TableEngine.teenPatti), [
           TableCategory.seen,
           TableCategory.blind,
           TableCategory.variation,
         ]);
+        // A build with the Poker family shows them from the same copy.
+        AppFeatures.poker = true;
+        addTearDown(() => AppFeatures.poker = false);
+        expect(state.lobbyEngines, [TableEngine.teenPatti, TableEngine.poker]);
         expect(
           state.lobbyTablesOf(TableEngine.poker).first.turnTimeoutMs,
           90000,
@@ -235,8 +247,10 @@ void main() {
       expect(identical(state.config, before), isTrue);
     });
 
-    test('a new menu without the open category or engine closes it, '
-        'whichever source brought the menu', () {
+    test('with the Poker family a new menu without the open category or '
+        'engine closes it, whichever source brought the menu', () {
+      AppFeatures.poker = true;
+      addTearDown(() => AppFeatures.poker = false);
       final state = _state();
       addTearDown(state.dispose);
       state.handleCatalogue(_catalogue());
@@ -256,6 +270,46 @@ void main() {
       state.openLobbyCategory(TableCategory.texasHoldem);
       expect(state.lobbyEngine, TableEngine.poker);
       expect(state.lobbyCategory, TableCategory.texasHoldem);
+      state.handleSessionMenu(
+        GameConfig.fromJson(
+          sessionConfig(
+            tableConfigVersion: null,
+            tables: [
+              {'category': 'seen', 'bootAmount': 200, 'maxPot': 2000000},
+            ],
+          ),
+        ),
+      );
+      expect(state.lobbyCategory, isNull);
+      expect(state.lobbyEngine, isNull);
+    });
+
+    test('without the Poker family a new menu without the open category '
+        'closes it to the front, whichever source brought the menu', () {
+      final state = _state();
+      addTearDown(state.dispose);
+      state.handleCatalogue(_catalogue());
+      state.openLobbyCategory(TableCategory.variation);
+      expect(state.lobbyCategory, TableCategory.variation);
+
+      // A catalogue that dropped variation: back to the front, where the
+      // other Teen Patti categories stand — there is no engine level.
+      state.handleCatalogue(
+        GameConfig.fromCatalogue(
+          catalogueBody(version: versionB, withVariation: false),
+        )!,
+      );
+      expect(state.lobbyCategory, isNull);
+      expect(state.lobbyEngine, isNull);
+
+      // A poker category is never opened: the lobby does not show it.
+      state.openLobbyCategory(TableCategory.texasHoldem);
+      expect(state.lobbyEngine, isNull);
+      expect(state.lobbyCategory, isNull);
+
+      // And a session whose menu drops the open category: the front again.
+      state.openLobbyCategory(TableCategory.blind);
+      expect(state.lobbyCategory, TableCategory.blind);
       state.handleSessionMenu(
         GameConfig.fromJson(
           sessionConfig(

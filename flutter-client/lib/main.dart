@@ -536,8 +536,11 @@ class _BackGuard extends StatelessWidget {
 
         // Inside the lobby Back goes up one level at a time, as the tile at
         // the head of each rail does: from a category's tables to its
-        // engine's categories, from there to the front (Teen Patti, Poker).
-        // Only the front of the lobby offers to quit. Not while the
+        // engine's categories, from there to the front (Teen Patti, Poker) —
+        // or, in a build without the Poker family, from a category's tables
+        // straight to the front, where Seen, Blind and Variation stand
+        // (GameState.lobbyFrontEngine). Only the front of the lobby offers to
+        // quit. Not while the
         // no-winnings panel is up: it covers the lobby, and Back there is the
         // quit question.
         if (screen == Screen.lobby &&

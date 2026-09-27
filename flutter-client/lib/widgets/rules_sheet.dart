@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../config/features.dart';
 import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
@@ -387,8 +388,12 @@ class _RulesSheet extends StatelessWidget {
           // three-card at 3-Card Poker (`eval3.go`, a different order from
           // both the five-card one and Teen Patti's), five-card everywhere
           // else — with no mention of the other three games (owner, 19 Sep
-          // 2026). Never on a Teen Patti table's.
-          if (table == null || table!.isPoker) ...[
+          // 2026). Never on a Teen Patti table's — and not on the general
+          // sheet of a build that does not show the Poker family
+          // (AppFeatures.poker; owner, 27 Sep 2026: "remove poker category"),
+          // which has no poker table to explain.
+          if ((table == null && AppFeatures.poker) ||
+              (table?.isPoker ?? false)) ...[
             if (table == null) const SizedBox(height: Space.xl),
             Row(
               children: [

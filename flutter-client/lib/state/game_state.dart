@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
+import '../config/features.dart';
 import '../config/server_config.dart';
 import '../l10n/strings.dart';
 import '../models/dtos.dart';
@@ -2391,7 +2392,8 @@ class GameState extends ChangeNotifier {
   /// longer lists the category the lobby was showing (the server changed
   /// what it offers) would leave the player looking at an empty rail with
   /// only a way back, so the lobby goes back one level — to the engine's
-  /// categories, or to the front when the engine itself has gone.
+  /// categories, or to the front when the engine itself has gone, or when
+  /// that engine's categories ARE the front ([lobbyFrontEngine]).
   void _applyMenu(GameConfig next) {
     config = next;
     final engine = _lobbyEngine;
@@ -2402,6 +2404,11 @@ class GameState extends ChangeNotifier {
     } else if (_lobbyCategory != null &&
         !lobbyCategoriesIn(engine).contains(_lobbyCategory)) {
       _lobbyCategory = null;
+    }
+    // An engine's categories with no category open, where the front already
+    // shows them, is the front.
+    if (_lobbyCategory == null && lobbyFrontEngine != null) {
+      _lobbyEngine = null;
     }
   }
 
@@ -2762,6 +2769,11 @@ class GameState extends ChangeNotifier {
   /// lobby widget — a player who leaves a Blind table comes back to the Blind
   /// tables, not to the front door. It is a place in the app, not a
   /// preference, so it is not saved: a fresh launch opens on the front.
+  ///
+  /// Since 27 Sep 2026 a build without the Poker family ([AppFeatures.poker],
+  /// off by default) is two levels again: Teen Patti is the only engine left
+  /// to show, so its categories stand on the front ([lobbyFrontEngine]) and
+  /// this is set only while one of them is open.
   String? get lobbyEngine => _lobbyEngine;
   String? _lobbyEngine;
 
@@ -2774,6 +2786,21 @@ class GameState extends ChangeNotifier {
   /// The order the front cards are shown in when the server names no engines
   /// ([GameConfig.engines], which order them where it does).
   static const lobbyEngineOrder = [TableEngine.teenPatti, TableEngine.poker];
+
+  /// Whether the lobby shows [engine]'s tables at all. Every engine does,
+  /// but Poker only in a build with the Poker family ([AppFeatures.poker];
+  /// owner, 27 Sep 2026: "In UI only show three cards seen, blind,
+  /// variation"). The server still offers its poker tables: a hidden engine's
+  /// tables are simply left out of everything the lobby reads — its cards,
+  /// their counts, their table lists — so no card counts a table it will not
+  /// show.
+  static bool lobbyShowsEngine(String engine) =>
+      AppFeatures.poker || engine != TableEngine.poker;
+
+  /// The menu's tables the lobby shows ([lobbyShowsEngine]), in the server's
+  /// order.
+  Iterable<LobbyTable> get _lobbyMenu =>
+      config.tables.where((table) => lobbyShowsEngine(lobbyEngineOf(table)));
 
   /// Which categories each engine plays, in the order its cards are shown,
   /// when the server names no engines — `session:ready`, an older server,
@@ -2840,7 +2867,7 @@ class GameState extends ChangeNotifier {
   /// place (a table naming an engine the list leaves out) still comes, after
   /// the rest, rather than taking its tables away.
   List<String> get lobbyEngines {
-    final offered = {for (final table in config.tables) lobbyEngineOf(table)};
+    final offered = {for (final table in _lobbyMenu) lobbyEngineOf(table)};
     final cards = <String>[];
     void place(String card) {
       if (offered.contains(card) && !cards.contains(card)) cards.add(card);
@@ -2854,6 +2881,22 @@ class GameState extends ChangeNotifier {
     return cards;
   }
 
+  /// The engine whose category cards stand on the FRONT of the lobby, in
+  /// place of the engine cards — or null where the front shows the engines.
+  ///
+  /// A build without the Poker family ([AppFeatures.poker] off) shows one
+  /// engine, and an engine card alone on the front would be a door to a
+  /// corridor: the owner asked for Seen, Blind and Variation themselves
+  /// (27 Sep 2026: "In UI only show three cards seen, blind, variation"). So
+  /// where exactly one engine is left to show, the engine level is skipped.
+  /// With the Poker family on the lobby is exactly the three levels of
+  /// 23 Sep 2026, even on a menu that happens to offer one engine.
+  String? get lobbyFrontEngine {
+    if (AppFeatures.poker) return null;
+    final engines = lobbyEngines;
+    return engines.length == 1 ? engines.single : null;
+  }
+
   /// One engine's category cards: every category of [engine] the server
   /// offers at least one table in, and no other.
   ///
@@ -2863,7 +2906,7 @@ class GameState extends ChangeNotifier {
   /// A category neither places still comes, after the rest.
   List<String> lobbyCategoriesIn(String engine) {
     final offered = {
-      for (final table in config.tables)
+      for (final table in _lobbyMenu)
         if (lobbyEngineOf(table) == engine) lobbyCategoryOf(table),
     };
     final cards = <String>[];
@@ -2923,7 +2966,7 @@ class GameState extends ChangeNotifier {
 
   /// Every table of [engine], as its front card counts them.
   List<LobbyTable> lobbyTablesOf(String engine) => [
-    for (final table in config.tables)
+    for (final table in _lobbyMenu)
       if (lobbyEngineOf(table) == engine) table,
   ];
 
@@ -2939,7 +2982,7 @@ class GameState extends ChangeNotifier {
   List<LobbyTable> lobbyTablesIn(String category, {String? engine}) {
     final open = <LobbyTable>[];
     final shut = <LobbyTable>[];
-    for (final table in config.tables) {
+    for (final table in _lobbyMenu) {
       if (lobbyCategoryOf(table) != category) continue;
       if (engine != null && lobbyEngineOf(table) != engine) continue;
       (tableShut(table) ? shut : open).add(table);
@@ -2948,11 +2991,13 @@ class GameState extends ChangeNotifier {
   }
 
   /// Goes into [engine]'s categories, from wherever the lobby is. An engine
-  /// the server does not offer is ignored.
+  /// the server does not offer is ignored. Where that engine's categories are
+  /// the front ([lobbyFrontEngine]), that is the front.
   void openLobbyEngine(String engine) {
     if (!lobbyEngines.contains(engine)) return;
-    if (_lobbyEngine == engine && _lobbyCategory == null) return;
-    _lobbyEngine = engine;
+    final shown = engine == lobbyFrontEngine ? null : engine;
+    if (_lobbyEngine == shown && _lobbyCategory == null) return;
+    _lobbyEngine = shown;
     _lobbyCategory = null;
     notifyListeners();
   }
@@ -2982,11 +3027,14 @@ class GameState extends ChangeNotifier {
   }
 
   /// Back one level: from a category's tables to its engine's categories,
-  /// from an engine's categories to the front. Answers whether there was a
-  /// level to close, which is how the Back key knows it has been used.
+  /// from an engine's categories to the front. Where those categories ARE the
+  /// front ([lobbyFrontEngine]), a category's tables go back to the front in
+  /// one step. Answers whether there was a level to close, which is how the
+  /// Back key knows it has been used.
   bool closeLobbyLevel() {
     if (_lobbyCategory != null) {
       _lobbyCategory = null;
+      if (lobbyFrontEngine != null) _lobbyEngine = null;
     } else if (_lobbyEngine != null) {
       _lobbyEngine = null;
     } else {

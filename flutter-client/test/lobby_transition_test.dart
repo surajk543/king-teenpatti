@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:teenpatti/config/features.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/screens/lobby_screen.dart';
@@ -127,62 +128,119 @@ void main() {
     expect(_cardOpacities(tester, '').every((o) => o == 1), isTrue);
   });
 
-  testWidgets('going in, the old level is gone before the new one arrives, '
-      'which slides in from the right with its cards', (tester) async {
+  // The default build's lobby (AppFeatures.poker off, owner, 27 Sep 2026: "In
+  // UI only show three cards seen, blind, variation"): Seen, Blind and
+  // Variation stand on the front, so a category opens from it, and Back
+  // returns to it, in one movement.
+  testWidgets('going in from the front of Seen, Blind and Variation, the old '
+      'level is gone before the new one arrives, which slides in from the '
+      'right with its cards', (tester) async {
     final state = _state();
     await _pumpLobby(tester, state);
     await tester.pump(const Duration(seconds: 2));
 
-    state.openLobbyEngine('teen_patti');
+    state.openLobbyCategory('seen');
     await tester.pump();
-    // 40% of the way (Motion.slow is 300 ms): the front has gone, Teen Patti
-    // is fading in and still to the right of its place.
     await tester.pump(const Duration(milliseconds: 120));
     expect(_railOpacity(tester, ''), 0);
-    final inOpacity = _railOpacity(tester, 'teen_patti');
+    final inOpacity = _railOpacity(tester, 'teen_patti:seen');
     expect(inOpacity, greaterThan(0));
     expect(inOpacity, lessThan(1));
-    expect(_railShift(tester, 'teen_patti'), greaterThan(0));
-    // Its cards came with it: none waits to make an entrance of its own.
-    expect(_cardOpacities(tester, 'teen_patti').every((o) => o == 1), isTrue);
-
-    await tester.pump(const Duration(milliseconds: 200));
-    expect(_rail(''), findsNothing);
-    expect(_railOpacity(tester, 'teen_patti'), 1);
-    expect(_railShift(tester, 'teen_patti'), 0);
-
-    // And on into a category, the same way.
-    state.openLobbyCategory('seen', engine: 'teen_patti');
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 120));
-    expect(_railOpacity(tester, 'teen_patti'), 0);
     expect(_railShift(tester, 'teen_patti:seen'), greaterThan(0));
     expect(
       _cardOpacities(tester, 'teen_patti:seen').every((o) => o == 1),
       isTrue,
     );
     await tester.pump(const Duration(milliseconds: 200));
+    expect(_rail(''), findsNothing);
     expect(_railOpacity(tester, 'teen_patti:seen'), 1);
+    expect(_railShift(tester, 'teen_patti:seen'), 0);
   });
 
-  testWidgets('Back mirrors it: the level returned to comes in from the left', (
-    tester,
-  ) async {
+  testWidgets('Back from a category mirrors it: the front comes in from the '
+      'left', (tester) async {
     final state = _state();
     await _pumpLobby(tester, state);
     await tester.pump(const Duration(seconds: 2));
-    state.openLobbyEngine('teen_patti');
+    state.openLobbyCategory('seen');
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
 
-    state.closeLobbyLevel();
+    expect(state.closeLobbyLevel(), isTrue);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 120));
-    expect(_railOpacity(tester, 'teen_patti'), 0);
+    expect(_railOpacity(tester, 'teen_patti:seen'), 0);
     expect(_railShift(tester, ''), lessThan(0));
     expect(_cardOpacities(tester, '').every((o) => o == 1), isTrue);
     await tester.pump(const Duration(milliseconds: 200));
     expect(_railShift(tester, ''), 0);
     expect(_railOpacity(tester, ''), 1);
+  });
+
+  // A build with the Poker family (SHOW_POKER) keeps the engine level between
+  // the front and the categories.
+  group('with the Poker family', () {
+    setUp(() => AppFeatures.poker = true);
+    tearDown(() => AppFeatures.poker = false);
+
+    testWidgets('going in, the old level is gone before the new one arrives, '
+        'which slides in from the right with its cards', (tester) async {
+      final state = _state();
+      await _pumpLobby(tester, state);
+      await tester.pump(const Duration(seconds: 2));
+
+      state.openLobbyEngine('teen_patti');
+      await tester.pump();
+      // 40% of the way (Motion.slow is 300 ms): the front has gone, Teen Patti
+      // is fading in and still to the right of its place.
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(_railOpacity(tester, ''), 0);
+      final inOpacity = _railOpacity(tester, 'teen_patti');
+      expect(inOpacity, greaterThan(0));
+      expect(inOpacity, lessThan(1));
+      expect(_railShift(tester, 'teen_patti'), greaterThan(0));
+      // Its cards came with it: none waits to make an entrance of its own.
+      expect(_cardOpacities(tester, 'teen_patti').every((o) => o == 1), isTrue);
+
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(_rail(''), findsNothing);
+      expect(_railOpacity(tester, 'teen_patti'), 1);
+      expect(_railShift(tester, 'teen_patti'), 0);
+
+      // And on into a category, the same way.
+      state.openLobbyCategory('seen', engine: 'teen_patti');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(_railOpacity(tester, 'teen_patti'), 0);
+      expect(_railShift(tester, 'teen_patti:seen'), greaterThan(0));
+      expect(
+        _cardOpacities(tester, 'teen_patti:seen').every((o) => o == 1),
+        isTrue,
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(_railOpacity(tester, 'teen_patti:seen'), 1);
+    });
+
+    testWidgets(
+      'Back mirrors it: the level returned to comes in from the left',
+      (tester) async {
+        final state = _state();
+        await _pumpLobby(tester, state);
+        await tester.pump(const Duration(seconds: 2));
+        state.openLobbyEngine('teen_patti');
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+
+        state.closeLobbyLevel();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 120));
+        expect(_railOpacity(tester, 'teen_patti'), 0);
+        expect(_railShift(tester, ''), lessThan(0));
+        expect(_cardOpacities(tester, '').every((o) => o == 1), isTrue);
+        await tester.pump(const Duration(milliseconds: 200));
+        expect(_railShift(tester, ''), 0);
+        expect(_railOpacity(tester, ''), 1);
+      },
+    );
   });
 }

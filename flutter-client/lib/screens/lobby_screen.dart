@@ -214,16 +214,26 @@ class _LobbyScreenState extends State<LobbyScreen> {
     // TABLES behind another. The server decides which rooms exist; the lobby
     // decides how a player meets them.
     //
+    // A build without the Poker family (AppFeatures.poker, off by default;
+    // owner, 27 Sep 2026: "In UI only show three cards seen, blind,
+    // variation") has one engine left to show, and its CATEGORIES stand on
+    // the front instead (GameState.lobbyFrontEngine): Seen, Blind, Variation,
+    // then the private card, and a category's tables behind a tile that leads
+    // back to them.
+    //
     // The level shown is the one the state holds only while the menu still
     // offers it: a menu written straight into `config` never strands the
     // player at an empty rail.
     final scheme = Theme.of(context).colorScheme;
     final engines = state.lobbyEngines;
+    final frontEngine = state.lobbyFrontEngine;
     final engine = engines.contains(state.lobbyEngine)
         ? state.lobbyEngine
         : null;
     final categories = engine == null
-        ? const <String>[]
+        ? (frontEngine == null
+              ? const <String>[]
+              : state.lobbyCategoriesIn(frontEngine))
         : state.lobbyCategoriesIn(engine);
     final category = categories.contains(state.lobbyCategory)
         ? state.lobbyCategory
@@ -290,8 +300,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
                           final List<Widget> cards;
                           if (engine == null) {
                             cards = [
-                              for (final name in engines)
-                                entering(_EngineCard(engine: name)),
+                              if (frontEngine == null)
+                                for (final name in engines)
+                                  entering(_EngineCard(engine: name))
+                              else
+                                for (final name in categories)
+                                  entering(
+                                    _CategoryCard(
+                                      engine: frontEngine,
+                                      category: name,
+                                    ),
+                                  ),
                               // Last, as it always was: a private table is
                               // not one of the server's games but a door of
                               // its own, and it stays on the front.
@@ -332,14 +351,17 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                     category,
                                     serverName: state.lobbyServerName(category),
                                   ),
-                                  // Where Back goes: this category's engine.
-                                  back: _engineName(
-                                    state.t,
-                                    engine,
-                                    serverName: state.lobbyEngineServerName(
-                                      engine,
-                                    ),
-                                  ),
+                                  // Where Back goes: this category's engine,
+                                  // or every game where its categories are
+                                  // the front.
+                                  back: engine == frontEngine
+                                      ? state.t.backToCategories
+                                      : _engineName(
+                                          state.t,
+                                          engine,
+                                          serverName: state
+                                              .lobbyEngineServerName(engine),
+                                        ),
                                   accent: _categoryPalette(
                                     scheme,
                                     category,
@@ -374,8 +396,20 @@ class _LobbyScreenState extends State<LobbyScreen> {
                           // sized as if it held four cards, so the categories
                           // and the tables behind them stay one size on a
                           // phone rather than changing with each level's
-                          // count.
+                          // count. Where the categories ARE the front (no
+                          // Poker family), the front and a category's tables
+                          // are sized together, each stopping cleanly at the
+                          // other's side, so opening Blind does not shrink
+                          // the cards.
                           final backTile = engine != null;
+                          final ({int cards, bool backTile})? sizedWith =
+                              frontEngine == null
+                              ? null
+                              : engine == null
+                              ? (cards: 4, backTile: true)
+                              : engine == frontEngine
+                              ? (cards: categories.length + 1, backTile: false)
+                              : null;
                           final side = lobbyRailSide(
                             fit: fit,
                             width: box.maxWidth,
@@ -383,6 +417,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 ? math.max(cards.length - 1, 4)
                                 : cards.length,
                             backTile: backTile,
+                            also: sizedWith,
                           );
                           final rail = Center(
                             // A level whose cards are another size than the
@@ -682,14 +717,21 @@ const double _sideMin = 196;
 /// itself — or there is no such card, every one of them whole. The cards give
 /// up no more size than it takes, and never go below [_sideMin]: a rail that
 /// would need smaller cards than that keeps [fit], and the glimpse it had.
+///
+/// [also] is a second level the side must stop cleanly for as well, so that
+/// two levels a player moves between directly are drawn at one size: where
+/// Teen Patti's categories are the front (the default build, no Poker
+/// family), the front and a category's tables. Where no side at or above
+/// [_sideMin] suits both, both keep [fit] — the same size still.
 @visibleForTesting
 double lobbyRailSide({
   required double fit,
   required double width,
   required int cards,
   required bool backTile,
+  ({int cards, bool backTile})? also,
 }) {
-  bool stopsClean(double side) {
+  bool stopsClean(double side, int cards, bool backTile) {
     var left = Space.xl + (backTile ? _backTileWidth(side) + Space.lg : 0.0);
     for (var i = 0; i < cards; i++, left += side + Space.lg) {
       // Whole, and as far from the edge as the rail's first card starts.
@@ -701,7 +743,10 @@ double lobbyRailSide({
   }
 
   for (var side = fit; side >= math.min(fit, _sideMin); side -= 0.5) {
-    if (stopsClean(side)) return side;
+    if (stopsClean(side, cards, backTile) &&
+        (also == null || stopsClean(side, also.cards, also.backTile))) {
+      return side;
+    }
   }
   return fit;
 }
@@ -2111,8 +2156,10 @@ class _FactRule extends StatelessWidget {
 /// engine's or a category's rail, naming where the player is ([here]) over a
 /// short bar in that level's colour — the one mark of which level is open —
 /// and, under it, where the tile goes back to ([back]): every game from
-/// inside an engine, the engine from inside one of its categories. The system
-/// Back key does the same (main.dart's `_BackGuard`).
+/// inside an engine, the engine from inside one of its categories — or every
+/// game again where the categories stand on the front, as they do in a build
+/// without the Poker family (GameState.lobbyFrontEngine). The system Back key
+/// does the same (main.dart's `_BackGuard`).
 ///
 /// A tile in the rail rather than a bar above it: the rail's height is what
 /// the square cards are cut from, and on a 360dp phone there is none to spare.
