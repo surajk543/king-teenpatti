@@ -290,26 +290,33 @@ func TestALeaverIsCountedAtTheLeaveAndNotAtTheHandEnd(t *testing.T) {
 	}
 }
 
-// A departure whose checkpoint the ledger refused is not counted: nothing
-// committed.
-func TestALeaveTheLedgerRefusedCountsNothing(t *testing.T) {
-	log := &statsLog{}
-	cfg := winnerSeenConfig()
-	var refuse bool
-	var mu sync.Mutex
-	ledger := func(h *harness) Ledger {
+// refusingLeaves is a bookless ledger that refuses every hand_left
+// checkpoint while *refuse is set.
+func refusingLeaves(mu *sync.Mutex, refuse *bool) func(h *harness) Ledger {
+	return func(h *harness) Ledger {
 		return NewMemoryLedger(MemoryLedgerHooks{
 			Checkpoint: func(args CheckpointArgs) error {
 				mu.Lock()
 				defer mu.Unlock()
-				if refuse && args.Entry.Reason == LedgerReasonHandLeft {
+				if *refuse && args.Entry.Reason == LedgerReasonHandLeft {
 					return NewGameError(CodePersistFailed, "down")
 				}
 				return nil
 			},
 		})
 	}
-	h := newHarness(t, cfg, withLedger(ledger), withStats(log.record))
+}
+
+// A departure whose checkpoint the ledger refused is not counted at the
+// leave: nothing committed. The hand end's catch-up row is then their outcome
+// and counts it — once, as the leave would have (left and played, no hand
+// held) — when the settle commits.
+func TestALeaveTheLedgerRefusedIsCountedOnceByTheHandEnd(t *testing.T) {
+	log := &statsLog{}
+	cfg := winnerSeenConfig()
+	var refuse bool
+	var mu sync.Mutex
+	h := newHarness(t, cfg, withLedger(refusingLeaves(&mu, &refuse)), withStats(log.record))
 	for _, id := range []string{"a", "b", "c"} {
 		h.seat(id, sideshowStart)
 	}
@@ -317,8 +324,55 @@ func TestALeaveTheLedgerRefusedCountsNothing(t *testing.T) {
 	mu.Lock()
 	refuse = true
 	mu.Unlock()
-	h.remove(h.turnUser(), LeaveReasonLeft)
+	leaver := h.turnUser()
+	h.mustAct(leaver, ActionChaal, ActRequest{})
+	h.remove(leaver, LeaveReasonLeft)
 	eq(t, log.callCount(), 0, "a refused leave counts nothing")
+	mu.Lock()
+	refuse = false
+	mu.Unlock()
+
+	h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+	got := statsByUser(t, log.all())
+	eq(t, len(got), 3, "the hand end counts all three, once each")
+	eq(t, got[leaver], HandStats{UserID: leaver, Bucket: StatsTeenPatti, Played: 1, Left: 1}, "the leaver: left and played, nothing else")
+}
+
+// At a variation table the catch-up counts what the leave would have: no hand
+// held and no variation tallied, though the hand was played under one.
+func TestARefusedLeaveAtAVariationTableTalliesNoVariation(t *testing.T) {
+	log := &statsLog{}
+	var refuse bool
+	var mu sync.Mutex
+	h, ids, chooser := variationTable(t, 3, withLedger(refusingLeaves(&mu, &refuse)), withStats(log.record))
+	if _, err := h.table.SelectVariation(chooser, string(VariationAK47)); err != nil {
+		t.Fatal(err)
+	}
+	var leaver string
+	for _, id := range ids {
+		if id != chooser {
+			leaver = id
+			break
+		}
+	}
+	mu.Lock()
+	refuse = true
+	mu.Unlock()
+	h.remove(leaver, LeaveReasonLeft)
+	mu.Lock()
+	refuse = false
+	mu.Unlock()
+	eq(t, log.callCount(), 0, "nothing counted at the refused leave")
+	for i := 0; i < 10 && h.hasHand(); i++ {
+		h.mustAct(h.turnUser(), ActionPack, ActRequest{})
+	}
+	got := statsByUser(t, log.all())
+	eq(t, got[leaver], HandStats{UserID: leaver, Bucket: StatsVariation, Left: 1}, "left, once; no hand held, no variation")
+	for _, id := range ids {
+		if id != leaver {
+			eq(t, got[id].Variation, VariationAK47, id+" finished the hand under AK47")
+		}
+	}
 }
 
 // A hand-end settle the ledger refused counts nothing until a retry COMMITS —

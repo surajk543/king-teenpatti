@@ -120,6 +120,8 @@ type SnapshotContribution struct {
 	Won          int64          `json:"won"`
 	Chips        int64          `json:"chips"`
 	ChipsWritten int64          `json:"chipsWritten"`
+	// LeftUncounted is contribution.leftUncounted; absent when false.
+	LeftUncounted bool `json:"leftUncounted,omitempty"`
 }
 
 // snapshot builds the document from the actor state. Actor only.
@@ -171,6 +173,7 @@ func (t *Table) snapshot() *Snapshot {
 				UserID: c.userID, DisplayName: c.displayName, SeatIndex: c.seatIndex, Contributed: c.contributed,
 				Status: c.status, Cards: game.CardCodes(c.cards), Played: c.played, Folded: c.folded,
 				LeftMidHand: c.leftMidHand, AllIn: c.allIn, Won: c.won, Chips: c.chips, ChipsWritten: c.chipsWritten,
+				LeftUncounted: c.leftUncounted,
 			})
 		}
 		for id := range h.actionIDs {
@@ -327,8 +330,15 @@ func validateSnapshot(snap *Snapshot) error {
 	if h.TurnSeat != -1 && !seatOK(h.TurnSeat) {
 		return fmt.Errorf("snapshot %s: turn seat %d is empty", snap.RoomID, h.TurnSeat)
 	}
-	if !seatOK(h.Button) && h.Button != -1 {
-		return fmt.Errorf("snapshot %s: button seat %d is empty", snap.RoomID, h.Button)
+	// The button is a POSITION, not a player: blinds, the order of play and
+	// the odd chips are counted from it (nextSeat, Award) whether or not its
+	// player is still seated, and a button who walks out mid-hand leaves it
+	// where it was. So it need only be a seat of this table (the Teen Patti
+	// table asks the same of its dealerSeat); requiring somebody in it refused
+	// every hand whose button had left, and a graceful restart dropped the room
+	// with its live hand.
+	if h.Button != -1 && (h.Button < 0 || h.Button >= cfg.MaxPlayers) {
+		return fmt.Errorf("snapshot %s: button seat %d is not a seat of this table", snap.RoomID, h.Button)
 	}
 	for _, what := range []struct {
 		codes []string
@@ -423,6 +433,7 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 				userID: c.UserID, displayName: c.DisplayName, seatIndex: c.SeatIndex, contributed: c.Contributed,
 				status: c.Status, cards: game.ParseCards(c.Cards), played: c.Played, folded: c.Folded,
 				leftMidHand: c.LeftMidHand, allIn: c.AllIn, won: c.Won, chips: c.Chips, chipsWritten: c.ChipsWritten,
+				leftUncounted: c.LeftMidHand && c.LeftUncounted,
 			}
 			h.contribOrder = append(h.contribOrder, c.UserID)
 		}

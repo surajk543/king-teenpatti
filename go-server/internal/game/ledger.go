@@ -3,6 +3,7 @@ package game
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 // Ledger is where the chips are actually kept.
@@ -63,10 +64,19 @@ import (
 // flight. ctx is the Table's context (cancelled by Destroy).
 type Ledger interface {
 	// Checkpoint writes ONE player's chips through: the pack checkpoint and
-	// the leave/switch checkpoint. No hands row.
+	// the leave/switch checkpoint. No hands row. A replay — the entry's action
+	// id already holds a row — changes nothing and is refused duplicate_action,
+	// carrying, when the ledger can read that row back, the delta it moved
+	// the wallet by (DuplicateCheckpoint; the Table reads it with
+	// LandedDelta).
 	Checkpoint(ctx context.Context, req CheckpointRequest) (CheckpointResult, error)
 
-	// Settle is the HAND-END checkpoint: every player still at the table.
+	// Settle is the HAND-END checkpoint: every player still at the table —
+	// and, for a player who left mid-hand whose own hand_left checkpoint was
+	// refused (or banked less than the stake), a catch-up of what it still
+	// owes (the settle's action id; an Outcome only when the refused leave
+	// counted nothing — SettleEntry.Outcome), since only this write has a
+	// retry chain.
 	// Per entry, in ascending userId
 	// order: lock the wallet (skip silently if the row is gone), balance =
 	// max(0, chips + delta), UPDATE users (chips, updated_at); INSERT
@@ -112,8 +122,19 @@ type SettleEntry struct {
 	Reason string
 	// Outcome marks the row that RESOLVES the hand for this player, and so
 	// the one their counters are computed from (StatsForEntry: hand_win,
-	// hand_loss, hand_left). The pack checkpoint is not an outcome — the
-	// player is still at the table and the hand-end write will resolve them.
+	// hand_loss, hand_left) once it has committed. The pack checkpoint is not
+	// an outcome — the player is still at the table and the hand-end write
+	// will resolve them. The hand-end catch-up of a leaver whose hand_left
+	// write did not land in full (endHand; poker settle) is an outcome only
+	// when that leave was REFUSED in this life of the hand (it recorded no
+	// counters, so the catch-up resolves them); after a replay — the leave
+	// landed in an earlier life, which counted it — it moves money only. The
+	// hand is counted for a leaver at most once, and exactly once whenever a
+	// write carrying it commits and is heard — within one life of the hand. A
+	// departure's counters are recorded at its commit, before the live save
+	// that records the departure, so a restored player who makes a DIFFERENT
+	// move instead of replaying the leave (a pack, the clock's pack) is counted
+	// again by the hand end (Player stats v2's rule; DECISIONS.md).
 	Outcome bool
 	// IsWinner drives hands_won, total_winnings and biggest_pot.
 	IsWinner bool
@@ -170,6 +191,56 @@ type CheckpointRequest struct {
 // wallet follows — but it is logged and asserted in tests.
 type CheckpointResult struct {
 	Balance int64
+}
+
+// LandedCheckpoint is what a checkpoint refused duplicate_action says about
+// the write that spent its action id first: it moved the wallet by Delta.
+// That earlier write is this very checkpoint — the action ids name one hand,
+// one player and one checkpoint — landed in an earlier life of the hand whose
+// live snapshot never recorded it (the process stopped between the commit and
+// the save, and the restored hand has replayed the move). It rides the
+// refusal as its Cause (DuplicateCheckpoint), so the code is duplicate_action
+// to every reader as before.
+//
+// It is the one figure the Table needs to know how much of the stake it is
+// writing is already banked: all of it when the restored player made the same
+// move with the same stack, only part of it when they played on first (a
+// chaal the earlier life never saw, then the pack or leave again). Reading a
+// duplicate as "the whole current stack is written" credited that difference
+// to a wallet that never gave it up, and the books gained it from nothing.
+type LandedCheckpoint struct {
+	Delta int64
+}
+
+// Error implements error.
+func (e *LandedCheckpoint) Error() string {
+	return fmt.Sprintf("checkpoint already written (delta %d)", e.Delta)
+}
+
+// DuplicateCheckpoint is the duplicate_action refusal of a checkpoint whose
+// action id already holds a row that moved the wallet by landed, with message
+// (MsgDuplicateAction when "").
+func DuplicateCheckpoint(message string, landed int64) *GameError {
+	if message == "" {
+		message = MsgDuplicateAction
+	}
+	return &GameError{Code: CodeDuplicateAction, Message: message, Cause: &LandedCheckpoint{Delta: landed}}
+}
+
+// LandedDelta is what the earlier write of a checkpoint banked, when err is
+// a duplicate_action refusal that says (DuplicateCheckpoint). ok is false for
+// every other error — and for a duplicate_action whose ledger could not read
+// the row back, which the Table must then treat as refused: it cannot know
+// how much of the stake is banked, and assuming all of it can create chips.
+func LandedDelta(err error) (landed int64, ok bool) {
+	if CodeOf(err, "") != CodeDuplicateAction {
+		return 0, false
+	}
+	var l *LandedCheckpoint
+	if !errors.As(err, &l) {
+		return 0, false
+	}
+	return l.Delta, true
 }
 
 // SettleRequest ← the hand-end checkpoint.

@@ -171,6 +171,11 @@ type SnapshotContribution struct {
 	Status      SeatState `json:"status"`
 	DidChaal    bool      `json:"didChaal"`
 	LeftMidHand bool      `json:"leftMidHand"`
+	// LeftUncounted is contribution.leftUncounted: a leaver whose refused
+	// hand_left recorded no counters, so the hand end's catch-up row counts
+	// them. Absent when false (and in every snapshot from before it, which
+	// then counts the hand at most once).
+	LeftUncounted bool `json:"leftUncounted,omitempty"`
 
 	// ---- added for the live store / restore ----
 

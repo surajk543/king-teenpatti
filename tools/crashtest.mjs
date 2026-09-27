@@ -120,10 +120,21 @@ class Books {
     const [r] = await this.q('select coalesce(sum(delta),0) as s, count(*) as n from %S%.chip_ledger where user_id = $1', [userId]);
     return r;
   }
-  /** A player resolved twice in one hand — a win/loss/left row written twice. */
+  /**
+   * A player resolved twice in one hand — a win/loss/left row written twice.
+   * A hand_loss beside that player's own hand_left row of the same hand is
+   * not a second resolution but the leave's CATCH-UP (go-server DECISIONS.md,
+   * "A checkpoint the ledger refuses"): what the hand end wrote of a stake the
+   * leave did not bank — a leave replayed after a restore that landed less
+   * than the restored stake. It always moves chips; a zero-delta one would be
+   * a leaver resolved again (parity/money.test.js holds the same two rules).
+   */
   async doubleClosed() {
-    return this.q(`select hand_id, user_id from %S%.chip_ledger
+    return this.q(`select hand_id, user_id from %S%.chip_ledger c
                     where reason in ('hand_win','hand_loss','hand_left')
+                      and not (reason = 'hand_loss' and delta <> 0 and exists (
+                            select 1 from %S%.chip_ledger l
+                             where l.hand_id = c.hand_id and l.user_id = c.user_id and l.reason = 'hand_left'))
                     group by hand_id, user_id having count(*) > 1`);
   }
   async drop() { try { await this.q('drop schema if exists %S% cascade'); } catch {} }

@@ -1172,6 +1172,8 @@ type clampingLedger struct {
 	mu      sync.Mutex
 	down    bool
 	clamped int64
+	// refuseLeft, when set, is the player whose hand_left row is refused.
+	refuseLeft string
 }
 
 func newClampingLedger(book *walletBook) *clampingLedger {
@@ -1191,6 +1193,9 @@ func (l *clampingLedger) checkpoint(args game.CheckpointArgs) error {
 	if l.down && (e.Reason == game.LedgerReasonHandWin || e.Reason == game.LedgerReasonHandLoss) {
 		return errors.New("database unavailable")
 	}
+	if l.refuseLeft != "" && e.UserID == l.refuseLeft && e.Reason == game.LedgerReasonHandLeft {
+		return errors.New("connection reset")
+	}
 	balance := l.book.get(e.UserID) + e.Delta
 	if balance < 0 {
 		l.clamped -= balance
@@ -1204,6 +1209,12 @@ func (l *clampingLedger) setDown(down bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.down = down
+}
+
+func (l *clampingLedger) setRefuseLeft(userID string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.refuseLeft = userID
 }
 
 func (l *clampingLedger) clampedChips() int64 {
@@ -1403,6 +1414,148 @@ func TestASettlementGivenUpNoLongerKeepsItsPlayersWaiting(t *testing.T) {
 			}
 			if seat, wallet := seatChips(t, seated, loser.ID), book.get(loser.ID); seat != wallet {
 				t.Fatalf("seat %d against a wallet of %d", seat, wallet)
+			}
+		})
+	}
+}
+
+// refusedLeave deals a seen hand at boot 200 between three players holding
+// 10,000 each; the first to act chaals, then walks out of the table mid-hand
+// with the ledger refusing their hand_left row. The hand plays on without
+// them, and their wallet still holds the stake their seat put in the pot:
+// only the hand end's catch-up row writes it (Table.endHand).
+func refusedLeave(t *testing.T, f *roomsFixture, ledger *clampingLedger) (table *game.Table, quitter game.Player, staked int64) {
+	t.Helper()
+	table = f.createTable(game.CreateTableOptions{BootAmount: 200, Category: "seen"})
+	players := map[string]game.Player{}
+	for _, name := range []string{"A", "B", "C"} {
+		p := f.player(name, 10_000)
+		ledger.book.set(p.ID, 10_000)
+		f.mustJoin(table, p)
+		players[p.ID] = p
+	}
+	if err := table.StartHand(); err != nil || !table.HasHand() {
+		t.Fatalf("deal: %v", err)
+	}
+	quitter = players[turnUser(t, table)]
+	if _, err := table.Act(quitter.ID, game.ActionChaal, game.ActRequest{}); err != nil {
+		t.Fatalf("chaal: %v", err)
+	}
+	staked = 10_000 - seatChips(t, table, quitter.ID)
+	ledger.setRefuseLeft(quitter.ID)
+	f.mustLeave(quitter.ID, game.LeaveReasonLeft)
+	ledger.setRefuseLeft("")
+	if !table.HasHand() {
+		t.Fatal("the leave ended the hand")
+	}
+	if wallet := ledger.book.get(quitter.ID); wallet != 10_000 {
+		t.Fatalf("the leave was not refused: the wallet is already %d", wallet)
+	}
+	return table, quitter, staked
+}
+
+// endLiveHand plays the table's hand out: whoever is on turn packs until one
+// player is left.
+func endLiveHand(t *testing.T, table *game.Table) {
+	t.Helper()
+	for i := 0; i < 5 && table.HasHand(); i++ {
+		if _, err := table.Act(turnUser(t, table), game.ActionPack, game.ActRequest{}); err != nil {
+			t.Fatalf("pack: %v", err)
+		}
+	}
+	if table.HasHand() {
+		t.Fatal("the hand did not end")
+	}
+}
+
+// A player whose mid-hand leave the ledger refused walks out with a wallet
+// that still holds their stake, which only the hand end writes (review of 27
+// Sep 2026). Nothing marked them owed in between, so a lobby purchase paid
+// from that stake ran, the hand end's debit landing after it clamped the
+// wallet at zero, and the winner was paid chips that never existed. They are
+// owed from the leave to the hand end's write — whether it lands at once or
+// rides the retry chain — and no longer.
+func TestALobbyChangeWaitsForTheHandARefusedLeaveWalkedOutOf(t *testing.T) {
+	for _, settleRefused := range []bool{false, true} {
+		name := "the hand end's write lands"
+		if settleRefused {
+			name = "the hand end's write is retried"
+		}
+		t.Run(name, func(t *testing.T) {
+			book := newWalletBook()
+			ledger := newClampingLedger(book)
+			f := bookedRooms(t, book, ledger.install)
+			table, quitter, staked := refusedLeave(t, f, ledger)
+
+			// A picture the wallet as it stands can pay for, and the stack the
+			// quitter really has left cannot.
+			price := 10_000 - staked + 1
+			buy := func(context.Context) {
+				if book.get(quitter.ID) >= price {
+					book.add(quitter.ID, -price)
+				}
+			}
+			if f.rooms.WhileUnseated(quitter.ID, buy) {
+				t.Fatalf("a lobby purchase ran against a wallet that still held the stake of a hand in play (wallet now %d)", book.get(quitter.ID))
+			}
+
+			ledger.setDown(settleRefused)
+			endLiveHand(t, table)
+			if settleRefused {
+				if f.rooms.WhileUnseated(quitter.ID, buy) {
+					t.Fatal("a lobby purchase ran while the hand end's write, the stake with it, was still being retried")
+				}
+				ledger.setDown(false)
+				f.clock.Advance(f.cfg.NextHandDelay) // the retry is due, and lands
+			}
+			if wallet := book.get(quitter.ID); wallet != 10_000-staked {
+				t.Fatalf("after the hand end the quitter's wallet is %d, want %d", wallet, 10_000-staked)
+			}
+			if !f.rooms.WhileUnseated(quitter.ID, buy) {
+				t.Fatal("the quitter was still refused once the stake was written")
+			}
+			if wallet := book.get(quitter.ID); wallet != 10_000-staked {
+				t.Fatalf("the purchase took %d from a wallet below its price", 10_000-staked-wallet)
+			}
+			if clamped := ledger.clampedChips(); clamped != 0 {
+				t.Fatalf("a clamp at zero absorbed %d chips: chips were created", clamped)
+			}
+		})
+	}
+}
+
+// The same wait at every door into a seat from the lobby: a seat started from
+// a wallet still holding the stake of a hand in play would sit down with chips
+// the wallet is about to lose — and lose them there, clamping the late debit
+// at zero. Refused settlement_pending before the wallet is read or a table is
+// opened; once the hand has ended the same join seats what it left.
+func TestALobbySeatWaitsForTheHandARefusedLeaveWalkedOutOf(t *testing.T) {
+	for _, door := range lobbyDoors() {
+		t.Run(door.name, func(t *testing.T) {
+			book := newWalletBook()
+			ledger := newClampingLedger(book)
+			f := bookedRooms(t, book, ledger.install)
+			table, quitter, staked := refusedLeave(t, f, ledger)
+			join := door.open(f)
+			tables, reads := f.rooms.Stats().Tables, book.loadsOf(quitter.ID)
+
+			if _, err := join(quitter); game.CodeOf(err, "") != game.CodeSettlementPending {
+				t.Fatalf("a join while the hand they walked out of was still in play: %v, want settlement_pending", err)
+			}
+			if f.rooms.GetTableForPlayer(quitter.ID) != nil || f.rooms.Stats().Tables != tables || book.loadsOf(quitter.ID) != reads {
+				t.Fatal("a refused join left a trace")
+			}
+
+			endLiveHand(t, table)
+			seated, err := join(quitter)
+			if err != nil {
+				t.Fatalf("the join once the hand had ended: %v", err)
+			}
+			if seat, wallet := seatChips(t, seated, quitter.ID), book.get(quitter.ID); seat != 10_000-staked || wallet != 10_000-staked {
+				t.Fatalf("seat %d, wallet %d; both must be the %d the hand left", seat, wallet, 10_000-staked)
+			}
+			if clamped := ledger.clampedChips(); clamped != 0 {
+				t.Fatalf("a clamp at zero absorbed %d chips: chips were created", clamped)
 			}
 		})
 	}

@@ -1549,14 +1549,21 @@ func (rm *RoomManager) Join(table Room, user Player, socketID string) error {
 // own chips are the authority there, and the checkpoint has just banked them.
 //
 // Before any read, a player whose wallet is still waiting for a write from a
-// table they sat at — a settlement the database refused and is retrying
-// (owed), or a destroy still settling their seat (departing) — is refused
+// table they sat at — a settlement the database refused and is retrying, or
+// the end of a live hand they walked out of still owing part of it (owed), or
+// a destroy still settling their seat (departing) — is refused
 // settlement_pending, with or without a loader. Read now, the wallet would
 // still hold a stake that write is about to take: the seat would start with
 // chips the wallet is about to lose, and losing them at the new table would
 // clamp the wallet at zero and pay chips that never existed. The look is under
-// the stripe, before the read, and that is enough (see settlementOwed): a debit
-// cannot be marked owed for a player who is unseated and whose stripe is held.
+// the stripe, before the read, and that is enough (see settlementOwed): every
+// debit that can still be on its way to an unseated player's wallet — a
+// refused settlement's retries, or a live hand they walked out of still owing
+// part of it (a refused leave, carried to the hand end) — is marked owed on a
+// table's actor while the player is still covered some other way: seated,
+// departing, or inside a transition that holds their stripe. None can be
+// marked for a player who is unseated, not departing and whose stripe is
+// held.
 func (rm *RoomManager) freshPlayer(user Player) (Player, error) {
 	rm.mu.Lock()
 	unfinished := rm.walletUnfinishedLocked(user.ID)
@@ -1584,8 +1591,10 @@ func (rm *RoomManager) freshPlayer(user Player) (Player, error) {
 // stripe, and reports whether it ran. It reports false, and fn does not run,
 // while the player has a seat — one the index names, or one a table destroy or
 // suspend has taken off the index before its last write landed (departing) —
-// or while a settlement of a table they have left is still being retried
-// (owed): until that write lands, their wallet is not final.
+// or while a write from a table they have left is still owed (owed: a
+// settlement being retried, or a live hand they walked out of whose end still
+// has part of their stake to write): until that write lands, their wallet is
+// not final.
 // With the stripe held, that look is also a look at every seat transition of
 // theirs that holds the stripe across its gap: a join between reading the
 // wallet and reserving the seat, a leave or kick between the index and the
@@ -1619,8 +1628,10 @@ func (rm *RoomManager) freshPlayer(user Player) (Player, error) {
 // so the wallet went on holding the stake they had lost: a 9,800 picture paid
 // from a wallet of 10,000, with 9,600 at the seat, left the retry's −400 to
 // clamp the wallet at zero, and the winner was paid 200 chips that never
-// existed. settlementOwed says why a look under the stripe cannot miss such a
-// debit.
+// existed. It covers, the same way, a player who walked out of a live hand
+// whose leave (or earlier pack) the database refused: their stake is written
+// only at the hand end, so the wallet holds it until then. settlementOwed says
+// why a look under the stripe cannot miss either debit.
 func (rm *RoomManager) WhileUnseated(userID string, fn func(ctx context.Context)) bool {
 	ul := rm.userLock(userID)
 	ul.Lock()
@@ -2064,32 +2075,57 @@ func (rm *RoomManager) clearDeparting(userIDs []string) {
 }
 
 // settlementOwed is every table's TableOptions.SettlementOwed: it counts, per
-// player, the refused hand-end settlements still being retried that move
-// their wallet — a non-zero delta; a zero-delta row only records an outcome,
-// and that wallet is already final.
+// player, the writes still owed to their wallet that move it — a non-zero
+// delta; a zero-delta row only records an outcome, and that wallet is already
+// final. Two kinds are counted, both through the room's Settler:
+//
+//   - a refused hand-end settlement, for as long as its retries run
+//     (Settler.Owe);
+//   - a player who has walked out of a live hand while PostgreSQL still owes
+//     their wallet part of it — a leave, or an earlier pack, whose checkpoint
+//     the database refused, or a replayed one that banked less than the stake
+//     — which only the hand end writes (the settle's catch-up row, or the
+//     packer's outcome row), for as long as that hand is live
+//     (Settler.OweDeparted, lifted by ReleaseDeparted once the hand end's
+//     settle has landed or begun its retries, whose own mark is set first).
 //
 // Why the manager has to know. A player can leave a table between hands while
 // the database is refusing its settlement, and a leave between hands writes
 // nothing, so their wallet goes on holding the stake they lost until a retry
-// lands. The index no longer seats them, and departing covers only a table
-// destroyed or suspended under its players, so a lobby debit of that wallet,
-// or a lobby seat started from it, used to go through — and the late negative
-// delta then clamped the wallet at zero and paid the winner chips that never
-// existed. While the count is above zero, WhileUnseated refuses and
-// freshPlayer refuses settlement_pending.
+// lands; a player whose mid-hand leave was refused walks out with a wallet
+// that holds their stake until the hand ends. The index no longer seats them,
+// and departing covers only a table destroyed or suspended under its players,
+// so a lobby debit of that wallet, or a lobby seat started from it, used to go
+// through — and the late negative delta then clamped the wallet at zero and
+// paid the winner chips that never existed. While the count is above zero,
+// WhileUnseated refuses and freshPlayer refuses settlement_pending.
 //
-// Why a look under the player's stripe is enough. A retry chain begins on the
-// actor inside endHand, and a debit can only be in it for a player the table
-// still held when the hand ended: seated in the index; off it inside a
-// transition that holds their stripe — whose RemovePlayer the actor runs only
-// after endHand, so the stripe is let go only after the mark is set; or taken
-// off by a destroy, whose departing mark is set with the index deletion and
-// cleared only after Destroy (and so endHand) has returned. A player found
-// unseated, not departing and owing nothing, with their stripe held, cannot
-// therefore acquire a pending debit before the look's decision is carried out,
-// and a mark is cleared only after the write it stands for has returned. A
-// pending CREDIT can be marked for a player who has already gone — the winner
-// of a hand everyone left (ALL_LEFT) — but a credit landing late cannot clamp
+// Why a look under the player's stripe is enough. Both marks are set on a
+// table's actor, and each for a player the table held at that moment, before
+// the stripe of whatever took them off it is let go:
+//
+//   - A retry chain begins inside endHand, and a debit can only be in it for a
+//     player the table still held when the hand ended: seated in the index;
+//     off it inside a transition that holds their stripe — whose RemovePlayer
+//     the actor runs only after endHand, so the stripe is let go only after the
+//     mark is set; taken off by a destroy, whose departing mark is set with the
+//     index deletion and cleared only after Destroy (and so endHand) has
+//     returned; or already gone and still carrying a departed mark (below),
+//     which endHand lifts only after the chain's own is set.
+//   - A departed mark is set in RemovePlayer itself, straight after the
+//     leave's checkpoint and before anything can end the hand, and every seat
+//     transition (leave, kick, switch, a consolidation move) runs RemovePlayer
+//     under the player's stripe; a destroy takes nobody off a live hand without
+//     ending it (endHand writes them then, under departing); and a restore
+//     marks such players again (Table.resumeTimers) before the listener opens.
+//
+// A player found unseated, not departing and owing nothing, with their stripe
+// held, cannot therefore acquire a pending debit before the look's decision is
+// carried out, and a mark is cleared only once the write it stands for has
+// returned, been handed to a retry chain's mark, or been given up (the attempt
+// cap; a fenced room, whose hand another process settles and marks). A pending
+// CREDIT can be marked for a player who has already gone — the winner of a
+// hand everyone left (ALL_LEFT) — but a credit landing late cannot clamp
 // anything: at worst a seat starts without it and the wallet ends up higher.
 //
 // It runs on a table's actor, or on its clock's goroutine for a retry that

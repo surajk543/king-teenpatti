@@ -150,8 +150,9 @@ type RoomDeps struct {
 	LiveErrors func(op string, err error)
 	// ObserveHandStart is game_hand_start_duration_seconds (may be nil).
 	ObserveHandStart func(d time.Duration)
-	// SettlementOwed is TableOptions.SettlementOwed: the manager's count of
-	// refused hand-end settlements still being retried, per player.
+	// SettlementOwed is TableOptions.SettlementOwed: the manager's count, per
+	// player, of refused hand-end settlements still being retried and of live
+	// hands they walked out of still owing part of their stake.
 	SettlementOwed func(req SettleRequest, owed bool)
 	// Stats is TableOptions.Stats: where the gameplay counters of every
 	// committed hand end and departure go (Player stats v2). nil: none.

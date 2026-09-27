@@ -89,6 +89,13 @@ var _ game.Ledger = (*Ledger)(nil)
 // written here. A departure's counters reach PostgreSQL through the live
 // store and the stats flusher (internal/stats), recorded by the table once
 // this transaction has committed.
+//
+// A replay is refused duplicate_action carrying the delta the row already
+// holding its action id recorded (game.DuplicateCheckpoint), read back after
+// the rollback: the Table advances what it counts as written by exactly that
+// much (game.LandedDelta; Table.checkpoint). When the row cannot be read back
+// the refusal is the bare duplicate_action, and the Table treats the write as
+// refused rather than guess.
 func (l *Ledger) Checkpoint(ctx context.Context, req game.CheckpointRequest) (game.CheckpointResult, error) {
 	var result game.CheckpointResult
 	err := l.transact(metrics.OpCheckpoint, func() error {
@@ -108,9 +115,30 @@ func (l *Ledger) Checkpoint(ctx context.Context, req game.CheckpointRequest) (ga
 		})
 	})
 	if err != nil {
+		var dup *game.GameError
+		if errors.As(err, &dup) && dup.Code == game.CodeDuplicateAction {
+			if landed, ok := l.landedDelta(ctx, req.Entry.ActionID); ok {
+				return game.CheckpointResult{}, game.DuplicateCheckpoint(dup.Message, landed)
+			}
+		}
 		return game.CheckpointResult{}, err
 	}
 	return result, nil
+}
+
+// landedDelta is the delta of the chip_ledger row holding actionID, for a
+// checkpoint just refused duplicate_action: ok is false when the row cannot
+// be read (the database has gone away since, or the purge took the row in
+// the instant between). One indexed read, on the refusal path only.
+func (l *Ledger) landedDelta(ctx context.Context, actionID string) (int64, bool) {
+	if actionID == "" {
+		return 0, false
+	}
+	var delta int64
+	if err := l.db.Pool.QueryRow(ctx, `SELECT delta FROM chip_ledger WHERE action_id = $1`, actionID).Scan(&delta); err != nil {
+		return 0, false
+	}
+	return delta, true
 }
 
 // applyCheckpoint writes one player's row against a wallet it locks itself,

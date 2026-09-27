@@ -20,7 +20,9 @@ type GameError struct {
 	// the wire.
 	UserID string
 	// Cause is the underlying database/driver error for persist_failed, kept
-	// for logs (ledger.js `wrapped.cause = error`). Unwrap returns it.
+	// for logs (ledger.js `wrapped.cause = error`) — or, on a checkpoint's
+	// duplicate_action, the *LandedCheckpoint saying what the earlier write
+	// banked (DuplicateCheckpoint). Unwrap returns it.
 	Cause error
 }
 

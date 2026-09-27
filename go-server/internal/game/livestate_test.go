@@ -63,7 +63,7 @@ func restoreHarness(t *testing.T, snap *Snapshot, clock *fakeClock, opts ...harn
 	} else {
 		ledger = mirrorLedger(h)
 	}
-	table, err := restoreTable(snap, TableOptions{Ledger: ledger, Clock: clock, Listener: h.rec, Live: o.live, LiveErrors: o.liveErrors})
+	table, err := restoreTable(snap, TableOptions{Ledger: ledger, Clock: clock, Listener: h.rec, Live: o.live, LiveErrors: o.liveErrors, SettlementOwed: o.owed, Stats: o.stats})
 	if err != nil {
 		t.Fatalf("restoreTable: %v", err)
 	}

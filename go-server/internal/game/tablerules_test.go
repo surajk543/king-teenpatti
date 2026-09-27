@@ -260,12 +260,18 @@ func TestAllLeftWinnerNameFromContribution(t *testing.T) {
 	h.seatNamed("b", "B", rulesStart)
 	h.advance(6 * time.Second)
 	h.read(func() {
-		// Vacate both seats without ending the hand, marking b as the last leaver.
+		// Vacate both seats without ending the hand, marking b as the last
+		// leaver — each with the leave checkpoint removePlayer writes. Without
+		// it the seam builds a leave the ledger REFUSED, whose unbanked stake
+		// the hand end now carries (review_refused_leave_test.go).
 		for _, id := range []string{"a", "b"} {
 			s := h.table.findSeat(id)
 			s.status = SeatPacked
 			h.table.syncContribution(s, SeatPacked)
-			h.table.hand.contributions[id].leftMidHand = true
+			entry := h.table.hand.contributions[id]
+			entry.leftMidHand = true
+			entry.chips = s.chips
+			h.table.checkpoint(entry, LedgerReasonHandLeft, LeftActionID(h.table.hand.id, id), true)
 			h.table.seats[s.seatIndex] = nil
 		}
 		h.table.refreshPlayerCount()
@@ -286,7 +292,7 @@ func TestAllLeftWinnerNameFromContribution(t *testing.T) {
 		case "b":
 			eq(t, e.IsWinner, true, "b wins")
 			eq(t, e.Reason, LedgerReasonHandWin, "reason")
-			eq(t, e.Delta, ended.Pot-rulesBoot, "the pot reaches the departed winner, less the boot already written at their leave")
+			eq(t, e.Delta, ended.Pot, "the whole pot reaches the departed winner: their boot was written at their leave")
 		case "a":
 			t.Fatal("a left mid-hand and was resolved at their own checkpoint")
 		}
