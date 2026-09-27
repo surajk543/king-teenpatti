@@ -96,22 +96,26 @@ type Config struct {
 	// browser stubs). Validate() refuses it in production.
 	AllowFakeProviders bool
 
-	// BotDevicePrefix is BOT_DEVICE_PREFIX ("botplay-"). A guest login whose
-	// DEVICE ID starts with this is recorded as one of the resident bots
-	// (users.is_bot, V1.0.0__baseline.sql); everything else is a person. The
-	// fleet in bot-play/ namespaces its device ids `botplay-v1-<n>` — and a
-	// rotated bot `botplay-v1-<n>-g<gen>` — so the prefix covers both, and the
-	// namespace already exists to keep those accounts from colliding with
-	// tools/bot.js and the ramp test's.
+	// BotDevicePrefixes is BOT_DEVICE_PREFIX, a comma-separated list
+	// ("botplay-,practice-bot-,ramp-bot-"). A guest login whose DEVICE ID
+	// starts with any of them is recorded as a bot (users.is_bot,
+	// V1.0.0__baseline.sql); everything else is a person. The three are every
+	// bot the project runs (owner, 27 Sep 2026: "any bot who plays that should
+	// be marked is_bot true"): the resident fleet in bot-play/ (`botplay-v1-<n>`,
+	// a rotated bot `botplay-v1-<n>-g<gen>`), tools/bot.js's practice bots
+	// (`practice-bot-<slot>-<name>`) and the ramp test's load bots
+	// (`ramp-bot-<n>-device-id`) — each its own namespace, so their accounts
+	// never collide. It was the fleet's prefix alone until then.
 	//
-	// Empty disables the marking entirely, which is what a deployment with no
-	// bots should set: with no prefix to match, nothing is ever flagged.
+	// Each entry is trimmed and an empty one dropped. Empty disables the
+	// marking entirely, which is what a deployment with no bots should set:
+	// with no prefix to match, nothing is ever flagged.
 	//
 	// The value is derived from something the CLIENT sends, so it is a label
 	// and never a permission. Nothing in the game reads it and it never
 	// reaches a client — a seat that announced itself as a bot would tell a
 	// player exactly what the fleet exists not to tell them.
-	BotDevicePrefix string
+	BotDevicePrefixes []string
 
 	// RESTRate is the per-client-IP request limit on the REST doors that mint
 	// accounts or move wallets (Go only, 24 Sep 2026, owner's "fix all bugs").
@@ -533,7 +537,7 @@ func Defaults() *Config {
 		Google:             GoogleConfig{ClientIDs: nil},
 		Facebook:           FacebookConfig{},
 		AllowFakeProviders: false,
-		BotDevicePrefix:    "botplay-",
+		BotDevicePrefixes:  []string{"botplay-", "practice-bot-", "ramp-bot-"},
 		RESTRate: RESTRateConfig{
 			Login:  60,
 			Wallet: 120,
@@ -775,7 +779,9 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	c.Facebook.AppID = r.str("FACEBOOK_APP_ID", c.Facebook.AppID)
 	c.Facebook.AppSecret = r.str("FACEBOOK_APP_SECRET", c.Facebook.AppSecret)
 	c.AllowFakeProviders = r.boolean("AUTH_ALLOW_FAKE_PROVIDERS", c.AllowFakeProviders)
-	c.BotDevicePrefix = r.str("BOT_DEVICE_PREFIX", c.BotDevicePrefix)
+	c.BotDevicePrefixes = botDevicePrefixes(
+		r.str("BOT_DEVICE_PREFIX", strings.Join(c.BotDevicePrefixes, ",")),
+	)
 	c.RESTRate.Login = r.integer("REST_LOGIN_RATE_LIMIT", c.RESTRate.Login)
 	c.RESTRate.Wallet = r.integer("REST_WALLET_RATE_LIMIT", c.RESTRate.Wallet)
 	c.RESTRate.Window = r.millis("REST_RATE_WINDOW_MS", c.RESTRate.Window)
@@ -1168,6 +1174,19 @@ func list(value string) []string {
 	for _, entry := range strings.Split(value, ",") {
 		if trimmed := strings.TrimSpace(entry); trimmed != "" {
 			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+// botDevicePrefixes reads BOT_DEVICE_PREFIX's list: comma-separated, each
+// entry trimmed, an empty one dropped — so "" (and ",") mark nobody, never
+// everybody. Never nil.
+func botDevicePrefixes(raw string) []string {
+	out := []string{}
+	for _, part := range strings.Split(raw, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
 		}
 	}
 	return out
