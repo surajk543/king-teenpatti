@@ -940,7 +940,11 @@ class _PokerStatus extends StatelessWidget {
     // fold. Said until the player acts again, from the count in their own
     // snapshot; under the seat held for a purchase and the two asks (the
     // draw, play or fold), which are what the player must answer now.
-    final warning = graceLeft == null && !state.canDraw && !state.canPlay
+    final warning =
+        graceLeft == null &&
+            state.missedTurnsNoticeShowing &&
+            !state.canDraw &&
+            !state.canPlay
         ? missedTurnsWarning(room.you, t, poker: true, folded: timedOut)
         : null;
     if (warning != null) {

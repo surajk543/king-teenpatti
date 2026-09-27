@@ -2816,6 +2816,8 @@ class _Status extends StatelessWidget {
   /// seconds; this waits for the player). Over the waiting and starting
   /// lines.
   static MissedTurnsWarning? warningFor(GameState state, RoomState room) {
+    // For five seconds from the miss, then the slot's line again.
+    if (!state.missedTurnsNoticeShowing) return null;
     if (state.unfundedGraceLeft(DateTime.now()) != null) return null;
     final window = state.variation;
     if (window != null && window.selecting && !state.variationIsMine) {

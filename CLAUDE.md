@@ -2406,8 +2406,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`missedTurnsWarning`): after a miss "You missed your turn — auto-packed" over "Missed turns: 1 of 3" (poker:
   "You missed your turn", or `pokerTimedOut` for a clock fold), one short of the kick "Last warning" over "One
   more missed turn and you leave the table" (the alarm red; the first in the tax amber); nothing when the count
-  is 0 or the table never shows anybody out. It stands until the server's count clears (any move, a sideshow
-  answered, a variation or 5-Card three chosen, §6.1), across hands and reconnects. Below the seat held for a
+  is 0 or the table never shows anybody out. **Each is said for 5 s** (owner, 27 Sep 2026: "missed turn text show only
+  for 5 seconds only and warning text also show for 5 seconds only"; `GameState.missedTurnsNoticeFor`,
+  `missedTurnsNoticeShowing`): from the first snapshot that carries a new count at this table (`_trackMissedTurns`, a
+  timer), then the slot goes back to its line; a snapshot repeating the count (a move, a reconnect) raises nothing, the
+  next miss raises it again, and a count back at 0 (any move, a sideshow answered, a variation or 5-Card three chosen,
+  §6.1) resets it. Below the seat held for a
   purchase and the variation's notices (Teen Patti) or the draw / play-or-fold asks (poker), above the waiting and
   starting lines. **Where**: the status slot at a five- or three-place table; at a table with a HEAD seat (two and
   four places) a pocket right of the pot (`_Felt.headNoticePocket`, `_PocketNotice`), from under the head seat's pod

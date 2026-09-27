@@ -290,6 +290,48 @@ void main() {
       await _unmount(tester, state);
     });
 
+    // Owner, 27 Sep 2026: "missed turn text show only for 5 seconds only and
+    // warning text also show for 5 seconds only".
+    testWidgets('each miss is said for 5 seconds, the last warning too, and '
+        'a snapshot repeating the count says nothing again', (tester) async {
+      final state = await _mount(tester, missedTurnsRoom(), textScale: 1);
+      final t = state.t;
+      // _mount has pumped 1.8 s since the snapshot that counted the miss.
+      expect(_notice, findsOneWidget);
+      expect(_title(tester), t.autoPacked);
+      await tester.pump(const Duration(milliseconds: 3100));
+      expect(_notice, findsOneWidget, reason: 'still inside the 5 s');
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(_notice, findsNothing, reason: 'gone after 5 s');
+      expect(state.missedTurnsNoticeShowing, isFalse);
+
+      // The same count again — another move at the table, a reconnect —
+      // brings nothing back.
+      await _show(tester, state, missedTurnsRoom());
+      expect(_notice, findsNothing);
+
+      // The next miss: the last warning, for 5 s of its own.
+      await _show(
+        tester,
+        state,
+        missedTurnsRoom(missed: 2, myTurn: true, handNo: 8),
+      );
+      expect(_notice, findsOneWidget);
+      expect(_title(tester), t.lastWarning);
+      await tester.pump(const Duration(milliseconds: 4200));
+      expect(_notice, findsOneWidget, reason: 'the last warning inside 5 s');
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(_notice, findsNothing, reason: 'the last warning gone after 5 s');
+
+      // Back to 0 and a miss again: said again.
+      await _show(tester, state, opponentTurnRoom(handNo: 9));
+      await _show(tester, state, missedTurnsRoom(handNo: 10));
+      expect(_notice, findsOneWidget);
+      await tester.pump(const Duration(seconds: 5));
+      expect(_notice, findsNothing);
+      await _unmount(tester, state);
+    });
+
     for (final dark in [true, false]) {
       for (final lang in AppLang.values) {
         testWidgets('clear of the keys, the cards and the pot — ${lang.name}, '
@@ -391,6 +433,19 @@ void main() {
   });
 
   group('the poker felt', () {
+    testWidgets('a miss is said for 5 seconds there too', (tester) async {
+      final state = await _mount(tester, pokerMissedRoom(), textScale: 1);
+      expect(_notice, findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 3300));
+      expect(_notice, findsNothing);
+      await _show(tester, state, pokerMissedRoom(missed: 2, myTurn: true));
+      expect(_notice, findsOneWidget);
+      expect(_title(tester), state.t.lastWarning);
+      await tester.pump(const Duration(seconds: 5));
+      expect(_notice, findsNothing);
+      await _unmount(tester, state);
+    });
+
     testWidgets('a clock check is a miss, a clock fold says so, and the count '
         'clears', (tester) async {
       final state = await _mount(tester, pokerMissedRoom(), textScale: 1);
