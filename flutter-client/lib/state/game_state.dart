@@ -1499,6 +1499,46 @@ class GameState extends ChangeNotifier {
   @visibleForTesting
   void handleHandTax(HandTaxNews news) => _handTax = news;
 
+  /// How long the table says a missed turn (owner, 27 Sep 2026: "missed turn
+  /// text show only for 5 seconds only and warning text also show for 5
+  /// seconds only"): the count after a miss and the last warning alike stand
+  /// this long from the snapshot that counted the miss, then the status slot
+  /// goes back to its line. The next miss shows it again.
+  static const missedTurnsNoticeFor = Duration(seconds: 5);
+
+  /// Whether the missed-turn notice is on the table now: true for
+  /// [missedTurnsNoticeFor] from the first snapshot that carried this count
+  /// at this table ([_trackMissedTurns]). The felts ask it before they draw
+  /// the notice; the count itself stays the server's (`you.missedTurns`).
+  bool get missedTurnsNoticeShowing => _missedNoticeShowing;
+  bool _missedNoticeShowing = false;
+
+  /// The count the notice was last raised for, and at which table — a
+  /// snapshot repeating it (every move at the table, a reconnect) raises
+  /// nothing.
+  ({String roomId, int missed})? _missedNotice;
+  Timer? _missedNoticeTimer;
+
+  void _trackMissedTurns(RoomState s) {
+    final missed = s.you?.missedTurns ?? 0;
+    final max = s.you?.maxMissedTurns ?? 0;
+    if (missed <= 0 || max <= 0) {
+      _missedNotice = null;
+      _missedNoticeTimer?.cancel();
+      _missedNoticeShowing = false;
+      return;
+    }
+    final seen = (roomId: s.roomId, missed: missed);
+    if (_missedNotice == seen) return;
+    _missedNotice = seen;
+    _missedNoticeShowing = true;
+    _missedNoticeTimer?.cancel();
+    _missedNoticeTimer = Timer(missedTurnsNoticeFor, () {
+      _missedNoticeShowing = false;
+      notifyListeners();
+    });
+  }
+
   /// A table snapshot, already redacted for this viewer.
   @visibleForTesting
   void handleState(RoomState s) {
@@ -1529,6 +1569,7 @@ class GameState extends ChangeNotifier {
         !newHand && room?.variation?.selecting == true && !newTable;
     final wasChoosing = variationIsMine;
     room = s;
+    _trackMissedTurns(s);
     if (newTable) {
       seatedAt = DateTime.now();
       // A different table is a different sitting, so the blocks go with the
@@ -4483,6 +4524,7 @@ class GameState extends ChangeNotifier {
     _seatCheck?.cancel();
     _backgroundTimer?.cancel();
     _chatCooldownTimer?.cancel();
+    _missedNoticeTimer?.cancel();
     _celebrationTimer?.cancel();
     _ticker?.cancel();
     for (final t in _bubbleTimers.values) {
