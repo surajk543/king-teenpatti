@@ -25,6 +25,7 @@ import '../widgets/edge_fade.dart';
 import '../widgets/fireworks.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
+import '../widgets/own_record.dart';
 import '../widgets/picture_shelf.dart';
 import '../widgets/player_profile.dart';
 import '../widgets/poker_chip.dart';
@@ -4169,12 +4170,17 @@ String? _wornPictureName(GameState state) {
 /// right for a left drawer and would put these panels on the opposite side of
 /// the screen from the edge they slide in on.
 class _LobbyDrawer extends StatelessWidget {
-  const _LobbyDrawer({required this.head, required this.children});
+  const _LobbyDrawer({required this.head, required this.children, this.width});
 
   /// The title, which does not scroll.
   final Widget head;
 
   final List<Widget> children;
+
+  /// The panel's width for the screen's [width]: [Dim.drawerW] unless the
+  /// panel says otherwise (the Stats drawer, whose record stands three cards
+  /// across).
+  final double Function(double width)? width;
 
   @override
   Widget build(BuildContext context) {
@@ -4184,7 +4190,7 @@ class _LobbyDrawer extends StatelessWidget {
       backgroundColor: Colors.transparent,
       elevation: 0,
       // 640 -> 260.0 | 891 -> 356.4 | 1280 -> 380.0.
-      width: Dim.drawerW(w),
+      width: (width ?? Dim.drawerW)(w),
       child: Padding(
         padding: const EdgeInsets.all(Space.sm),
         child: PremiumGlassPanel(
@@ -4248,15 +4254,9 @@ class _LobbyDrawer extends StatelessWidget {
 class _DrawerBody extends StatelessWidget {
   const _DrawerBody();
 
-  static final double _nightGround = GlassColors.dark.ground.computeLuminance();
-  static final double _dayGround = GlassColors.light.ground.computeLuminance();
-
   /// How far the theme's cross-fade has come from obsidian (0) to ice (1),
   /// read off the ground colour, which lerps with the rest of the theme.
-  static double dayOf(GlassColors glass) =>
-      ((glass.ground.computeLuminance() - _nightGround) /
-              (_dayGround - _nightGround))
-          .clamp(0.0, 1.0);
+  static double dayOf(GlassColors glass) => glass.dayShare;
 
   /// A warm stone well under the pearl.
   static final Color _stoneWell = Color.alphaBlend(
@@ -4546,89 +4546,6 @@ class _DrawerRule extends StatelessWidget {
   );
 }
 
-/// The player's level at the head of their record: "Level 10 · 🌟 Rising
-/// Star · 4,180 XP"; under it, while the day has an XP window, "Today 23 / 50
-/// XP · resets in 5h 12m 3s"; and the badges they hold beside the level (owner,
-/// 27 Sep 2026: "Vip is not a level, it is badge") — "Regular · Royal King".
-/// Every figure is the server's; the app counts no XP.
-class _LevelRow extends StatelessWidget {
-  const _LevelRow({required this.level, this.badges = const []});
-
-  final PlayerLevel level;
-  final List<PlayerBadge> badges;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final t = context.watch<GameState>().t;
-    final line = AppTheme.label(
-      theme.textTheme.bodyMedium!,
-      colour: scheme.onSurface,
-    );
-    final today = level.today;
-    final meta = AppTheme.money(
-      theme.textTheme.bodySmall!,
-      colour: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
-      weight: FontWeight.w500,
-    );
-
-    return Padding(
-      key: const ValueKey('stats-level'),
-      padding: const EdgeInsets.symmetric(
-        horizontal: Space.lg,
-        vertical: Space.sm,
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.military_tech_rounded,
-            size: 18,
-            color: _goldInk(theme.brightness),
-          ),
-          const SizedBox(width: Space.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  levelLineOf(t, level),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  strutStyle: levelStrut(line),
-                  style: line,
-                ),
-                if (today != null) ...[
-                  const SizedBox(height: Space.xxs),
-                  Text(
-                    xpTodayOf(t, today, DateTime.now()),
-                    key: const ValueKey('stats-xp-today'),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: meta,
-                  ),
-                ],
-                if (badges.isNotEmpty) ...[
-                  const SizedBox(height: Space.xxs),
-                  Text(
-                    badges.map(badgeTitleOf).join(' · '),
-                    key: const ValueKey('stats-badges'),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    strutStyle: levelStrut(meta),
-                    style: meta,
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// A row in a settings group that does something: a glyph, its name, and
 /// whatever it ends in. No fill of its own — the group is the surface — and
 /// the group's own ink says it was pressed.
@@ -4714,68 +4631,64 @@ class _DrawerAction extends StatelessWidget {
 /// card on the rail because it is something you look up, not something you
 /// choose between.
 ///
-/// Game by game since player stats v2 (owner, 27 Sep 2026): the one record
-/// widget every profile is drawn with ([PlayerStatsGrid.own]) — All · Teen
-/// Patti · Variation · Poker, each view's figures with the player's own two
-/// chip figures, the hands held at Teen Patti and Variation, and the
-/// variations played.
+/// One continuous profile since the owner's brief of 27 Sep 2026 ("Do NOT use
+/// tabs … Poker must NOT appear anywhere in this drawer"): who the player is
+/// and their level at the head ([PlayerStatsHeader]), then their record
+/// ([OwnRecord]) — PERFORMANCE with a small scope menu (All Games, Teen Patti,
+/// Variations), HAND RESULTS and VARIATIONS PLAYED. The Friends page and a
+/// table's player drawer still draw another player's record with
+/// [PlayerStatsGrid], as they did.
+///
+/// It listens to the account and the language alone, not to the lobby's
+/// one-second tick: the one line that counts down (today's XP, where the
+/// server keeps a daily window) listens for itself.
 class _StatsDrawer extends StatelessWidget {
   const _StatsDrawer();
 
+  /// Wider than the Settings drawer: the record stands three cards across,
+  /// and on a 592 or 640dp phone at text x1.25 [Dim.drawerW]'s 260dp left a
+  /// card too narrow for a count and its name. 592 -> 300 | 640 -> 300 |
+  /// 891 -> 409.9 | 1280 -> 420: under half a phone's width, and no wider
+  /// than a comfortable column on a tablet.
+  static double widthFor(double w) => (w * 0.46).clamp(300.0, 420.0);
+
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<GameState>();
-    final user = state.user;
-    final t = state.t;
-    final theme = Theme.of(context);
+    final (user, lang) = context.select<GameState, (User?, AppLang)>(
+      (s) => (s.user, s.lang),
+    );
+    final t = Strings(lang);
 
     return _LobbyDrawer(
-      head: _DrawerHead(
-        leading: Avatar(
-          url: state.avatarUrl,
-          fallback: user?.displayName ?? '',
-          radius: _HeadMark.size / 2,
-          animate: true,
-        ),
-        title: user?.displayName ?? '',
-        subtitle: t.yourRecord,
+      width: widthFor,
+      head: PlayerStatsHeader(
+        t: t,
+        name: user?.displayName ?? '',
+        // The account's picture, resolved as the top bar resolves it.
+        avatarUrl: context.read<GameState>().avatarUrl,
+        level: user?.playerLevel,
+        badges: user?.badges ?? const [],
       ),
       children: [
-        const SizedBox(height: Space.xs),
-        // The player's level (owner, 26 Sep 2026): its name with its mark,
-        // their XP, today's XP against the day's cap, and the badges they
-        // hold beside it (27 Sep 2026).
-        if (user?.playerLevel case final level?) ...[
-          _LevelRow(level: level, badges: user!.badges),
-          const _DrawerRule(),
-        ],
         const SizedBox(height: Space.sm),
         _Entrance(
           index: 0,
           axis: Axis.vertical,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: Space.lg),
-            child: PlayerStatsGrid.own(
+            child: OwnRecord(
               key: const ValueKey('own-record'),
               t: t,
               user: user,
-              // Sunk into the drawer as its fields are: the warm stone by
-              // day, where the theme's cool slate reads grey-blue on pearl.
-              well: _DrawerBody.well(GlassColors.of(context)),
             ),
           ),
         ),
-        const _DrawerRule(),
+        const _DrawerRule(space: Space.lg),
         Padding(
           padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.md),
-          child: Text(
-            t.playedNote,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(
-                alpha: AppTheme.inkLow,
-              ),
-            ),
-          ),
+          // In the record's muted ink, which holds 5:1 on the day's pearl;
+          // the theme's quiet ink it had measured 3:1 there.
+          child: StatsFootnote(t.playedNote),
         ),
       ],
     );

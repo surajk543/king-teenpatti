@@ -195,6 +195,19 @@ class GlassColors extends ThemeExtension<GlassColors> {
         (theme.brightness == Brightness.dark ? dark : light);
   }
 
+  static final double _nightGround = dark.ground.computeLuminance();
+  static final double _dayGround = light.ground.computeLuminance();
+
+  /// How far these tokens have come from obsidian (0) to frosted ice (1),
+  /// read off the ground colour, which lerps with the rest of the theme. For
+  /// a surface that designs its own colours per theme and must cross-fade
+  /// them with the theme's 420ms change rather than snap them at its middle,
+  /// where the theme's brightness flips (the lobby drawers' body, the Stats
+  /// drawer's record).
+  double get dayShare =>
+      ((ground.computeLuminance() - _nightGround) / (_dayGround - _nightGround))
+          .clamp(0.0, 1.0);
+
   @override
   GlassColors copyWith({
     Color? ground,

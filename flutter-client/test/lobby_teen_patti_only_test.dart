@@ -20,15 +20,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:teenpatti/config/features.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
+import 'package:teenpatti/models/friends.dart';
 import 'package:teenpatti/models/player_stats.dart';
 import 'package:teenpatti/screens/lobby_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/theme/table_theme.dart';
 import 'package:teenpatti/widgets/game_card.dart';
+import 'package:teenpatti/widgets/player_profile.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 import 'package:teenpatti/widgets/rules_sheet.dart';
 
+import 'player_stats_fixture.dart';
 import 'script_fonts.dart';
 import 'table_config_fixture.dart';
 
@@ -520,15 +524,31 @@ void main() {
         AppFeatures.poker = poker;
         final state = _state();
         addTearDown(state.dispose);
+        // The switch lives where another player's record is read — the
+        // table's player drawer and the Friends profile (the lobby's own
+        // Stats drawer picks its scope from a menu, stats_drawer_test.dart).
+        // Drawn here at the table drawer's width on a 640x360 phone.
         await _pump(
           tester,
           state,
-          const LobbyScreen(),
+          Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: TableSpace.drawerW(640),
+                child: SingleChildScrollView(
+                  child: PlayerStatsGrid(
+                    t: state.t,
+                    stats: PlayerStats.fromJson(theirStatsJson()),
+                    surface: RecordSurface.table,
+                  ),
+                ),
+              ),
+            ),
+          ),
           screen: const Size(640, 360),
           textScale: 1.25,
         );
-        await tester.tap(find.byIcon(Icons.insights_outlined).first);
-        await _settle(tester);
         expect(tester.takeException(), isNull);
         final t = state.t;
         final shown = [
