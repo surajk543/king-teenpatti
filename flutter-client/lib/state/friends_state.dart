@@ -122,12 +122,37 @@ class FriendsState extends ChangeNotifier {
     return null;
   }
 
+  /// How many friends this player has in all: [friends] holds the pages read
+  /// so far (owner, 27 Sep 2026: "same with friend list, as user scroll, then
+  /// it will fetch more pagination" — 20 a page).
+  int friendsTotal = 0;
+
+  /// Where the friend list's next page starts; null once the last is read.
+  String? _friendsNext;
+
+  /// Whether a page of friends after those read is still to come.
+  bool get hasMoreFriends => _friendsNext != null;
+
+  /// True while the next page of friends is being read.
+  bool loadingMoreFriends = false;
+
   /// Requests addressed to this player — the ones Accept and Reject answer —
-  /// and the ones they sent, newest first.
+  /// and the ones they sent, newest first: the pages read so far.
   List<FriendRequestItem> incoming = const [];
   List<FriendRequestItem> outgoing = const [];
 
-  /// The lobby key's badge: how many requests wait for this player.
+  /// Where the incoming requests' next page starts; null once the last is
+  /// read.
+  String? _incomingNext;
+
+  /// Whether a page of incoming requests after those read is still to come.
+  bool get hasMoreIncoming => _incomingNext != null;
+
+  /// True while the next page of incoming requests is being read.
+  bool loadingMoreIncoming = false;
+
+  /// The lobby key's badge: how many requests wait for this player — all of
+  /// them, not only the page read.
   int incomingCount = 0;
 
   /// True once the page's lists have been read this session.
@@ -286,9 +311,14 @@ class FriendsState extends ChangeNotifier {
     _searchSeq++;
     _profileSeq++;
     friends = const [];
+    friendsTotal = 0;
+    _friendsNext = null;
+    loadingMoreFriends = false;
     incoming = const [];
     outgoing = const [];
     incomingCount = 0;
+    _incomingNext = null;
+    loadingMoreIncoming = false;
     loaded = false;
     loading = false;
     failed = false;
@@ -333,8 +363,9 @@ class FriendsState extends ChangeNotifier {
   // --------------------------------------------------------------- reading
 
   /// Reads the friend list and the requests again — the page's poll, its
-  /// pull and its Retry. One read at a time: a second call while one is out
-  /// waits for that one.
+  /// pull and its Retry — as far down as they had been read (a page of 20 at
+  /// least, of [ApiClient.maxPageSize] at most). One read at a time: a second
+  /// call while one is out waits for that one.
   Future<void> refresh() {
     final running = _refreshing;
     if (running != null && _refreshingAt == _edits) return running;
@@ -354,8 +385,8 @@ class FriendsState extends ChangeNotifier {
     _notify();
     try {
       final got = await Future.wait<Object>([
-        _api.friends(token),
-        _api.friendRequests(token),
+        _api.friends(token, limit: _window(friends.length)),
+        _api.friendRequests(token, limit: _window(incoming.length)),
       ]);
       // Signed out, or another account signed in, while it was asked.
       if (_token() != token) return;
@@ -365,10 +396,14 @@ class FriendsState extends ChangeNotifier {
       // for rather than letting it put the old ones back.
       if (_edits != edits) return;
       final requests = got[1] as FriendRequests;
-      friends = sortFriends(got[0] as List<FriendItem>);
+      final page = got[0] as ListPage<FriendItem>;
+      friends = sortFriends(page.items);
+      friendsTotal = page.total;
+      _friendsNext = page.next;
       incoming = requests.incoming;
       outgoing = requests.outgoing;
-      incomingCount = incoming.length;
+      incomingCount = requests.waiting;
+      _incomingNext = requests.nextIncoming;
       loaded = true;
       failed = false;
     } catch (e) {
@@ -400,7 +435,98 @@ class FriendsState extends ChangeNotifier {
   ///
   /// A server from before Friends answers `not_found`, and then there is no
   /// list, no mark and no drawer ([available]).
-  Future<void> tableOpened() => refresh();
+  ///
+  /// Every page is read here, not only the first: the marks are for every
+  /// friend and every waiting request, whoever sits down.
+  Future<void> tableOpened() async {
+    await refresh();
+    // A page read at a time, as the server gives them, until the last.
+    for (var pages = 0; pages < _tablePages && hasMoreFriends; pages++) {
+      if (!await loadMoreFriends(limit: ApiClient.maxPageSize)) break;
+    }
+    for (var pages = 0; pages < _tablePages && hasMoreIncoming; pages++) {
+      if (!await loadMoreIncoming(limit: ApiClient.maxPageSize)) break;
+    }
+  }
+
+  /// The most pages a table reads of each list: 50 pages of 100.
+  static const _tablePages = 50;
+
+  /// A re-read's page: as far as the list had been read, at least a page of
+  /// [ApiClient.pageSize], at most [ApiClient.maxPageSize].
+  static int _window(int loaded) =>
+      loaded.clamp(ApiClient.pageSize, ApiClient.maxPageSize);
+
+  /// Reads the next page of friends — the list scrolled near its end — and
+  /// adds it below those read, each friend once. True when a page was added;
+  /// false when there was none to read, a read was already out, or it failed
+  /// (the next scroll asks again).
+  Future<bool> loadMoreFriends({int? limit}) async {
+    final token = _token();
+    final cursor = _friendsNext;
+    if (token == null || cursor == null || loadingMoreFriends || loading) {
+      return false;
+    }
+    loadingMoreFriends = true;
+    _notify();
+    try {
+      final page = await _api.friends(token, cursor: cursor, limit: limit);
+      if (_token() != token) return false;
+      final have = {for (final f in friends) f.userId};
+      friends = [
+        ...friends,
+        for (final f in page.items)
+          if (!have.contains(f.userId)) f,
+      ];
+      friendsTotal = page.total;
+      _friendsNext = page.next;
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      if (_token() == token) {
+        loadingMoreFriends = false;
+        _notify();
+      }
+    }
+  }
+
+  /// Reads the next page of the requests waiting for this player, as
+  /// [loadMoreFriends] reads friends.
+  Future<bool> loadMoreIncoming({int? limit}) async {
+    final token = _token();
+    final cursor = _incomingNext;
+    if (token == null || cursor == null || loadingMoreIncoming || loading) {
+      return false;
+    }
+    loadingMoreIncoming = true;
+    _notify();
+    try {
+      final page = await _api.friendRequestBox(
+        token,
+        incoming: true,
+        cursor: cursor,
+        limit: limit,
+      );
+      if (_token() != token) return false;
+      final have = {for (final r in incoming) r.requestId};
+      incoming = [
+        ...incoming,
+        for (final r in page.items)
+          if (!have.contains(r.requestId)) r,
+      ];
+      incomingCount = page.total;
+      _incomingNext = page.next;
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      if (_token() == token) {
+        loadingMoreIncoming = false;
+        _notify();
+      }
+    }
+  }
 
   /// Reads the lobby key's count again: the requests waiting for this
   /// player. Quiet: a failure keeps the count it had.
@@ -426,7 +552,8 @@ class FriendsState extends ChangeNotifier {
       if (_edits != edits) return;
       incoming = requests.incoming;
       outgoing = requests.outgoing;
-      incomingCount = incoming.length;
+      incomingCount = requests.waiting;
+      _incomingNext = requests.nextIncoming;
       _notify();
     } catch (e) {
       if (_token() != token) return;
@@ -454,9 +581,10 @@ class FriendsState extends ChangeNotifier {
       _edits++;
       final asked = _requestById(requestId);
       final from = _userOfRequest(requestId);
-      _dropRequest(requestId);
+      _dropRequest(requestId, answered: true);
       final userId = friend.userId.isNotEmpty ? friend.userId : from ?? '';
       if (friend.userId.isNotEmpty) {
+        if (!isFriend(friend.userId)) friendsTotal++;
         friends = sortFriends([
           ...friends.where((f) => f.userId != friend.userId),
           friend,
@@ -494,7 +622,7 @@ class FriendsState extends ChangeNotifier {
       if (_token() != token) return false;
       _edits++;
       final from = _userOfRequest(requestId);
-      _dropRequest(requestId);
+      _dropRequest(requestId, answered: true);
       if (from != null) _noLongerPending(from);
       return true;
     } catch (e) {
@@ -519,7 +647,7 @@ class FriendsState extends ChangeNotifier {
       await _api.removeFriend(token, userId);
       if (_token() != token) return false;
       _edits++;
-      _dropFriend(userId);
+      _dropFriend(userId, ended: true);
       if (name.isNotEmpty) _tell(_strings().friendRemoved(name));
       return true;
     } catch (e) {
@@ -529,7 +657,7 @@ class FriendsState extends ChangeNotifier {
         // Already not friends — the other player ended it. Say so, and show
         // it: they are not on the list any more either way.
         _edits++;
-        _dropFriend(userId);
+        _dropFriend(userId, ended: true);
         unawaited(refresh());
       }
       _tell(friendsRefusalText(_strings(), code));
@@ -814,12 +942,15 @@ class FriendsState extends ChangeNotifier {
     // one: it is dropped when it lands, and the next read brings this too.
     _edits++;
     available = true;
+    final had = incoming.any(
+      (r) => r.requestId == request.requestId || r.player.userId == from,
+    );
     incoming = [
       request,
       for (final r in incoming)
         if (r.requestId != request.requestId && r.player.userId != from) r,
     ];
-    incomingCount = incoming.length;
+    if (!had) incomingCount++;
     _restate(from, FriendStatus.pendingReceived, requestId: request.requestId);
     if (seatPlayer?.userId == from) unawaited(_readSeat());
     if (_pageOpen) unawaited(refresh());
@@ -840,12 +971,17 @@ class FriendsState extends ChangeNotifier {
         if (r.requestId != accepted.requestId && r.player.userId != who) r,
     ];
     // Friends have nothing left to ask each other.
+    final before = incoming.length;
     incoming = [
       for (final r in incoming)
         if (r.player.userId != who) r,
     ];
-    incomingCount = incoming.length;
+    incomingCount = (incomingCount - (before - incoming.length)).clamp(
+      0,
+      incomingCount,
+    );
     if (!friends.any((f) => f.userId == who)) {
+      friendsTotal++;
       friends = sortFriends([
         ...friends,
         FriendItem(
@@ -911,13 +1047,25 @@ class FriendsState extends ChangeNotifier {
     unawaited(_readSeat(keepNote: true));
   }
 
-  void _dropRequest(String requestId) {
+  /// Request [requestId] is gone from the requests, and from the count —
+  /// by one when it was on a page read, and by one anyway when the server has
+  /// just [answered] it (accepted or rejected), wherever it was listed.
+  void _dropRequest(String requestId, {bool answered = false}) {
+    final before = incoming.length;
     incoming = incoming.where((r) => r.requestId != requestId).toList();
-    incomingCount = incoming.length;
+    if (before != incoming.length || answered) {
+      incomingCount = incomingCount > 0 ? incomingCount - 1 : 0;
+    }
   }
 
-  void _dropFriend(String userId) {
+  /// [userId] is no friend any more: gone from the pages read, and from the
+  /// count when they were on one or the friendship has just [ended].
+  void _dropFriend(String userId, {bool ended = false}) {
+    final before = friends.length;
     friends = friends.where((f) => f.userId != userId).toList();
+    if (before != friends.length || ended) {
+      friendsTotal = friendsTotal > 0 ? friendsTotal - 1 : 0;
+    }
     _restate(userId, FriendStatus.none);
   }
 

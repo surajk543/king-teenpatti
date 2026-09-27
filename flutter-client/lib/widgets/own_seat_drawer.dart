@@ -15,6 +15,7 @@ import 'avatar.dart';
 import 'edge_fade.dart';
 import 'friend_presence.dart';
 import 'glass_components.dart';
+import 'paged_scroll.dart';
 import 'own_record.dart';
 import 'player_profile.dart' show friendsGreen;
 import 'table_chrome.dart' show MenuRule;
@@ -293,54 +294,65 @@ class _FriendsTab extends StatelessWidget {
             text: t.noFriendsBody,
           );
         }
-        return EdgeFade(
-          child: ListView.separated(
-            key: const ValueKey('own-friends-list'),
-            padding: const EdgeInsets.fromLTRB(
-              Space.lg,
-              Space.sm,
-              Space.lg,
-              Space.lg,
-            ),
-            itemCount: list.length,
-            separatorBuilder: (_, _) => Divider(
-              height: Space.md,
-              thickness: Dim.hairline,
-              color: glass.cardBorder,
-            ),
-            itemBuilder: (context, i) {
-              final friend = list[i];
-              return Row(
-                key: ValueKey('own-friend:${friend.userId}'),
-                children: [
-                  Avatar(
-                    url: context.read<GameState>().absoluteUrl(
-                      friend.player.pictureUrl,
+        // The friends a page at a time, the next read as the list nears its
+        // end (PagedScroll), a spinner at the end while it is.
+        return PagedScroll(
+          hasMore: friends.hasMoreFriends,
+          loading: friends.loadingMoreFriends,
+          onMore: () => unawaited(friends.loadMoreFriends()),
+          builder: (context, controller) => EdgeFade(
+            child: ListView.separated(
+              key: const ValueKey('own-friends-list'),
+              controller: controller,
+              padding: const EdgeInsets.fromLTRB(
+                Space.lg,
+                Space.sm,
+                Space.lg,
+                Space.lg,
+              ),
+              itemCount: list.length + (friends.loadingMoreFriends ? 1 : 0),
+              separatorBuilder: (_, _) => Divider(
+                height: Space.md,
+                thickness: Dim.hairline,
+                color: glass.cardBorder,
+              ),
+              itemBuilder: (context, i) {
+                if (i == list.length) {
+                  return const PagedFooter(key: ValueKey('own-friends-more'));
+                }
+                final friend = list[i];
+                return Row(
+                  key: ValueKey('own-friend:${friend.userId}'),
+                  children: [
+                    Avatar(
+                      url: context.read<GameState>().absoluteUrl(
+                        friend.player.pictureUrl,
+                      ),
+                      fallback: friend.displayName,
+                      radius: 18,
+                      animate: true,
                     ),
-                    fallback: friend.displayName,
-                    radius: 18,
-                    animate: true,
-                  ),
-                  const SizedBox(width: Space.md),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          friend.displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTheme.label(theme.textTheme.titleSmall!),
-                        ),
-                        const SizedBox(height: Space.xxs),
-                        FriendPresenceLines(t: t, presence: friend.presence),
-                      ],
+                    const SizedBox(width: Space.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            friend.displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTheme.label(theme.textTheme.titleSmall!),
+                          ),
+                          const SizedBox(height: Space.xxs),
+                          FriendPresenceLines(t: t, presence: friend.presence),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              );
-            },
+                  ],
+                );
+              },
+            ),
           ),
         );
       },

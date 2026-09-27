@@ -555,26 +555,83 @@ class ApiClient {
     return PublicProfile.fromJson(_decodeFriends(r));
   }
 
-  /// The viewer's friends: `GET /api/friends`, each with where they are,
-  /// playing first, then online, then offline, by name.
-  Future<List<FriendItem>> friends(String token) async {
-    final r = await http.get(_uri('/api/friends'), headers: _headers(token));
+  /// A page's size when a caller names none (owner, 27 Sep 2026: "All apis
+  /// should be pagination and default page size is 20"), and the largest the
+  /// server gives.
+  static const int pageSize = 20;
+  static const int maxPageSize = 100;
+
+  /// `?limit` and `?cursor` for a paged route, [extra] beside them.
+  static Map<String, String> pageQuery({
+    int? limit,
+    String? cursor,
+    Map<String, String> extra = const {},
+  }) => {
+    ...extra,
+    'limit': '${(limit ?? pageSize).clamp(1, maxPageSize)}',
+    if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+  };
+
+  /// One page of the viewer's friends: `GET /api/friends?limit&cursor` —
+  /// each with where they are, playing first, then online, then offline, by
+  /// name; how many friends there are in all; the next page's cursor. A server
+  /// from before pagination answers the whole list as one page.
+  Future<ListPage<FriendItem>> friends(
+    String token, {
+    int? limit,
+    String? cursor,
+  }) async {
+    final r = await http.get(
+      _uri('/api/friends').replace(
+        queryParameters: pageQuery(limit: limit, cursor: cursor),
+      ),
+      headers: _headers(token),
+    );
     final j = _decodeFriends(r);
-    return (j['friends'] is List ? j['friends'] as List : const [])
+    final items = (j['friends'] is List ? j['friends'] as List : const [])
         .whereType<Map>()
         .map((e) => FriendItem.fromJson(Map<String, dynamic>.from(e)))
         .where((f) => f.userId.isNotEmpty)
         .toList();
+    return ListPage(
+      items: items,
+      total: pageCount(j['total']) ?? items.length,
+      next: pageCursor(j['nextCursor']),
+    );
   }
 
-  /// The viewer's pending requests, both ways: `GET /api/friends/requests`.
-  /// The incoming ones are what the lobby's Friends key counts.
-  Future<FriendRequests> friendRequests(String token) async {
+  /// The viewer's pending requests, both ways — the first page of each:
+  /// `GET /api/friends/requests?limit`. The incoming total is what the
+  /// lobby's Friends key counts.
+  Future<FriendRequests> friendRequests(String token, {int? limit}) async {
     final r = await http.get(
-      _uri('/api/friends/requests'),
+      _uri(
+        '/api/friends/requests',
+      ).replace(queryParameters: pageQuery(limit: limit)),
       headers: _headers(token),
     );
     return FriendRequests.fromJson(_decodeFriends(r));
+  }
+
+  /// The next page of one box of requests: `GET
+  /// /api/friends/requests?box=incoming|outgoing&cursor&limit`.
+  Future<ListPage<FriendRequestItem>> friendRequestBox(
+    String token, {
+    required bool incoming,
+    required String cursor,
+    int? limit,
+  }) async {
+    final r = await http.get(
+      _uri('/api/friends/requests').replace(
+        queryParameters: pageQuery(
+          limit: limit,
+          cursor: cursor,
+          extra: {'box': incoming ? 'incoming' : 'outgoing'},
+        ),
+      ),
+      headers: _headers(token),
+    );
+    return FriendRequests.boxFromJson(_decodeFriends(r));
   }
 
   /// Asks [userId] to be friends: `POST /api/friends/requests {userId}`,
@@ -712,20 +769,33 @@ class ApiClient {
     return ReportLimit.fromJson(j['limit'], receivedAt: receivedAt);
   }
 
-  /// The player's own reports, newest first: `GET /api/reports/mine` →
-  /// `{reports: [{player: {displayName, profilePicture, gone}, reason,
-  /// description, game, category, variant, status, createdAt, updatedAt}]}` —
-  /// never a user id. Null from a server that predates the list (404).
-  Future<List<FiledReport>?> myReports(String token) async {
+  /// One page of the player's own reports, newest first: `GET
+  /// /api/reports/mine?limit&cursor` → `{reports: [{player: {displayName,
+  /// profilePicture, gone}, reason, description, game, category, variant,
+  /// status, createdAt, updatedAt}], total, nextCursor}` — never a user id.
+  /// Null from a server that predates the list (404).
+  Future<ListPage<FiledReport>?> myReports(
+    String token, {
+    int? limit,
+    String? cursor,
+  }) async {
     final r = await http.get(
-      _uri('/api/reports/mine'),
+      _uri('/api/reports/mine').replace(
+        queryParameters: pageQuery(limit: limit, cursor: cursor),
+      ),
       headers: _headers(token),
     );
     if (r.statusCode == 404) return null;
     final j = _decode(r);
     final list = j['reports'];
-    if (list is! List) return const [];
-    return [for (final item in list) ?FiledReport.fromJson(item)];
+    final items = list is List
+        ? [for (final item in list) ?FiledReport.fromJson(item)]
+        : <FiledReport>[];
+    return ListPage(
+      items: items,
+      total: pageCount(j['total']) ?? items.length,
+      next: pageCursor(j['nextCursor']),
+    );
   }
 
   /// The player's standing against the report limit: `GET

@@ -19,6 +19,7 @@ import '../widgets/edge_fade.dart';
 import '../widgets/friend_presence.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
+import '../widgets/paged_scroll.dart';
 import '../widgets/player_profile.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/report_player.dart' show reportReasonLabel;
@@ -1009,7 +1010,7 @@ class _FriendsList extends StatelessWidget {
         final requests = <Widget>[
           _SectionHead(
             label: t.friendRequests,
-            count: f.incoming.length,
+            count: f.incomingCount,
             english: english,
           ),
           if (f.incoming.isEmpty)
@@ -1039,7 +1040,7 @@ class _FriendsList extends StatelessWidget {
         final friends = <Widget>[
           _SectionHead(
             label: t.friends,
-            count: f.friends.length,
+            count: f.friendsTotal,
             english: english,
           ),
           if (f.friends.isEmpty)
@@ -1058,9 +1059,16 @@ class _FriendsList extends StatelessWidget {
             ),
         ];
         if (!split) {
+          // One list: its end is the friends', so it reads more friends —
+          // and once they are all in, more requests.
           return _Scroll(
             listKey: const ValueKey('friends-list'),
             onRefresh: f.refresh,
+            onMore: f.hasMoreFriends
+                ? () => unawaited(f.loadMoreFriends())
+                : () => unawaited(f.loadMoreIncoming()),
+            hasMore: f.hasMoreFriends || f.hasMoreIncoming,
+            loadingMore: f.loadingMoreFriends || f.loadingMoreIncoming,
             children: [
               ...requests,
               const SizedBox(height: Space.lg),
@@ -1077,6 +1085,9 @@ class _FriendsList extends StatelessWidget {
               child: _Scroll(
                 listKey: const ValueKey('friends-requests'),
                 onRefresh: f.refresh,
+                onMore: () => unawaited(f.loadMoreIncoming()),
+                hasMore: f.hasMoreIncoming,
+                loadingMore: f.loadingMoreIncoming,
                 children: requests,
               ),
             ),
@@ -1085,6 +1096,9 @@ class _FriendsList extends StatelessWidget {
               child: _Scroll(
                 listKey: const ValueKey('friends-list'),
                 onRefresh: f.refresh,
+                onMore: () => unawaited(f.loadMoreFriends()),
+                hasMore: f.hasMoreFriends,
+                loadingMore: f.loadingMoreFriends,
                 children: friends,
               ),
             ),
@@ -1151,10 +1165,13 @@ class _ReportedListState extends State<_ReportedList> {
         return _Scroll(
           listKey: const ValueKey('reported-list'),
           onRefresh: _reports.loadMine,
+          onMore: () => unawaited(_reports.loadMoreMine()),
+          hasMore: _reports.mineHasMore,
+          loadingMore: _reports.mineLoadingMore,
           children: [
             _SectionHead(
               label: t.myReportsTitle,
-              count: reports.length,
+              count: list == null ? 0 : _reports.mineTotal,
               english: t.lang == AppLang.english,
             ),
             if (reports.isEmpty)
@@ -1439,28 +1456,47 @@ class ReportStatusTag extends StatelessWidget {
 }
 
 /// One scrolling column of the page: pulled down, it reads the lists again;
-/// faded at an edge while there is more beyond it.
+/// faded at an edge while there is more beyond it; and, over a list the
+/// server pages, it reads the next page as it nears its end ([PagedScroll]),
+/// a spinner at the end while it does.
 class _Scroll extends StatelessWidget {
   const _Scroll({
     required this.listKey,
     required this.onRefresh,
     required this.children,
+    this.onMore,
+    this.hasMore = false,
+    this.loadingMore = false,
   });
 
   final Key listKey;
   final Future<void> Function() onRefresh;
   final List<Widget> children;
 
+  /// Reads the next page; null for a list that is not paged.
+  final VoidCallback? onMore;
+  final bool hasMore;
+  final bool loadingMore;
+
   @override
-  Widget build(BuildContext context) => RefreshIndicator(
-    onRefresh: onRefresh,
-    child: EdgeFade(
-      extent: Space.lg,
-      child: ListView(
-        key: listKey,
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.only(bottom: Space.md),
-        children: children,
+  Widget build(BuildContext context) => PagedScroll(
+    hasMore: onMore != null && hasMore,
+    loading: loadingMore,
+    onMore: () => onMore?.call(),
+    builder: (context, controller) => RefreshIndicator(
+      onRefresh: onRefresh,
+      child: EdgeFade(
+        extent: Space.lg,
+        child: ListView(
+          key: listKey,
+          controller: controller,
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(bottom: Space.md),
+          children: [
+            ...children,
+            if (loadingMore) const PagedFooter(key: ValueKey('paged-more')),
+          ],
+        ),
       ),
     ),
   );

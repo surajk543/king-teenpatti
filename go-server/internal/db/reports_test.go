@@ -477,8 +477,9 @@ func TestTheReporterListsTheirOwnReportsNewestFirst(t *testing.T) {
 	alice, bob, carla, dev := f.user("Alice"), f.user("Bob"), f.user("Carla"), f.user("Dev")
 	noLimit := db.ReportLimits{}
 
-	if list, err := reports.Filed(f.ctx, alice.ID, 0); err != nil || list == nil || len(list) != 0 {
-		t.Fatalf("nothing filed: %v %v", list, err)
+	if page, err := reports.Filed(f.ctx, alice.ID, 20, nil); err != nil || page.Reports == nil ||
+		len(page.Reports) != 0 || page.Total != 0 || page.Next != nil {
+		t.Fatalf("nothing filed: %+v %v", page, err)
 	}
 	first := clock.Now()
 	if _, err := reports.Submit(f.ctx, db.PlayerReport{ReporterID: alice.ID, ReportedID: bob.ID, Reason: "CHEATING",
@@ -510,13 +511,14 @@ func TestTheReporterListsTheirOwnReportsNewestFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	list, err := reports.Filed(f.ctx, alice.ID, 0)
+	page, err := reports.Filed(f.ctx, alice.ID, 20, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 3 {
-		t.Fatalf("%d reports listed, want Alice's 3", len(list))
+	if len(page.Reports) != 3 || page.Total != 3 || page.Next != nil {
+		t.Fatalf("%d reports listed (total %d, next %v), want Alice's 3 on one page", len(page.Reports), page.Total, page.Next)
 	}
+	list := page.Reports
 	newest, middle, oldest := list[0], list[1], list[2]
 	if !newest.ReportedGone || newest.Reported.DisplayName != "" || newest.Reported.PictureURL != nil ||
 		newest.Reason != "SPAM" || newest.Category != "blind" || newest.Status != db.ReportPending {
@@ -531,13 +533,20 @@ func TestTheReporterListsTheirOwnReportsNewestFirst(t *testing.T) {
 		oldest.Variant != "" || oldest.CreatedAt != first.UnixMilli() || oldest.UpdatedAt != first.UnixMilli()+5 {
 		t.Fatalf("oldest (Bob, under review): %+v", oldest)
 	}
-	// The limit keeps the newest.
-	if two, err := reports.Filed(f.ctx, alice.ID, 2); err != nil || len(two) != 2 || two[0].Reason != "SPAM" ||
-		two[1].Reason != "OTHER" {
+	// A page of two keeps the newest two and says where the rest starts;
+	// the next page from there is the oldest, and the last.
+	two, err := reports.Filed(f.ctx, alice.ID, 2, nil)
+	if err != nil || len(two.Reports) != 2 || two.Reports[0].Reason != "SPAM" || two.Reports[1].Reason != "OTHER" ||
+		two.Total != 3 || two.Next == nil || two.Next.ID != two.Reports[1].ID || two.Next.At != two.Reports[1].CreatedAt {
 		t.Fatalf("the newest two: %+v %v", two, err)
 	}
-	if theirs, err := reports.Filed(f.ctx, bob.ID, 0); err != nil || len(theirs) != 1 ||
-		theirs[0].Reported.DisplayName != "Alice" {
+	rest, err := reports.Filed(f.ctx, alice.ID, 2, two.Next)
+	if err != nil || len(rest.Reports) != 1 || rest.Reports[0].Reported.DisplayName != "Bob" || rest.Next != nil ||
+		rest.Total != 3 {
+		t.Fatalf("the page after: %+v %v", rest, err)
+	}
+	if theirs, err := reports.Filed(f.ctx, bob.ID, 20, nil); err != nil || len(theirs.Reports) != 1 ||
+		theirs.Reports[0].Reported.DisplayName != "Alice" {
 		t.Fatalf("Bob's own: %+v %v", theirs, err)
 	}
 }

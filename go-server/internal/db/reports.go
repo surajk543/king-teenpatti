@@ -332,6 +332,10 @@ func lockReportAccounts(ctx context.Context, tx pgx.Tx, a, b string) (map[string
 // use and never reaches the wire), why, what they wrote, where they met, how
 // moderation has it, and when. Table and hand ids are not read at all.
 type FiledReport struct {
+	// ID is the report's own id, for the page's keyset (Keyset) and nothing
+	// else: the REST layer never puts it on the wire but inside the opaque
+	// cursor.
+	ID       int64
 	Reported FriendPlayer
 	// ReportedGone is true when the reported account has been deleted since
 	// (pseudonymised: no name, no picture).
@@ -346,40 +350,51 @@ type FiledReport struct {
 	UpdatedAt    int64
 }
 
-// MaxFiledReportsListed is the most reports Filed lists: the newest. At two a
-// day (REPORT_MAX_PER_REPORTER) that is more than a month and a half of them.
-const MaxFiledReportsListed = 100
+// FiledPage is one page of a reporter's own reports, newest first: the
+// reports, how many they have filed in all, and where the next page starts
+// (nil on the last page).
+type FiledPage struct {
+	Reports []FiledReport
+	Total   int
+	Next    *Keyset
+}
 
-// Filed is reporterID's own reports, newest first (created_at, then id, both
-// descending), at most limit of them (≤ 0 or over MaxFiledReportsListed:
-// MaxFiledReportsListed). A read of the reporter's own rows, off the
+// Filed is one page of reporterID's own reports, newest first (created_at,
+// then id, both descending), at most limit of them, after [after] (nil: from
+// the newest). A read of the reporter's own rows, off the
 // (reporter_user_id, created_at) index; a report about an account deleted
-// since is listed with ReportedGone set.
-func (r *Reports) Filed(ctx context.Context, reporterID string, limit int) ([]FiledReport, error) {
-	if limit <= 0 || limit > MaxFiledReportsListed {
-		limit = MaxFiledReportsListed
+// since is listed with ReportedGone set. Reports is never nil.
+func (r *Reports) Filed(ctx context.Context, reporterID string, limit int, after *Keyset) (FiledPage, error) {
+	var total int
+	if err := r.db.Pool.QueryRow(ctx,
+		`SELECT count(*) FROM player_reports WHERE reporter_user_id = $1`, reporterID).Scan(&total); err != nil {
+		return FiledPage{}, err
+	}
+	at, id := int64(1<<62), int64(1<<62)
+	if after != nil {
+		at, id = after.At, after.ID
 	}
 	rows, err := r.db.Pool.Query(ctx,
-		`SELECT `+friendPlayerColumns+`, u.deleted_at <> 0,
+		`SELECT `+friendPlayerColumns+`, u.deleted_at <> 0, pr.id,
 		        pr.reason, COALESCE(pr.description, ''), pr.game, pr.category,
 		        COALESCE(pr.variant, ''), pr.status, pr.created_at, pr.updated_at
 		   FROM player_reports pr
 		   JOIN users u ON u.id = pr.reported_user_id`+friendPictureJoin+`
-		  WHERE pr.reporter_user_id = $1
+		  WHERE pr.reporter_user_id = $1 AND (pr.created_at, pr.id) < ($2, $3)
 		  ORDER BY pr.created_at DESC, pr.id DESC
-		  LIMIT $2`,
-		reporterID, limit)
+		  LIMIT $4`,
+		reporterID, at, id, pageEnd(limit))
 	if err != nil {
-		return nil, err
+		return FiledPage{}, err
 	}
 	defer rows.Close()
-	out := []FiledReport{}
+	page := FiledPage{Reports: []FiledReport{}, Total: total}
 	for rows.Next() {
 		var f FiledReport
-		p, err := scanFriendPlayer(rows, &f.ReportedGone, &f.Reason, &f.Description, &f.Game,
+		p, err := scanFriendPlayer(rows, &f.ReportedGone, &f.ID, &f.Reason, &f.Description, &f.Game,
 			&f.Category, &f.Variant, &f.Status, &f.CreatedAt, &f.UpdatedAt)
 		if err != nil {
-			return nil, err
+			return FiledPage{}, err
 		}
 		f.Reported = p
 		if f.ReportedGone {
@@ -387,7 +402,15 @@ func (r *Reports) Filed(ctx context.Context, reporterID string, limit int) ([]Fi
 			f.Reported.PictureID = nil
 			f.Reported.PictureURL = nil
 		}
-		out = append(out, f)
+		page.Reports = append(page.Reports, f)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return FiledPage{}, err
+	}
+	if len(page.Reports) > limit {
+		page.Reports = page.Reports[:limit]
+		last := page.Reports[limit-1]
+		page.Next = &Keyset{At: last.CreatedAt, ID: last.ID}
+	}
+	return page, nil
 }

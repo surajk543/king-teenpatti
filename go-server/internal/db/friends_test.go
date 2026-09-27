@@ -521,3 +521,62 @@ func TestDeletingAnAccountClearsItsFriendshipsAndCancelsItsRequests(t *testing.T
 	}
 	f.reconcile()
 }
+
+// Pagination (owner, 27 Sep 2026: "All apis should be pagination and default
+// page size is 20"): each box of pending requests comes a page at a time,
+// newest first, with its total and where the next page starts; the pages
+// together are the box, once each.
+func TestPendingRequestsComeAPageAtATimeNewestFirst(t *testing.T) {
+	f := newFixture(t)
+	me := f.user("Mira")
+	var senders []string
+	for i := range 25 {
+		u := f.user(fmt.Sprintf("Sender%02d", i))
+		f.mustSend(u.ID, me.ID)
+		senders = append(senders, u.ID)
+	}
+	outTo := f.user("Target")
+	f.mustSend(me.ID, outTo.ID)
+
+	first, err := f.friends().PendingPage(f.ctx, me.ID, true, 20, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Requests) != 20 || first.Total != 25 || first.Next == nil {
+		t.Fatalf("the first page: %d requests, total %d, next %v", len(first.Requests), first.Total, first.Next)
+	}
+	rest, err := f.friends().PendingPage(f.ctx, me.ID, true, 20, first.Next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rest.Requests) != 5 || rest.Total != 25 || rest.Next != nil {
+		t.Fatalf("the second page: %d requests, total %d, next %v", len(rest.Requests), rest.Total, rest.Next)
+	}
+	seen := map[string]bool{}
+	all := append(first.Requests, rest.Requests...)
+	for i, r := range all {
+		if seen[r.Player.UserID] {
+			t.Fatalf("%s listed twice", r.Player.DisplayName)
+		}
+		seen[r.Player.UserID] = true
+		if i > 0 && (r.CreatedAt > all[i-1].CreatedAt || (r.CreatedAt == all[i-1].CreatedAt && r.ID > all[i-1].ID)) {
+			t.Fatalf("not newest first at %d", i)
+		}
+	}
+	if len(seen) != len(senders) {
+		t.Fatalf("%d senders across the pages, want %d", len(seen), len(senders))
+	}
+	// The other box is its own.
+	out, err := f.friends().PendingPage(f.ctx, me.ID, false, 20, nil)
+	if err != nil || len(out.Requests) != 1 || out.Total != 1 || out.Next != nil ||
+		out.Requests[0].Player.UserID != outTo.ID {
+		t.Fatalf("outgoing: %+v %v", out, err)
+	}
+	// A request answered since leaves the box and its count.
+	if err := f.friends().Reject(f.ctx, me.ID, all[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := f.friends().PendingPage(f.ctx, me.ID, true, 20, nil); err != nil || again.Total != 24 {
+		t.Fatalf("after a reject: total %d %v", again.Total, err)
+	}
+}

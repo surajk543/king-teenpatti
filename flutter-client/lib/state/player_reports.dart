@@ -102,15 +102,31 @@ class PlayerReports extends ChangeNotifier {
   int _seq = 0;
   bool _disposed = false;
 
-  /// The player's own reports, newest first, as `GET /api/reports/mine` last
-  /// listed them (the Friends page's Reported tab); null before the first
-  /// read, and from a server that predates the list.
+  /// The player's own reports, newest first, as far as they have been read
+  /// (`GET /api/reports/mine`, a page at a time — the Friends page's
+  /// Reported tab); null before the first read, and from a server that
+  /// predates the list.
   List<FiledReport>? get mine => _mine;
   List<FiledReport>? _mine;
 
-  /// True while the list is being read.
+  /// How many reports the player has filed in all (the tab's count).
+  int get mineTotal => _mineTotal;
+  int _mineTotal = 0;
+
+  /// Where the next page starts; null once the last has been read.
+  String? _mineNext;
+
+  /// Whether a page after those read is still to come.
+  bool get mineHasMore => _mineNext != null;
+
+  /// True while the list is being read from its first page.
   bool get mineLoading => _mineLoading;
   bool _mineLoading = false;
+
+  /// True while the next page is being read (as the list is scrolled to its
+  /// end).
+  bool get mineLoadingMore => _mineLoadingMore;
+  bool _mineLoadingMore = false;
 
   /// True when the last read of the list failed (and none has since
   /// succeeded); what was listed before stays on screen.
@@ -123,19 +139,23 @@ class PlayerReports extends ChangeNotifier {
   bool _mineRead = false;
   int _mineSeq = 0;
 
-  /// Reads the player's own reports (the Reported tab opening, a pull, a
-  /// retry). One read at a time; an answer for an account signed out since is
-  /// dropped.
+  /// Reads the player's own reports from the first page (the Reported tab
+  /// opening, a pull, a retry). One read at a time; an answer for an account
+  /// signed out since is dropped, and a page read further down is dropped
+  /// with it.
   Future<void> loadMine() async {
     final token = _token();
     if (token == null || _mineLoading) return;
-    final seq = _mineSeq;
+    final seq = ++_mineSeq;
     _mineLoading = true;
+    _mineLoadingMore = false;
     _notify();
     try {
-      final list = await _api.myReports(token).timeout(timeout);
+      final page = await _api.myReports(token).timeout(timeout);
       if (seq != _mineSeq || _disposed) return;
-      _mine = list == null ? null : FiledReport.newestFirst(list);
+      _mine = page == null ? null : FiledReport.newestFirst(page.items);
+      _mineTotal = page?.total ?? 0;
+      _mineNext = page?.next;
       _mineFailed = false;
       _mineRead = true;
     } catch (_) {
@@ -144,6 +164,36 @@ class PlayerReports extends ChangeNotifier {
     } finally {
       if (seq == _mineSeq) {
         _mineLoading = false;
+        _notify();
+      }
+    }
+  }
+
+  /// Reads the next page of the player's reports — the list scrolled near
+  /// its end — and adds it below those read. Nothing while a read is out or
+  /// when the last page is in; a failure leaves the list as it was, to be
+  /// tried again at the next scroll.
+  Future<void> loadMoreMine() async {
+    final token = _token();
+    final cursor = _mineNext;
+    if (token == null || cursor == null || _mineLoading || _mineLoadingMore) {
+      return;
+    }
+    final seq = _mineSeq;
+    _mineLoadingMore = true;
+    _notify();
+    try {
+      final page = await _api.myReports(token, cursor: cursor).timeout(timeout);
+      if (seq != _mineSeq || _disposed || page == null) return;
+      final have = _mine ?? const <FiledReport>[];
+      _mine = FiledReport.newestFirst([...have, ...page.items]);
+      _mineTotal = page.total;
+      _mineNext = page.next;
+    } catch (_) {
+      // The next scroll asks again.
+    } finally {
+      if (seq == _mineSeq) {
+        _mineLoadingMore = false;
         _notify();
       }
     }
@@ -352,7 +402,10 @@ class PlayerReports extends ChangeNotifier {
     _limitTimer = null;
     _mineSeq++;
     _mine = null;
+    _mineTotal = 0;
+    _mineNext = null;
     _mineLoading = false;
+    _mineLoadingMore = false;
     _mineFailed = false;
     _mineRead = false;
     close();

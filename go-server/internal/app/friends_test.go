@@ -180,10 +180,10 @@ func TestTheEightFriendsRoutesAnswerTheContract(t *testing.T) {
 	status, raw = b.call(t, ts.URL, tokB, http.MethodGet, "/api/friends/requests", "")
 	mustStatus(t, "B's requests", status, http.StatusOK, raw)
 	sentAt := int64(jsonField(t, raw, "incoming").([]any)[0].(map[string]any)["createdAt"].(float64))
-	mustBody(t, "B's requests", raw, fmt.Sprintf(`{"incoming":[{"requestId":%d,"player":{"userId":"%s","displayName":"Alice","profilePicture":{"id":null,"url":null}},"createdAt":%d}],"outgoing":[]}`, requestAB, idA, sentAt))
+	mustBody(t, "B's requests", raw, fmt.Sprintf(`{"incoming":[{"requestId":%d,"player":{"userId":"%s","displayName":"Alice","profilePicture":{"id":null,"url":null}},"createdAt":%d}],"outgoing":[],"incomingTotal":1,"outgoingTotal":0,"nextIncoming":null,"nextOutgoing":null}`, requestAB, idA, sentAt))
 	t.Logf("GET /api/friends/requests (recipient): %s", raw)
 	status, raw = b.call(t, ts.URL, tokA, http.MethodGet, "/api/friends/requests", "")
-	mustBody(t, "A's requests", raw, fmt.Sprintf(`{"incoming":[],"outgoing":[{"requestId":%d,"player":{"userId":"%s","displayName":"Bobby","profilePicture":{"id":null,"url":null}},"createdAt":%d}]}`, requestAB, idB, sentAt))
+	mustBody(t, "A's requests", raw, fmt.Sprintf(`{"incoming":[],"outgoing":[{"requestId":%d,"player":{"userId":"%s","displayName":"Bobby","profilePicture":{"id":null,"url":null}},"createdAt":%d}],"incomingTotal":0,"outgoingTotal":1,"nextIncoming":null,"nextOutgoing":null}`, requestAB, idB, sentAt))
 	t.Logf("GET /api/friends/requests (sender): %s", raw)
 
 	// ---- 6. POST /api/friends/requests/{requestId}/accept
@@ -231,10 +231,10 @@ func TestTheEightFriendsRoutesAnswerTheContract(t *testing.T) {
 	// ---- 3. GET /api/friends
 	status, raw = b.call(t, ts.URL, tokA, http.MethodGet, "/api/friends", "")
 	mustStatus(t, "A's friends", status, http.StatusOK, raw)
-	mustBody(t, "A's friends", raw, fmt.Sprintf(`{"friends":[{"userId":"%s","displayName":"Bobby","profilePicture":{"id":null,"url":null},"status":"OFFLINE","online":false,"playing":false,"friendsSince":%d}]}`, idB, since))
+	mustBody(t, "A's friends", raw, fmt.Sprintf(`{"friends":[{"userId":"%s","displayName":"Bobby","profilePicture":{"id":null,"url":null},"status":"OFFLINE","online":false,"playing":false,"friendsSince":%d}],"total":1,"nextCursor":null}`, idB, since))
 	t.Logf("GET /api/friends: %s", raw)
 	status, raw = b.call(t, ts.URL, tokC, http.MethodGet, "/api/friends", "")
-	mustBody(t, "no friends", raw, `{"friends":[]}`)
+	mustBody(t, "no friends", raw, `{"friends":[],"total":0,"nextCursor":null}`)
 
 	// ---- 2. GET /api/players/{playerId}/profile
 	// A hand's statistics first (Player stats v2: a row per bucket): B wins one
@@ -298,7 +298,7 @@ func TestTheEightFriendsRoutesAnswerTheContract(t *testing.T) {
 		t.Fatalf("%d friendship rows survive the removal (%v)", rows, err)
 	}
 	status, raw = b.call(t, ts.URL, tokB, http.MethodGet, "/api/friends", "")
-	mustBody(t, "B's friends after", raw, `{"friends":[]}`)
+	mustBody(t, "B's friends after", raw, `{"friends":[],"total":0,"nextCursor":null}`)
 
 	// Wrong methods answer the JSON 404; the wildcard never matches an empty id.
 	status, raw = friendsCall(t, ts.URL, tokA, http.MethodPut, "/api/friends/requests", "")

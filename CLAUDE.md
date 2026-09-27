@@ -1114,7 +1114,24 @@ production because `ROOT_REDIRECT` hides only top-level files, §7.4), linked fr
 **`https://sungamestudio.com/account-deletion/`**, which serve `go-server/public/privacy/` and `account-deletion/` byte for
 byte; `prod.sungamestudio.com` answers 404 for both;
 `GET /api/rooms` (no client; **signed-in only, and no `code`/`pot` per table since 24 Sep 2026** — it handed anyone every live
-table's join code and pot; `app.RoomListing`);
+table's join code and pot; `app.RoomListing`; paged since 27 Sep 2026, `{tables, total, nextCursor, options}`, below);
+**Pagination** (owner, 27 Sep 2026: "All apis should be pagination and default page size is 20" — "make sure that reported user
+should be fetched using pagination, and same with friend list, as user scroll, then it will fetch more pagination";
+`auth/pagination.go`). Every route that lists what grows with a player — `GET /api/friends`, `GET /api/friends/requests`, `GET
+/api/reports/mine`, and `GET /api/rooms` — answers one page: `?limit=N` (**20 when absent**, `auth.DefaultPageSize`; at most 100,
+`MaxPageSize`, a larger one read as 100; at least 1) and `?cursor=C` (the previous page's `nextCursor`, opaque base64url), and the
+body carries `total` (all of them) and `nextCursor` (null on the last page). A limit that is not a whole number ≥ 1, or a
+cursor the route did not write, is **400 `invalid_page`** "That page does not exist." Two kinds of cursor: an OFFSET into an
+order the server makes itself (`OffsetCursor` — the friends, sorted by presence from the live store, which no query can page,
+so the whole list is read, sorted and cut, `PageBounds`; the live tables) and a KEYSET `(created_at, id)` for a newest-first
+table (`db.Keyset`, `(created_at, id) < (at, id)`, one row over the limit to know if another page follows — the requests and the
+reports: a row added at the top while the player scrolls neither repeats one nor hides one). The requests' first answer is
+both boxes' first pages with `incomingTotal`/`outgoingTotal`/`nextIncoming`/`nextOutgoing`; the next page of a box is
+`?box=incoming|outgoing&cursor=…` → `{requests, total, nextCursor}` (a cursor with no box, or an unknown box, is
+`invalid_page`). The catalogues — `/api/profiles`, `/api/emojis`, `/api/table-pictures`, `/api/levels`, `/api/tables` — are
+fixed sets the app needs whole and stay one answer. An installed app from before reads only the first page of each (20).
+`internal/auth/pagination_test.go`, `internal/db/friends_test.go` (`TestPendingRequestsComeAPageAtATimeNewestFirst`),
+`internal/db/reports_test.go`, `internal/app/pagination_test.go` (25 requests, friends and reports, 20 then 5, every refusal);
 **`GET /api/tables`** (Go only, 23 Sep 2026; `app/tableconfig.go` `tablesHandler`) — **the table catalogue this
 process enforces**, served from memory (`RoomManager.TableConfig()`, never a fresh database read, which could show a
 client an edit the process does not play by until its next start). **Public**: no token, since the app fetches it
@@ -1225,9 +1242,9 @@ stats {handsPlayed, handsWon, handsLost, handsLeft, winRate, categories {teenPat
 record since Player stats v2 — counts, the hands held and the variations played, never a chip figure) — `presence` ONLY for
 FRIENDS or SELF; `winRate` =
 round(100·won/played, 2), 0 with no hands; no total winnings or biggest pot (chip figures); **`GET /api/friends`** →
-`{friends: [PlayerCard + {status, online, playing, game?, variant?, friendsSince}]}`, PLAYING then ONLINE then OFFLINE,
-then name; **`GET /api/friends/requests`** → `{incoming, outgoing}` of `{requestId, player, createdAt}`, PENDING only,
-newest first; **`POST /api/friends/requests {userId}`** → 201 `{requestId, friendStatus: PENDING_SENT}`; **`POST
+`{friends: [PlayerCard + {status, online, playing, game?, variant?, friendsSince}], total, nextCursor}` — one page (Pagination,
+above), PLAYING then ONLINE then OFFLINE, then name; **`GET /api/friends/requests`** → `{incoming, outgoing}` of `{requestId,
+player, createdAt}` (a page of each, with their totals and next cursors), PENDING only, newest first; **`POST /api/friends/requests {userId}`** → 201 `{requestId, friendStatus: PENDING_SENT}`; **`POST
 /api/friends/requests/{requestId}/accept`** → `{friend}` and **`/reject`** → `{requestId, status: REJECTED}`; **`DELETE
 /api/friends/{friendUserId}`** → `{removed: true}`. Refusals: 400 `invalid_player_id`, 404 `player_not_found` (unknown,
 deleted or disabled), 400 `self_request`, 409 `already_friends`, 409 `request_already_sent`, 409 `request_already_received`
@@ -1277,7 +1294,7 @@ limiter). The same `limit` rides on the 201 (absent if the read failed — the r
 players he reported in detail status, description, time he reported but don't show the reported user id, by default it will
 sorted in latest reported user") → `{reports:[{player:{displayName, profilePicture:{id, url}, gone}, reason, description, game,
 category, variant, status, createdAt, updatedAt}]}` — the caller's own reports, newest first (`created_at DESC, id DESC`, off
-the reporter index), the newest `db.MaxFiledReportsListed` (100); `db.Reports.Filed` resolves the name and picture as Friends
+the reporter index), a page at a time (`total`, `nextCursor` — Pagination, above; keyset); `db.Reports.Filed` resolves the name and picture as Friends
 does and blanks both for an account deleted since (`gone`); NO user id, report id, table or hand
 (`TestTheReporterListsTheirOwnReportsAndNoIDOfAnybody`); signed in, a read of the caller's rows alone. REST, as Friends at the table is: a persistent
 account action made from the table's player drawer, allowed while seated, and never through the table's actor — **a report
@@ -2260,6 +2277,15 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   table too), every 60 s while the lobby shows (not while the page is open) and when the page closes; the page's lists when it
   opens, every 15 s while it is on screen (the timer tied to the page's own lifetime) and on pull or Retry; an answer that set
   out before an accept, reject or remove is dropped so it cannot undo it; the page closes itself if the app leaves the lobby.
+  **The lists are paged** (owner, 27 Sep 2026, the server's Pagination, §7.2): the friends and the requests waiting come 20 at a
+  time and the next page as a list is scrolled within 240dp of its end — or at once when a page does not fill the view —
+  with a spinner at the end meanwhile (`widgets/paged_scroll.dart` `PagedScroll`/`PagedFooter`; `FriendsState.loadMoreFriends`,
+  `loadMoreIncoming`, `hasMore…`, `loadingMore…`); the section counts and the lobby key's badge are the TOTALS (`friendsTotal`,
+  `incomingCount`), kept by every accept, reject, removal and push, not the rows read; a poll or a pull re-reads as far down as
+  the player had scrolled (a page of that many, at most 100). **A table reads every page** (`tableOpened`, 100 a page), since
+  the friend mark and the request badge are for whoever sits down. The Reported tab and the viewer's own drawer's Friends tab
+  page the same way (`PlayerReports.loadMoreMine`). `test/paging_test.dart` (a fake server that really pages: 45 friends, 26
+  requests, 25 reports, 230 friends at a table; the scroll, the spinner, the fill rule, the totals).
   56 strings in five languages. Tests: `friends_{dtos,api,state,page,table}_test.dart` (204) on `friends_fixture.dart`, a fake
   server built from the contract; pictures by hand, `test/friends_shots.dart`.
 - **Report Player** (owner's brief, 27 Sep 2026; server side §7.2/§7.3; `widgets/report_player.dart`,

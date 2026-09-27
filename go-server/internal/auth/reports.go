@@ -94,7 +94,7 @@ const (
 type ReportStore interface {
 	Submit(ctx context.Context, report db.PlayerReport, limits db.ReportLimits) (int64, error)
 	Quota(ctx context.Context, reporterID string, limits db.ReportLimits) (db.ReportQuota, error)
-	Filed(ctx context.Context, reporterID string, limit int) ([]db.FiledReport, error)
+	Filed(ctx context.Context, reporterID string, limit int, after *db.Keyset) (db.FiledPage, error)
 }
 
 // ReportPlayerBody ← POST /api/reports {reportedUserId, reason, description}:
@@ -407,23 +407,37 @@ type FiledReportView struct {
 	UpdatedAt   int64          `json:"updatedAt"`
 }
 
-// MyReportsAnswer ← GET /api/reports/mine.
+// MyReportsAnswer ← GET /api/reports/mine: one page (pagination.go), how
+// many reports the caller has filed in all, and the next page's cursor, null
+// on the last.
 type MyReportsAnswer struct {
-	Reports []FiledReportView `json:"reports"`
+	Reports    []FiledReportView `json:"reports"`
+	Total      int               `json:"total"`
+	NextCursor *string           `json:"nextCursor"`
 }
 
-// MyReports is GET /api/reports/mine: the caller's own reports, newest first,
-// the newest db.MaxFiledReportsListed of them. Signed in; it reads the
-// caller's own rows and nothing else. 500 internal_error when the database
-// fails.
+// MyReports is GET /api/reports/mine?limit&cursor: one page of the caller's
+// own reports, newest first (20 by default). Signed in; it reads the caller's
+// own rows and nothing else. 400 invalid_page for a page this route did not
+// write; 500 internal_error when the database fails.
 func (h *Handler) MyReports(w http.ResponseWriter, r *http.Request, user *db.User) {
-	filed, err := h.deps.Reports.Filed(r.Context(), user.ID, db.MaxFiledReportsListed)
+	page, ok := ReadPage(r)
+	after, okCursor := readKeysetCursor(page.Cursor)
+	if !ok || !okCursor {
+		RefusePage(w)
+		return
+	}
+	got, err := h.deps.Reports.Filed(r.Context(), user.ID, page.Limit, after)
 	if err != nil {
 		h.writeError(w, r, err)
 		return
 	}
-	out := MyReportsAnswer{Reports: make([]FiledReportView, 0, len(filed))}
-	for _, f := range filed {
+	out := MyReportsAnswer{
+		Reports:    make([]FiledReportView, 0, len(got.Reports)),
+		Total:      got.Total,
+		NextCursor: nextKeyset(got.Next),
+	}
+	for _, f := range got.Reports {
 		out.Reports = append(out.Reports, FiledReportView{
 			Player: ReportedPlayer{
 				DisplayName:    f.Reported.DisplayName,

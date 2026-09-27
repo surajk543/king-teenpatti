@@ -266,10 +266,30 @@ class FriendAccepted {
 
 /// Every pending request of the viewer's, both ways, newest first.
 class FriendRequests {
-  const FriendRequests({this.incoming = const [], this.outgoing = const []});
+  const FriendRequests({
+    this.incoming = const [],
+    this.outgoing = const [],
+    this.incomingTotal,
+    this.outgoingTotal,
+    this.nextIncoming,
+    this.nextOutgoing,
+  });
 
+  /// The first page of each box, newest first.
   final List<FriendRequestItem> incoming;
   final List<FriendRequestItem> outgoing;
+
+  /// How many there are in each box in all — a server from before
+  /// pagination sends none, and then the page is the whole box.
+  final int? incomingTotal;
+  final int? outgoingTotal;
+
+  /// Where each box's next page starts (`?box=…&cursor=…`), null on its last.
+  final String? nextIncoming;
+  final String? nextOutgoing;
+
+  /// How many requests wait for this player.
+  int get waiting => incomingTotal ?? incoming.length;
 
   static List<FriendRequestItem> _read(Object? raw) => raw is List
       ? raw
@@ -282,11 +302,44 @@ class FriendRequests {
             .toList()
       : const [];
 
+  /// A box's page (`?box=…`): `{requests, total, nextCursor}`.
+  static ListPage<FriendRequestItem> boxFromJson(Map<String, dynamic> j) {
+    final items = _read(j['requests']);
+    return ListPage(
+      items: items,
+      total: _count(j['total']) ?? items.length,
+      next: _cursor(j['nextCursor']),
+    );
+  }
+
   factory FriendRequests.fromJson(Map<String, dynamic> j) => FriendRequests(
     incoming: _read(j['incoming']),
     outgoing: _read(j['outgoing']),
+    incomingTotal: _count(j['incomingTotal']),
+    outgoingTotal: _count(j['outgoingTotal']),
+    nextIncoming: _cursor(j['nextIncoming']),
+    nextOutgoing: _cursor(j['nextOutgoing']),
   );
 }
+
+/// One page of a list the server pages (owner, 27 Sep 2026: "All apis should
+/// be pagination and default page size is 20"): its items, how many there
+/// are in all, and the cursor of the page after it (null on the last).
+class ListPage<T> {
+  const ListPage({required this.items, required this.total, this.next});
+
+  final List<T> items;
+  final int total;
+  final String? next;
+}
+
+int? _count(Object? v) => v is num && v.isFinite && v >= 0 ? v.toInt() : null;
+
+String? _cursor(Object? v) => v is String && v.isNotEmpty ? v : null;
+
+/// A page's figures off the wire, for the page readers beyond this file.
+int? pageCount(Object? v) => _count(v);
+String? pageCursor(Object? v) => _cursor(v);
 
 /// A player found by their Player ID (`GET /api/players/{playerId}`): their
 /// card and what they are to the viewer — with the request's id while one is

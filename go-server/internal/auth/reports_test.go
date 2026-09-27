@@ -39,14 +39,21 @@ type fakeReports struct {
 	filedErr  error
 	listed    []string // Filed's reporters, in order
 	listLimit int
+	listAfter *db.Keyset
+	filedMore int        // reports beyond the page, for the total
+	filedNext *db.Keyset // the page's next keyset
 }
 
-func (f *fakeReports) Filed(_ context.Context, reporterID string, limit int) ([]db.FiledReport, error) {
+func (f *fakeReports) Filed(_ context.Context, reporterID string, limit int, after *db.Keyset) (db.FiledPage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.listed = append(f.listed, reporterID)
 	f.listLimit = limit
-	return f.filedList, f.filedErr
+	f.listAfter = after
+	if f.filedErr != nil {
+		return db.FiledPage{}, f.filedErr
+	}
+	return db.FiledPage{Reports: f.filedList, Total: len(f.filedList) + f.filedMore, Next: f.filedNext}, nil
 }
 
 func (f *fakeReports) Quota(_ context.Context, reporterID string, limits db.ReportLimits) (db.ReportQuota, error) {
@@ -448,10 +455,10 @@ func TestTheReporterListsTheirOwnReportsAndNoIDOfAnybody(t *testing.T) {
 
 	// Nothing filed: an empty list, never null.
 	res := rh.do(http.MethodGet, "/api/reports/mine", nil, bearer(tokA)...)
-	if res.status != http.StatusOK || string(res.raw) != `{"reports":[]}` {
+	if res.status != http.StatusOK || string(res.raw) != `{"reports":[],"total":0,"nextCursor":null}` {
 		t.Fatalf("nothing filed: %d %s", res.status, res.raw)
 	}
-	if rh.reports.listed[0] != alice["id"] || rh.reports.listLimit != db.MaxFiledReportsListed {
+	if rh.reports.listed[0] != alice["id"] || rh.reports.listLimit != DefaultPageSize || rh.reports.listAfter != nil {
 		t.Fatalf("listed for %v, limit %d", rh.reports.listed, rh.reports.listLimit)
 	}
 

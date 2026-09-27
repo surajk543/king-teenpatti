@@ -122,9 +122,50 @@ void main() {
     );
     expect(sent.method, 'GET');
     expect(sent.url.path, '/api/friends');
+    // A page of 20, the default (owner, 27 Sep 2026: "All apis should be
+    // pagination and default page size is 20"); no cursor on the first.
+    expect(sent.url.queryParameters, {'limit': '20'});
     expect(sent.headers['Authorization'], 'Bearer tok');
-    expect(friends.map((f) => f.userId), ['u-meera', 'u-kavya']);
-    expect(friends.first.presence.variant, 'OMAHA');
+    expect(friends.items.map((f) => f.userId), ['u-meera', 'u-kavya']);
+    expect(friends.items.first.presence.variant, 'OMAHA');
+    // A server from before pagination: the page is the whole list.
+    expect(friends.total, 2);
+    expect(friends.next, isNull);
+  });
+
+  test('GET /api/friends reads a page: its total and the next cursor, '
+      'and asks for the page after with it', () async {
+    final (sent, page) = await _ask(
+      (api) => api.friends('tok', cursor: 'bzoyMA', limit: 150),
+      _ok({
+        'friends': [friendJson('u-kavya', 'Kavya')],
+        'total': 45,
+        'nextCursor': 'bzoyMQ',
+      }),
+    );
+    expect(sent.url.queryParameters, {'limit': '100', 'cursor': 'bzoyMA'});
+    expect(page.items.single.userId, 'u-kavya');
+    expect(page.total, 45);
+    expect(page.next, 'bzoyMQ');
+  });
+
+  test('GET /api/friends/requests?box reads a page of one box', () async {
+    final (sent, page) = await _ask(
+      (api) => api.friendRequestBox('tok', incoming: true, cursor: 'azox'),
+      _ok({
+        'requests': [requestJson(41, 'u-ravi', 'Ravi')],
+        'total': 21,
+        'nextCursor': null,
+      }),
+    );
+    expect(sent.url.queryParameters, {
+      'box': 'incoming',
+      'limit': '20',
+      'cursor': 'azox',
+    });
+    expect(page.items.single.requestId, '41');
+    expect(page.total, 21);
+    expect(page.next, isNull);
   });
 
   test('GET /api/friends/requests reads both ways', () async {
