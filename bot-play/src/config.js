@@ -80,16 +80,24 @@ export const config = {
   onlineMax: num('online-max', 25),
 
   /**
-   * The lobby's tables (LOBBY_TABLES on the server). A bot belongs to one of
-   * these, and `hop` is what moves it to another.
+   * The lobby tables the fleet staffs — the owner's choice, a subset of what
+   * the server offers. A bot belongs to one of these, and `hop` is what moves
+   * it to another.
+   *
+   * The server has the last word (menu.js): an entry its menu (GET
+   * /api/tables, or a session's config.tables) does not list is not staffed,
+   * with one log line saying so, and each entry's stack band comes from that
+   * menu too. Nothing is ever added from the menu: a table the server offers
+   * but this list leaves out stays unstaffed.
    *
    * `pool` and `online` override the fleet-wide defaults for that entry.
    * Variation (owner, 22 Sep 2026) is deliberately smaller: its boot is
-   * 50,000, so a fresh bot sits down with six boots rather than the 1,500 a
-   * 200 table gives it, and a bot that busts is replaced by a NEW account
-   * carrying a new welcome bonus (config.onBroke). Fewer seats there means
-   * less of the fleet exposed to that, and richer bots reach it by hopping
-   * (bot.hop only offers a table the bot can actually afford).
+   * 50,000, so a fresh bot sits down with twenty boots of its 10 Lakh welcome
+   * rather than the 5,000 a 200 table gives it, and a bot that busts is
+   * replaced by a NEW account carrying a new welcome bonus (config.onBroke).
+   * Fewer seats there means less of the fleet exposed to that, and richer
+   * bots reach it by hopping (bot.hop only offers a table the bot can
+   * actually afford, and whose band admits it).
    */
   categories: [
     { category: 'seen', boot: 200 },
@@ -103,8 +111,11 @@ export const config = {
    *
    * Used by `hop` and by the too-rich-for-this-table fallback, so a bot never
    * moves somewhere it can only play a hand or two. The server refuses below
-   * one boot; this is the bot's own judgement on top, and it is what keeps
-   * the 200-boot regulars out of the 50,000 variation table.
+   * one boot; this is the bot's own judgement on top, and it is what keeps a
+   * bot whose stack has thinned below four Lakh (8 × 50,000) out of the
+   * 50,000 variation table. A table's stack band is checked beside it
+   * (menu.js), since the server refuses a stack outside the band whatever
+   * the boots say.
    */
   bootsToSit: num('boots-to-sit', 8),
 
@@ -152,7 +163,8 @@ export const config = {
    *
    * "rotate" gives that bot a fresh guest identity, which the server greets
    * with WELCOME_CHIPS. That keeps the fleet at full strength and CREATES
-   * CHIPS: every rotation adds 200,000 to the economy out of nothing. The
+   * CHIPS: every rotation adds WELCOME_CHIPS — 10 Lakh (1,000,000) today — to
+   * the economy out of nothing. The
    * running total is logged on every rotation precisely so that inflation is
    * something you watch rather than something that happens to you.
    */
@@ -179,5 +191,3 @@ export const onlineRangeFor = (table) => {
   const min = Math.max(1, Math.min(lo, hi, pool));
   return [min, Math.max(min, Math.min(Math.max(lo, hi), pool))];
 };
-
-export const totalBots = config.categories.reduce((sum, table) => sum + poolFor(table), 0);

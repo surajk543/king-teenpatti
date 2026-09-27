@@ -1,17 +1,18 @@
 /**
  * The resident bot fleet.
  *
- *   npm start                        # 66 per category = 198 bots, ~75–95% online at once
+ *   npm start                        # 243 bots, 20–25 seated at each lobby table (12–18 at variation)
  *   npm start -- --per-category 10   # a smaller fleet for a local server
  *   npm run dev                      # six per category, for a laptop
- *   npm test                         # the decision, ranking, persona and chat rules
+ *   npm test                         # the decision, ranking, persona, chat and table-menu rules
  *
  * Bots exist so a real player who opens the lobby finds a game in progress
  * rather than three empty tables. They speak only the public protocol.
  */
 import { Bot } from './bot.js';
-import { config, onlineRangeFor, poolFor, totalBots } from './config.js';
+import { config, onlineRangeFor, poolFor } from './config.js';
 import { Fleet } from './fleet.js';
+import { TableMenu } from './menu.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -44,14 +45,29 @@ async function waitForServer() {
   }
 }
 
+/**
+ * Menu changes are logged whatever --quiet says: a lobby entry the fleet stops
+ * (or starts again) staffing is exactly what someone reading the journal
+ * needs to see.
+ */
+const announce = (message) => console.log(`${new Date().toISOString()} ${message}`);
+
 const health = await waitForServer();
 console.log(
   `bot-play → ${config.serverUrl} (server up ${Math.round(health.uptime)}s, ` +
     `${health.players} players, ${health.tables} tables)`,
 );
+
+// Staff only what the server offers, and learn each table's stack band. The
+// configured list stays the owner's choice; the menu can only take entries out
+// of it. If the read fails, the first session:ready a bot receives supplies
+// the menu instead, and until then every configured entry is staffed as before.
+const menu = new TableMenu({ entries: config.categories, log: announce });
+await menu.load(config.serverUrl);
+const staffed = menu.offered();
 console.log(
-  `fleet of ${totalBots} bots: ` +
-    config.categories
+  `fleet of ${staffed.reduce((sum, table) => sum + poolFor(table), 0)} bots: ` +
+    staffed
       .map((c) => {
         const [lo, hi] = onlineRangeFor(c);
         return `${c.category}/${c.boot} ${poolFor(c)} (${lo}-${hi} seated)`;
@@ -62,15 +78,20 @@ console.log(
       : `; sittings of ~${config.sessionHands} hands, ~${config.restMinutes}m away between them`),
 );
 
+// Every configured entry gets its bots, offered or not, so a bot's index — and
+// with it its account, name, persona and face — never depends on what the
+// server offers today. The fleet brings online only the bots of entries the
+// menu offers (Fleet.tick); the rest stay resting, and come back if a later
+// menu lists their table again.
 const bots = [];
 let index = 0;
 for (const table of config.categories) {
   for (let n = 0; n < poolFor(table); n += 1) {
-    bots.push(new Bot({ index: index++, table, log }));
+    bots.push(new Bot({ index: index++, table, log, menu }));
   }
 }
 
-const fleet = new Fleet({ bots, log });
+const fleet = new Fleet({ bots, log, menu });
 await fleet.start();
 console.log(`${fleet.summary()} — the rest are resting and will drift in.`);
 

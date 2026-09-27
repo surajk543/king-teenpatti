@@ -5,18 +5,26 @@
  * every day, is a lobby of programs. People arrive, play a while, get up, and
  * come back later — so the faces at a table change through an evening.
  *
- * Each category's bots are a pool. At any moment only a share of the pool is
- * online, and that share drifts between --online-min and --online-max percent.
+ * Each category's bots are a pool. At any moment only some of the pool is
+ * online, a count that drifts between --online-min and --online-max bots.
  * A bot plays a sitting (persona.sessionHands), gets up and rests
  * (persona.restMs); the fleet brings a rested bot back when its category is
- * below the share it currently wants, and asks one to get up after its hand
+ * below the count it currently wants, and asks one to get up after its hand
  * when it is above. One change per category per tick, so arrivals and
  * departures trickle rather than arriving in waves.
+ *
+ * Only entries the server's menu offers are staffed (menu.js). An entry the
+ * menu leaves out wants nobody: its bots rest; any still seated are asked to
+ * get up after their hand, one a tick, the way the fleet thins any table (and
+ * under --steady too, which otherwise never thins); and one on its way to a
+ * seat ends its sitting instead of sitting somewhere else (Bot.join). If a
+ * later menu lists the entry again, its bots drift back in.
  *
  * The pool is the same fixed identities as before — no new accounts, so no
  * welcome bonuses minted by coming and going.
  */
 import { config, onlineRangeFor } from './config.js';
+import { TableMenu } from './menu.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const pick = (items) => items[Math.floor(Math.random() * items.length)];
@@ -28,11 +36,15 @@ const shuffle = (items) => {
   }
   return copy;
 };
+/** The fleet's key for a home entry's group of bots (and its target). */
+const groupKey = (table) => `${table.category}/${table.boot}`;
 
 export class Fleet {
-  constructor({ bots, log }) {
+  constructor({ bots, log, menu }) {
     this.bots = bots;
     this.log = log;
+    /** What the server offers; with none given, every configured entry is. */
+    this.menu = menu ?? new TableMenu({ entries: config.categories });
     this.targets = new Map(); // category key → bots wanted online
     this.timer = null;
     this.stopped = false;
@@ -43,7 +55,7 @@ export class Fleet {
   groups() {
     const byHome = new Map();
     for (const bot of this.bots) {
-      const key = `${bot.home.category}/${bot.home.boot}`;
+      const key = groupKey(bot.home);
       if (!byHome.has(key)) byHome.set(key, []);
       byHome.get(key).push(bot);
     }
@@ -62,6 +74,7 @@ export class Fleet {
    * rather than aspirational.
    */
   wantedOnline(table, size) {
+    if (!this.menu.isOffered(table)) return 0;
     if (config.steady) return size;
     const [lo, hi] = onlineRangeFor(table);
     return Math.min(size, lo + Math.floor(Math.random() * (hi - lo + 1)));
@@ -84,6 +97,14 @@ export class Fleet {
     // Interleave the categories so no stake fills long before the others.
     for (const bot of shuffle(opening)) {
       if (this.stopped) return;
+      // The menu can arrive only now — from an earlier bot's session:ready,
+      // when GET /api/tables could not be read — and leave this bot's entry
+      // out. Then it stays resting rather than logging in only to get straight
+      // back up (Bot.join), and its entry wants nobody until a menu lists it.
+      if (!this.menu.isOffered(bot.home)) {
+        this.targets.set(groupKey(bot.home), 0);
+        continue;
+      }
       try {
         await bot.start();
       } catch (e) {
@@ -108,11 +129,25 @@ export class Fleet {
     if (this.stopped) return;
     const now = Date.now();
     for (const [key, group] of this.groups()) {
-      if (!config.steady && Math.random() < 0.25) {
-        this.targets.set(key, this.wantedOnline(group[0].home, group.length));
-      }
-      const target = this.targets.get(key) ?? group.length;
+      const home = group[0].home;
       const online = group.filter((b) => b.online && !b.stopped);
+      if (!this.menu.isOffered(home)) {
+        // Off the menu: nobody wanted, and whoever is still online goes home
+        // after their hand — one a tick, like any thinning, not all at once.
+        this.targets.set(key, 0);
+        const staying = online.filter((b) => !b.wrappingUp && !b.leaving);
+        if (staying.length) {
+          pick(staying).wrapUp();
+          this.departures += 1;
+        }
+        continue;
+      }
+      // A target of 0 is an entry that was off the menu and is back: want
+      // bots for it now rather than on some later tick's redraw.
+      if (!this.targets.get(key) || (!config.steady && Math.random() < 0.25)) {
+        this.targets.set(key, this.wantedOnline(home, group.length));
+      }
+      const target = this.targets.get(key);
 
       if (online.length < target) {
         const rested = group.filter((b) => !b.online && !b.stopped && !b.leaving && b.restUntil <= now);
