@@ -501,6 +501,21 @@ class _BackGuard extends StatelessWidget {
         final state = context.read<GameState>();
         final t = state.t;
 
+        // Back in the lobby is a lobby key like the tile at the head of the
+        // rail, and clicks as it does (owner, 27 Sep 2026: "This Card
+        // click.mp3 sound should be played when i click back button"): once
+        // per press, whatever it does — closing the Stats or Settings drawer,
+        // going up a level, or asking to quit. Not while the no-winnings
+        // panel covers the lobby, nor while a cold start's resume veil does
+        // (the player sees the veil, not the lobby), and never at the table
+        // or the sign-in screen. A dialog, sheet or page over the lobby takes
+        // Back itself and never reaches here.
+        if (screen == Screen.lobby &&
+            !state.consentPending &&
+            !state.resuming) {
+          lobbyClick(context);
+        }
+
         // An open drawer — chat, menu, settings, stats — closes first. Back
         // only reaches the leave-or-quit question when nothing is over the
         // screen; otherwise a player closing the chat is asked to leave.

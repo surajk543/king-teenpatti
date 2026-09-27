@@ -1231,7 +1231,10 @@ class LevelKey extends StatelessWidget {
       child: Semantics(
         button: true,
         label: '${t.yourLevelTitle}: $name',
-        onTap: () => showLevelInfo(context),
+        onTap: () {
+          lobbyClick(context);
+          showLevelInfo(context);
+        },
         excludeSemantics: true,
         child: Tooltip(
           message: name,
@@ -1248,6 +1251,8 @@ class LevelKey extends StatelessWidget {
                   key: const ValueKey('level-key'),
                   surface: GlassSurface.card,
                   minHeight: side,
+                  // The lobby's click (owner, 27 Sep 2026).
+                  click: true,
                   onTap: () => showLevelInfo(context),
                   padding: const EdgeInsets.all((side - 28) / 2),
                   child: Container(

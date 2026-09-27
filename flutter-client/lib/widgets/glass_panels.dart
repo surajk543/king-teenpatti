@@ -22,6 +22,7 @@ import 'premium_surface.dart';
 import 'package:provider/provider.dart';
 
 import '../settings/feedback_settings.dart';
+import 'glass_components.dart' show lobbyClick;
 
 /// A drawer that floats over the screen instead of butting against its edge.
 ///
@@ -210,6 +211,7 @@ class GlassCapsule extends StatelessWidget {
     this.onTap,
     this.minHeight,
     this.surface = GlassSurface.pane,
+    this.click = false,
   });
 
   final Widget child;
@@ -232,22 +234,32 @@ class GlassCapsule extends StatelessWidget {
   /// sizes to its content.
   final double? minHeight;
 
+  /// A lobby key (the corner chips, the level and Friends keys): the tap plays
+  /// [lobbyClick] in place of Material's platform tick, so it is heard once.
+  final bool click;
+
   @override
   Widget build(BuildContext context) {
     // The panel is given no padding of its own so the ink response covers the
     // whole capsule rather than just the text inside it.
     Widget body = Padding(padding: padding, child: child);
 
-    if (onTap != null) {
+    final tap = onTap;
+    if (tap != null) {
+      final sound = context.select<FeedbackSettings, bool>((f) => f.sound);
       body = Material(
         type: MaterialType.transparency,
         child: InkWell(
           // Material's own click, gated on the player's Sound switch —
-          // otherwise a silenced game would still tick on every tap.
-          enableFeedback: context.select<FeedbackSettings, bool>(
-            (f) => f.sound,
-          ),
-          onTap: onTap,
+          // otherwise a silenced game would still tick on every tap — unless
+          // the owner's lobby click takes its place.
+          enableFeedback: sound && !click,
+          onTap: click
+              ? () {
+                  lobbyClick(context);
+                  tap();
+                }
+              : tap,
           borderRadius: BorderRadius.circular(radius),
           child: body,
         ),

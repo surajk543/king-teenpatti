@@ -101,6 +101,20 @@ class FeedbackSettings extends ChangeNotifier {
     int voice = 0,
   }) async {
     if (!_sound) return;
+    await playClip(asset, volume: volume, voice: voice);
+  }
+
+  /// Plays [asset] on its [voice] — the one place a clip reaches the audio
+  /// plugin, and only once the Sound switch has let it through. A test
+  /// overrides it to hear which clips the app asks for, with the switch
+  /// still deciding, where no audio plugin runs.
+  @protected
+  @visibleForTesting
+  Future<void> playClip(
+    String asset, {
+    required double volume,
+    required int voice,
+  }) async {
     try {
       final player = _voices.putIfAbsent(
         voice == 0 ? asset : '$asset#$voice',
