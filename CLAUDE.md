@@ -861,10 +861,54 @@ and column below is in `V1.0.0__baseline.sql`'s CREATE TABLEs and every row in `
   and their padding — the felt reserves exactly that, so it moves nothing; owner, 27 Sep 2026: "increase the badge icon size which
   is shown in game table"; a line tall before), scaled with the words where the slot is narrow; tapped, the **two-pane** popup (standing, rate, level, XP, next level, badges and the daily
   list on the left; all 50 levels with their rates, the viewer's lit, then the badges on the right — the owner: "restore that
-  UI, only change was in Lobby"). The lobby's **level key** (`LevelKey`, beside Friends, the level number on it) opens the same
-  content in **three tabs** — My level · Daily XP · All levels (`showLevelInfo`). Lobby cards carry the rate pill; the table info
+  UI, only change was in Lobby"; since 27 Sep 2026 it only takes the level screen's round close key, its countdowns, its badges'
+  time left and its daily ticks following the clock by themselves (`LevelClock`), and "Winning Tax" capitalised). The lobby's **level key** (`LevelKey`, beside Friends, the level number on it) opens
+  the **level screen** (`widgets/level_screen.dart` `LevelScreen`, polished 27 Sep 2026 — UI only; `showLevelInfo` →
+  `WinningTaxInfo(fromLobby: true)` → `LevelScreen`) in **three tabs**, `LevelTabs`: a glyph and a word each, the active one gold,
+  the others muted, over a hairline with a gold underline that SLIDES to the tab tapped (`levelTabSlide` 220 ms, ease-out, no
+  bounce) while the content cross-fades and slides 3.5% the same way; title, tabs and a round glass close key (`LevelCloseKey`, a
+  34dp disc in a 44dp target) share one line from 560dp of content, two lines below. **My level**: a hero (`LevelHero`) — the
+  level's mark in a struck-gold medal with its number (`LevelEmblem`), "Level 10" over the title (MAX LEVEL at Level 50), and at
+  the right **Winning Tax**, the rate the account pays (`myTaxBps ?? paysTaxBps`, `formatTaxRate`) and what sets it — following the
+  clock (`standingAt`): a badge that runs out while the screen is open stops setting it the moment its card says Expired (the same
+  lowest-rate rule over the badges still running) and the account is read again (`refreshUser`) for the server's own figure; the XP card
+  (`LevelXpCard`) — "23 / 100 XP" (XP against the next level's threshold) and "77 XP to 🔰 Rookie", a bar from this level's
+  threshold that fills ONCE (`LevelBar`, a `TweenAnimationBuilder`; it waits for the ladder, which says where the level starts),
+  "Next: Level 2 · 🔰 Rookie · 100 XP · 19.71% tax"; the badges as cards (`HeldBadgeCard`: the Lottie 44dp, an "Active" tag,
+  "0% Winning Tax", Lifetime / days and hours left ("29d 14h left", `grantOf`, however long the grant — never an end date) /
+  "Expires in 5h 9m" in amber within a day / "Expired", dimmed, for a grant that runs out while the screen is open —
+  there is no badge history, so that is the only Expired it can show — and "Sets your rate" on the one that does); a player with
+  Regular alone gets `RoyalBadgeHint` — its rate the catalogue's lowest (`royalRateOf`, "…down to 0%"), shown once the catalogue
+  is read — with a "See badges" key to the store's Badges shelf; then "How Winning Tax works", a line
+  each: only the winner pays, on net winnings; net winnings = the pot − your own chips; the floor; higher levels pay less; a badge
+  can lower it; the lowest rate applies. **Daily
+  XP**: `DailySummary` — "Earned today 24 / 108 XP" (each source's XP × its claims in the running window, or `today.xp` where a
+  cap is set; `DailyClaims`) over a bar, the reset counting down ("Resets in 23h 45m 19s", `ResetsIn`) or, before the day's first
+  hand, "Your day starts with your next hand." — and a window that ends while the tab is open turns to that at once, its ticks
+  cleared (the tab's body is a `LevelClock<bool>` on the window); **Daily XP Complete** only when every source's claims reach its `times`; the
+  play-time milestones as a TRACK (`PlayTrack`: 15 · 60 · 120 min, each rung reached ticked in the scheme's green with its +XP,
+  the track green as far as the last one — completion green, progress gold) under the line "Each milestone gives its XP once a day as your active play reaches it, and they add up" — the server grants
+  EVERY rung the window's play has reached (`xpRules.played` → `AwardPlayTime`: 73 XP at 120 minutes), so the screen never says
+  "the highest milestone only"; the winning hands as tiles (`HandSourceTile`; only `WIN_HAND` sources — a kind the build has no heading for goes under "More
+  ways to earn XP"). **All levels**: a fixed head — the first column's name (Level, or Badges once their own heading has scrolled
+  under it), an outlined capsule key beside it down to the badges (↑ back to the viewer's rung once there), Tax at the right —
+  the 50 rungs (`LevelRow`: the number on a disc — solid gold for the viewer's, tinted for a rung passed — the mark at ONE size in a
+  42dp slot (two emoji fit whole), title, threshold, "You" / "Next", the rate), scrolled to the viewer's, then the catalogue
+  (`CatalogueBadgeRow`: Lottie, "Everyone · Lifetime · Free" / "Lasts 15 days · ₹999"; a Royal badge on a struck-gold ring with a
+  faint gold edge and "Available", or "Yours" and the time left where the viewer holds it) and "Badges are held beside your level;
+  XP never earns one." Solid tags ("You", "Yours", MAX LEVEL) are struck gold (`AppTheme.goldFace`) under charcoal in both themes;
+  the quiet ink is a step firmer by night (`levelQuietInk`); tabs and close keep their tap for a screen reader. The screen
+  `select`s `levelViewOf` — the account compared by `levelSignatureOf`, so a fresh copy of the same account rebuilds nothing —
+  instead of watching GameState (which notifies every second): only `LevelClock` pieces — a countdown, a grant's words, the hero's
+  rate, the daily window — follow the clock, so the tick never rebuilds a Lottie or refills a bar. 33 strings in all five languages. `test/level_screen_test.dart` (levels 1/2/10/25/50, the figures, the
+  badges, the daily states, the milestones, long names in English, Hindi and Bengali, the sliding underline, the tick — rebuilds
+  recorded with `debugOnRebuildDirtyWidget` on every tab —, a grant and a daily window running out while open (the hero, the ticks,
+  the table popup too), a screen reader pressing each tab and Close, no badges at all, the ladder's heads, the table popup's two
+  panes, and every tab
+  at 592x360–1280x800 ×1.0/×1.25 in all five languages and both themes); pictures by hand, `test/level_shots.dart` (fixtures in
+  `test/level_fixtures.dart`). Lobby cards carry the rate pill; the table info
   says "No tax on winnings under 50 Lakh."; the store's last shelf is **Badges** (`StoreTab.badges`): each listed badge's Lottie,
-  name, "0% winning tax", validity, and its price on the key — the key opening Play for a Play badge, else the support popup
+  name, "0% Winning Tax", validity, and its price on the key — the key opening Play for a Play badge, else the support popup
   (address to copy, a `mailto:` key). Every string in all five languages.
 - **Also on this branch** (owner, 27 Sep 2026): a new account starts with **10 Lakh chips**, 20 hammers and 1 missile
   (`WELCOME_CHIPS` 1000000); **Blind 200 is open up to 20 Lakh** (`ENTRY_CAP_MAX_CHIPS` 2000000), **Blind 5,000 up to 20 Crore**

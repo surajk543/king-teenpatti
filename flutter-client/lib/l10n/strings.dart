@@ -323,9 +323,9 @@ class Strings {
   /// The unlock question for a table picture, with the price written out by
   /// [priceIn] and, for a rental, its term by [rentalTerm].
   String get unlockTableTitle => _('unlockTableTitle');
-  String unlockTableBody(String name, String price) => _('unlockTableBody')
-      .replaceAll('{name}', name)
-      .replaceAll('{price}', price);
+  String unlockTableBody(String name, String price) => _(
+    'unlockTableBody',
+  ).replaceAll('{name}', name).replaceAll('{price}', price);
   String unlockTableRentBody(String name, String price, String time) =>
       _('unlockTableRentBody')
           .replaceAll('{name}', name)
@@ -355,9 +355,9 @@ class Strings {
   /// The unlock question for an emoji, with the price written out by
   /// [priceIn] and, for a rental, its term by [rentalTerm].
   String get unlockEmojiTitle => _('unlockEmojiTitle');
-  String unlockEmojiBody(String name, String price) => _('unlockEmojiBody')
-      .replaceAll('{name}', name)
-      .replaceAll('{price}', price);
+  String unlockEmojiBody(String name, String price) => _(
+    'unlockEmojiBody',
+  ).replaceAll('{name}', name).replaceAll('{price}', price);
   String unlockEmojiRentBody(String name, String price, String time) =>
       _('unlockEmojiRentBody')
           .replaceAll('{name}', name)
@@ -381,9 +381,8 @@ class Strings {
   String get emojiNoneOwned => _('emojiNoneOwned');
 
   /// What a screen reader says for an emoji line in the chat.
-  String emojiSentBy(String name, String emoji) => _(
-    'emojiSentBy',
-  ).replaceAll('{name}', name).replaceAll('{emoji}', emoji);
+  String emojiSentBy(String name, String emoji) =>
+      _('emojiSentBy').replaceAll('{name}', name).replaceAll('{emoji}', emoji);
 
   /// The server's emoji refusals, by code.
   String get emojiLockedRefusal => _('emojiLockedRefusal');
@@ -405,7 +404,9 @@ class Strings {
     'DIAMOND' =>
       cost == '1'
           ? _('priceDiamondOne')
-          : _('priceDiamonds').replaceAll('{cost}', cost).replaceAll('{s}', 's'),
+          : _(
+              'priceDiamonds',
+            ).replaceAll('{cost}', cost).replaceAll('{s}', 's'),
     _ => _('priceChips').replaceAll('{cost}', cost),
   };
   String get storeTabDiamonds => _('storeTabDiamonds');
@@ -726,6 +727,90 @@ class Strings {
   ).replaceFirst('{cap}', '$cap').replaceFirst('{time}', timeHours(hours));
   String get xpNeverExpires => _('xpNeverExpires');
 
+  // --- the level screen (the lobby's level key, polished 27 Sep 2026).
+
+  /// A level by its number alone: "Level 10".
+  String levelNumber(int n) => _('levelNumber').replaceFirst('{n}', '$n');
+
+  /// XP against a goal, "23 / 100 XP", and what is left to the next level:
+  /// "77 XP to 🔰 Rookie". Figures arrive formatted.
+  String xpOf(String xp, String max) =>
+      _('xpOf').replaceFirst('{xp}', xp).replaceFirst('{max}', max);
+  String xpToNext(String xp, String title) =>
+      _('xpToNext').replaceFirst('{xp}', xp).replaceFirst('{title}', title);
+
+  /// The next level, the XP that reaches it and its rate: "Next: Level 2 ·
+  /// 🔰 Rookie · 100 XP · 19.71% tax".
+  String levelNextLine(String level, String xp, String rate) =>
+      _('levelNextLine')
+          .replaceFirst('{level}', level)
+          .replaceFirst('{xp}', xp)
+          .replaceFirst('{rate}', rate);
+
+  /// How the tax works, a line each: only the winner pays, on net winnings;
+  /// what net winnings are; and that a badge can lower it further.
+  String get taxNoteWinner => _('taxNoteWinner');
+  String get taxNoteNet => _('taxNoteNet');
+  String get taxNoteBadge => _('taxNoteBadge');
+
+  /// A held badge whose grant is running.
+  String get badgeActive => _('badgeActive');
+
+  /// The top of the ladder, on the level's hero.
+  String get levelMax => _('levelMax');
+
+  /// The heading over the sentences that say how the tax works.
+  String get levelHowTax => _('levelHowTax');
+
+  /// A badge the viewer holds: the one that sets their rate, one about to run
+  /// out ("Expires in 5 hours"), one that has run out while the screen was
+  /// open, and — in the catalogue — one that is theirs.
+  String get badgeSetsRate => _('badgeSetsRate');
+  String badgeExpiresIn(String time) =>
+      _('badgeExpiresIn').replaceFirst('{time}', time);
+  String get badgeExpired => _('badgeExpired');
+  String get badgeYours => _('badgeYours');
+
+  /// Under a player who holds only Regular: what the Royal badges do, and the
+  /// key to the store's Badges shelf.
+  String badgeRoyalHint(String rate) =>
+      _('badgeRoyalHint').replaceFirst('{rate}', rate);
+  String get badgeSeeStore => _('badgeSeeStore');
+
+  /// Under the badge catalogue: a badge is never an XP goal.
+  String get badgesBesideLevel => _('badgesBesideLevel');
+
+  /// The daily XP's summary: what today's window has earned, the whole day
+  /// earned, when it resets (capitalised, on its own), and a day not yet
+  /// begun.
+  String get xpEarnedToday => _('xpEarnedToday');
+  String get xpDailyComplete => _('xpDailyComplete');
+  String get xpDailyCompleteNote => _('xpDailyCompleteNote');
+  String xpResetsInCap(String time) =>
+      _('xpResetsInCap').replaceFirst('{time}', time);
+  String get xpWindowIdle => _('xpWindowIdle');
+
+  /// The two groups of daily XP: the play-time milestones — which add up, each
+  /// paid once a day as play reaches it — and the winning hands.
+  String get xpPlayTimeTitle => _('xpPlayTimeTitle');
+  String get xpPlayTimeNote => _('xpPlayTimeNote');
+  String xpMinutes(int n) => _('xpMinutes').replaceFirst('{n}', '$n');
+  String get xpWinHandsTitle => _('xpWinHandsTitle');
+  String get xpWinHandsNote => _('xpWinHandsNote');
+
+  /// The ladder: the level after the viewer's, and its first column's name.
+  String get levelNextTag => _('levelNextTag');
+  String get levelColumn => _('levelColumn');
+
+  /// A day as the countdowns abbreviate it ("29d 14h left"), beside
+  /// [unitHourShort] and [unitMinuteShort].
+  String get unitDayShort => _('unitDayShort');
+
+  /// A badge of the catalogue the viewer does not hold.
+  String get badgeAvailable => _('badgeAvailable');
+
+  /// A daily XP source that is neither play time nor a winning hand.
+  String get xpOtherTitle => _('xpOtherTitle');
 
   /// A badge in the catalogue: Standard is everyone's; the others last a
   /// validity from the grant — in years where it is whole years ("Lasts 5
@@ -738,7 +823,8 @@ class Strings {
 
   /// When a badge the viewer holds runs out, where that is a month or more
   /// away: "Until 26/09/2031".
-  String badgeUntil(String date) => _('badgeUntil').replaceFirst('{date}', date);
+  String badgeUntil(String date) =>
+      _('badgeUntil').replaceFirst('{date}', date);
 
   /// When the ladder could not be read.
   String get levelsUnavailable => _('levelsUnavailable');
@@ -1585,7 +1671,8 @@ class Strings {
       'storeTabPictures': 'Pictures',
       'storeTabAnimated': 'Animated',
       'storePicturesBlurb': 'Unlock a picture with chips, hammers or diamonds.',
-      'storeAnimatedBlurb': 'Unlock an animated picture with hammers or diamonds.',
+      'storeAnimatedBlurb':
+          'Unlock an animated picture with hammers or diamonds.',
       'storeTabTables': 'Tables',
       'storeTablesTitle': 'Table Pictures',
       'storeTablesBlurb': 'Dress your table — one look for day, one for night.',
@@ -1603,26 +1690,32 @@ class Strings {
       'priceHammers': '{cost} hammers',
       'priceHammerOne': '1 hammer',
       'priceDiamondOne': '1 diamond',
-      'tablePokerNote': 'Poker tables show no table picture — it will show at your next Teen Patti table.',
+      'tablePokerNote':
+          'Poker tables show no table picture — it will show at your next Teen Patti table.',
       // Emojis (owner, 26 Sep 2026).
       'storeTabEmojis': 'Emojis',
       'storeEmojisTitle': 'Emojis',
       'storeEmojisBlurb': 'Animated emojis to send to the whole table.',
       'storeTabBadges': 'Badges',
       'storeBadgesTitle': 'Badges',
-      'storeBadgesBlurb': 'A badge lowers the winning tax you pay while it lasts.',
+      'storeBadgesBlurb':
+          'A badge lowers the winning tax you pay while it lasts.',
       'badgeContactSupport': 'Contact support',
       'badgeContactTitle': 'Get {badge}',
-      'badgeContactBody': '{badge} is given by our team. Write to us and we will help you get it.',
+      'badgeContactBody':
+          '{badge} is given by our team. Write to us and we will help you get it.',
       'badgeMailSubject': 'I would like the {badge} badge',
       'copyAddress': 'Copy address',
       'addressCopied': 'Address copied',
       'emojiShelfEmpty': 'No emojis yet.',
       'unlockEmojiTitle': 'Unlock this emoji?',
       'unlockEmojiBody': '{name} costs {price}. Unlock it now?',
-      'unlockEmojiRentBody': '{name} costs {price} and is yours for {time}. Unlock it now?',
-      'emojiChipsLobbyOnly': 'You can only buy a chip-priced emoji in the lobby.',
-      'emojiOwnedNote': 'This emoji is yours — send it with the emoji key at a table.',
+      'unlockEmojiRentBody':
+          '{name} costs {price} and is yours for {time}. Unlock it now?',
+      'emojiChipsLobbyOnly':
+          'You can only buy a chip-priced emoji in the lobby.',
+      'emojiOwnedNote':
+          'This emoji is yours — send it with the emoji key at a table.',
       'tableEmojis': 'Emojis',
       'emojiSendHint': 'Tap an emoji to send it to the table.',
       'emojiUnlockMore': 'Unlock more in the store',
@@ -1631,7 +1724,8 @@ class Strings {
       'emojiLockedRefusal': 'Unlock this emoji in the store first.',
       'emojiUnknownRefusal': 'That emoji does not exist.',
       'emojiRetiredRefusal': 'That emoji is no longer available.',
-      'emojiUnaffordableRefusal': 'You do not have enough to unlock this emoji.',
+      'emojiUnaffordableRefusal':
+          'You do not have enough to unlock this emoji.',
       'storeTabDiamonds': 'Diamonds',
       'storeDiamondsTitle': 'Diamond Store',
       'storeDiamondsBlurb': 'Diamonds trade for missiles.',
@@ -1734,7 +1828,7 @@ class Strings {
       'secondsEach': '{n} seconds',
       'taxPill': '{rate} TAX',
       'taxPillNoRate': 'TAX',
-      'winningTaxTitle': 'Winning tax',
+      'winningTaxTitle': 'Winning Tax',
       'winningTaxLabel': 'winning tax',
       'yourLevelLabel': 'your level',
       'xpLabel': 'XP',
@@ -1774,6 +1868,42 @@ class Strings {
       'xpEarned': 'Earned',
       'xpDailyCap': 'Up to {cap} XP every {time}.',
       'xpNeverExpires': 'XP and levels never expire.',
+      'levelNumber': 'Level {n}',
+      'xpOf': '{xp} / {max} XP',
+      'xpToNext': '{xp} XP to {title}',
+      'levelNextLine': 'Next: {level} · {xp} XP · {rate} tax',
+      'taxNoteWinner':
+          'Only the winner of a hand pays Winning Tax, on their net winnings.',
+      'taxNoteNet': 'Net winnings = the pot − your own chips in it.',
+      'taxNoteBadge': 'An active badge can lower your tax further.',
+      'badgeActive': 'Active',
+      'levelMax': 'MAX LEVEL',
+      'levelHowTax': 'How Winning Tax works',
+      'badgeSetsRate': 'Sets your rate',
+      'badgeExpiresIn': 'Expires in {time}',
+      'badgeExpired': 'Expired',
+      'badgeYours': 'Yours',
+      'badgeRoyalHint': 'Royal badges bring your Winning Tax down to {rate}.',
+      'badgeSeeStore': 'See badges',
+      'badgesBesideLevel':
+          'Badges are held beside your level; XP never earns one.',
+      'xpEarnedToday': 'Earned today',
+      'xpDailyComplete': 'Daily XP Complete',
+      'xpDailyCompleteNote':
+          'You have earned every daily XP. More after the reset.',
+      'xpResetsInCap': 'Resets in {time}',
+      'xpWindowIdle': 'Your day starts with your next hand.',
+      'xpPlayTimeTitle': 'Play time',
+      'xpPlayTimeNote':
+          'Each milestone gives its XP once a day as your active play reaches it, and they add up.',
+      'xpMinutes': '{n} min',
+      'xpWinHandsTitle': 'Winning hands',
+      'xpWinHandsNote': 'Win a hand with each of these for its XP, once a day.',
+      'levelNextTag': 'Next',
+      'levelColumn': 'Level',
+      'unitDayShort': 'd',
+      'badgeAvailable': 'Available',
+      'xpOtherTitle': 'More ways to earn XP',
       'badgeUntil': 'Until {date}',
       'badgeEveryone': 'Everyone',
       'badgeLasts': 'Lasts {time}',
@@ -1783,7 +1913,7 @@ class Strings {
       'taxOnWinningsFrom': 'on winnings of {amount} or more',
       'badgeLifetime': 'Lifetime',
       'badgeFree': 'Free',
-      'badgeTaxLine': '{rate} winning tax',
+      'badgeTaxLine': '{rate} Winning Tax',
       'badgeBought': '{badge} is yours until {date}.',
       'variationRulesIntro':
           'The first player to act has 10 seconds to choose how the hand is decided; if they do not, it is Muflis. A wild card counts as whichever card makes your hand best. Other players\' chips are hidden and the pot has no limit.',
@@ -2171,8 +2301,7 @@ class Strings {
       'rulePokerBetTo':
           'A bet or a raise names the TOTAL you want in for this street, not '
           'the amount on top of it',
-      'rulePokerDrawStreets':
-          'Bet once before the draw and once after it',
+      'rulePokerDrawStreets': 'Bet once before the draw and once after it',
       'rulePokerPlayBet':
           'Playing costs a second bet the size of the ante; folding leaves '
           'your ante with the house',
@@ -2182,8 +2311,7 @@ class Strings {
       'pokerThreeCardRankingIntro':
           'Three cards each, on their own ladder — not the five-card order, '
           'and not Teen Patti\'s.',
-      'rulePokerThreeCardRuns':
-          'A-K-Q is the best run and A-2-3 the lowest',
+      'rulePokerThreeCardRuns': 'A-K-Q is the best run and A-2-3 the lowest',
       'refuseNotYourTurn': 'It is not your turn',
       'refuseInvalidAction': 'That move is not allowed right now',
       'refuseInvalidAmount': 'That amount is not allowed',
@@ -2371,7 +2499,8 @@ class Strings {
       'priceHammers': '{cost} हथौड़े',
       'priceHammerOne': '1 हथौड़ा',
       'priceDiamondOne': '1 हीरा',
-      'tablePokerNote': 'पोकर टेबल पर टेबल पिक्चर नहीं दिखती — यह आपकी अगली तीन पत्ती टेबल पर दिखेगी।',
+      'tablePokerNote':
+          'पोकर टेबल पर टेबल पिक्चर नहीं दिखती — यह आपकी अगली तीन पत्ती टेबल पर दिखेगी।',
       // Emojis (owner, 26 Sep 2026).
       'storeTabEmojis': 'इमोजी',
       'storeEmojisTitle': 'इमोजी',
@@ -2381,25 +2510,30 @@ class Strings {
       'storeBadgesBlurb': 'बैज रहते तक आपका जीत टैक्स कम रहता है।',
       'badgeContactSupport': 'सपोर्ट से संपर्क करें',
       'badgeContactTitle': '{badge} पाएँ',
-      'badgeContactBody': '{badge} हमारी टीम देती है। हमें लिखें, हम इसे पाने में आपकी मदद करेंगे।',
+      'badgeContactBody':
+          '{badge} हमारी टीम देती है। हमें लिखें, हम इसे पाने में आपकी मदद करेंगे।',
       'badgeMailSubject': 'मुझे {badge} बैज चाहिए',
       'copyAddress': 'पता कॉपी करें',
       'addressCopied': 'पता कॉपी हो गया',
       'emojiShelfEmpty': 'अभी कोई इमोजी नहीं है।',
       'unlockEmojiTitle': 'यह इमोजी अनलॉक करें?',
       'unlockEmojiBody': '{name} की कीमत {price} है। अभी अनलॉक करें?',
-      'unlockEmojiRentBody': '{name} की कीमत {price} है और यह {time} तक आपका है। अभी अनलॉक करें?',
-      'emojiChipsLobbyOnly': 'चिप्स की कीमत वाला इमोजी सिर्फ़ लॉबी में खरीदा जा सकता है।',
+      'unlockEmojiRentBody':
+          '{name} की कीमत {price} है और यह {time} तक आपका है। अभी अनलॉक करें?',
+      'emojiChipsLobbyOnly':
+          'चिप्स की कीमत वाला इमोजी सिर्फ़ लॉबी में खरीदा जा सकता है।',
       'emojiOwnedNote': 'यह इमोजी आपका है — इसे टेबल पर इमोजी बटन से भेजें।',
       'tableEmojis': 'इमोजी',
       'emojiSendHint': 'टेबल को भेजने के लिए किसी इमोजी पर टैप करें।',
       'emojiUnlockMore': 'स्टोर में और अनलॉक करें',
-      'emojiNoneOwned': 'आपके पास अभी कोई इमोजी नहीं है — नीचे से एक अनलॉक करें।',
+      'emojiNoneOwned':
+          'आपके पास अभी कोई इमोजी नहीं है — नीचे से एक अनलॉक करें।',
       'emojiSentBy': '{name} ने {emoji} भेजा',
       'emojiLockedRefusal': 'पहले स्टोर में यह इमोजी अनलॉक करें।',
       'emojiUnknownRefusal': 'यह इमोजी मौजूद नहीं है।',
       'emojiRetiredRefusal': 'यह इमोजी अब उपलब्ध नहीं है।',
-      'emojiUnaffordableRefusal': 'यह इमोजी अनलॉक करने के लिए आपके पास पर्याप्त नहीं है।',
+      'emojiUnaffordableRefusal':
+          'यह इमोजी अनलॉक करने के लिए आपके पास पर्याप्त नहीं है।',
       'storeTabDiamonds': 'हीरे',
       'storeDiamondsTitle': 'हीरा स्टोर',
       'storeDiamondsBlurb': 'हीरे देकर मिसाइलें लें।',
@@ -2541,6 +2675,43 @@ class Strings {
       'xpEarned': 'मिल गया',
       'xpDailyCap': 'हर {time} में ज़्यादा से ज़्यादा {cap} XP।',
       'xpNeverExpires': 'XP और लेवल कभी खत्म नहीं होते।',
+      'levelNumber': 'लेवल {n}',
+      'xpOf': '{xp} / {max} XP',
+      'xpToNext': '{title} के लिए {xp} XP और',
+      'levelNextLine': 'अगला: {level} · {xp} XP · {rate} टैक्स',
+      'taxNoteWinner':
+          'सिर्फ़ हाथ जीतने वाला अपनी शुद्ध जीत पर जीत टैक्स देता है।',
+      'taxNoteNet': 'शुद्ध जीत = पॉट − उसमें आपके अपने चिप्स।',
+      'taxNoteBadge': 'सक्रिय बैज आपका टैक्स और घटा सकता है।',
+      'badgeActive': 'सक्रिय',
+      'levelMax': 'सबसे ऊँचा लेवल',
+      'levelHowTax': 'जीत टैक्स कैसे लगता है',
+      'badgeSetsRate': 'आपकी दर तय करता है',
+      'badgeExpiresIn': '{time} में खत्म',
+      'badgeExpired': 'खत्म हो गया',
+      'badgeYours': 'आपका',
+      'badgeRoyalHint': 'रॉयल बैज आपका जीत टैक्स {rate} तक घटा देते हैं।',
+      'badgeSeeStore': 'बैज देखें',
+      'badgesBesideLevel':
+          'बैज आपके लेवल के साथ रहते हैं; XP से बैज नहीं मिलता।',
+      'xpEarnedToday': 'आज मिला',
+      'xpDailyComplete': 'रोज़ का XP पूरा',
+      'xpDailyCompleteNote':
+          'आपने आज का सारा XP पा लिया। रीसेट के बाद फिर मिलेगा।',
+      'xpResetsInCap': '{time} में रीसेट',
+      'xpWindowIdle': 'आपका दिन अगले हाथ से शुरू होगा।',
+      'xpPlayTimeTitle': 'खेलने का समय',
+      'xpPlayTimeNote':
+          'सक्रिय खेल जैसे-जैसे हर पड़ाव पर पहुँचता है, उसका XP दिन में एक बार मिलता है, और सब जुड़ते जाते हैं।',
+      'xpMinutes': '{n} मिनट',
+      'xpWinHandsTitle': 'जीत वाले हाथ',
+      'xpWinHandsNote':
+          'इनमें से हर एक से हाथ जीतें और उसका XP पाएँ, दिन में एक बार।',
+      'levelNextTag': 'अगला',
+      'levelColumn': 'लेवल',
+      'unitDayShort': 'दि',
+      'badgeAvailable': 'उपलब्ध',
+      'xpOtherTitle': 'XP पाने के और तरीके',
       'badgeUntil': '{date} तक',
       'badgeEveryone': 'सभी के लिए',
       'badgeLasts': '{time} तक',
@@ -2834,8 +3005,7 @@ class Strings {
       'entryUpTo': '{cap} तक',
       'entryFrom': '{min} या ज़्यादा',
       'useSocialPicture': 'मेरी Google तस्वीर लगाएँ',
-      'guestNoSocial':
-          'अपनी तस्वीर लगाने के लिए Google से साइन इन करें।',
+      'guestNoSocial': 'अपनी तस्वीर लगाने के लिए Google से साइन इन करें।',
 
       // --- the poker family
       'poker': 'पोकर',
@@ -2846,7 +3016,8 @@ class Strings {
       'pokerThreeCardPoker': '3-कार्ड पोकर',
       'pokerTexasHoldemNote': 'हर एक को दो पत्ते, बोर्ड पर पाँच',
       'pokerOmahaNote': 'हर एक को चार पत्ते, उनमें से ठीक दो खेलें',
-      'pokerFiveCardDrawNote': 'हर एक को पाँच पत्ते, जो नहीं चाहिए उन्हें बदलें',
+      'pokerFiveCardDrawNote':
+          'हर एक को पाँच पत्ते, जो नहीं चाहिए उन्हें बदलें',
       'pokerThreeCardPokerNote': 'हर एक को तीन पत्ते, डीलर के खिलाफ़',
       'blindsLabel': 'ब्लाइंड्स',
       'anteLabel': 'एंटी',
@@ -2912,7 +3083,8 @@ class Strings {
           'अपने दो पत्तों और बोर्ड के पाँच से अपने सबसे अच्छे पाँच बनाएँ',
       'rulePokerOmahaWin':
           'आपके चार में से ठीक दो पत्ते और बोर्ड के तीन से हाथ बनता है',
-      'rulePokerDrawWin': 'बेट करें, एक बार {n} तक पत्ते बदलें, फिर दोबारा बेट करें',
+      'rulePokerDrawWin':
+          'बेट करें, एक बार {n} तक पत्ते बदलें, फिर दोबारा बेट करें',
       'rulePokerThreeCardWin':
           'एंटी के बराबर प्ले करें या फ़ोल्ड; आपके तीन पत्ते डीलर से मिलाए जाते हैं',
       'rulePokerDealerQualifies':
@@ -3105,7 +3277,8 @@ class Strings {
       'storeTabPictures': 'ছবি',
       'storeTabAnimated': 'অ্যানিমেটেড',
       'storePicturesBlurb': 'চিপস, হাতুড়ি বা হীরে দিয়ে ছবি আনলক করুন।',
-      'storeAnimatedBlurb': 'হাতুড়ি বা হীরে দিয়ে একটি অ্যানিমেটেড ছবি আনলক করুন।',
+      'storeAnimatedBlurb':
+          'হাতুড়ি বা হীরে দিয়ে একটি অ্যানিমেটেড ছবি আনলক করুন।',
       'storeTabTables': 'টেবিল',
       'storeTablesTitle': 'টেবিলের ছবি',
       'storeTablesBlurb': 'আপনার টেবিল সাজান — একটি রূপ দিনের, একটি রাতের।',
@@ -3122,24 +3295,28 @@ class Strings {
       'priceHammers': '{cost}টি হাতুড়ি',
       'priceHammerOne': '1টি হাতুড়ি',
       'priceDiamondOne': '1টি হীরে',
-      'tablePokerNote': 'পোকার টেবিলে টেবিল ছবি দেখা যায় না — এটি আপনার পরের তিন পাত্তি টেবিলে দেখা যাবে।',
+      'tablePokerNote':
+          'পোকার টেবিলে টেবিল ছবি দেখা যায় না — এটি আপনার পরের তিন পাত্তি টেবিলে দেখা যাবে।',
       // Emojis (owner, 26 Sep 2026).
       'storeTabEmojis': 'ইমোজি',
       'storeEmojisTitle': 'ইমোজি',
       'storeEmojisBlurb': 'পুরো টেবিলে পাঠানোর জন্য অ্যানিমেটেড ইমোজি।',
       'storeTabBadges': 'ব্যাজ',
       'storeBadgesTitle': 'ব্যাজ',
-      'storeBadgesBlurb': 'ব্যাজ যতদিন থাকে, আপনার জয়ের ট্যাক্স ততদিন কম থাকে।',
+      'storeBadgesBlurb':
+          'ব্যাজ যতদিন থাকে, আপনার জয়ের ট্যাক্স ততদিন কম থাকে।',
       'badgeContactSupport': 'সাপোর্টে যোগাযোগ করুন',
       'badgeContactTitle': '{badge} পান',
-      'badgeContactBody': '{badge} আমাদের টিম দেয়। আমাদের লিখুন, আমরা এটি পেতে আপনাকে সাহায্য করব।',
+      'badgeContactBody':
+          '{badge} আমাদের টিম দেয়। আমাদের লিখুন, আমরা এটি পেতে আপনাকে সাহায্য করব।',
       'badgeMailSubject': 'আমি {badge} ব্যাজ চাই',
       'copyAddress': 'ঠিকানা কপি করুন',
       'addressCopied': 'ঠিকানা কপি হয়েছে',
       'emojiShelfEmpty': 'এখনও কোনো ইমোজি নেই।',
       'unlockEmojiTitle': 'এই ইমোজিটি আনলক করবেন?',
       'unlockEmojiBody': '{name} এর দাম {price}। এখনই আনলক করবেন?',
-      'unlockEmojiRentBody': '{name} এর দাম {price} এবং এটি {time} আপনার। এখনই আনলক করবেন?',
+      'unlockEmojiRentBody':
+          '{name} এর দাম {price} এবং এটি {time} আপনার। এখনই আনলক করবেন?',
       'emojiChipsLobbyOnly': 'চিপসের দামের ইমোজি শুধু লবিতে কেনা যায়।',
       'emojiOwnedNote': 'এই ইমোজিটি আপনার — টেবিলে ইমোজি বোতাম দিয়ে পাঠান।',
       'tableEmojis': 'ইমোজি',
@@ -3290,6 +3467,42 @@ class Strings {
       'xpEarned': 'পাওয়া গেছে',
       'xpDailyCap': 'প্রতি {time}য় সর্বোচ্চ {cap} XP।',
       'xpNeverExpires': 'XP আর লেভেল কখনো শেষ হয় না।',
+      'levelNumber': 'লেভেল {n}',
+      'xpOf': '{xp} / {max} XP',
+      'xpToNext': '{title}-এর জন্য আরও {xp} XP',
+      'levelNextLine': 'পরের: {level} · {xp} XP · {rate} ট্যাক্স',
+      'taxNoteWinner':
+          'শুধু হাতের বিজয়ী তাঁর নিট জয়ের উপর জয়ের ট্যাক্স দেন।',
+      'taxNoteNet': 'নিট জয় = পট − তাতে আপনার নিজের চিপস।',
+      'taxNoteBadge': 'সক্রিয় ব্যাজ আপনার ট্যাক্স আরও কমাতে পারে।',
+      'badgeActive': 'সক্রিয়',
+      'levelMax': 'সর্বোচ্চ লেভেল',
+      'levelHowTax': 'জয়ের ট্যাক্স কীভাবে লাগে',
+      'badgeSetsRate': 'আপনার হার ঠিক করে',
+      'badgeExpiresIn': '{time} পরে শেষ',
+      'badgeExpired': 'মেয়াদ শেষ',
+      'badgeYours': 'আপনার',
+      'badgeRoyalHint':
+          'রয়্যাল ব্যাজ আপনার জয়ের ট্যাক্স {rate} পর্যন্ত কমিয়ে দেয়।',
+      'badgeSeeStore': 'ব্যাজ দেখুন',
+      'badgesBesideLevel':
+          'ব্যাজ আপনার লেভেলের পাশাপাশি থাকে; XP দিয়ে ব্যাজ পাওয়া যায় না।',
+      'xpEarnedToday': 'আজ পাওয়া',
+      'xpDailyComplete': 'দৈনিক XP সম্পূর্ণ',
+      'xpDailyCompleteNote': 'আজকের সব XP পেয়ে গেছেন। রিসেটের পরে আবার পাবেন।',
+      'xpResetsInCap': '{time} পরে রিসেট',
+      'xpWindowIdle': 'আপনার দিন পরের হাত থেকে শুরু হবে।',
+      'xpPlayTimeTitle': 'খেলার সময়',
+      'xpPlayTimeNote':
+          'সক্রিয় খেলা প্রতিটি ধাপে পৌঁছালে তার XP দিনে একবার পাবেন, আর সব যোগ হতে থাকে।',
+      'xpMinutes': '{n} মিনিট',
+      'xpWinHandsTitle': 'জেতার হাত',
+      'xpWinHandsNote': 'এগুলোর প্রতিটি দিয়ে হাত জিতে তার XP পান, দিনে একবার।',
+      'levelNextTag': 'পরের',
+      'levelColumn': 'লেভেল',
+      'unitDayShort': 'দি',
+      'badgeAvailable': 'উপলব্ধ',
+      'xpOtherTitle': 'XP পাওয়ার আরও উপায়',
       'badgeUntil': '{date} পর্যন্ত',
       'badgeEveryone': 'সবার জন্য',
       'badgeLasts': 'মেয়াদ {time}',
@@ -3588,8 +3801,7 @@ class Strings {
       'entryUpTo': '{cap} পর্যন্ত',
       'entryFrom': '{min} বা বেশি',
       'useSocialPicture': 'আমার Google ছবি ব্যবহার করুন',
-      'guestNoSocial':
-          'নিজের ছবি ব্যবহার করতে Google দিয়ে সাইন ইন করুন।',
+      'guestNoSocial': 'নিজের ছবি ব্যবহার করতে Google দিয়ে সাইন ইন করুন।',
 
       // --- the poker family
       'poker': 'পোকার',
@@ -3676,8 +3888,7 @@ class Strings {
           'জেতে',
       'rulePokerBestHandWins':
           'শোডাউনে সেরা হাত পট নেয়; একা টিকে থাকা খেলোয়াড় শোডাউন ছাড়াই',
-      'rulePokerStreets':
-          'বাজি প্রি-ফ্লপে, তারপর ফ্লপ, টার্ন ও রিভারে',
+      'rulePokerStreets': 'বাজি প্রি-ফ্লপে, তারপর ফ্লপ, টার্ন ও রিভারে',
       'rulePokerBetTo':
           'বেট বা রেইজ এই স্ট্রিটের জন্য আপনার মোট অঙ্ক বলে, তার উপরে যোগ করা অঙ্ক নয়',
       'rulePokerDrawStreets': 'ড্র-এর আগে একবার আর পরে একবার বাজি',
@@ -3862,12 +4073,14 @@ class Strings {
       'storeAnimatedBlurb': 'હથોડી અથવા હીરાથી એનિમેટેડ ફોટો અનલૉક કરો.',
       'storeTabTables': 'ટેબલ',
       'storeTablesTitle': 'ટેબલના ફોટા',
-      'storeTablesBlurb': 'તમારું ટેબલ સજાવો — એક દેખાવ દિવસ માટે, એક રાત માટે.',
+      'storeTablesBlurb':
+          'તમારું ટેબલ સજાવો — એક દેખાવ દિવસ માટે, એક રાત માટે.',
       'tableDefault': 'વહેતી ચિપ્સ',
       'tableDefaultHint': 'ડિફૉલ્ટ બૅકગ્રાઉન્ડ',
       'tableInUse': 'વપરાશમાં',
       'unlockTableTitle': 'આ ટેબલ અનલૉક કરવું છે?',
-      'unlockTableBody': '{name} ની કિંમત {price} છે. હમણાં અનલૉક કરીને વાપરવું છે?',
+      'unlockTableBody':
+          '{name} ની કિંમત {price} છે. હમણાં અનલૉક કરીને વાપરવું છે?',
       'unlockTableRentBody':
           '{name} ની કિંમત {price} છે અને {time} સુધી તમારું ટેબલ સજાવે છે. હમણાં અનલૉક કરીને વાપરવું છે?',
       'tableChipsLobbyOnly':
@@ -3877,7 +4090,8 @@ class Strings {
       'priceHammers': '{cost} હથોડી',
       'priceHammerOne': '1 હથોડી',
       'priceDiamondOne': '1 હીરો',
-      'tablePokerNote': 'પોકર ટેબલ પર ટેબલ ચિત્ર દેખાતું નથી — તે તમારા આગલા તીન પત્તી ટેબલ પર દેખાશે.',
+      'tablePokerNote':
+          'પોકર ટેબલ પર ટેબલ ચિત્ર દેખાતું નથી — તે તમારા આગલા તીન પત્તી ટેબલ પર દેખાશે.',
       // Emojis (owner, 26 Sep 2026).
       'storeTabEmojis': 'ઇમોજી',
       'storeEmojisTitle': 'ઇમોજી',
@@ -3887,15 +4101,18 @@ class Strings {
       'storeBadgesBlurb': 'બેજ રહે ત્યાં સુધી તમારો જીત ટેક્સ ઓછો રહે છે.',
       'badgeContactSupport': 'સપોર્ટનો સંપર્ક કરો',
       'badgeContactTitle': '{badge} મેળવો',
-      'badgeContactBody': '{badge} અમારી ટીમ આપે છે. અમને લખો, અમે તે મેળવવામાં તમારી મદદ કરીશું.',
+      'badgeContactBody':
+          '{badge} અમારી ટીમ આપે છે. અમને લખો, અમે તે મેળવવામાં તમારી મદદ કરીશું.',
       'badgeMailSubject': 'મને {badge} બેજ જોઈએ છે',
       'copyAddress': 'સરનામું કૉપિ કરો',
       'addressCopied': 'સરનામું કૉપિ થયું',
       'emojiShelfEmpty': 'હજી કોઈ ઇમોજી નથી.',
       'unlockEmojiTitle': 'આ ઇમોજી અનલૉક કરવું છે?',
       'unlockEmojiBody': '{name} ની કિંમત {price} છે. હમણાં અનલૉક કરવું છે?',
-      'unlockEmojiRentBody': '{name} ની કિંમત {price} છે અને તે {time} સુધી તમારું છે. હમણાં અનલૉક કરવું છે?',
-      'emojiChipsLobbyOnly': 'ચિપ્સની કિંમતવાળું ઇમોજી ફક્ત લૉબીમાં ખરીદી શકાય છે.',
+      'unlockEmojiRentBody':
+          '{name} ની કિંમત {price} છે અને તે {time} સુધી તમારું છે. હમણાં અનલૉક કરવું છે?',
+      'emojiChipsLobbyOnly':
+          'ચિપ્સની કિંમતવાળું ઇમોજી ફક્ત લૉબીમાં ખરીદી શકાય છે.',
       'emojiOwnedNote': 'આ ઇમોજી તમારું છે — ટેબલ પર ઇમોજી બટનથી મોકલો.',
       'tableEmojis': 'ઇમોજી',
       'emojiSendHint': 'ટેબલને મોકલવા માટે ઇમોજી પર ટૅપ કરો.',
@@ -3905,7 +4122,8 @@ class Strings {
       'emojiLockedRefusal': 'પહેલાં સ્ટોરમાં આ ઇમોજી અનલૉક કરો.',
       'emojiUnknownRefusal': 'આ ઇમોજી અસ્તિત્વમાં નથી.',
       'emojiRetiredRefusal': 'આ ઇમોજી હવે ઉપલબ્ધ નથી.',
-      'emojiUnaffordableRefusal': 'આ ઇમોજી અનલૉક કરવા માટે તમારી પાસે પૂરતું નથી.',
+      'emojiUnaffordableRefusal':
+          'આ ઇમોજી અનલૉક કરવા માટે તમારી પાસે પૂરતું નથી.',
       'storeTabDiamonds': 'હીરા',
       'storeDiamondsTitle': 'હીરા સ્ટોર',
       'storeDiamondsBlurb': 'હીરા આપીને મિસાઇલ લો.',
@@ -4046,6 +4264,41 @@ class Strings {
       'xpEarned': 'મળી ગયું',
       'xpDailyCap': 'દર {time}માં વધુમાં વધુ {cap} XP.',
       'xpNeverExpires': 'XP અને લેવલ ક્યારેય સમાપ્ત થતા નથી.',
+      'levelNumber': 'લેવલ {n}',
+      'xpOf': '{xp} / {max} XP',
+      'xpToNext': '{title} માટે વધુ {xp} XP',
+      'levelNextLine': 'આગલું: {level} · {xp} XP · {rate} ટેક્સ',
+      'taxNoteWinner': 'ફક્ત હાથ જીતનાર પોતાની ચોખ્ખી જીત પર જીત ટેક્સ ભરે છે.',
+      'taxNoteNet': 'ચોખ્ખી જીત = પોટ − તેમાં તમારી પોતાની ચિપ્સ.',
+      'taxNoteBadge': 'સક્રિય બેજ તમારો ટેક્સ વધુ ઘટાડી શકે છે.',
+      'badgeActive': 'સક્રિય',
+      'levelMax': 'સૌથી ઊંચું લેવલ',
+      'levelHowTax': 'જીત ટેક્સ કેવી રીતે લાગે છે',
+      'badgeSetsRate': 'તમારો દર નક્કી કરે છે',
+      'badgeExpiresIn': '{time}માં સમાપ્ત',
+      'badgeExpired': 'સમાપ્ત',
+      'badgeYours': 'તમારો',
+      'badgeRoyalHint': 'રોયલ બેજ તમારો જીત ટેક્સ {rate} સુધી ઘટાડે છે.',
+      'badgeSeeStore': 'બેજ જુઓ',
+      'badgesBesideLevel': 'બેજ તમારા લેવલની સાથે રહે છે; XPથી બેજ મળતો નથી.',
+      'xpEarnedToday': 'આજે મળ્યું',
+      'xpDailyComplete': 'દૈનિક XP પૂર્ણ',
+      'xpDailyCompleteNote':
+          'તમે આજનું બધું XP મેળવી લીધું. રીસેટ પછી ફરી મળશે.',
+      'xpResetsInCap': '{time} પછી રીસેટ',
+      'xpWindowIdle': 'તમારો દિવસ આગલા હાથથી શરૂ થશે.',
+      'xpPlayTimeTitle': 'રમવાનો સમય',
+      'xpPlayTimeNote':
+          'સક્રિય રમત દરેક પડાવે પહોંચે તેમ તેનું XP દિવસમાં એક વાર મળે છે, અને બધું ઉમેરાતું જાય છે.',
+      'xpMinutes': '{n} મિનિટ',
+      'xpWinHandsTitle': 'જીતના હાથ',
+      'xpWinHandsNote':
+          'આમાંના દરેકથી હાથ જીતો અને તેનું XP મેળવો, દિવસમાં એક વાર.',
+      'levelNextTag': 'આગલું',
+      'levelColumn': 'લેવલ',
+      'unitDayShort': 'દિ',
+      'badgeAvailable': 'ઉપલબ્ધ',
+      'xpOtherTitle': 'XP મેળવવાની વધુ રીતો',
       'badgeUntil': '{date} સુધી',
       'badgeEveryone': 'બધા માટે',
       'badgeLasts': '{time} સુધી',
@@ -4408,7 +4661,8 @@ class Strings {
       'pokerRankHighCard': 'હાઈ કાર્ડ',
       'pokerThreeCardRanking':
           '3-કાર્ડ પોકરમાં સ્ટ્રેટ ફ્લશને હરાવે છે, અને થ્રી ઑફ અ કાઇન્ડ બંનેને.',
-      'rulePokerBlinds': 'દરેક હાથ {small} અને {big} ના બ્લાઇન્ડ્સથી શરૂ થાય છે',
+      'rulePokerBlinds':
+          'દરેક હાથ {small} અને {big} ના બ્લાઇન્ડ્સથી શરૂ થાય છે',
       'rulePokerAnte': 'વહેંચતા પહેલાં દરેક {ante} ની એન્ટી મૂકે છે',
       'rulePokerBuyIn': 'ઓછામાં ઓછા {min} લઈને બેસો',
       'rulePokerHoleCards': 'દરેક ખેલાડીને {n} પત્તાં વહેંચાય છે',
@@ -4416,7 +4670,8 @@ class Strings {
           'તમારાં બે પત્તાં અને બોર્ડનાં પાંચમાંથી શ્રેષ્ઠ પાંચ બનાવો',
       'rulePokerOmahaWin':
           'તમારાં ચારમાંથી બરાબર બે અને બોર્ડનાં ત્રણથી હાથ બને છે',
-      'rulePokerDrawWin': 'બેટ કરો, એક વાર {n} સુધી પત્તાં બદલો, પછી ફરી બેટ કરો',
+      'rulePokerDrawWin':
+          'બેટ કરો, એક વાર {n} સુધી પત્તાં બદલો, પછી ફરી બેટ કરો',
       'rulePokerThreeCardWin':
           'એન્ટી જેટલું પ્લે કરો કે ફોલ્ડ; તમારાં ત્રણ પત્તાં ડીલર સાથે સરખાવાય છે',
       'rulePokerDealerQualifies':
@@ -4424,8 +4679,7 @@ class Strings {
           'જીતે',
       'rulePokerBestHandWins':
           'શોડાઉનમાં શ્રેષ્ઠ હાથ પોટ લે છે; એકલો બચેલો ખેલાડી શોડાઉન વિના',
-      'rulePokerStreets':
-          'દાવ પ્રી-ફ્લોપ, પછી ફ્લોપ, ટર્ન અને રિવર પર લાગે છે',
+      'rulePokerStreets': 'દાવ પ્રી-ફ્લોપ, પછી ફ્લોપ, ટર્ન અને રિવર પર લાગે છે',
       'rulePokerBetTo':
           'બેટ કે રેઝ આ સ્ટ્રીટ માટે તમારી કુલ રકમ કહે છે, ઉપરથી ઉમેરેલી રકમ નહીં',
       'rulePokerDrawStreets': 'ડ્રો પહેલાં એક વાર અને પછી એક વાર દાવ',
@@ -4616,7 +4870,8 @@ class Strings {
       'tableDefaultHint': 'ਡਿਫ਼ਾਲਟ ਬੈਕਗ੍ਰਾਊਂਡ',
       'tableInUse': 'ਲੱਗੀ ਹੋਈ',
       'unlockTableTitle': 'ਇਹ ਟੇਬਲ ਅਨਲਾਕ ਕਰਨਾ ਹੈ?',
-      'unlockTableBody': '{name} ਦੀ ਕੀਮਤ {price} ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣਾ ਹੈ?',
+      'unlockTableBody':
+          '{name} ਦੀ ਕੀਮਤ {price} ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣਾ ਹੈ?',
       'unlockTableRentBody':
           '{name} ਦੀ ਕੀਮਤ {price} ਹੈ ਅਤੇ {time} ਤੱਕ ਤੁਹਾਡਾ ਟੇਬਲ ਸਜਾਉਂਦੀ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣਾ ਹੈ?',
       'tableChipsLobbyOnly':
@@ -4626,7 +4881,8 @@ class Strings {
       'priceHammers': '{cost} ਹਥੌੜੇ',
       'priceHammerOne': '1 ਹਥੌੜਾ',
       'priceDiamondOne': '1 ਹੀਰਾ',
-      'tablePokerNote': 'ਪੋਕਰ ਟੇਬਲ ਉੱਤੇ ਟੇਬਲ ਤਸਵੀਰ ਨਹੀਂ ਦਿਖਦੀ — ਇਹ ਤੁਹਾਡੇ ਅਗਲੇ ਤੀਨ ਪੱਤੀ ਟੇਬਲ ਉੱਤੇ ਦਿਖੇਗੀ।',
+      'tablePokerNote':
+          'ਪੋਕਰ ਟੇਬਲ ਉੱਤੇ ਟੇਬਲ ਤਸਵੀਰ ਨਹੀਂ ਦਿਖਦੀ — ਇਹ ਤੁਹਾਡੇ ਅਗਲੇ ਤੀਨ ਪੱਤੀ ਟੇਬਲ ਉੱਤੇ ਦਿਖੇਗੀ।',
       // Emojis (owner, 26 Sep 2026).
       'storeTabEmojis': 'ਇਮੋਜੀ',
       'storeEmojisTitle': 'ਇਮੋਜੀ',
@@ -4636,25 +4892,30 @@ class Strings {
       'storeBadgesBlurb': 'ਬੈਜ ਰਹਿਣ ਤੱਕ ਤੁਹਾਡਾ ਜਿੱਤ ਟੈਕਸ ਘੱਟ ਰਹਿੰਦਾ ਹੈ।',
       'badgeContactSupport': 'ਸਪੋਰਟ ਨਾਲ ਸੰਪਰਕ ਕਰੋ',
       'badgeContactTitle': '{badge} ਲਓ',
-      'badgeContactBody': '{badge} ਸਾਡੀ ਟੀਮ ਦਿੰਦੀ ਹੈ। ਸਾਨੂੰ ਲਿਖੋ, ਅਸੀਂ ਇਸ ਨੂੰ ਲੈਣ ਵਿੱਚ ਤੁਹਾਡੀ ਮਦਦ ਕਰਾਂਗੇ।',
+      'badgeContactBody':
+          '{badge} ਸਾਡੀ ਟੀਮ ਦਿੰਦੀ ਹੈ। ਸਾਨੂੰ ਲਿਖੋ, ਅਸੀਂ ਇਸ ਨੂੰ ਲੈਣ ਵਿੱਚ ਤੁਹਾਡੀ ਮਦਦ ਕਰਾਂਗੇ।',
       'badgeMailSubject': 'ਮੈਨੂੰ {badge} ਬੈਜ ਚਾਹੀਦਾ ਹੈ',
       'copyAddress': 'ਪਤਾ ਕਾਪੀ ਕਰੋ',
       'addressCopied': 'ਪਤਾ ਕਾਪੀ ਹੋ ਗਿਆ',
       'emojiShelfEmpty': 'ਅਜੇ ਕੋਈ ਇਮੋਜੀ ਨਹੀਂ ਹੈ।',
       'unlockEmojiTitle': 'ਇਹ ਇਮੋਜੀ ਅਨਲਾਕ ਕਰਨਾ ਹੈ?',
       'unlockEmojiBody': '{name} ਦੀ ਕੀਮਤ {price} ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਨਾ ਹੈ?',
-      'unlockEmojiRentBody': '{name} ਦੀ ਕੀਮਤ {price} ਹੈ ਅਤੇ ਇਹ {time} ਤੱਕ ਤੁਹਾਡਾ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਨਾ ਹੈ?',
-      'emojiChipsLobbyOnly': 'ਚਿਪਸ ਦੀ ਕੀਮਤ ਵਾਲਾ ਇਮੋਜੀ ਸਿਰਫ਼ ਲਾਬੀ ਵਿੱਚ ਖਰੀਦਿਆ ਜਾ ਸਕਦਾ ਹੈ।',
+      'unlockEmojiRentBody':
+          '{name} ਦੀ ਕੀਮਤ {price} ਹੈ ਅਤੇ ਇਹ {time} ਤੱਕ ਤੁਹਾਡਾ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਨਾ ਹੈ?',
+      'emojiChipsLobbyOnly':
+          'ਚਿਪਸ ਦੀ ਕੀਮਤ ਵਾਲਾ ਇਮੋਜੀ ਸਿਰਫ਼ ਲਾਬੀ ਵਿੱਚ ਖਰੀਦਿਆ ਜਾ ਸਕਦਾ ਹੈ।',
       'emojiOwnedNote': 'ਇਹ ਇਮੋਜੀ ਤੁਹਾਡਾ ਹੈ — ਟੇਬਲ ਉੱਤੇ ਇਮੋਜੀ ਬਟਨ ਨਾਲ ਭੇਜੋ।',
       'tableEmojis': 'ਇਮੋਜੀ',
       'emojiSendHint': 'ਟੇਬਲ ਨੂੰ ਭੇਜਣ ਲਈ ਕਿਸੇ ਇਮੋਜੀ ਉੱਤੇ ਟੈਪ ਕਰੋ।',
       'emojiUnlockMore': 'ਸਟੋਰ ਵਿੱਚ ਹੋਰ ਅਨਲਾਕ ਕਰੋ',
-      'emojiNoneOwned': 'ਤੁਹਾਡੇ ਕੋਲ ਅਜੇ ਕੋਈ ਇਮੋਜੀ ਨਹੀਂ — ਹੇਠਾਂ ਤੋਂ ਇੱਕ ਅਨਲਾਕ ਕਰੋ।',
+      'emojiNoneOwned':
+          'ਤੁਹਾਡੇ ਕੋਲ ਅਜੇ ਕੋਈ ਇਮੋਜੀ ਨਹੀਂ — ਹੇਠਾਂ ਤੋਂ ਇੱਕ ਅਨਲਾਕ ਕਰੋ।',
       'emojiSentBy': '{name} ਨੇ {emoji} ਭੇਜਿਆ',
       'emojiLockedRefusal': 'ਪਹਿਲਾਂ ਸਟੋਰ ਵਿੱਚ ਇਹ ਇਮੋਜੀ ਅਨਲਾਕ ਕਰੋ।',
       'emojiUnknownRefusal': 'ਇਹ ਇਮੋਜੀ ਮੌਜੂਦ ਨਹੀਂ ਹੈ।',
       'emojiRetiredRefusal': 'ਇਹ ਇਮੋਜੀ ਹੁਣ ਉਪਲਬਧ ਨਹੀਂ ਹੈ।',
-      'emojiUnaffordableRefusal': 'ਇਹ ਇਮੋਜੀ ਅਨਲਾਕ ਕਰਨ ਲਈ ਤੁਹਾਡੇ ਕੋਲ ਕਾਫ਼ੀ ਨਹੀਂ ਹੈ।',
+      'emojiUnaffordableRefusal':
+          'ਇਹ ਇਮੋਜੀ ਅਨਲਾਕ ਕਰਨ ਲਈ ਤੁਹਾਡੇ ਕੋਲ ਕਾਫ਼ੀ ਨਹੀਂ ਹੈ।',
       'storeTabDiamonds': 'ਹੀਰੇ',
       'storeDiamondsTitle': 'ਹੀਰਾ ਸਟੋਰ',
       'storeDiamondsBlurb': 'ਹੀਰੇ ਦੇ ਕੇ ਮਿਜ਼ਾਈਲਾਂ ਲਓ।',
@@ -4796,6 +5057,43 @@ class Strings {
       'xpEarned': 'ਮਿਲ ਗਿਆ',
       'xpDailyCap': 'ਹਰ {time} ਵਿੱਚ ਵੱਧ ਤੋਂ ਵੱਧ {cap} XP।',
       'xpNeverExpires': 'XP ਅਤੇ ਲੈਵਲ ਕਦੇ ਖ਼ਤਮ ਨਹੀਂ ਹੁੰਦੇ।',
+      'levelNumber': 'ਲੈਵਲ {n}',
+      'xpOf': '{xp} / {max} XP',
+      'xpToNext': '{title} ਲਈ {xp} XP ਹੋਰ',
+      'levelNextLine': 'ਅਗਲਾ: {level} · {xp} XP · {rate} ਟੈਕਸ',
+      'taxNoteWinner':
+          'ਸਿਰਫ਼ ਹੱਥ ਜਿੱਤਣ ਵਾਲਾ ਆਪਣੀ ਸ਼ੁੱਧ ਜਿੱਤ ਤੇ ਜਿੱਤ ਟੈਕਸ ਦਿੰਦਾ ਹੈ।',
+      'taxNoteNet': 'ਸ਼ੁੱਧ ਜਿੱਤ = ਪੌਟ − ਉਸ ਵਿੱਚ ਤੁਹਾਡੀਆਂ ਆਪਣੀਆਂ ਚਿਪਸ।',
+      'taxNoteBadge': 'ਸਰਗਰਮ ਬੈਜ ਤੁਹਾਡਾ ਟੈਕਸ ਹੋਰ ਘਟਾ ਸਕਦਾ ਹੈ।',
+      'badgeActive': 'ਸਰਗਰਮ',
+      'levelMax': 'ਸਭ ਤੋਂ ਉੱਚਾ ਲੈਵਲ',
+      'levelHowTax': 'ਜਿੱਤ ਟੈਕਸ ਕਿਵੇਂ ਲੱਗਦਾ ਹੈ',
+      'badgeSetsRate': 'ਤੁਹਾਡੀ ਦਰ ਤੈਅ ਕਰਦਾ ਹੈ',
+      'badgeExpiresIn': '{time} ਵਿੱਚ ਖ਼ਤਮ',
+      'badgeExpired': 'ਖ਼ਤਮ ਹੋ ਗਿਆ',
+      'badgeYours': 'ਤੁਹਾਡਾ',
+      'badgeRoyalHint': 'ਰਾਇਲ ਬੈਜ ਤੁਹਾਡਾ ਜਿੱਤ ਟੈਕਸ {rate} ਤੱਕ ਘਟਾ ਦਿੰਦੇ ਹਨ।',
+      'badgeSeeStore': 'ਬੈਜ ਵੇਖੋ',
+      'badgesBesideLevel':
+          'ਬੈਜ ਤੁਹਾਡੇ ਲੈਵਲ ਦੇ ਨਾਲ ਰਹਿੰਦੇ ਹਨ; XP ਨਾਲ ਬੈਜ ਨਹੀਂ ਮਿਲਦਾ।',
+      'xpEarnedToday': 'ਅੱਜ ਮਿਲਿਆ',
+      'xpDailyComplete': 'ਰੋਜ਼ਾਨਾ XP ਪੂਰਾ',
+      'xpDailyCompleteNote':
+          'ਤੁਸੀਂ ਅੱਜ ਦਾ ਸਾਰਾ XP ਲੈ ਲਿਆ। ਰੀਸੈੱਟ ਤੋਂ ਬਾਅਦ ਫਿਰ ਮਿਲੇਗਾ।',
+      'xpResetsInCap': '{time} ਵਿੱਚ ਰੀਸੈੱਟ',
+      'xpWindowIdle': 'ਤੁਹਾਡਾ ਦਿਨ ਅਗਲੇ ਹੱਥ ਨਾਲ ਸ਼ੁਰੂ ਹੋਵੇਗਾ।',
+      'xpPlayTimeTitle': 'ਖੇਡਣ ਦਾ ਸਮਾਂ',
+      'xpPlayTimeNote':
+          'ਸਰਗਰਮ ਖੇਡ ਜਿਵੇਂ-ਜਿਵੇਂ ਹਰ ਪੜਾਅ ਤੇ ਪਹੁੰਚਦੀ ਹੈ, ਉਸਦਾ XP ਦਿਨ ਵਿੱਚ ਇੱਕ ਵਾਰ ਮਿਲਦਾ ਹੈ, ਅਤੇ ਸਭ ਜੁੜਦੇ ਜਾਂਦੇ ਹਨ।',
+      'xpMinutes': '{n} ਮਿੰਟ',
+      'xpWinHandsTitle': 'ਜਿੱਤ ਵਾਲੇ ਹੱਥ',
+      'xpWinHandsNote':
+          'ਇਹਨਾਂ ਵਿੱਚੋਂ ਹਰ ਇੱਕ ਨਾਲ ਹੱਥ ਜਿੱਤੋ ਅਤੇ ਉਸਦਾ XP ਲਵੋ, ਦਿਨ ਵਿੱਚ ਇੱਕ ਵਾਰ।',
+      'levelNextTag': 'ਅਗਲਾ',
+      'levelColumn': 'ਲੈਵਲ',
+      'unitDayShort': 'ਦਿ',
+      'badgeAvailable': 'ਉਪਲਬਧ',
+      'xpOtherTitle': 'XP ਹਾਸਲ ਕਰਨ ਦੇ ਹੋਰ ਤਰੀਕੇ',
       'badgeUntil': '{date} ਤੱਕ',
       'badgeEveryone': 'ਸਭ ਲਈ',
       'badgeLasts': '{time} ਤੱਕ',
@@ -5091,8 +5389,7 @@ class Strings {
       'entryUpTo': '{cap} ਤੱਕ',
       'entryFrom': '{min} ਜਾਂ ਵੱਧ',
       'useSocialPicture': 'ਮੇਰੀ Google ਤਸਵੀਰ ਵਰਤੋ',
-      'guestNoSocial':
-          'ਆਪਣੀ ਤਸਵੀਰ ਵਰਤਣ ਲਈ Google ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।',
+      'guestNoSocial': 'ਆਪਣੀ ਤਸਵੀਰ ਵਰਤਣ ਲਈ Google ਨਾਲ ਸਾਈਨ ਇਨ ਕਰੋ।',
 
       // --- the poker family
       'poker': 'ਪੋਕਰ',
@@ -5162,7 +5459,8 @@ class Strings {
       'pokerThreeCardRanking':
           '3-ਕਾਰਡ ਪੋਕਰ ਵਿੱਚ ਸਟ੍ਰੇਟ ਫ਼ਲੱਸ਼ ਨੂੰ ਹਰਾਉਂਦਾ ਹੈ, ਅਤੇ ਥ੍ਰੀ ਆਫ਼ ਏ ਕਾਈਂਡ '
           'ਦੋਹਾਂ ਨੂੰ।',
-      'rulePokerBlinds': 'ਹਰ ਹੱਥ {small} ਅਤੇ {big} ਦੇ ਬਲਾਈਂਡਸ ਨਾਲ ਸ਼ੁਰੂ ਹੁੰਦਾ ਹੈ',
+      'rulePokerBlinds':
+          'ਹਰ ਹੱਥ {small} ਅਤੇ {big} ਦੇ ਬਲਾਈਂਡਸ ਨਾਲ ਸ਼ੁਰੂ ਹੁੰਦਾ ਹੈ',
       'rulePokerAnte': 'ਵੰਡਣ ਤੋਂ ਪਹਿਲਾਂ ਹਰ ਕੋਈ {ante} ਦੀ ਐਂਟੀ ਲਾਉਂਦਾ ਹੈ',
       'rulePokerBuyIn': 'ਘੱਟੋ-ਘੱਟ {min} ਲੈ ਕੇ ਬੈਠੋ',
       'rulePokerHoleCards': 'ਹਰ ਖਿਡਾਰੀ ਨੂੰ {n} ਪੱਤੇ ਵੰਡੇ ਜਾਂਦੇ ਹਨ',
@@ -5180,8 +5478,7 @@ class Strings {
       'rulePokerBestHandWins':
           'ਸ਼ੋਡਾਊਨ ਵਿੱਚ ਸਭ ਤੋਂ ਵਧੀਆ ਹੱਥ ਪੌਟ ਲੈਂਦਾ ਹੈ; ਇਕੱਲਾ ਬਚਿਆ ਖਿਡਾਰੀ ਬਿਨਾਂ '
           'ਸ਼ੋਡਾਊਨ ਦੇ',
-      'rulePokerStreets':
-          'ਦਾਅ ਪ੍ਰੀ-ਫਲੌਪ, ਫਿਰ ਫਲੌਪ, ਟਰਨ ਅਤੇ ਰਿਵਰ ਉੱਤੇ ਲੱਗਦੇ ਹਨ',
+      'rulePokerStreets': 'ਦਾਅ ਪ੍ਰੀ-ਫਲੌਪ, ਫਿਰ ਫਲੌਪ, ਟਰਨ ਅਤੇ ਰਿਵਰ ਉੱਤੇ ਲੱਗਦੇ ਹਨ',
       'rulePokerBetTo':
           'ਬੈੱਟ ਜਾਂ ਰੇਜ਼ ਇਸ ਸਟ੍ਰੀਟ ਲਈ ਤੁਹਾਡੀ ਕੁੱਲ ਰਕਮ ਦੱਸਦਾ ਹੈ, ਉੱਤੋਂ ਜੋੜੀ ਰਕਮ ਨਹੀਂ',
       'rulePokerDrawStreets': 'ਡਰਾਅ ਤੋਂ ਪਹਿਲਾਂ ਇੱਕ ਵਾਰ ਅਤੇ ਬਾਅਦ ਇੱਕ ਵਾਰ ਦਾਅ',

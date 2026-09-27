@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -14,6 +15,7 @@ import 'edge_fade.dart';
 import 'emoji_art.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
+import 'level_screen.dart';
 import 'premium_surface.dart';
 import 'table_chrome.dart';
 
@@ -619,9 +621,242 @@ Future<void> showLevelInfo(
   builder: (context) => WinningTaxInfo(initialTab: tab, fromLobby: true),
 );
 
-/// The popup [showWinningTaxInfo] and [showLevelInfo] open. Watches the game
-/// state, so a level reached at the hand's end — or a badge run out — is
-/// shown the moment the server says so.
+/// What the level popups are drawn from, as one value: the account (level,
+/// XP, badges, rate), the ladder and whether it is being read, the language,
+/// the rate the seat pays and the table's floor. The popups `select` it
+/// rather than watching the game state, which notifies every second for the
+/// lobby's reward clocks: a popup rebuilt on that tick restarted its bar's
+/// fill and rebuilt its badges' players for nothing. What does move by the
+/// second — a countdown, a grant running out — is a [LevelClock] of its own.
+Object levelViewOf(GameState s) => (
+  levelSignatureOf(s.user),
+  s.levelLadder,
+  s.levelLadderLoading,
+  s.levelLadderFailed,
+  s.lang,
+  s.myTaxBps,
+  s.room?.taxesWinner,
+  s.room?.winnerTaxMinWinnings,
+  s.config,
+);
+
+/// What the level popups draw of an account, as one comparable string: its
+/// level, XP, next level, today's window and claims, the rate it pays, and
+/// every badge with its grant. [levelViewOf] compares this rather than the
+/// [User] — a fresh copy of the same account (every `me()` re-read, which
+/// the lobby's rental watch makes every few seconds) would otherwise rebuild
+/// every rung of the ladder for nothing.
+String levelSignatureOf(User? u) {
+  if (u == null) return '';
+  final b = StringBuffer()
+    ..write(u.id)
+    ..write('|')
+    ..write(u.taxBps);
+  final l = u.playerLevel;
+  if (l != null) {
+    b.write(
+      '|L${l.level}\u0000${l.title}\u0000${l.icon}\u0000${l.xp}'
+      '\u0000${l.taxBps}',
+    );
+    final n = l.next;
+    if (n != null) {
+      b.write(
+        '|N${n.level}\u0000${n.title}\u0000${n.icon}\u0000${n.minXp}'
+        '\u0000${n.taxBps}',
+      );
+    }
+    final today = l.today;
+    if (today != null) {
+      b.write('|T${today.xp},${today.cap},${today.resetsAt}');
+    }
+    final daily = l.daily;
+    if (daily != null) {
+      b.write('|D${daily.resetsAt}');
+      for (final code in daily.claimed.keys.toList()..sort()) {
+        b.write(',$code=${daily.claimed[code]}');
+      }
+    }
+  }
+  for (final x in u.badges) {
+    b.write(
+      '|B${x.code}\u0000${x.title}\u0000${x.icon}\u0000${x.taxBps}'
+      '\u0000${x.expiresAt}\u0000${x.isDefault}\u0000${x.assetUrl}'
+      '\u0000${x.assetFormat}',
+    );
+  }
+  return b.toString();
+}
+
+/// The winnings a table taxes from: the viewer's table's where they sit at
+/// one that taxes, else the smallest any table of the menu taxes from (50
+/// Lakh as seeded, the same on every table) — 0 where none says, and then
+/// nothing is said about a floor.
+int taxFloorOf(GameState state) {
+  final room = state.room;
+  if (room != null && room.taxesWinner) return room.winnerTaxMinWinnings;
+  var least = 0;
+  for (final table in state.config.tables) {
+    final floor = table.winnerTaxMinWinnings;
+    if (!table.taxesWinner || floor <= 0) continue;
+    if (least == 0 || floor < least) least = floor;
+  }
+  return least;
+}
+
+/// A piece of a popup that moves with the clock: [read] is asked every
+/// second, and [builder] runs again only when its answer changes — a
+/// countdown's words each second, a badge's "5 hours left" once an hour, a
+/// grant that has run out once. Nothing round it is rebuilt.
+class LevelClock<T> extends StatefulWidget {
+  const LevelClock({super.key, required this.read, required this.builder});
+
+  final T Function(DateTime now) read;
+  final Widget Function(BuildContext context, T value) builder;
+
+  @override
+  State<LevelClock<T>> createState() => _LevelClockState<T>();
+}
+
+class _LevelClockState<T> extends State<LevelClock<T>> {
+  late T _value = widget.read(DateTime.now());
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final value = widget.read(DateTime.now());
+      if (value != _value) setState(() => _value = value);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant LevelClock<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _value = widget.read(DateTime.now());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _value);
+}
+
+/// "resets in 5h 12m 3s" until [resetsAt] (epoch ms), counted every second
+/// by itself; nothing once that moment has passed.
+class ResetsIn extends StatelessWidget {
+  const ResetsIn({
+    super.key,
+    required this.resetsAt,
+    required this.words,
+    this.style,
+    this.textAlign,
+  });
+
+  final int resetsAt;
+
+  /// The line around the time: [Strings.xpResetsIn] or its capitalised twin.
+  final String Function(String time) words;
+  final TextStyle? style;
+  final TextAlign? textAlign;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Strings(context.select<GameState, AppLang>((s) => s.lang));
+    return LevelClock<String?>(
+      read: (now) {
+        final ms = resetsAt - now.millisecondsSinceEpoch;
+        return ms <= 0
+            ? null
+            : words(formatCountdown(Duration(milliseconds: ms), t));
+      },
+      builder: (context, line) => line == null
+          ? const SizedBox.shrink()
+          : Text(
+              line,
+              maxLines: 2,
+              textAlign: textAlign,
+              style:
+                  style ?? TableType.metadata(Theme.of(context), figures: true),
+            ),
+    );
+  }
+}
+
+/// The popups' close key: a small round glass key — a sunk disc with a
+/// hairline, the cross in the body ink — inside a full [Dim.minTouch] target.
+class LevelCloseKey extends StatelessWidget {
+  const LevelCloseKey({super.key, required this.tooltip, required this.onTap});
+
+  final String tooltip;
+  final VoidCallback onTap;
+
+  static const double disc = 34;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final glass = GlassColors.of(context);
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        label: tooltip,
+        excludeSemantics: true,
+        // The node keeps the key's tap: excluding the InkWell's own
+        // semantics would otherwise leave a screen reader a button it
+        // cannot press.
+        onTap: () {
+          tapHaptic(context);
+          onTap();
+        },
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            key: const ValueKey('winning-tax-close'),
+            customBorder: const CircleBorder(),
+            onTap: () {
+              tapHaptic(context);
+              onTap();
+            },
+            child: SizedBox.square(
+              dimension: Dim.minTouch,
+              child: Center(
+                child: Container(
+                  width: disc,
+                  height: disc,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: glass.wellFill,
+                    border: Border.all(color: glass.cardBorder),
+                  ),
+                  child: Icon(
+                    Icons.close_rounded,
+                    size: 18,
+                    color: theme.colorScheme.onSurface.withValues(
+                      alpha: AppTheme.inkMed,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The popup [showWinningTaxInfo] and [showLevelInfo] open. From the lobby
+/// it is the level screen ([LevelScreen]: three tabs); over the table, the
+/// winning tax in two panes. Either follows the account ([levelViewOf]), so a
+/// level reached at the hand's end — or a badge run out — is shown the moment
+/// the server says so.
 class WinningTaxInfo extends StatefulWidget {
   const WinningTaxInfo({
     super.key,
@@ -632,9 +867,9 @@ class WinningTaxInfo extends StatefulWidget {
   /// The tab it opens on.
   final LevelInfoTab initialTab;
 
-  /// Opened from the lobby's level key: titled "Your level" and laid out in
-  /// tabs, where the table's pill titles it with the tax and lays it out in
-  /// two panes.
+  /// Opened from the lobby's level key: the level screen, titled "Your
+  /// level" and laid out in tabs, where the table's pill titles it with the
+  /// tax and lays it out in two panes.
   final bool fromLobby;
 
   /// The table's popup lays its two panes side by side from this width; under
@@ -650,14 +885,14 @@ class WinningTaxInfo extends StatefulWidget {
 
 class _WinningTaxInfoState extends State<WinningTaxInfo> {
   /// The viewer's own row of the ladder, brought into view once the ladder
-  /// tab is first shown.
+  /// is first shown.
   final _you = GlobalKey();
   bool _placed = false;
-  late LevelInfoTab _tab = widget.initialTab;
 
   @override
   void initState() {
     super.initState();
+    if (widget.fromLobby) return; // the level screen reads it itself
     // Read afresh once the popup is up, so an owner's edit shows the next
     // time it is looked at — after the frame, so the read's notice does not
     // ask for a rebuild in the middle of this one.
@@ -677,11 +912,12 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<GameState>();
+    if (widget.fromLobby) return LevelScreen(initialTab: widget.initialTab);
+    context.select<GameState, Object>(levelViewOf);
+    final state = context.read<GameState>();
     final t = state.t;
     final size = MediaQuery.sizeOf(context);
     final width = math.min(size.width - 2 * Space.lg, WinningTaxInfo.maxWidth);
-    final lobby = widget.fromLobby;
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -708,69 +944,22 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
                   Expanded(
                     child: dialogTitle(
                       context,
-                      widget.fromLobby
-                          ? Icons.military_tech_rounded
-                          : winningTaxIcon,
-                      widget.fromLobby ? t.yourLevelTitle : t.winningTaxTitle,
+                      winningTaxIcon,
+                      t.winningTaxTitle,
                     ),
                   ),
-                  IconButton(
-                    key: const ValueKey('winning-tax-close'),
+                  LevelCloseKey(
                     tooltip: t.close,
-                    icon: const Icon(Icons.close_rounded, size: 20),
-                    onPressed: () => Navigator.pop(context),
-                    style: IconButton.styleFrom(
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      minimumSize: const Size.square(Dim.minTouch),
-                    ),
+                    onTap: () => Navigator.pop(context),
                   ),
                 ],
               ),
-              if (lobby)
-                Padding(
-                  padding: const EdgeInsets.only(
-                    right: Space.sm,
-                    top: Space.xxs,
-                    bottom: Space.sm,
-                  ),
-                  child: _Tabs(
-                    value: _tab,
-                    labels: {
-                      LevelInfoTab.mine: t.levelTabMine,
-                      LevelInfoTab.daily: t.xpDailyTitle,
-                      LevelInfoTab.ladder: t.allLevelsTitle,
-                    },
-                    onChanged: (tab) => setState(() => _tab = tab),
-                  ),
-                )
-              else
-                const SizedBox(height: Space.xs),
-              Expanded(
-                child: lobby ? _tabbed(context, state) : _panes(context, state),
-              ),
+              const SizedBox(height: Space.xs),
+              Expanded(child: _panes(context, state)),
             ],
           ),
         ),
       ),
-    );
-  }
-
-  /// The lobby's layout: the tab that is showing, in a scroll of its own.
-  Widget _tabbed(BuildContext context, GameState state) {
-    if (_tab == LevelInfoTab.ladder) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _placeYou());
-    }
-    return _Pane(
-      key: ValueKey(switch (_tab) {
-        LevelInfoTab.mine => 'winning-tax-standing',
-        LevelInfoTab.daily => 'winning-tax-daily',
-        LevelInfoTab.ladder => 'winning-tax-ladder',
-      }),
-      children: switch (_tab) {
-        LevelInfoTab.mine => _standing(context, state),
-        LevelInfoTab.daily => _daily(context, state),
-        LevelInfoTab.ladder => _ladder(context, state, place: true),
-      },
     );
   }
 
@@ -821,23 +1010,7 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
     );
   }
 
-  /// The winnings a table taxes from: this table's where the popup is over
-  /// one, else the smallest any table of the menu taxes from (50 Lakh as
-  /// seeded, the same on every table) — 0 where none says, and then nothing
-  /// is said about a floor.
-  static int _minWinnings(GameState state) {
-    final room = state.room;
-    if (room != null && room.taxesWinner) return room.winnerTaxMinWinnings;
-    var least = 0;
-    for (final table in state.config.tables) {
-      final floor = table.winnerTaxMinWinnings;
-      if (!table.taxesWinner || floor <= 0) continue;
-      if (least == 0 || floor < least) least = floor;
-    }
-    return least;
-  }
-
-  /// The "My level" tab: what the viewer pays and why, their level, XP and
+  /// The standing: what the viewer pays and why, their level, XP and
   /// today's XP where there is a cap, the next level, and their badges.
   List<Widget> _standing(BuildContext context, GameState state) {
     final theme = Theme.of(context);
@@ -849,9 +1022,7 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
     final next = level?.next;
     final today = level?.today;
     final ladder = state.levelLadder;
-    final now = DateTime.now();
-    final left = today?.leftAt(now);
-    final minWinnings = _minWinnings(state);
+    final minWinnings = taxFloorOf(state);
 
     // How far the XP has come from this level's threshold to the next's —
     // only where the ladder says where this level starts.
@@ -905,7 +1076,11 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
           icon: Icons.today_rounded,
           label: t.todayLabel,
           value: '${today.xp} / ${today.cap} XP',
-          detail: left == null ? null : t.xpResetsIn(formatCountdown(left, t)),
+          detailWidget: ResetsIn(
+            resetsAt: today.resetsAt,
+            words: t.xpResetsIn,
+            textAlign: TextAlign.end,
+          ),
         ),
       if (next != null)
         WinningTaxFact(
@@ -924,100 +1099,116 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
       ],
       if (user != null && user.badges.isNotEmpty) ...[
         _SectionHead(t.yourBadgesTitle),
-        for (final badge in user.badges)
-          _BadgeRow(
-            key: ValueKey('my-badge-${badge.code}'),
-            art: badge.assetUrl.isEmpty ? null : BadgeArt.held(badge, size: 24),
-            mark: badge.icon,
-            title: badge.title,
-            rate: badge.taxBps,
-            detail: switch (badge.leftAt(now)) {
-              final left? => badgeLeftOf(
-                t,
-                left,
-                DateTime.fromMillisecondsSinceEpoch(badge.expiresAt),
-              ),
-              // Regular, everybody's for life (owner, 27 Sep 2026:
-              // "validaity life time").
-              null when badge.isDefault || badge.expiresAt == 0 =>
-                t.badgeLifetime,
-              null => null,
-            },
-          ),
+        for (final badge in user.badges) _heldBadgeRow(t, badge),
       ],
     ];
   }
 
-  /// The "Daily XP" tab (owner, 27 Sep 2026: "in that pop up add one tab also
-  /// for daily xp"): every source with what it gives, each ticked once earned
-  /// in the running window — which resets 24 hours after it opened ("After 24
-  /// hours this will be reset, so user can claim this again") — or, until the
-  /// ladder is read, a spinner, and where it cannot be, a line and Try again.
-  List<Widget> _daily(BuildContext context, GameState state) {
-    if (state.levelLadder == null) {
-      return _unread(context, state, state.t.xpDailyTitle);
-    }
-    return _dailyList(context, state, first: true);
+  /// One of the viewer's badges, its grant's words following the clock — "5
+  /// hours left" becomes "4 hours left" on the hour, and a grant that runs
+  /// out while the popup is open says nothing more — while its art, built
+  /// once here, is never rebuilt by it.
+  Widget _heldBadgeRow(Strings t, PlayerBadge badge) {
+    final art = badge.assetUrl.isEmpty ? null : BadgeArt.held(badge, size: 24);
+    return LevelClock<String?>(
+      key: ValueKey('my-badge-${badge.code}'),
+      read: (now) => switch (badge.leftAt(now)) {
+        final left? => badgeLeftOf(
+          t,
+          left,
+          DateTime.fromMillisecondsSinceEpoch(badge.expiresAt),
+        ),
+        // Regular, everybody's for life (owner, 27 Sep 2026: "validaity life
+        // time").
+        null when badge.isDefault || badge.expiresAt == 0 => t.badgeLifetime,
+        null => null,
+      },
+      builder: (context, detail) => _BadgeRow(
+        art: art,
+        mark: badge.icon,
+        title: badge.title,
+        rate: badge.taxBps,
+        detail: detail,
+      ),
+    );
   }
 
   /// The daily XP section — the sources with what they give, ticked where
-  /// earned, and how the list resets — the Daily XP tab's content and the
-  /// table popup's standing pane's foot; nothing until the ladder is read.
+  /// earned, and how the list resets — the standing pane's foot; nothing
+  /// until the ladder is read. Whether the window is still running follows
+  /// the clock, so a window that ends while the popup is open clears its
+  /// ticks and its countdown at once.
   List<Widget> _dailyList(
     BuildContext context,
     GameState state, {
     required bool first,
   }) {
-    final theme = Theme.of(context);
-    final t = state.t;
     final ladder = state.levelLadder;
     final daily = state.user?.playerLevel?.daily;
-    final dailyLeft = daily?.leftAt(DateTime.now());
-    if (ladder == null) return const [];
+    if (ladder == null || ladder.sources.isEmpty) return const [];
     return [
-      if (ladder.sources.isNotEmpty) ...[
-        _SectionHead(
-          t.xpDailyTitle,
-          first: first,
-          column: dailyLeft == null
-              ? null
-              : t.xpResetsIn(formatCountdown(dailyLeft, t)),
+      LevelClock<bool>(
+        key: const ValueKey('winning-tax-daily-list'),
+        read: (now) => daily?.leftAt(now) != null,
+        builder: (context, running) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: _dailyRows(context, state, ladder, first, running),
         ),
-        for (final source in ladder.sources)
-          _SourceRow(
-            key: ValueKey('xp-source-${source.code}'),
-            mark: source.icon,
-            name: xpSourceName(t, source),
-            xp: source.xp,
-            times: source.times,
-            // A window that has run out is a fresh one: nothing earned yet.
-            claims: dailyLeft == null ? 0 : daily!.claimsOf(source.code),
-            earnedLabel: t.xpEarned,
-          ),
-        const SizedBox(height: Space.xs),
-        Text(
-          t.xpListResets(math.max(1, (ladder.windowMs / 3600000).round())),
-          style: TableType.metadata(theme),
-        ),
-        if (ladder.dailyCap > 0) ...[
-          const SizedBox(height: Space.xxs),
-          Text(
-            t.xpDailyCap(
-              ladder.dailyCap,
-              math.max(1, (ladder.windowMs / 3600000).round()),
-            ),
-            style: TableType.metadata(theme),
-          ),
-        ],
-        const SizedBox(height: Space.xxs),
-        Text(t.xpNeverExpires, style: TableType.metadata(theme)),
-      ],
+      ),
     ];
   }
 
-  /// A tab whose content is the ladder's, before it has been read: its
-  /// heading over a spinner, or — where it cannot be read — a line and Try
-  /// again.
+  List<Widget> _dailyRows(
+    BuildContext context,
+    GameState state,
+    LevelLadder ladder,
+    bool first,
+    bool running,
+  ) {
+    final theme = Theme.of(context);
+    final t = state.t;
+    final daily = state.user?.playerLevel?.daily;
+    return [
+      _SectionHead(
+        t.xpDailyTitle,
+        first: first,
+        trailing: !running || daily == null
+            ? null
+            : ResetsIn(resetsAt: daily.resetsAt, words: t.xpResetsIn),
+      ),
+      for (final source in ladder.sources)
+        _SourceRow(
+          key: ValueKey('xp-source-${source.code}'),
+          mark: source.icon,
+          name: xpSourceName(t, source),
+          xp: source.xp,
+          times: source.times,
+          // A window that has run out is a fresh one: nothing earned yet.
+          claims: !running || daily == null ? 0 : daily.claimsOf(source.code),
+          earnedLabel: t.xpEarned,
+        ),
+      const SizedBox(height: Space.xs),
+      Text(
+        t.xpListResets(math.max(1, (ladder.windowMs / 3600000).round())),
+        style: TableType.metadata(theme),
+      ),
+      if (ladder.dailyCap > 0) ...[
+        const SizedBox(height: Space.xxs),
+        Text(
+          t.xpDailyCap(
+            ladder.dailyCap,
+            math.max(1, (ladder.windowMs / 3600000).round()),
+          ),
+          style: TableType.metadata(theme),
+        ),
+      ],
+      const SizedBox(height: Space.xxs),
+      Text(t.xpNeverExpires, style: TableType.metadata(theme)),
+    ];
+  }
+
+  /// The ladder's pane before it has been read: its heading over a spinner,
+  /// or — where it cannot be read — a line and Try again.
   List<Widget> _unread(BuildContext context, GameState state, String head) {
     final theme = Theme.of(context);
     final t = state.t;
@@ -1048,9 +1239,8 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
     ];
   }
 
-  /// The "All levels" tab (owner, 27 Sep 2026: "one tab for ladder … for all
-  /// levels with tax rate"): the whole ladder, then every badge — or, until
-  /// it is read, a spinner, and where it cannot be, a line and Try again.
+  /// The whole ladder, then every badge — or, until it is read, a spinner,
+  /// and where it cannot be, a line and Try again.
   List<Widget> _ladder(
     BuildContext context,
     GameState state, {
@@ -1087,16 +1277,7 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
             mark: badge.icon,
             title: badge.title,
             rate: badge.taxBps,
-            detail: [
-              if (badge.isDefault) t.badgeEveryone,
-              badge.validityDays > 0
-                  ? t.badgeLasts(badge.validityDays)
-                  : t.badgeLifetime,
-              // Always rupees (owner, 27 Sep 2026: "price in badges will
-              // always be in inr currency"); Standard's 0 is free.
-              if (badge.priceInr case final price?)
-                price == 0 ? t.badgeFree : '₹${formatChips(price)}',
-            ].join(' · '),
+            detail: ladderBadgeDetail(t, badge),
             lit: held.contains(badge.code) && !badge.isDefault,
           ),
       ],
@@ -1104,106 +1285,16 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
   }
 }
 
-/// The popup's three tabs, one row of pills the width of the popup: the one
-/// showing lit in gold, the others quiet, each a full touch target, its word
-/// shrunk rather than cut where a language runs long.
-class _Tabs extends StatelessWidget {
-  const _Tabs({
-    required this.value,
-    required this.labels,
-    required this.onChanged,
-  });
-
-  final LevelInfoTab value;
-  final Map<LevelInfoTab, String> labels;
-  final ValueChanged<LevelInfoTab> onChanged;
-
-  static const Map<LevelInfoTab, IconData> _icons = {
-    LevelInfoTab.mine: Icons.military_tech_rounded,
-    LevelInfoTab.daily: Icons.bolt_rounded,
-    LevelInfoTab.ladder: Icons.format_list_numbered_rounded,
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final gold = goldInk(theme.brightness);
-    return Row(
-      children: [
-        for (final (i, tab) in LevelInfoTab.values.indexed) ...[
-          if (i > 0) const SizedBox(width: Space.xs),
-          Expanded(
-            child: Semantics(
-              button: true,
-              selected: tab == value,
-              child: InkWell(
-                key: ValueKey('level-tab-${tab.name}'),
-                borderRadius: BorderRadius.circular(Radii.pill),
-                onTap: () {
-                  if (tab == value) return;
-                  tapHaptic(context);
-                  onChanged(tab);
-                },
-                child: AnimatedContainer(
-                  duration: Motion.fast,
-                  constraints: const BoxConstraints(minHeight: Dim.minTouch),
-                  padding: const EdgeInsets.symmetric(horizontal: Space.sm),
-                  decoration: BoxDecoration(
-                    color: tab == value
-                        ? gold.withValues(alpha: 0.14)
-                        : scheme.onSurface.withValues(alpha: 0.04),
-                    borderRadius: BorderRadius.circular(Radii.pill),
-                    border: Border.all(
-                      color: tab == value
-                          ? gold.withValues(alpha: 0.7)
-                          : scheme.onSurface.withValues(alpha: 0.12),
-                    ),
-                  ),
-                  child: Center(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _icons[tab],
-                            size: 16,
-                            color: tab == value
-                                ? gold
-                                : scheme.onSurface.withValues(
-                                    alpha: AppTheme.inkMed,
-                                  ),
-                          ),
-                          const SizedBox(width: Space.xs),
-                          Text(
-                            labels[tab] ?? '',
-                            maxLines: 1,
-                            style: TableType.label(
-                              theme,
-                              colour: tab == value
-                                  ? gold
-                                  : scheme.onSurface.withValues(
-                                      alpha: AppTheme.inkMed,
-                                    ),
-                              weight: tab == value
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
+/// A badge of the catalogue described: who holds it, how long a grant lasts
+/// and its price — "Everyone · Lifetime · Free", "Lasts 15 days · ₹999".
+String ladderBadgeDetail(Strings t, LadderBadge badge) => [
+  if (badge.isDefault) t.badgeEveryone,
+  badge.validityDays > 0 ? t.badgeLasts(badge.validityDays) : t.badgeLifetime,
+  // Always rupees (owner, 27 Sep 2026: "price in badges will always be in inr
+  // currency"); Regular's 0 is free.
+  if (badge.priceInr case final price?)
+    price == 0 ? t.badgeFree : '₹${formatChips(price)}',
+].join(' · ');
 
 /// The lobby's level key (owner, 27 Sep 2026: "Add one icon in lobby so that
 /// user can see his level"): a round key at the foot, beside the Friends key,
@@ -1308,11 +1399,20 @@ class _Pane extends StatelessWidget {
 /// A section's name — "Your badges", "How to earn XP", "All levels" — with,
 /// for the ladder's, the name of its rate column at the right.
 class _SectionHead extends StatelessWidget {
-  const _SectionHead(this.text, {this.first = false, this.column});
+  const _SectionHead(
+    this.text, {
+    this.first = false,
+    this.column,
+    this.trailing,
+  });
 
   final String text;
   final bool first;
   final String? column;
+
+  /// Something that moves at the right instead of [column]: the daily list's
+  /// reset, counted by itself.
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
@@ -1330,7 +1430,9 @@ class _SectionHead extends StatelessWidget {
               style: style,
             ),
           ),
-          if (column case final column?)
+          if (trailing case final trailing?)
+            trailing
+          else if (column case final column?)
             Text(column, style: TableType.metadata(theme)),
         ],
       ),
@@ -1689,12 +1791,16 @@ class WinningTaxFact extends StatelessWidget {
     required this.label,
     required this.value,
     this.detail,
+    this.detailWidget,
     this.strong = false,
   });
 
   final IconData icon;
   final String label;
   final String value;
+
+  /// A quieter line that counts by itself (a [ResetsIn]), in [detail]'s place.
+  final Widget? detailWidget;
 
   /// A quieter line under the value: what reaches the next level and what it
   /// charges, what sets the rate paid, when today's window resets.
@@ -1764,7 +1870,9 @@ class WinningTaxFact extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.end,
                     style: TableType.metadata(theme, figures: true),
-                  ),
+                  )
+                else
+                  ?detailWidget,
               ],
             ),
           ),
