@@ -2101,7 +2101,13 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   chair (`playerDrawerSeat`), the plaque only — opens `PlayerDrawer`, the tables' Scaffold `endDrawer` (right side,
   `TableSpace.drawerW`, `TableScrim.drawer`, `endDrawerEnableOpenDragGesture: false`; the Scaffold still watches nothing;
   back closes it first; the variation window closes it as it does the left drawer): the player's picture and name at
-  once from the seat, then `GET /api/players/{id}/profile` — NONE **Add Friend** (gold primary) → **Request Sent** (dead);
+  once from the seat, then `GET /api/players/{id}/profile` — and with it their **level** under the name ("Level 10 · 🌟
+  Rising Star", `_LevelLine`, gold, on `levelStrut`, set smaller rather than cut; owner, 27 Sep 2026: "In game table each
+  player can see each other level of player also by clicking other player pod … but players should not able to see each
+  other total winnings and biggest pot"; the profile's `level {level, title, icon}` — `auth.ProfileLevel`, read through
+  `playerLevelJoins` like every account's, absent where the ladder has none — and nothing else of the standing: no XP, no
+  rate, no badge; another player's winnings and biggest pot never reach the phone and would be dropped if they did,
+  `StatsByCategory.fromJson(chips: false)`) — NONE **Add Friend** (gold primary) → **Request Sent** (dead);
   PENDING_RECEIVED **Accept** (gold) + **Reject** (outlined); FRIENDS a ✓ Friends tag (no Remove at a table); a refusal
   re-reads and shows its note in the drawer — for a friend, **"Friends for 3 days"** under the name in the head (owner,
   26 Sep 2026: "show each other at the top how long they are friends in time"; `_FriendsFor`, from the friend list's

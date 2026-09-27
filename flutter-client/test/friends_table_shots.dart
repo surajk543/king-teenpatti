@@ -221,6 +221,7 @@ FakeFriendsServer _server(_Scene scene) {
   );
   server.profiles['u1'] = {
     ...card(1),
+    'level': {'level': 10, 'title': 'Rising Star', 'icon': '🌟'},
     'friendStatus': 'NONE',
     'stats': statsJson(played: 88, won: 30, lost: 50, left: 8, winRate: 34.09),
   };
@@ -232,6 +233,7 @@ FakeFriendsServer _server(_Scene scene) {
   };
   server.profiles['u3'] = {
     ...card(3),
+    'level': {'level': 2, 'title': 'Rookie', 'icon': '🔰'},
     'friendStatus': 'PENDING_RECEIVED',
     'requestId': 41,
     'stats': statsJson(
@@ -244,6 +246,7 @@ FakeFriendsServer _server(_Scene scene) {
   };
   server.profiles['u4'] = {
     ...card(4),
+    'level': {'level': 44, 'title': 'Supreme Overlord', 'icon': '🔥🔱'},
     'friendStatus': 'FRIENDS',
     'stats': statsJson(
       played: 1234567,

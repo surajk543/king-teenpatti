@@ -248,6 +248,12 @@ func TestTheEightFriendsRoutesAnswerTheContract(t *testing.T) {
 	if _, err := database.Pool.Exec(ctx, `INSERT INTO player_variation_stats (user_id, variation, hands_played) VALUES ($1, 'MUFLIS', 1)`, idB); err != nil {
 		t.Fatal(err)
 	}
+	// And B's level (owner, 27 Sep 2026: "each player can see each other
+	// level … by clicking other player pod"): 4,180 XP is Level 10.
+	if _, err := database.Pool.Exec(ctx, `INSERT INTO player_xp (user_id, xp, created_at, updated_at) VALUES ($1, 4180, 1, 1)`, idB); err != nil {
+		t.Fatal(err)
+	}
+	const levelB = `"level":{"level":10,"title":"Rising Star","icon":"🌟"},`
 	const zeroHands = `{"trail":0,"pureSequence":0,"sequence":0,"color":0,"pair":0,"highCard":0}`
 	const zeroLine = `"handsPlayed":0,"handsWon":0,"handsLost":0,"handsLeft":0,"winRate":0`
 	statsB := `"stats":{"handsPlayed":3,"handsWon":1,"handsLost":1,"handsLeft":1,"winRate":33.33,"categories":{` +
@@ -257,21 +263,22 @@ func TestTheEightFriendsRoutesAnswerTheContract(t *testing.T) {
 		`"poker":{` + zeroLine + `}}}`
 	status, raw = b.call(t, ts.URL, tokA, http.MethodGet, "/api/players/"+idB+"/profile", "")
 	mustStatus(t, "B's profile", status, http.StatusOK, raw)
-	mustBody(t, "B's profile, a friend's", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Bobby","profilePicture":{"id":null,"url":null},"friendStatus":"FRIENDS","presence":{"status":"OFFLINE","online":false,"playing":false},%s}}`, idB, statsB))
+	mustBody(t, "B's profile, a friend's", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Bobby","profilePicture":{"id":null,"url":null},"friendStatus":"FRIENDS","presence":{"status":"OFFLINE","online":false,"playing":false},%s%s}}`, idB, levelB, statsB))
 	t.Logf("GET /api/players/{playerId}/profile (FRIENDS): %s", raw)
 	// A stranger's profile: stats, and no presence.
 	status, raw = b.call(t, ts.URL, tokC, http.MethodGet, "/api/players/"+idB+"/profile", "")
-	mustBody(t, "B's profile, a stranger's", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Bobby","profilePicture":{"id":null,"url":null},"friendStatus":"NONE",%s}}`, idB, statsB))
+	mustBody(t, "B's profile, a stranger's", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Bobby","profilePicture":{"id":null,"url":null},"friendStatus":"NONE",%s%s}}`, idB, levelB, statsB))
 	t.Logf("GET /api/players/{playerId}/profile (NONE): %s", raw)
-	// No chip figure on another player's profile, in any category.
-	for _, chips := range []string{"totalWinnings", "biggestPot"} {
+	// No chip figure on another player's profile, in any category — and of
+	// the level, its number, title and mark only: no XP, no rate, no badge.
+	for _, chips := range []string{"totalWinnings", "biggestPot", `"xp"`, "taxBps", "badges", "next"} {
 		if strings.Contains(string(raw), chips) {
 			t.Fatalf("a profile carries %s: %s", chips, raw)
 		}
 	}
 	// Your own: presence, and a win rate of 0 before any hand.
 	status, raw = b.call(t, ts.URL, tokC, http.MethodGet, "/api/players/"+idC+"/profile", "")
-	mustBody(t, "your own profile", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Carla","profilePicture":{"id":null,"url":null},"friendStatus":"SELF","presence":{"status":"OFFLINE","online":false,"playing":false},"stats":{`+zeroLine+`,"categories":{"teenPatti":{`+zeroLine+`,"hands":`+zeroHands+`},"variation":{`+zeroLine+`,"hands":`+zeroHands+`,"variations":[]},"poker":{`+zeroLine+`}}}}}`, idC))
+	mustBody(t, "your own profile", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Carla","profilePicture":{"id":null,"url":null},"friendStatus":"SELF","presence":{"status":"OFFLINE","online":false,"playing":false},"level":{"level":1,"title":"Newbie","icon":"🌱"},"stats":{`+zeroLine+`,"categories":{"teenPatti":{`+zeroLine+`,"hands":`+zeroHands+`},"variation":{`+zeroLine+`,"hands":`+zeroHands+`,"variations":[]},"poker":{`+zeroLine+`}}}}}`, idC))
 	status, raw = b.call(t, ts.URL, tokA, http.MethodGet, "/api/players/nobody-at-all/profile", "")
 	mustStatus(t, "a profile of nobody", status, http.StatusNotFound, raw)
 	mustBody(t, "a profile of nobody", raw, `{"error":"player_not_found","message":"Player not found."}`)

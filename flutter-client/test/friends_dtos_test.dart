@@ -223,6 +223,34 @@ void main() {
       expect(PublicProfile.fromJson(const {}).stats.handsPlayed, 0);
     });
 
+    test('a profile\'s level: its number, title and mark; none where the '
+        'server sends none or no level', () {
+      final p = PublicProfile.fromJson({
+        'profile': {
+          'userId': 'u1',
+          'displayName': 'Ravi',
+          'friendStatus': 'NONE',
+          'level': {'level': 10, 'title': 'Rising Star', 'icon': '🌟'},
+          'stats': <String, dynamic>{},
+        },
+      });
+      expect(p.level?.level, 10);
+      expect(p.level?.title, 'Rising Star');
+      expect(p.level?.icon, '🌟');
+      // A move keeps it.
+      expect(p.withStatus('PENDING_SENT', requestId: '7').level?.level, 10);
+      expect(PublicProfile.fromJson(const {}).level, isNull);
+      for (final junk in <Object?>[
+        null,
+        'ten',
+        7,
+        {'level': 0},
+        {'level': 'x'},
+      ]) {
+        expect(ProfileLevel.maybe(junk), isNull, reason: '$junk');
+      }
+    });
+
     test('ending a friendship takes where they are with it', () {
       final p = PublicProfile.fromJson({
         'profile': {

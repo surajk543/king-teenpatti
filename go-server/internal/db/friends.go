@@ -122,6 +122,11 @@ type PlayerLookup struct {
 	// reads them (Player stats v2); the profile leaves the chip figures
 	// (total winnings, biggest pot) off the wire.
 	Stats StatsSheet
+	// Level is the player's level as their own account reads it
+	// (playerLevelJoins, the one statement of the rule); the profile shows
+	// its number, title and mark and nothing else of it. Zero where the
+	// ladder has no level at all.
+	Level PlayerLevel
 }
 
 // Friend is one friend of a player's list (or either side of the friendship
@@ -221,6 +226,11 @@ func (f *Friends) Lookup(ctx context.Context, viewerID, playerID string) (*Playe
 	if out.Stats, err = parseStatsSheet(buckets, variations); err != nil {
 		return nil, err
 	}
+	standings, err := standingsOf(ctx, f.db.Pool, now(f.clock), []string{player.UserID})
+	if err != nil {
+		return nil, err
+	}
+	out.Level = standings[player.UserID].PlayerLevel
 	out.Player = player
 	switch {
 	case player.UserID == viewerID:
