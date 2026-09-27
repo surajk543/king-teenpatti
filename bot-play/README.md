@@ -1,374 +1,746 @@
-# bot-play — the resident bot players
+# bot-play — the resident bot fleet
 
-A Node fleet of bot players that keeps the lobby's tables populated, so a real
-player who opens the app finds a game in progress rather than three empty
-tables.
+A fleet of bot players, written in Go, that keeps the lobby's Teen Patti tables
+populated so a real player who opens the app finds a game in progress. Each bot
+is an ordinary client of the game server: it signs in as a guest device, reads
+the table menu the server publishes, sits down with `room:quickJoin`, plays only
+the moves the server offers in `you.options`, and leaves. The server stays the
+authority on every rule, every seat and every chip; a bot decides only **what**
+to do and **when**.
 
-The bots speak **only the public protocol** — the same events the Flutter
-client sends, acting only on the options the server hands them. They have no
-privileged view of anyone's cards, because they are given none: the server
-redacts state per viewer, and a bot is just another viewer. What a bot knows is
-what a player knows: its own cards once it has looked, the table, and what the
-others just did.
+It replaced the Node fleet (`src/`, `test/`, `package.json`, tagged
+`bot-play/v1.0.0`) on 27 Sep 2026; that code is in git history.
 
 ```bash
-cd bot-play && npm install
-npm start                        # 243 bots, 20–25 seated at each lobby table
-npm start -- --per-category 10   # a smaller fleet
-npm run dev                      # six per category, for a laptop
-npm test                         # the decision, hand-ranking, persona, chat and table-menu rules
+cd bot-play && export PATH=$HOME/.local/go/bin:$PATH      # Go 1.27 (CLAUDE.md §3)
+BOT_COUNT=10 go run ./cmd/bot-play                         # 10 bots against http://127.0.0.1:3000
+BOT_MODE=simulation BOT_SEED=12345 BOT_COUNT=10 go run ./cmd/bot-play   # no server: the in-process simulator
+go test -race ./...                                        # every package, ~10 s
+bash ops/build.sh                                          # bin/bot-play, static, version-stamped
 ```
 
-## Where it connects
+---
 
-`SERVER_URL` defaults to **`http://127.0.0.1:3000`** — the game server's own
-port, not the public HTTPS address — and that default is right in both places:
+## Architecture
 
-- **In production** the fleet runs *on the game host*, so loopback skips nginx,
-  skips TLS termination and skips the provider's edge protection. That last one
-  is not theoretical: two hundred sockets opening from one address through the
-  public endpoint is exactly the shape a DDoS filter drops, and on 9 Sep 2026
-  it did — repeatedly, to the load generator.
-- **In development** the go-server also listens on `127.0.0.1:3000`, so the
-  same default works with no configuration.
-
-Set `SERVER_URL` only when the bots genuinely run off-host.
-
-## The fleet
-
-The fleet covers **four lobby tables** — `seen:200`, `blind:200`,
-`blind:5000` and, since 22 Sep 2026, `variation:50000` — as long as the server
-offers them (*Following the server's menu*, below), and holds a target number
-of bots **seated at each one**:
-
-| Lobby table | Pool | Seated |
-|---|---|---|
-| `seen:200` | 66 | 20–25 |
-| `blind:200` | 66 | 20–25 |
-| `blind:5000` | 66 | 20–25 |
-| `variation:50000` | 45 | 12–18 |
-
-The pool is how many accounts belong to that table; only the seated figure is
-playing at any moment, because a bot plays a sitting and then rests (*Sittings*,
-below). Twenty to twenty-five at one lobby card is four or five tables of that
-stake running at once — a table seats five.
-
-**`--online-min` / `--online-max` are counts, not percentages** (changed
-22 Sep 2026). They used to be a share of the pool, and the fleet could never
-reach it: a sitting ends by itself after ~20 hands and a rest averages 25
-minutes, so the seated count settles at the duty cycle those two imply — about
-a third — whatever share was configured. The old default asked for 75–95% of
-66, i.e. 50–63 per table, and produced 19–27; the log read `19/59` every tick
-with nothing actually wrong. An absolute target is one the fleet can hold, so
-the number in the log is now the number at the table.
-
-Variation is deliberately smaller. Its boot is 50,000, so a fresh bot sits
-down with twenty boots of its 10 Lakh welcome where a 200 table gives it five
-thousand, and a bot that busts is replaced by a **new account carrying a new
-welcome bonus** (`--on-broke`). Fewer seats there means less of the fleet
-exposed to that, and richer bots reach it by hopping — `hop` only ever offers a
-table the bot can afford (`--boots-to-sit`) and whose stack band admits it.
-
-| Flag / env | Default | Meaning |
-|---|---|---|
-| `--server-url` / `SERVER_URL` | `http://127.0.0.1:3000` | Where the game server is |
-| `--per-category` / `PER_CATEGORY` | 66 | Default pool for a lobby table (variation overrides it) |
-| `--variation-pool` / `VARIATION_POOL` | 45 | Pool for the variation table |
-| `--online-min` / `ONLINE_MIN` | 20 | Fewest bots seated at a lobby table |
-| `--online-max` / `ONLINE_MAX` | 25 | Most bots seated at a lobby table |
-| `--boots-to-sit` / `BOOTS_TO_SIT` | 8 | Boots a bot wants before it will hop to a table |
-| `--session-hands` / `SESSION_HANDS` | 20 | Average hands in a sitting before a bot gets up |
-| `--rest-minutes` / `REST_MINUTES` | 25 | Average minutes away between sittings |
-| `--steady` / `STEADY` | off | Everyone online and nobody gets up of their own accord — the fleet before 12 Sep 2026 (the bots of an entry the server stops offering still do) |
-| `--chat-scale` / `CHAT_SCALE` | 1 | Multiplies how often bots talk; 0 silences the fleet |
-| `--switch-every` / `SWITCH_EVERY` | 240 | Seconds between a bot considering another table at the SAME stake; 0 disables |
-| `--hop-every` / `HOP_EVERY` | 900 | Seconds between a bot considering a DIFFERENT stake; 0 disables |
-| `--start-stagger-ms` / `START_STAGGER_MS` | 250 | Gap between starting each bot |
-| `--on-broke` / `ON_BROKE` | `rotate` | `rotate` or `retire` — see below |
-| `--quiet` / `QUIET` | off | Only log chip-minting rotations and the heartbeat |
-| `--verbose` / `VERBOSE` | off | Log every bet with the bot's hand — for watching a small fleet |
-
-### Following the server's menu
-
-The four tables above are the owner's choice of what to staff, but **the
-server decides what the lobby offers and who may sit where**, and the fleet
-follows it (`src/menu.js`, 27 Sep 2026). Before that it read neither: a table
-the server retired left its bots refused `table_not_offered` for ever, and a
-bot choosing a table on its own judgement walked into a stack band.
-
-- **At start** the fleet reads `GET /api/tables` (public, no token) — the menu
-  the server enforces, with each table's stack band — and does not staff a
-  configured entry the menu does not list, with one log line each
-  (`table menu (GET /api/tables): not staffing blind/5000 — the server does not
-  offer it`). Those bots still exist, so every bot keeps its own account, name
-  and persona; they just rest. **Nothing is ever added**: a table the server
-  offers that the list leaves out stays unstaffed.
-- **If that read fails**, the first `session:ready` a bot receives supplies the
-  same menu (`config.tables`), and until one does every configured entry is
-  staffed as before. A bot of an entry that menu leaves out, still waiting its
-  turn to start, stays resting.
-- **When the catalogue changes** (a server restart with an edited
-  `table_configs`), every session names the new `config.tableConfigVersion`;
-  the first bot to see it hands the fleet the new menu. An entry that leaves it
-  stops being staffed — its seated bots get up after their hand, one a tick,
-  under `--steady` too; one on its way to a seat ends its sitting rather than
-  sitting at another table on top of that table's own bots — and one that
-  comes back is staffed again.
-- **Bands are respected wherever a bot chooses a table**: a hop, the move after
-  a refusal, and the table it is headed for when it sits down. A stack must be
-  at least the table's `minChips` and, when it has one, at most its `maxChips`:
-
-  | Table | Band (production, 27 Sep 2026) |
-  |---|---|
-  | `seen:200`, `seen:50000` | open to all |
-  | `blind:200` | up to 20 Lakh (the entry cap, folded into the card) |
-  | `blind:5000` | up to 20 Crore |
-  | `blind:50000`, `variation:50000` | up to 200 Crore |
-  | `blind:2000000`, `variation:2000000` | only from 50 Crore |
-
-  The fleet reads the bands from the menu and no figure of them is in its code;
-  this table is only a snapshot of what the menu said.
-- **Refusals are still handled**, since the server is the authority and a bot's
-  idea of its own stack can lag: `over_entry_cap` and `below_table_minimum` move
-  the bot to a table its stack belongs at, and `table_not_offered` takes that
-  entry out of every bot's choices (logged once): a bot refused its own table
-  ends its sitting, as above, and one refused a table it was hopping to moves
-  to an offered one. A bot that no offered table will take ends its sitting and
-  looks again at the next.
-
-## How they play
-
-The point is not that a bot plays well. It is that a table of five does not read
-as one program with five sockets — and that a player who watches a hand to the
-end sees bets that made sense for the cards that turn over.
-
-- **They judge their cards.** `src/handrank.js` is a port of the server's own
-  ranking (`go-server/internal/game/handrank.go`), checked against the server's
-  scores for all 22,100 possible hands with no difference. A bot places its hand
-  among all the others and weighs that against how many players are still in and
-  how hard they have been betting (`src/brain.js`).
-- **Strong hands bet big — the high chaal.** A raise names a rung of the ladder
-  the server sent: higher the stronger the hand and the more aggressive the
-  player, but capped at a share of the stack, because a person bets big on a big
-  hand without shoving a week's winnings on a whim. Until 12 Sep 2026 every raise
-  was simply the smallest one on offer. Now and then a strong hand is slow-played
-  with a plain chaal instead.
-- **Middling hands stay in while the price is right**, or settle it cheaply — a
-  sideshow against the neighbour, or a show when two are left. And patience runs
-  out: the longer a hand drags on, the sooner a middling hand folds, compares or
-  shows. Blind tables never force a showdown, and a table of middling hands
-  paying chaal round after round is not how people play.
-- **Weak hands fold**, unless it is a bluffer's moment. Most personas almost
-  never bluff; a few do it a lot, and more often heads-up.
-- **Blind is a style.** A careful player looks straight after the deal (the table
-  shows their green SEEN backs); a blind-lover rides it for rounds, sometimes
-  raising blind to lean on the table; anyone looks once the price climbs or
-  someone starts raising.
-- **At a blind table, blind is the game** (13 Sep 2026). Every bot there prefers
-  blind moves: the chance of looking starts far lower and climbs slowly with each
-  blind bet (`lookChanceFor` in `src/brain.js`), so a casual bot plays most of a
-  hand blind, a blind-lover more, a careful one a little less. Pressure still
-  counts — a bet worth a real share of the stack, or a table raising hard, makes
-  anyone look sooner — and the server turns the cards up itself after the
-  table's blind-move limit. Seen tables are unchanged.
-- **At a variation table they call the game** (22 Sep 2026). The player to the
-  dealer's left names the hand's variation inside a server-timed window, and a
-  bot picks from the menu the **server** offered for that hand — never from a
-  list of its own, because `FIVE_CARD` is absent when the deck could not cover
-  a two-card top-up for everyone, and naming it then is refused. The persona
-  leans (a loose player likes Muflis, where junk becomes gold; an aggressive
-  one likes the wild-card variations) but only mildly, so a table sees all
-  seven over an evening rather than one per seat. Everything is read from
-  `room:state.variation`, not the `game:variation*` events — the snapshot is
-  what a reconnecting client has, and what the Flutter client uses too.
-- **Under 5-Card they choose which three play.** `bestThreeOf` is a port of the
-  server's `EvaluateBest`, down to which of two equally strong combinations it
-  names, so a bot's pick matches the `bestPossible` the server reports. Not
-  always, though: a small share of picks are the wrong three, because someone
-  glancing at five cards on a phone takes the obvious pair and misses the
-  flush, and a fleet that found the optimum every single time would be the one
-  thing at the table that never errs.
-- **A big loss stings.** A bot that just lost big plays looser for a few hands,
-  then settles.
-- **Every move is one the server offered, and every amount a rung it sent.**
-  `test/brain.test.js` checks that over thousands of random turns, together with
-  "a strong hand bets and a weak one folds" and "an aggressive player chaals
-  higher up the ladder than a careful one".
-
-## How they behave like people
-
-- **A persona per bot, derived from its index and never changing.** Its style —
-  a *rock* who folds, a *shark*, a *maniac*, a *calling station*, a *casual* —
-  how tight and aggressive it is, how long it stays blind, how much it bluffs,
-  talks, stays and thinks. The same seat plays the same way tomorrow, which is
-  what makes it a person rather than a dice roll.
-- **Think time varies**, and a big pot or a big decision (a raise, a show) slows
-  everyone down — a real player thinks harder about a move that costs more.
-  Looking at your own cards is a glance, and another blind chaal is routine.
-  Rarely, a bot takes a much longer pause:
-  someone put their phone down. Always bounded so it never eats the 25-second
-  turn clock, because a bot that times out is not "human", it is a bot that
-  misses turns and gets kicked for idling.
-- **Sittings: people come and go.** Each bot plays a sitting — its persona
-  decides whether it is a regular who stays forty hands or someone who drops in
-  for eight — then gets up between hands, sometimes with a "chalo bye", goes
-  offline and rests for minutes to the better part of an hour. `src/fleet.js`
-  keeps each category's share online drifting between the two bounds: when a
-  category is short it brings a rested bot back, when it is over it asks one to
-  get up after its hand, one change per category at a time, so arrivals and
-  departures trickle. A bot gets up within a couple of seconds of the hand ending,
-  before the next deal, so leaving never throws a boot away. The pool is the same
-  fixed identities, so coming and going creates no accounts and mints no welcome
-  bonuses. `--steady` turns it off.
-- **Chat reacts to what happened** — a greeting on sitting down, a welcome for
-  somebody who arrives, a different register for winning big than for losing
-  small, a "bluff hai kya" at a big raise, a word after a sideshow, a goodbye, and
-  an answer when a person says hi or mentions the bot by name (bots rarely answer
-  bots, and do not welcome each other while the fleet is starting). Lines are
-  drawn without immediate repetition and each bot keeps a 12-second cooldown.
-  **Every table also has a budget** — one bot line every six seconds and six a
-  minute at most — so a table of talkative bots never becomes a group chat. "Big"
-  is measured against the table's boot, so the same excitement reads correctly at
-  200 and at 5,000.
-- **Some sideshow asks are simply left to expire**, and the rest are answered by
-  the hand: a good hand is glad to compare. A table where every ask is answered
-  within two seconds is a table of programs.
-- **They have faces.** Each bot wears one of the server's profile pictures,
-  chosen from its index so the same seat keeps the same animal every run. Five
-  identical grey initials around a table is the tell that gives the fleet away
-  before anyone reads a name.
-
-  Only the **FREE** ones, and never a `RIVE` row (`wearableIds`): the app ships
-  no Rive runtime yet, so one would show as the default face. A row's
-  `currency` (COIN, DIAMOND or HAMMER) only prices PREMIUM pictures, which are never
-  taken. The catalogue is rows in `profile_pictures` now, and a
-  PREMIUM picture costs chips: a fleet buying its way through it would be two
-  hundred accounts quietly draining the chip economy on decoration every
-  restart, and the server would refuse them anyway (403 `picture_locked`). How
-  many pictures are free is one `UPDATE` away from changing, so the step through
-  the list is derived from the list's own length rather than hardcoded —
-  `strideFor`. The old fixed stride of 7 put every bot on the SAME face the day
-  the catalogue held seven free pictures, which is the opposite of the point.
-
-  Set after login, because the
-  server refuses a picture change at a table (409 `seated`) — and if that
-  refusal comes anyway, because the fleet restarted inside the server's
-  60-second reconnect grace and every seat was still held, the bot steps out
-  of its restored seat once, puts the picture on, and sits back down
-  (`stepOutForPicture`; the log line is `stepped out for a picture`). Until
-  10 Sep 2026 that refusal was swallowed, which is how a whole fleet ran
-  faceless for a day after a restart.
-- **They wander between tables.** This is not decoration: a quick-join seats a
-  player at the *fullest* table with room, so without churn exactly one table
-  per category ever has a free seat, and every arriving real player lands in
-  the same one. Bots coming and going keep seats open across the lobby. Since
-  25 Sep 2026 `room:switch` lands on the other table of the same boot and
-  category with the **fewest players** (a random one from 13 Sep, the fullest
-  before that), so a wandering bot spreads itself onto the quietest tables;
-  when every other table is full the server opens a new one rather than
-  refusing, and `no_other_table` (a table the lobby no longer offers) just
-  leaves it where it is.
-- **A few change stake.** `room:switch` means "another table of the same boot
-  and category" — changing stake is leaving one game for another, so it is a
-  leave and a fresh quick-join, as a player would do it from the lobby. Only
-  the ~28% of personas with a `hopRate` ever do, and rarely: a fleet that
-  redistributed itself often would leave whole stakes empty in waves. A hop
-  only goes to a table the server offers and whose stack band admits the bot
-  (*Following the server's menu*, above).
-
-## Running out of chips
-
-A bot that can no longer cover the boot gets up at the end of the hand —
-sometimes with a "chips khatam" — rather than sitting at a table it cannot be
-dealt into (the server would hold the seat for its 30-second unfunded grace and
-then show it out anyway). It then does what a player does in the lobby: collects
-the 4-hour bonus if it is due, and sits back down if that covers the boot. If it
-does not:
-
-- **`--on-broke retire`** leaves the seat empty. Honest, visible in the log,
-  and the fleet quietly shrinks over weeks.
-- **`--on-broke rotate`** (default) gives that bot a fresh guest identity,
-  which the server greets with `WELCOME_CHIPS`. The fleet stays at full
-  strength and **this creates chips** — every rotation adds `WELCOME_CHIPS`
-  (10 Lakh, 1,000,000, in production) to the economy out of nothing.
-
-The running total is printed on every rotation and in the five-minute
-heartbeat, precisely so that inflation is something you watch rather than
-something that happens to you. Rotated accounts carry their generation in the
-device id (`botplay-v1-<n>-g<k>`), so the total can be counted in the database
-after the fact:
-
-```sql
-SELECT count(*), sum(delta) FROM chip_ledger l
-  JOIN users u ON u.id = l.user_id
- WHERE l.reason = 'welcome_bonus' AND u.provider_user_id IN (
-   SELECT provider_user_id FROM users WHERE display_name IS NOT NULL
- );
 ```
+cmd/bot-play/main.go      flags (-config, -version) → config.Load → the menu → Deps → Manager.Start → SIGINT/SIGTERM → Manager.Stop
+internal/
+  config/                 config.go (Default, Load), yaml.go (strict YAML walk), env.go (EnvKeys), validate.go
+  protocol/               wire.go (events, payloads, refusal codes), transport.go (the API / Dialer / Session interfaces)
+  bot/                    identity.go, bot.go (Bot, Deps), lifecycle.go (sessions, sign-in, reconnect),
+                          play.go (the event handlers), manager.go (start, stop), fleet.go (registry), scheduler.go
+    state/                state.go (lifecycle state machine, Session, Snapshot), opponents.go (reads of other players)
+    strategy/             personality.go (six families), teen_patti.go (Decide, Legal, imperfections, sideshow answers),
+                          blind.go, seen.go, variation.go (the variation choice, the 5-Card pick)
+    decision/             hand_strength.go (the server's ranking), evaluator.go, variation_tables.go, betting.go, risk.go
+    table/                finder.go (the menu), selector.go (where to sit), switcher.go (when to move)
+    timing/               human_delay.go, reaction.go (reaction times)
+    interaction/          chat.go, messages.go (the lines), emote.go (NoEmotes)
+    connection/           websocket.go (Socket.IO client), rest.go (REST client), reconnect.go (Backoff)
+  sim/                    BOT_MODE=simulation: an in-process stand-in server
+  metrics/                Prometheus metrics, /healthz, the debug view
+  clock/, rng/            real and fake clocks; seeded random streams
+```
+
+**One bot = one goroutine, one event loop, one connection.** `Bot.Run` is the
+bot's whole life on its own goroutine: sessions of play separated by rests. While
+connected, `loop` is its single event loop — a `select` over the connection's
+ordered event stream, the bot's scheduler and the stop signal — so all of a bot's
+state belongs to that goroutine and needs no lock. The scheduler (`scheduler.go`)
+keeps everything the bot means to do later (its move on this turn, a chat line,
+getting up after the hand) in order under ONE timer. Each bot has its own
+connection (a reader and a writer goroutine underneath) and its own random
+streams, so a slow or disconnected bot never holds up another.
+
+**What the bots share** is `bot.Deps`, none of it per-bot state: the REST API and
+the websocket dialer (or the simulator's), the menu (`table.Finder`, one copy for
+the fleet), the clock, the timing model, the per-table chat budget, the metrics,
+the personality profiles, the configuration, the logger and the behaviour seed.
+
+**The fleet registry** (`fleet.go`) is this process's memory of its own bots:
+which user ids are the fleet's, and which table each sits at. It lets a bot tell
+a table of fellow bots from one with a real player, spread the fleet across
+tables, and keep bots from greeting each other in chorus. Nothing in it reaches
+the server, and the server's `is_bot` label is never read (it is not on the wire).
+Another fleet process's bots count as humans to this one.
+
+**The lifecycle** is an explicit state machine (`state/state.go`); every
+transition is one INFO `state` log line and moves the `bot_state` gauge:
+
+```
+OFFLINE → CONNECTING → ONLINE → SEARCHING_TABLE → JOINING_TABLE →
+WAITING_FOR_HAND ⇄ PLAYING ⇄ WAITING_FOR_ACTION → PROCESSING_RESULT →
+(WAITING_FOR_HAND | LEAVING_TABLE / SWITCHING_TABLE → SEARCHING_TABLE)
+RECONNECTING from anywhere a connection can drop; RESTING between sessions
+```
+
+A transition the table does not list is logged at WARN (`state (unexpected
+transition)`) and made anyway: a surprise never wedges a bot.
+
+**The server is `protocol.API` + `protocol.Dialer`.** `connection.HTTPAPI` and
+`connection.Dialer` implement them against the real server, `sim.Server` against
+the simulator, so a bot runs the same code in both modes.
+
+## Identity and sign-in
+
+- **Device id `botplay-<six digits>`** — bot *i* of the fleet is
+  `<bots.device_prefix><%06d of start_index+i>`: `botplay-000001`,
+  `botplay-000002`, … The prefix **must** start with `botplay-` (config refuses
+  anything else): the game server marks an account `is_bot` at login from the
+  guest device id's namespace (go-server `BOT_DEVICE_PREFIX`, default
+  `botplay-,practice-bot-,ramp-bot-`). The bot sends nothing else to say what it
+  is, and `is_bot` is on no wire struct, so no player can tell.
+- **Login** is `POST /api/auth/login {provider:"guest", deviceId, displayName}` —
+  the door every guest uses. The display name (a first name, sometimes with a
+  suffix — `Kabir_07`, `Meera`, `Rohanking` — from the bot's number) is written by
+  the server only when the account is created.
+- **A face.** A bot wearing no picture puts on a FREE, non-RIVE one from
+  `GET /api/profiles`, chosen from its number, so a table of bots is not five
+  grey initials.
+- **Personality is stable per identity.** A bot's family is placed by its number
+  on a golden-ratio sequence, weighted by `bots.personality_mix` (with the default
+  even mix, ten consecutive bots cover all six families), and its traits are drawn
+  from a seed hashed from its device id (FNV-1a). The same account plays the same way on every
+  run, whatever the fleet's seed.
+- **Behaviour seed.** Every decision, delay and chat line is drawn from
+  `rng.Derive(seed, number)` — the bot's own stream. `seed` (`BOT_SEED`) 0 draws
+  it from the clock in server mode; a simulation with no seed uses 12345, so it is
+  repeatable by default.
+
+## Configuration
+
+`configs/bot.yaml` (or the file `-config` names), then the environment, then
+validation — read once at start. Every key in the shipped `configs/bot.yaml` is at
+its default and commented with its environment variable; the file may be deleted
+(a missing `configs/bot.yaml` is not an error; a missing file named with
+`-config` is). The YAML reading is strict: an unknown key, a wrong type (`3.5`
+where a whole number is read, `yes` where `true`/`false` is), or one setting given
+under both its spellings (`min_duration_minutes: 20` and `min_duration: 20m`)
+stops the process naming the key and its line. A bad environment value stops it
+naming the variable.
+
+| Environment | Default | Key |
+|---|---|---|
+| `BOT_MODE` | `server` | `mode`: `server` or `simulation` |
+| `SERVER_URL` | `http://127.0.0.1:3000` | `server_url`: REST at `<url>/api/…`, Socket.IO at `<url>/socket.io/` |
+| `WS_URL` | *(derived)* | `ws_url`: a `ws://`/`wss://` address when it is not `server_url`'s |
+| `BOT_SEED` | `0` | `seed`: 0 = from the clock (simulation: 12345) |
+| `BOT_COUNT` | `20` | `bots.count`, 0–10000 |
+| `BOT_DEVICE_PREFIX` | `botplay-` | `bots.device_prefix`: must start `botplay-`; letters, digits, `-_.`, ≤ 48 |
+| `BOT_START_INDEX` | `1` | `bots.start_index`: the first bot's number (the last must be ≤ 999999) |
+| `BOT_MIN_HANDS` | `3` | `table.min_hands`: never leave a table before this, bar a forced reason |
+| `BOT_MAX_HANDS` | `20` | `table.max_hands`: always move on by this many |
+| `BOT_SESSION_MIN_MINUTES` | `20` | `session.min_duration` |
+| `BOT_SESSION_MAX_MINUTES` | `120` | `session.max_duration` |
+| `BOT_CATEGORIES` | `seen,blind,variation` | `table.categories` |
+| `BOT_ENABLE_CHAT` | `true` | `interaction.enable_chat` |
+| `BOT_DEBUG_ADDR` | *(off)* | `debug.addr`: loopback only |
+| `BOT_DEBUG_SHOW_CARDS` | `false` | `debug.show_cards` |
+| `BOT_METRICS_ADDR` | *(off)* | `metrics.addr` |
+| `LOG_LEVEL` | `info` | `log.level`: debug, info, warn, error |
+| `LOG_FORMAT` | `json` | `log.format`: json or text |
+| `BOT_RECONNECT_MAX_DELAY_SECONDS` | `30` | `reconnect.max_delay` |
+| `BOT_DEV_REPLENISH` | `false` | `bankroll.dev_replenish`: refused outside simulation |
+
+Switches read `1/0`, `true/false`, `yes/no`, `on/off`; anything else is an error
+(a switch typed wrong must not read as off). An empty variable is unset.
+
+The YAML sections, in `configs/bot.yaml`'s order:
+
+- **`bots`** — `count`, `device_prefix`, `start_index`, `start_stagger_ms`
+  ([400, 2500]: the gap between starting one bot and the next, drawn per bot),
+  `personality_mix` (family → weight; empty = even).
+- **`session`** — `min_duration_minutes` 20, `max_duration_minutes` 120,
+  `rest_min_minutes` 5, `rest_max_minutes` 45 (or `min_duration: 20m` …). A
+  session's length is drawn inside the personality's own span (the *Session*
+  column below) clamped to these: `min_duration` and `max_duration` are hard limits,
+  the personality only narrows them. The rest is drawn between the two rest figures (four times as long
+  after an account the server refused).
+- **`table`** — `min_hands`, `max_hands`, `categories`, `category_weights`,
+  `boots_to_sit` 8 (sit only with that many boots), `search_delay_ms`
+  [2500, 8000], `max_bots_per_table` 0 (no limit), `no_human_patience_seconds`
+  0 (never move for want of a human).
+- **`timing`** — `min_reaction_ms` 700, `max_reaction_ms` 5000,
+  `safety_margin_ms` 3000, `ranges` (kind → [min_ms, max_ms]).
+- **`strategy`** — `enable_blind`, `enable_seen` (not both false), `tuning`
+  (family → trait → [low, high], e.g. `{AGGRESSIVE: {blind_rate: [0.40, 0.60]}}`).
+- **`interaction`** — `enable_chat`, `enable_emotes` (false: see *Chat*),
+  `probabilities` (moment → [low, high]), `cooldown_seconds` 12,
+  `table_gap_seconds` 6, `table_per_min` 6, `language` `mixed` | `english`.
+- **`reconnect`** — `base_delay_ms` 1000, `max_delay_seconds` 30,
+  `max_attempts` 0 (for ever).
+- **`bankroll`** — `collect_bonus` true, `dev_replenish` false.
+- **`debug`** — `addr`, `show_cards`. **`metrics`** — `addr`. **`log`** — `level`,
+  `format`.
+
+## Running
+
+All from `bot-play/`, with Go on the path (`export PATH=$HOME/.local/go/bin:$PATH`).
+
+```bash
+# one bot, readable logs, against the dev server on :3000
+BOT_COUNT=1 LOG_FORMAT=text go run ./cmd/bot-play
+
+# ten bots against a server on another port, with the debug view
+BOT_COUNT=10 SERVER_URL=http://127.0.0.1:3001 BOT_DEBUG_ADDR=127.0.0.1:9101 go run ./cmd/bot-play
+
+# a hundred bots from the built binary, metrics and the debug view on one address
+bash ops/build.sh
+BOT_COUNT=100 SERVER_URL=http://127.0.0.1:3000 BOT_METRICS_ADDR=127.0.0.1:9101 BOT_DEBUG_ADDR=127.0.0.1:9101 ./bin/bot-play
+
+# simulation: no server, no accounts, no real chips — repeatable from the seed
+BOT_MODE=simulation BOT_SEED=12345 BOT_COUNT=10 go run ./cmd/bot-play
+BOT_MODE=simulation BOT_SEED=12345 BOT_COUNT=100 ./bin/bot-play
+
+# a second process beside the first: a range of numbers of its own
+BOT_COUNT=50 BOT_START_INDEX=1001 ./bin/bot-play
+
+./bin/bot-play -version                     # bot-play <git describe>
+./bin/bot-play -config /path/to/other.yaml  # a file of your own; the environment still overrides it
+```
+
+The bots start staggered (0.4–2.5 s apart by default: a hundred take about two
+and a half minutes to all arrive). The process first reads `GET /api/tables` and,
+while the server is not answering, waits — trying every three seconds, with a WARN
+`waiting for the game server` on the first try and every tenth — rather than
+exiting. `Ctrl-C` (SIGINT) or SIGTERM stops the fleet gracefully (*Stopping*).
+
+**Build.** `bash ops/build.sh` builds `bin/bot-play` — `CGO_ENABLED=0`, stripped,
+with `main.version` set from `git describe --tags --match 'bot-play/v*'` minus the
+`bot-play/` prefix (`v1.0.0-221-ge18cdce-dirty` while the newest tag is the Node
+fleet's; `dev` from a plain `go build`). It uses the Go that
+`go-server/ops/build.sh` installs in `~/.local/go` (running that script first when
+there is none and no `go` on the path). Tags are cut by hand, `bot-play/vX.Y.Z`,
+like the server's (CLAUDE.md §14.4).
+
+**systemd** (on the game host):
+
+```bash
+bash ops/build.sh                    # as deploy
+sudo bash ops/install.sh             # copies ops/bot-play.service to /etc/systemd/system/, enables, restarts
+journalctl -u bot-play -f            # watch it
+sudo systemctl restart bot-play      # after a rebuild
+sudo systemctl stop bot-play         # every bot finishes its hand and leaves
+sudo bash ops/install.sh uninstall   # stop and remove
+```
+
+The unit runs `bin/bot-play -config configs/bot.yaml` as `deploy` in
+`/var/www/gameplay/king-teenpatti/bot-play` with `BOT_MODE=server`,
+`SERVER_URL=http://127.0.0.1:3000`, `BOT_COUNT=60`, metrics on
+`BOT_METRICS_ADDR=127.0.0.1:9101` and the debug view on `BOT_DEBUG_ADDR=127.0.0.1:9102`
+(9100 is node_exporter's in `go-server/ops/monitoring`); `Restart=always`, `KillSignal=SIGTERM`,
+`TimeoutStopSec=75` (the fleet's own grace is 60 s). It is ordered after
+`gameplay.service` without requiring it: the fleet waits for the server. To move
+a dial, edit the installed copy's `Environment=` lines (or `ops/bot-play.service`
+and re-run `install.sh`), then `systemctl daemon-reload` and restart.
+
+**Docker** (from the repository root):
+
+```bash
+docker build -t bot-play bot-play/                      # --build-arg VERSION=… stamps the version
+docker run --rm --network host -e BOT_COUNT=10 -e SERVER_URL=http://127.0.0.1:3000 bot-play
+```
+
+A distroless static image running as nonroot, with `configs/` baked in and
+`BOT_MODE=server`; configure it with `-e` variables.
+
+## The debug view and metrics
+
+Both are off until an address is set, and both belong on loopback. The debug view
+has no authentication and names every bot and its account — exactly what the
+fleet exists not to tell players — so `debug.addr` is **refused** unless it is
+`127.0.0.1`, `::1` or `localhost`. Given the same address, one listener serves
+both.
+
+```bash
+curl -s 127.0.0.1:9102/healthz                      # {"ok":true,"bots":N}  (the debug listener)
+curl -s 127.0.0.1:9102/debug/bots | head -40        # every bot, JSON
+curl -s '127.0.0.1:9102/debug/bots?format=text'     # every bot, text
+curl -s 127.0.0.1:9102/debug/bots/botplay-000017    # one bot by device id (or user id), text; ?format=json
+curl -s 127.0.0.1:9101/metrics | grep '^bot_'
+```
+
+A bot's snapshot: device id, user id, personality, state and since when, table
+key and room, hand number, blind or seen, the last decision, its reason and the
+reaction time, chips, the session's hands, wins and losses, reconnects and the
+last error. **Cards are stripped** unless `debug.show_cards` /
+`BOT_DEBUG_SHOW_CARDS` is on. Port 9100 is node_exporter's in the monitoring
+bundle — use another.
+
+## How a bot plays
+
+The package `strategy` is pure: every decision is a function of what the server
+showed this seat (`you.options`, `you.cards`, `you.hand`, the public table), the
+bot's personality, its memory of the hand and its random stream. **Every move it
+returns is one the options allow, and every amount a rung of the ladder the server
+sent** (`strategy.Legal`, held over random turns by `TestDecideIsAlwaysLegal`); a
+decision that has gone stale by the time its delay ends is decided again. Force
+Sideshow and Missile are never used — they cost hammers and missiles.
+
+### Personalities
+
+Six families (`strategy.DefaultProfiles`). Each bot draws every trait uniformly
+inside its family's range, so two AGGRESSIVE bots are alike in kind but not the
+same player. `strategy.tuning` overrides any range.
+
+| Family | Blind rate | Tightness | Aggression | Bluff | Mistakes | Hands at a table | Session (min) | At the table |
+|---|---|---|---|---|---|---|---|---|
+| CAUTIOUS | 0.20–0.35 | 0.62–0.85 | 0.10–0.30 | 0.01–0.04 | 0.01–0.03 | 10–40 | 30–120 | folds what is not clearly good, raises small, settles with sideshows, low stakes, stays put |
+| BALANCED | 0.35–0.50 | 0.42–0.62 | 0.35–0.55 | 0.04–0.09 | 0.02–0.04 | 8–30 | 25–100 | the regular; reads opponents most (Adapt 0.70–0.95); the strongest family |
+| AGGRESSIVE | 0.45–0.65 | 0.20–0.42 | 0.65–0.92 | 0.10–0.22 | 0.03–0.06 | 5–22 | 20–80 | raises often and high, bluffs, high stakes, moves tables readily, quick |
+| LOOSE | 0.40–0.60 | 0.05–0.28 | 0.30–0.55 | 0.06–0.14 | 0.04–0.08 | 6–25 | 20–90 | plays almost everything, pays to see it through, shows often; leaks chips |
+| RANDOM | 0.25–0.60 | 0.15–0.85 | 0.15–0.85 | 0.05–0.20 | 0.08–0.16 | 4–30 | 15–90 | wide ranges and high Noise (0.35–0.60): bent thresholds and the odd whim |
+| BEGINNER | 0.30–0.55 | 0.30–0.60 | 0.20–0.50 | 0.02–0.08 | 0.10–0.20 | 5–20 | 10–45 | the most mistakes, thinks slowly, plays small; the weakest family |
+
+The other traits: BlindLove (how long a blind intent lasts), Noise, Adapt,
+SideshowRate, ShowRate, ChatRate, Pace, Distracted, StakeAppetite, TableMoves,
+StopLossBoots and TakeProfitBoots (`personality.go`; `TraitNames()` lists the
+tuning names). A big loss in a hand (10 boots or more) puts a bot on tilt: it
+plays looser for a few hands, the tilt fading by 30% a hand.
+
+**Imperfections** sit over every chosen move, at the personality's Mistake rate:
+a bad call, a needless fold, a small raise on nothing, a big hand not made to pay,
+one change of mind a hand; a player with Noise above 0.25 (RANDOM, mostly) makes
+(Noise − 0.25) × 0.5 of its moves on a whim — under one in five for the noisiest.
+Every one is still a legal move, and its reason in the log is `MISTAKE_*` or
+`RANDOM_WHIM`.
+
+**Opponent reads** (`state/opponents.go`): in memory for as long as the process
+runs, each bot keeps counts on up to 256 players (aggression, looseness, fold and
+blind rates, a style — passive, aggressive, tight, loose), shrunk towards neutral
+on few observations. They feed the table's pressure and, for an adaptive player,
+how much it leans on folders and away from callers.
+
+### Blind or seen
+
+A hand starts with a plan (`NewHandMemory`): stay blind for a number of bets, or
+look at once. The chance of a blind intent is the bot's BlindRate on a seen table,
+a tenth less on a variation table, and at a **blind table** three quarters of the
+hands it would have looked at are played blind too (0.30 → 0.825). The plan is
+1–4 blind bets on a seen table, 1–6 at a blind table, varied hand to hand. A
+careful player may look straight after the deal (`LookEarly`: never with a blind
+plan or a BlindLove of 0.75 or more, and far less at a blind table).
+
+On each blind turn the bot weighs a look: the plan (unlikely before it is done;
+then 0.6 on a seen table and only 0.22 at a blind one, rising each extra turn),
+how little it loves blind play, the raises it has faced and the table's pressure,
+the price (a blind chaal over 4% of the stack pulls, strongly past 10%), the chips
+already in, the crowd, and noise — every pull but the plan counting for less than
+half at a blind table. Staying blind is mostly a blind chaal; an aggressive player
+now and then raises blind, a heads-up player now and then shows blind, a tight one
+very rarely packs without looking. A blind chaal it cannot afford makes it look
+first. The server turns the cards up itself at the table's blind-move limit.
+`strategy.enable_blind: false` looks at the first chance; `enable_seen: false`
+never looks voluntarily.
+
+### Betting
+
+With its cards seen (`seen.go`) the bot reads its hand's Strength (below), bends
+it by its Noise, and judges it against the opponents still in:
+win ≈ strength^opponents, discounted by how much of the table's pressure it
+believes. In order:
+
+1. **Heads-up, a show ends it** — when confident, short-stacked, tired of a long
+   hand, pressed with a fair hand, or curious; a monster sometimes keeps betting.
+2. **A chaal out of reach** leaves a show (heads-up) or a pack.
+3. **A middling hand asks a sideshow** to settle cheaply — more as the hand drags
+   on and the pressure mounts.
+4. **Strong** (a sequence or better, or a win estimate over the strong bar, which
+   pressure raises and aggression lowers): raise up the ladder, or slow-play it
+   with a chaal.
+5. **Middling** (over the call bar — pot odds, tightness, patience, pressure and
+   the price, eased by chips already in): chaal, now and then raise.
+6. **Weak**: bluff (more heads-up, less into raises, more against folders), float
+   a chaal that costs next to nothing, take a sideshow's free chance, or fold.
+
+**Raise sizing** (`decision.RaiseAmount`): only the server's rungs
+(`options.raiseSteps[1:]`, at least twice the chaal, covered by the stack). The
+budget is the stack × clamp(0.03 + 0.3·aggression·power, 0.02, 0.5); among the
+rungs inside it the pick climbs from the lowest up to ⌊u·(1 + 3·aggression·power)⌋
+rungs; the lowest raise when none fits.
+
+**Pressure** (`decision.NewPressure`), 0..1: 0.45 × the raises faced
+(1 − 0.6ⁿ), 0.25 × the biggest raise against the boot (log scale, 1 at 64 boots),
+0.20 × the opponents' aggression, 0.08 × their looseness, − 0.05 per opponent still
+blind. A player with no read counts as neutral (0.5).
+
+**Answering a sideshow**: 5–10% of asks are let lapse (a player who did not
+notice); a hand above its bar accepts 80–95% of the time, a weaker one 8–28%.
+
+### Hand strength
+
+`decision/hand_strength.go` is a client copy of the server's classic ranking
+(`go-server/internal/game/handrank.go`), which a separate module cannot import.
+It is **pinned to the server's own results**: `TestRankingIsTheServers` hashes
+every one of the 22,100 three-card hands with its score and compares the SHA-256
+and the per-category counts with a fingerprint taken from the server's `Evaluate`
+on 27 Sep 2026. Strength is a hand's percentile among all 22,100 (ties counted
+half). The bot uses it only to judge its own cards — the server's showdown decides
+every hand.
+
+On a **variation** table the bot never re-implements wild cards: it reads the
+server's own evaluation of its hand (`you.hand`: the three that counted —
+`playsAs`, else `best`), ranks those three classically, and reads the percentile
+through a fixed per-variation table estimated offline (`variation_tables.go`), at
+a lower confidence. MUFLIS is the classic percentile upside down. While a 5-Card
+pick is open, or no variation is chosen yet, the hand is unknown and the bot stays
+in only while it is cheap.
+
+**The variation window**: the chooser picks from the options the **server**
+offered this hand (never a list of its own — FIVE_CARD is absent when the deck
+cannot cover it), mildly weighted by personality (a loose player likes Muflis, an
+aggressive one the wild-card variations), and lets the window lapse at its
+Distracted rate (1–9%), which makes the server choose Muflis. **5-Card**: it plays
+its best three of five (`BestThree`, which names the same three as the server's
+`bestPossible`), but slips to another three — usually a near miss — 4–16% of the
+time (the careful least, beginners most) and lets the window lapse at half its
+Distracted rate.
+
+### Human-like timing
+
+Every action waits a reaction time (`timing.HumanDelay.For`): the window's floor
+plus a log-normal draw whose median sits 30% of the way up the window (σ 0.5,
+redrawn past the top), so most reactions are quick with a tail of slow ones. Pace,
+the decision's complexity, how marginal the hand is and a raise faced slow it; a
+routine blind chaal is quicker. Decisions are held inside
+`[min_reaction, max_reaction]` (0.7–5 s), and a distracted bot now and then pauses
+another 2.5–15 s (someone put the phone down). No delay is a round figure.
+
+| Kind | Default (ms) | Kind | Default (ms) |
+|---|---|---|---|
+| `see` | 500–1800 | `show` | 1500–4000 |
+| `look_early` | 600–2200 | `sideshow` (asking) | 1200–3500 |
+| `blind_chaal` | 700–1900 | `answer_sideshow` | 900–3200 |
+| `chaal` | 800–2500 | `pick_variation` | 1500–5000 |
+| `fold` | 700–2200 | `pick_cards` | 1500–4500 |
+| `small_raise` | 1000–3000 | `difficult` | 2000–5000 |
+| `large_raise` | 1500–4000 | `leave_table` | 1500–5000 |
+| `chat` | 1000–5000 | `join_table`, `search_table` | 1000–4000, 2500–8000 |
+
+`see`, `look_early`, `leave_table` and `chat` are shaped by pace alone; the rest
+are decisions. `join_table` and `search_table` are configurable but not drawn
+today (the idle gap before a search is `table.search_delay`). **Deadline safety**:
+a delay always ends `safety_margin` (3 s) before the turn's or the window's
+deadline — drawn into the last stretch before the margin when the draw would pass
+it — and when less than that is left the bot acts after a short beat (≥ 150 ms).
+A bot that timed out would be packed and, three times in a row, kicked for idling.
+
+### Tables: choosing, staying, moving
+
+**The menu** is the server's: `GET /api/tables` at start, the public
+`teen_patti` tables of the allowed categories (`seen`, `blind`, `variation` —
+never a poker room, whatever the configuration says), with each table's stack
+band. No table key or stake is in the code. When a `session:ready` names a
+`tableConfigVersion` the fleet does not hold, that session's own table list
+replaces the menu at once and ONE bot refreshes it for the fleet. A table refused
+`table_not_offered` is retired until the menu is next read.
+
+**Choosing** (`table.Select`): the tables whose band admits the stack and whose
+boot it covers `boots_to_sit` (8) times over — or, when none is that deep, the
+cheapest the stack can sit at at all — drawn in proportion to (never simply the
+best of): stake fit (a Gaussian over the stakes the stack can reach, centred on
+the family's appetite: CAUTIOUS low to middling, BEGINNER low, AGGRESSIVE high),
+comfort (the bankroll in boots against the depth it wants), the category weight,
+fleet occupancy (a table the fleet is thin on weighs up to twice the average) and
+recency (½ for the table just played), flattened by Noise. Then
+`room:quickJoin {bootAmount, category}`; the server picks the table.
+
+**After every hand it played** (`table.AfterHand`) a bot stays or moves, always
+getting up before the next deal (a bot still seated then is dealt in):
+
+| Reason | Move | When |
+|---|---|---|
+| `SESSION_OVER` | end the session | its planned length has run out |
+| `NOT_OFFERED`, `SHORT_STACK`, `NOT_ADMITTED` | hop (else end) | forced, before `min_hands` too |
+| `IDLE_TABLE` | hop (else end) | no hand dealt for 60–120 s (by TableMoves) |
+| `MAX_HANDS` | switch or hop | `max_hands` reached |
+| *(before `min_hands`)* | stay | |
+| `STOP_LOSS`, `TAKE_PROFIT` | hop (else switch) | lost / won its StopLoss / TakeProfit boots here |
+| `UNSUITABLE` | hop | under half the boots-to-sit depth with a cheaper table open, or the stake has drifted from its appetite |
+| `TOO_MANY_BOTS` | switch | more fleet bots here than `max_bots_per_table` |
+| `NO_HUMANS` | switch | no human here for `no_human_patience` |
+| `TABLE_EMPTYING` | re-queue at this stake | two players or fewer, none human, and the fleet has a busier table of this kind (else stay; a human is never left heads-up) |
+| `PLANNED_HANDS` | switch, sometimes hop | this sitting's planned hands (drawn per sitting from the personality inside `[min_hands, max_hands]`) are played |
+| `RANDOM` | switch | a small per-hand chance, scaled by TableMoves |
+
+A **switch** is `room:switch` (the server seats the bot at the quietest other
+table of the same boot and category, or opens one); a **hop** is `room:leave` and
+a fresh choice elsewhere; a **re-queue** is `room:leave` then `room:quickJoin` at
+the same stake, which seats it at the fullest table with room. Besides, every
+12–20 s a seated bot checks its session's end and whether its table has dealt no
+hand for 70–130 s — a bot left alone deals no hands — and then leaves it for
+another (`idle_table`). The server's own consolidation merges lone players too.
+
+### Chat
+
+Short, lowercase, Hinglish and English mixed (`interaction.language: mixed`, each
+bot leaning its own way; or `english`), and mostly nothing: a moment gets a line
+with a chance between the moment's low and high by the bot's ChatRate.
+
+| Moment | Chance | Moment | Chance |
+|---|---|---|---|
+| `join` (sat down) | 0.10–0.25 | `big_raise` (someone raised ≥ 16 boots) | 0.03–0.10 |
+| `welcome` (someone sat down) | 0.03–0.10 | `playing_blind` (after a blind raise) | 0.02–0.08 |
+| `win` | 0.05–0.15 | `sideshow_won` / `sideshow_lost` | 0.04–0.10 / 0.03–0.08 |
+| `big_win` (pot ≥ 12 boots) | 0.10–0.25 | `packed` | 0.02–0.06 |
+| `loss` | 0.03–0.10 | `low_chips` (moving for a short stack) | 0.04–0.10 |
+| `big_loss` | 0.06–0.16 | `leave` | 0.20–0.40 |
+| `nice_hand` (someone won with a pure sequence or trail) | 0.03–0.10 | `reply_hi` (someone said hi) | 0.20–0.50 |
+| `strong_hand` (after raising a strong hand) | 0.02–0.06 | `reply_name` (someone said its name) | 0.40–0.70 |
+
+`variation` and `five_card` are raised once a hand, when the hand's variation is
+announced (the line never names it: the announcement is on the felt already). A bot welcomes another bot 15% as often as a human, answers
+another bot one time in ten, and avoids its own last three lines. **Budgets**: a
+12-second cooldown per bot, and per table — across the whole fleet — one bot line
+every 6 s and six a minute (`TableBudget`), far inside the server's 5 lines / 5 s
+and 140 characters. The budget is spent when a line is decided; it goes out as
+`chat:message` after a `chat`-kind pause.
+
+**Emotes are not used** (`interaction.NoEmotes`): the server's `chat:emoji` sends
+only an emoji the account **owns**, and the bots buy nothing — no emojis, premium
+pictures, hammers or missiles. `emote.go` is where a version that buys and sends
+them would connect.
+
+## Reconnect
+
+- **Backoff** 1 s, 2 s, 4 s, 8 s, 16 s, then 30 s (`reconnect.base_delay`,
+  `max_delay`), each spread ±30% so a fleet that lost the server together does not
+  come back in lockstep; `max_attempts` 0 retries for ever (a limit ends the
+  session and the bot rests). A failing login backs off the same way.
+- **The seat comes back by itself.** A seat the server still holds (inside its
+  60-second reconnect grace, or restored from Redis after a server restart)
+  arrives as `room:joined` on connect, and the bot picks the hand up where it is.
+- **A resume offer** (`session:ready.resume`, the server's offer of a table whose
+  seat lapsed) is taken with `room:joinCode`; refused, the bot looks for a table.
+- **Neither**: after the usual idle gap the bot looks for a table.
+- **A lost acknowledgement.** A move whose ack the connection took with it is
+  remembered; if the same turn is still open after the reconnect, the move is
+  **resent with the SAME `actionId`**, so the server applies it once (a copy it
+  already has is refused `duplicate_action`, which the bot reads as done).
+- **`unknown_user`, `invalid_session`, `missing_token`, `unauthorized`** at the
+  handshake → the bot signs in again (after a wiped database, as a new account).
+- **`account_disabled`**, or **`session:replaced`** (another connection signed in
+  as this bot) → the session ends and the bot rests four times as long.
+- A connection that sends no `session:ready` within 20 s is dropped and redialled.
+
+**The connection** (`connection/websocket.go`) is a websocket-only Engine.IO v4 /
+Socket.IO v5 client — the Flutter app's transport — with the JWT in the
+handshake's `auth.token`. The server pings every 20 s and the client only answers
+(a client ping would end the connection); 45 s with nothing from the server is a
+dead connection. permessage-deflate is offered, frames under 256 bytes go out
+plain, a frame over the server's `maxPayload` is refused before it is sent, and a
+request's ack waits 8 s. **Slow consumer**: events are delivered in order and
+never dropped; when a bot leaves 256 undelivered for 10 s the connection is ended
+(and redialled) rather than let it miss what the table said. REST (`rest.go`) is
+one pooled HTTP client for the fleet, 15 s a call; tokens travel only in headers
+and are never logged.
+
+## Stopping
+
+SIGINT or SIGTERM asks every running bot to stop: a bot not in a hand leaves its
+table at once; one in a hand plays it out, then gets up before the next deal; a
+resting bot simply stops. Each leaves with `room:leave` and disconnects, so no seat
+is left to the server's 60-second reconnect grace. After 60 s any bot still going
+is stopped hard, and the `stopped` log line counts them (`forced`). The systemd
+unit allows 75 s.
+
+## Logs
+
+JSON on stdout by default (`LOG_FORMAT=text` for reading by eye), one object a
+line with `time`, `level` and `msg`. Every line a bot writes carries **`bot`**
+(its device id); after sign-in its lines carry **`user`** too, except the `state`
+lines. The ones to know:
+
+| `msg` | Fields |
+|---|---|
+| `bot-play starting` | `version`, `mode`, `bots`, `prefix`, `server`, `seed`, `config` |
+| `table menu` | `version`, `tables` |
+| `state` | `from`, `to`, and `table`, `hand`, `reason`, `attempt`, `for` where they apply |
+| `session planned` | `length`, `personality` |
+| `seated` | `table`, `room`, `planned_hands` |
+| `action` | `table`, `hand`, `action`, `amount`, `reason` (e.g. `MEDIUM_HAND_LOW_PRESSURE`), `blind`, `delay` |
+| `left table` | `table`, `reason`, `hands`, `net` |
+| `switching table`, `leaving for another table`, `ending session` | `reason` (and `hands`) |
+| `move refused`, `join refused` | `action` or `table`, `code` |
+| `kicked`, `connection lost`, `login failed`, `account disabled: this bot cannot play` | the reason or error |
+| `fleet` (every 5 min) | `bots`, `running`, `seated`, `hands`, and a count per state |
+| `simulation` (every 30 s, simulation mode) | `accounts`, `tables`, `hands`, `moves`, `refusals`, `drops` |
+| `stopped` | `forced` |
+
+## Metrics
+
+At `metrics.addr`, every series labelled `service="bot-play"`, beside the Go
+runtime's `go_*` and `process_*`. As on the game server, no bot id, user id, room,
+table code, name or free text is ever a label value: every label comes from a
+small vocabulary and anything outside it is `other`.
+
+| Metric | Labels |
+|---|---|
+| `bot_connected` | — (bots with a live connection) |
+| `bot_disconnected_total` | `reason` (`lost`, `session_end`, `fatal`, `stopped`) |
+| `bot_reconnect_total` | `result` (`ok`, `failed`) |
+| `bot_state`, `bot_state_transitions_total` | `state`; `from`, `to` |
+| `bot_table_join_total`, `bot_table_leave_total` | `category`; `reason` |
+| `bot_hand_started_total`, `bot_hand_completed_total` | `category`; `category`, `result` (`win`, `loss`, `fold`) |
+| `bot_action_total` | `action`, `blind` |
+| `bot_refused_total` | `code` (the server's refusal codes) |
+| `bot_decision_latency_seconds` | — (computing a decision, not the pause) |
+| `bot_reaction_delay_seconds` | `kind` (the human pause drawn) |
+| `bot_chat_total` | `moment` |
+
+No job in `go-server/ops/monitoring/` scrapes the fleet yet.
+
+## Testing
+
+```bash
+go test -race ./...                                    # every package; the race detector checks the loop/goroutine rules
+go test ./internal/bot/decision -run RankingIsTheServers -v
+BOTPLAY_LIVE_URL=http://127.0.0.1:3000 go test -run Live -v ./internal/bot/connection/   # one guest against a real server
+go build ./... && go vet ./... && test -z "$(gofmt -l .)"
+```
+
+About 250 tests, their names written as sentences:
+
+- **decision** — the ranking pinned to the server's fingerprint over all 22,100
+  hands, known orders, `BestThree` matching the server's choice among equal
+  hands; evaluation on seen, blind and variation tables, Muflis upside down,
+  5-Card, the variation tables; pot odds, ladder rungs, raise sizing, pressure.
+- **strategy** — family ranges and blind rates (`TestBlindRateRangesAreTheBriefs`),
+  personalities alike but not identical, deterministic draws, tuning; the blind
+  plan, pressure and price making a bot look, blind tables played far more blind;
+  strong hands bet and weak ones fold, families recognisably different, mistakes
+  legal and marked; **every decision legal** over random turns; the variation
+  chosen only from the server's options, the 5-Card pick, sideshow answers.
+- **table** — the menu from the catalogue and from a session, bands inclusive at
+  both ends, never a poker table; selection by stake, comfort, occupancy and
+  recency; every switcher reason, min and max hands, a human never abandoned
+  heads-up.
+- **timing** — every window, the skew, pace and difficulty, no round figures,
+  **no delay past the deadline's margin**, the short beat, distracted pauses.
+- **interaction** — every moment has lines and a chance, no line says "bot", the
+  cooldown, the per-table budget (under contention too), no repeats, languages.
+- **connection** — the socket URL, the handshake and its refusals, events in
+  order, compressed frames, acks, timeouts, server pings answered, a silent server
+  detected, disconnect and close packets, the slow-consumer policy, the token never
+  logged; the REST client and its errors; the backoff.
+- **bot** — against a scripted fake server: sign in and sit at a Teen Patti
+  table, a restored seat resumed without a join, a legal move with a fresh
+  `actionId`, **a lost ack resent with the same `actionId`**, a stale decision
+  dropped, stop after the hand and not during it, a retired table, a full table, a
+  chip kick collecting the bonus, a server restart, a wiped account signing in
+  again, the scheduler, the registry, every family in a fleet of ten.
+- **config**, **metrics**, **state** — strict YAML and environment reading, the
+  shipped file at the defaults, validation; labels never ids; the debug view
+  stripping cards; opponent reads.
+- **sim** — hands complete and chips are conserved at every kind of table, round
+  and pot caps, refusal codes, idle kicks, the reconnect grace, sideshows,
+  variation windows, switches, a dropped slow reader, **the same seed plays the
+  same hands** (on a fake clock), a concurrent fleet on the real clock with
+  latency and drops, payloads in the server's shapes.
+
+## Simulation mode
+
+`BOT_MODE=simulation` runs the fleet against `internal/sim`, an in-process
+stand-in server that speaks the real server's wire shapes, so the bots run exactly
+the code they run in production — with no server, no accounts and no real chips.
+Its menu mirrors the default lobby's Teen Patti tables (`seen:200`, `blind:200` up
+to 20 Lakh, `blind:5000` up to 20 Crore, `variation:50000` up to 200 Crore), with a
+welcome of 10 Lakh, five seats, a 25 s turn clock, 4 s between hands and 5–40 ms of
+latency on every socket message. It is a **test harness, not the game**: no
+PostgreSQL or Redis (a wallet is its seat's stack while seated, and chips are
+conserved exactly), six variations played with the classic ranking (Muflis
+reversed; no wild cards, no FIVE_CARD), and no Force Sideshow, missile, winning
+tax, consolidation, private tables, emojis or unfunded grace. The real server's
+rules are the only rules. `bankroll.dev_replenish` is allowed here only: a broke
+bot comes back as a fresh account (`botplay-000017-g1`) with a new welcome.
+
+With `BOT_SEED` fixed the personalities, session plans and every decision stream
+are the same from run to run. The simulation runs on the real clock, so its
+hand-for-hand replay is proven on a fake clock in the tests
+(`TestTheSameSeedPlaysTheSameHands`).
+
+## Troubleshooting
+
+- **The server is not up.** At start the fleet waits (`waiting for the game
+  server`); later, logins and connections back off and retry. Nothing exits.
+- **`account disabled: this bot cannot play`** — the server's `users.is_active`
+  is false for that account (CLAUDE.md §7.2). The bot rests four times as long and
+  tries again each session; switch it back on with `UPDATE users SET is_active =
+  TRUE WHERE …`.
+- **`table_not_offered`** — the menu the fleet holds is older than the server's.
+  The table is retired until the next read (a session naming a new
+  `tableConfigVersion`, or a restart of the fleet); the server's catalogue itself
+  changes only at a server restart.
+- **`no table admits this stack; resting`** — even after its 4-hour bonus the
+  bot's stack fits no table's boot and band; it rests and tries again next session.
+- **Bots alone at a table** deal no hands: after 70–130 s the bot moves on
+  (`table idle, moving on`), and after a hand a table of two bots is left for a
+  busier one of the same stake.
+- **`kicked` with `reason: idle`** should never happen (every delay ends 3 s
+  before the turn clock) — look for a blocked bot: its state, reaction and last
+  error in the debug view.
+- **Rate limits** (`bot_refused_total{code="rate_limited"}`): a refused move is
+  decided again, a refused join retried 3–7 s later. The server's REST limits do
+  not apply over loopback with no `X-Real-IP`; off-host, through nginx, logins are
+  60 a minute per IP.
+- **`session replaced`** — two processes share device ids: give the second its
+  own `BOT_START_INDEX` range.
+- **`state (unexpected transition)`** WARN — a lifecycle path the table does not
+  list; harmless, but worth a report.
+
+## Production notes
+
+- **Runs on the game host over loopback** (`http://127.0.0.1:3000`): no nginx, no
+  TLS, no edge filter between the fleet and the game — hundreds of sockets from one
+  address through the public endpoint is the shape a DDoS filter drops (it did, on
+  9 Sep 2026, to the load generator). Set `SERVER_URL` only for a fleet that
+  genuinely runs off-host.
+- **Bankroll: the bots obey the wallet.** They sit only where their stack is
+  admitted, collect the 4-hour bonus in the lobby as any player may when their
+  stack no longer seats them (`bankroll.collect_bonus`), and otherwise rest.
+  **They never mint chips against a real server**: `dev_replenish` is refused
+  outside simulation (the Node fleet's `--on-broke rotate` did mint, one welcome
+  per rotation). They buy nothing and spend no hammers, missiles or diamonds.
+- **New accounts.** The Go fleet's device ids (`botplay-000001` …) are not the
+  Node fleet's (`botplay-v1-<n>`), so its first sign-ins create new guest accounts,
+  each credited the server's `WELCOME_CHIPS` once, as any new guest is (production's
+  database was rebuilt from scratch on 27 Sep 2026, so there are no Node accounts
+  left there to strand). Keep `BOT_DEVICE_PREFIX` and
+  `BOT_START_INDEX` fixed from then on, or every change is a new set of accounts.
+- **The debug view is on `127.0.0.1:9102` in the unit** (metrics on 9101). Leave
+  `BOT_DEBUG_SHOW_CARDS` off.
+- **Size** is `BOT_COUNT` in the unit (60); with sessions of 20–120 minutes and
+  rests of 5–45 not all of them are online at once. Bots and real players share
+  the economy, and bots that bet on their cards win from careless play: watch the
+  fleet's total chips over time.
 
 ## Measured
 
-18 bots (six per category) against a local server for four and a half minutes,
-with sittings shortened to about four hands and a minute's rest so that coming
-and going actually happens inside the window (`--session-hands 4 --rest-minutes 1
---online-min 12 --online-max 18`):
+On 27 Sep 2026, against a local server built from `master` on `:3001`:
 
-```
-hands completed               22        4.9 a minute, 11 moves a hand
-moves                         241       chaal 107 · see 65 · pack 31 · raise 16 · show 13 · sideshow 9
-raises by size                400 … 40,000 — eleven of the sixteen at 3,200 or more
-arrivals · departures         16 · 15   hand_left 0 (nobody gets up after the deal)
-timed bonuses collected       2         rotations 0
-invalid moves                 0         kicks 0
-wallets disagreeing with the ledger     0
-chat messages                 57
-```
+- **10 bots, server mode**: every bot signed in and sat at five Teen Patti tables;
+  they played with varied reaction times (0.7–6.1 s), blind chaals and raises,
+  shows, planned looks and folds.
+- **Graceful stop** (SIGTERM mid-play): every bot finished its hand and left,
+  `forced=0`, and the server was left with 0 players and 0 sockets.
+- **Simulation, `BOT_SEED=12345`, run twice**: identical personalities, session
+  plans and move counts — 87 moves and 19 hands in 70 s both times.
 
-**Hands last about as long as people play them.** The first cut of these rules
-measured 21–24 moves and about two and a half minutes a hand: middling hands
-kept paying chaal round after round, and every blind chaal got a full think.
-Patience and quicker routine moves brought it to eleven moves, roughly fifty
-seconds a hand at a busy table. The fleet before 12 Sep 2026 measured 87 hands in
-three minutes — hands resolving in seconds because bots folded at random.
-
-**No invalid moves in 241**, where the previous fleet measured 12 in 213. The same
-turn-sequence guard is in place, and every move now names an amount the server
-offered. Refusals that are lost races (`not_your_turn`, `no_hand`, `not_in_hand`,
-`show_unavailable`) are not logged, but they still count in
-`game_invalid_moves_total`, so a spike there on production is worth
-distinguishing from a real client bug.
-
-**Chat, 57 lines** — about three a table a minute, on the lively side because the
-shortened sittings sent a stream of arrivals and goodbyes through the window. At
-the production defaults (twenty-hand sittings, twenty-five-minute rests) arrivals
-are rare and the rate is lower; the per-table budget caps it at six a minute
-whatever happens, and `--chat-scale` turns it down.
-
-## Deploying
-
-```bash
-sudo bash ops/install.sh          # installs and starts bot-play.service
-journalctl -u bot-play -f         # watch the fleet
-sudo systemctl stop bot-play      # seats are released cleanly on SIGTERM
-```
-
-The unit waits for the game server rather than exiting when it is not there
-yet, because a fleet that restart-loops on boot order is worse than one that
-waits. The new flags need no change to the unit: every default above is what
-production should run. Add an `Environment=` line to `ops/bot-play.service` only
-to move a dial (`STEADY=true` restores the always-on fleet).
-
-## Two things to decide before running this on production
-
-**Bots and real players share the economy.** Chips move between them, and the
-gameplay reasons above net to exactly zero — but a real player winning takes
-chips out of the fleet, and losing puts them in. Over time the fleet's total
-drifts, and `--on-broke rotate` refills it by minting. Bots that now bet on
-their cards win more often from careless play than the old dice-rolling fleet
-did, so watch that drift after deploying.
-
-**About 72–93 bots play at any moment** (the seated targets summed), which is real load:
-roughly thirty-odd tables dealing hands without pause. That is small against
-measured capacity (production served 14,000 players at 1,835 actions/s), but it
-is not nothing, and it is load the game carries even at 3am with nobody playing.
-`--per-category` and `--online-max` are the dials.
+- **100 bots, server mode** (27 Sep 2026, the final build, against a local master server on :3001): all 100
+  signed in and sat down within the staggered start (~2.5 min); 1,521 moves in the next 3.5 minutes, 63% of
+  them blind (chaal 673 · see 295 · pack 264 · raise 175 · show 89 · sideshow 25); the server counted 96
+  players at 24 tables with 19 hands in progress; **no warning or error logged**; the runner itself used
+  1.5% of one core and 30 MB. With `boots_to_sit: 25` fresh 10 Lakh accounts played the 200 and 5,000 tables
+  (116 of 154 seatings) and only bots that had won their depth reached the 50,000 ones. An earlier 100-bot run
+  on the same server: 1,809 moves, reaction times p10 0.81 s · p50 1.06 s · p90 2.2 s · max 14 s (one
+  distracted pause, still inside the 25 s clock), 2.3% of decisions a deliberate imperfection, 63 table
+  moves (stop-loss 24, unsuitable stake 19, take-profit 8, short stack 7, emptying 5), 57 chat lines, the
+  personalities 16–17 bots per family; every account the server marked `is_bot`, and every wallet the
+  ledger purge had not touched reconciled with its ledger.
+- **A server restart under 100 bots**: the 91 connected bots lost their connections at once, all 91
+  reconnected (`bot_reconnect_total{result="ok"} 91`) and were seated again 6–12 s later, spread over six
+  seconds rather than in one burst; nothing but the expected `connection lost` warnings. Under 10 bots the
+  same restart re-seated all ten within 4–6 s.
+- **Graceful stop**: SIGTERM to 100 bots — every bot finished its hand and left; 30–50 s, `forced=0`, the
+  server left with 0 players and 0 sockets.

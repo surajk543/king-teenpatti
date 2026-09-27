@@ -1,0 +1,126 @@
+# bot-play — the resident bot fleet's configuration.
+#
+# Every key below is at its DEFAULT: deleting any line changes nothing, and
+# this file may be removed altogether (a missing configs/bot.yaml is not an
+# error; a missing file named with -config is). Environment variables, named
+# beside the keys they override, are applied on top of this file.
+#
+# The reading is strict: an unknown key, a value of the wrong type (3.5 where
+# a whole number is read, "yes" where true/false is read), or one setting
+# given under both of its spellings stops the process naming the key and its
+# line.
+#
+# Durations are written two ways, never both for one setting:
+#   - the key that names its unit takes a whole number:  min_duration_minutes: 20
+#   - the plain key takes a Go duration string:          min_duration: 20m
+#     ("1h30m", "2.5s", "700ms"; a bare 0 is zero, any other bare number is refused)
+
+# server — play against the game server at server_url.
+# simulation — play against the in-process simulated server (repeatable with a seed).
+mode: server                      # BOT_MODE
+
+# The game server: REST at <server_url>/api/…, the Socket.IO handshake at
+# <server_url>/socket.io/. http:// or https://; a trailing slash is dropped.
+server_url: http://127.0.0.1:3000 # SERVER_URL
+
+# Optional websocket address (ws:// or wss://) when it is not server_url's.
+ws_url: ""                        # WS_URL
+
+# The fleet's random seed. 0 = drawn from the clock; a simulation with seed 0
+# runs with 12345, so it is repeatable by default.
+seed: 0                           # BOT_SEED
+
+bots:
+  count: 20                       # BOT_COUNT (0 to 10000)
+  # Every bot's guest device id is <device_prefix><six-digit index>. It MUST
+  # start with "botplay-": the game server marks an account is_bot from that
+  # namespace (go-server BOT_DEVICE_PREFIX), and a bot outside it would be
+  # recorded as a human player.
+  device_prefix: botplay-         # BOT_DEVICE_PREFIX
+  start_index: 1                  # BOT_START_INDEX: the first bot is botplay-000001
+  # The gap between starting one bot and the next, drawn per bot inside
+  # [low, high]. Also start_stagger: ["0.4s", "2.5s"].
+  start_stagger_ms: [400, 2500]
+  # Personality family → weight: CAUTIOUS, BALANCED, AGGRESSIVE, LOOSE,
+  # RANDOM, BEGINNER (any case). Empty = every family equally. For example:
+  #   personality_mix: {BALANCED: 3, CAUTIOUS: 2, LOOSE: 2, AGGRESSIVE: 1, BEGINNER: 1, RANDOM: 1}
+  personality_mix: {}
+
+# A session is one stretch online; between sessions a bot rests offline.
+session:
+  min_duration_minutes: 20        # BOT_SESSION_MIN_MINUTES — or min_duration: 20m
+  max_duration_minutes: 120       # BOT_SESSION_MAX_MINUTES — or max_duration: 2h
+  rest_min_minutes: 5             # or rest_min: 5m
+  rest_max_minutes: 45            # or rest_max: 45m
+
+table:
+  min_hands: 3                    # BOT_MIN_HANDS: never leave a table before this, bar a forced reason
+  max_hands: 20                   # BOT_MAX_HANDS: always move on by this many
+  categories: [seen, blind, variation]   # BOT_CATEGORIES=seen,blind,variation
+  # Category → weight when choosing where to sit; empty = even.
+  #   category_weights: {seen: 2, blind: 2, variation: 1}
+  category_weights: {}
+  boots_to_sit: 25                # sit only with at least this many boots in chips (a fresh 10 Lakh account plays 200 and 5,000 until it earns the depth for 50,000)
+  search_delay_ms: [2500, 8000]   # idle before looking for a table — or search_delay: ["2.5s", "8s"]
+  max_bots_per_table: 0           # 0 = no limit
+  # Move on after this long with no human player at the table; 0 = never for
+  # that reason (the bots may play among themselves).
+  no_human_patience_seconds: 0    # or no_human_patience: 5m
+
+timing:
+  min_reaction_ms: 700            # the floor for any action — or min_reaction: 700ms
+  max_reaction_ms: 5000           # the ceiling for a turn action — or max_reaction: 5s
+  safety_margin_ms: 3000          # always act this long before the turn clock ends — or safety_margin: 3s
+  # Timing kind → [min_ms, max_ms], overriding the built-in windows. Kinds:
+  # see, chaal, blind_chaal, fold, small_raise, large_raise, show, sideshow,
+  # difficult, join_table, leave_table, search_table, chat, answer_sideshow,
+  # pick_variation, pick_cards, look_early. For example:
+  #   ranges: {chaal: [900, 3500], large_raise: [2000, 6000]}
+  ranges: {}
+
+strategy:
+  enable_blind: true              # false: look at the cards at the first chance
+  enable_seen: true               # false: never look voluntarily (not both false)
+  # Personality family → trait → [low, high], overriding the families' trait
+  # ranges (trait names are snake_case: tightness, aggression, blind_rate, …).
+  #   tuning: {AGGRESSIVE: {blind_rate: [0.40, 0.60]}}
+  tuning: {}
+
+interaction:
+  enable_chat: true               # BOT_ENABLE_CHAT
+  enable_emotes: false            # the bots own no emojis
+  # Chat moment → [low, high] chance of a line, scaled by each bot's chat rate.
+  # Moments: join, welcome, win, big_win, loss, big_loss, nice_hand,
+  # strong_hand, big_raise, playing_blind, sideshow_won, sideshow_lost,
+  # packed, low_chips, leave, reply_hi, reply_name, variation, five_card.
+  #   probabilities: {win: [0.10, 0.30], reply_hi: [0.40, 0.80]}
+  probabilities: {}
+  cooldown_seconds: 12            # per bot, between two lines — or cooldown: 12s
+  table_gap_seconds: 6            # per table, the whole fleet — or table_gap: 6s
+  table_per_min: 6                # per table, the whole fleet
+  language: mixed                 # mixed (Hinglish and English) | english
+
+reconnect:
+  base_delay_ms: 1000             # or base_delay: 1s
+  max_delay_seconds: 30           # BOT_RECONNECT_MAX_DELAY_SECONDS — or max_delay: 30s
+  max_attempts: 0                 # 0 = for ever
+
+bankroll:
+  collect_bonus: true             # collect the 4-hour bonus, as any player
+  # Top a broke bot up from nothing. Refused unless mode is simulation: no
+  # chips are ever minted against a real server.
+  dev_replenish: false            # BOT_DEV_REPLENISH
+
+# Every bot's snapshot at /debug/bots and /debug/bots/{bot}. Off when empty.
+# Loopback only: there is no authentication, and it names every bot.
+debug:
+  addr: ""                        # BOT_DEBUG_ADDR, e.g. 127.0.0.1:9101
+  show_cards: false               # BOT_DEBUG_SHOW_CARDS: include each bot's cards
+
+# Prometheus exposition at /metrics (and /healthz). Off when empty.
+metrics:
+  addr: ""                        # BOT_METRICS_ADDR, e.g. 127.0.0.1:9101 (not 9100: node_exporter's)
+
+log:
+  level: info                     # LOG_LEVEL: debug | info | warn | error
+  format: json                    # LOG_FORMAT: json | text
