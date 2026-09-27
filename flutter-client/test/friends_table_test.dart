@@ -188,7 +188,14 @@ FakeFriendsServer _server() {
   server.profiles['u1'] = {
     ...cardJson('u1', 'Ravi'),
     'friendStatus': 'NONE',
-    'stats': statsJson(played: 88, won: 30, lost: 50, left: 8, winRate: 34.09),
+    'level': {'level': 10, 'title': 'Rising Star', 'icon': '🌟'},
+    'stats': {
+      ...statsJson(played: 88, won: 30, lost: 50, left: 8, winRate: 34.09),
+      // Were a server ever to send them, another player's chip figures are
+      // dropped on the phone (StatsByCategory.fromJson(chips: false)).
+      'totalWinnings': 7500000,
+      'biggestPot': 5000000,
+    },
   };
   server.profiles['u2'] = {
     ...cardJson('u2', 'Meera'),
@@ -205,6 +212,8 @@ FakeFriendsServer _server() {
   server.profiles['u4'] = {
     ...cardJson('u4', 'Vikramaditya'),
     'friendStatus': 'FRIENDS',
+    // The longest level the ladder has, for the head's room.
+    'level': {'level': 44, 'title': 'Supreme Overlord', 'icon': '🔥🔱'},
     'presence': {
       'status': 'PLAYING',
       'online': true,
@@ -422,6 +431,11 @@ void _expectNothingButTheFriendship(
     }
     // And the table is never named.
     expect(line, isNot(contains('ABCD2345')), reason: where);
+    // Nor another player's winnings or biggest pot (owner, 27 Sep 2026:
+    // "players should not able to see each other total winnings and biggest
+    // pot").
+    expect(line, isNot(contains(t.totalWinnings)), reason: '$where: "$line"');
+    expect(line, isNot(contains(t.biggestPot)), reason: '$where: "$line"');
   }
   expect(_inDrawer(find.byType(PokerChip)), findsNothing, reason: where);
   expect(_inDrawer(find.byIcon(Icons.diamond)), findsNothing, reason: where);
@@ -1471,6 +1485,91 @@ void main() {
       await tester.pump(const Duration(seconds: 10));
       state.dispose();
     }, () => server.client);
+  });
+
+  // Owner, 27 Sep 2026: "In game table each player can see each other level
+  // of player also by clicking other player pod … but players should not able
+  // to see each other total winnings and biggest pot".
+  group('the player\'s level', () {
+    testWidgets('under the name once the profile says it; nothing before, '
+        'and nothing where the profile has none', (tester) async {
+      final server = _server()
+        ..holdPath = '/api/players/u1/profile'
+        ..hold = Completer<void>();
+      await http.runWithClient(() async {
+        final state = _state();
+        await _mount(tester, state, _teenPatti());
+        await tester.tap(_plaqueOf('u1'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(_inDrawer(_key('seat-loading')), findsOneWidget);
+        expect(_inDrawer(_key('seat-player-level')), findsNothing);
+        server.hold!.complete();
+        await _settle(tester);
+        final level = _inDrawer(_key('seat-player-level'));
+        expect(level, findsOneWidget);
+        expect(
+          tester.widget<Text>(level).data,
+          state.t.levelName(10, '🌟 Rising Star'),
+        );
+        // Under the name, in the head.
+        final name = tester.getRect(_inDrawer(_key('seat-player-name')));
+        expect(tester.getRect(level).top, greaterThanOrEqualTo(name.bottom));
+        await _closeDrawer(tester);
+
+        // Meera's profile has no level (a server from before levels).
+        await _tapPod(tester, 'u2');
+        expect(_inDrawer(_key('seat-player-name')), findsOneWidget);
+        expect(_inDrawer(_key('seat-player-level')), findsNothing);
+        await _unmount(tester, state);
+      }, () => server.client);
+    });
+
+    testWidgets('no winnings, no biggest pot — even were the server to send '
+        'them', (tester) async {
+      final server = _server();
+      await http.runWithClient(() async {
+        final state = _state();
+        await _mount(tester, state, _teenPatti());
+        await _tapPod(tester, 'u1');
+        expect(_inDrawer(find.byType(PlayerStatsGrid)), findsOneWidget);
+        final t = state.t;
+        expect(_inDrawer(find.textContaining(t.totalWinnings)), findsNothing);
+        expect(_inDrawer(find.textContaining(t.biggestPot)), findsNothing);
+        expect(_inDrawer(find.textContaining('75 Lakh')), findsNothing);
+        expect(_inDrawer(find.textContaining('50 Lakh')), findsNothing);
+        _expectNothingButTheFriendship(tester, t, 'u1');
+        await _unmount(tester, state);
+      }, () => server.client);
+    });
+
+    testWidgets('the longest level fits the head whole at 640x360 x1.25 in '
+        'every language', (tester) async {
+      for (final lang in AppLang.values) {
+        final server = _server();
+        await http.runWithClient(() async {
+          final state = _state(lang: lang);
+          await _mount(tester, state, _teenPatti());
+          await _tapPod(tester, 'u4');
+          final level = _inDrawer(_key('seat-player-level'));
+          expect(level, findsOneWidget, reason: lang.name);
+          final paragraph = tester.renderObject<RenderParagraph>(
+            find.descendant(of: level, matching: find.byType(RichText)),
+          );
+          expect(paragraph.didExceedMaxLines, isFalse, reason: lang.name);
+          final head = tester.getRect(_inDrawer(_key('seat-player-name')));
+          final rect = tester.getRect(level);
+          expect(rect.left, greaterThanOrEqualTo(head.left - 0.5));
+          expect(
+            rect.right,
+            lessThanOrEqualTo(640.5),
+            reason: '${lang.name}: $rect',
+          );
+          _expectDrawerFits(tester, 'level ${lang.name}');
+          await _unmount(tester, state);
+        }, () => server.client);
+      }
+    });
   });
 
   group('the drawer fits a 640x360 phone at text x1.25', () {

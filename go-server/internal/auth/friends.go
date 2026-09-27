@@ -166,14 +166,27 @@ type ProfileCategories struct {
 	Poker     ProfileCategoryStats  `json:"poker"`
 }
 
+// ProfileLevel is a profile's level (owner, 27 Sep 2026: "In game table each
+// player can see each other level of player also by clicking other player
+// pod"): its number, title and mark — the player_levels row their XP has
+// reached — and nothing else of the account's standing: no XP, no rate, no
+// badge.
+type ProfileLevel struct {
+	Level int    `json:"level"`
+	Title string `json:"title"`
+	Icon  string `json:"icon"`
+}
+
 // PlayerProfile is GET /api/players/{playerId}/profile's profile: the card's
-// fields, where the viewer stands with the player, and their stats; presence
-// only for a friend or the viewer themselves.
+// fields, where the viewer stands with the player, their level and their
+// stats; presence only for a friend or the viewer themselves. Level is
+// absent where the ladder has no level.
 type PlayerProfile struct {
 	PlayerCard
 	FriendStatus string          `json:"friendStatus"`
 	RequestID    *int64          `json:"requestId,omitempty"`
 	Presence     *PresenceView   `json:"presence,omitempty"`
+	Level        *ProfileLevel   `json:"level,omitempty"`
 	Stats        PlayerStatsView `json:"stats"`
 }
 
@@ -312,6 +325,9 @@ func (h *Handler) PlayerProfile(w http.ResponseWriter, r *http.Request, user *db
 		FriendStatus: found.FriendStatus,
 		RequestID:    requestIDOf(found),
 		Stats:        statsView(found.Stats),
+	}
+	if lv := found.Level; lv.Level > 0 {
+		profile.Level = &ProfileLevel{Level: lv.Level, Title: lv.Title, Icon: lv.Icon}
 	}
 	if found.FriendStatus == db.FriendStatusFriends || found.FriendStatus == db.FriendStatusSelf {
 		id := found.Player.UserID

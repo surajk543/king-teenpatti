@@ -17,6 +17,7 @@ import 'glass_components.dart';
 import 'glass_panels.dart';
 import 'player_profile.dart';
 import 'table_chrome.dart';
+import 'table_tax.dart' show levelStrut, levelTitle;
 
 // Friends at the table (owner, 26 Sep 2026: "in a gametable, if a player
 // clicks other player pod then a drawer from right side will open, where he
@@ -122,6 +123,9 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                   t: t,
                   player: who,
                   friendsSince: _friends.friendsSinceOf(who.userId),
+                  level: _friends.seatProfile?.userId == who.userId
+                      ? _friends.seatProfile?.level
+                      : null,
                 ),
                 const MenuRule(),
                 Expanded(
@@ -186,18 +190,29 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
 }
 
 /// Who the drawer is about: their picture and their name, as the seat drew
-/// them, and the key that closes it — and, when the two are friends, how long
-/// they have been ("Friends for 3 days"), which each of them sees of the
-/// other (owner, 26 Sep 2026: "show each other at the top how long they are
-/// friends in time").
+/// them, and the key that closes it — their level under the name once their
+/// profile has said it ("🌟 Level 10 · Rising Star"; owner, 27 Sep 2026:
+/// "each player can see each other level of player also by clicking other
+/// player pod") — and, when the two are friends, how long they have been
+/// ("Friends for 3 days"), which each of them sees of the other (owner, 26
+/// Sep 2026: "show each other at the top how long they are friends in time").
 class _Head extends StatelessWidget {
-  const _Head({required this.t, required this.player, this.friendsSince});
+  const _Head({
+    required this.t,
+    required this.player,
+    this.friendsSince,
+    this.level,
+  });
 
   final Strings t;
   final PlayerCard player;
 
   /// When the two became friends (epoch ms), or null when they are not.
   final int? friendsSince;
+
+  /// Their level, from their profile; null until it has come, or where the
+  /// server sends none.
+  final ProfileLevel? level;
 
   /// The picture's radius: the drawer's one portrait, a step over a chat
   /// line's and under a pod's.
@@ -235,6 +250,7 @@ class _Head extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: TableType.modalTitle(theme),
                 ),
+                if (level case final lv?) _LevelLine(t: t, level: lv),
                 if (friendsSince case final since?)
                   _FriendsFor(t: t, since: since),
               ],
@@ -250,6 +266,45 @@ class _Head extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The player's level under their name in the drawer's head: "Level 10 ·
+/// 🌟 Rising Star" ([levelNameOf]'s words), in the gold a level is written in
+/// on the table's pill, on the level's own line height ([levelStrut]) so the
+/// colour emoji never makes the head taller than the words would. A long
+/// title is set smaller rather than cut.
+class _LevelLine extends StatelessWidget {
+  const _LevelLine({required this.t, required this.level});
+
+  final Strings t;
+  final ProfileLevel level;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final style = TableType.label(theme).copyWith(
+      color: AppTheme.goldInk(theme.brightness),
+      fontWeight: FontWeight.w700,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(top: Space.xxs),
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: AlignmentDirectional.centerStart,
+          child: Text(
+            t.levelName(level.level, levelTitle(level.icon, level.title)),
+            key: const ValueKey('seat-player-level'),
+            maxLines: 1,
+            softWrap: false,
+            strutStyle: levelStrut(style),
+            style: style,
+          ),
+        ),
       ),
     );
   }

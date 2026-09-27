@@ -380,12 +380,40 @@ class PlayerStats {
 }
 
 /// A player's public profile (`GET /api/players/{playerId}/profile`).
+/// A player's level as their profile shows it (owner, 27 Sep 2026: "In game
+/// table each player can see each other level of player also by clicking
+/// other player pod"): its number, title and mark — nothing else of their
+/// standing (no XP, no rate, no badge) is sent.
+class ProfileLevel {
+  const ProfileLevel({required this.level, this.title = '', this.icon = ''});
+
+  final int level;
+  final String title;
+
+  /// The owner's emoji for the level, exactly as sent; empty for none.
+  final String icon;
+
+  /// The level in [j], or null where there is none (a server from before
+  /// levels, or a ladder with no level).
+  static ProfileLevel? maybe(dynamic j) {
+    if (j is! Map) return null;
+    final level = _int(j['level']);
+    if (level <= 0) return null;
+    return ProfileLevel(
+      level: level,
+      title: _str(j['title']),
+      icon: _str(j['icon']),
+    );
+  }
+}
+
 class PublicProfile {
   const PublicProfile({
     required this.player,
     required this.friendStatus,
     this.requestId,
     this.presence,
+    this.level,
     this.stats = const PlayerStats(),
   });
 
@@ -400,6 +428,9 @@ class PublicProfile {
   /// Where they are — sent only to a friend and to the player themselves, so
   /// null for everyone else, and never guessed at.
   final FriendPresence? presence;
+
+  /// Their level, or null where the server sent none.
+  final ProfileLevel? level;
   final PlayerStats stats;
 
   String get userId => player.userId;
@@ -417,6 +448,7 @@ class PublicProfile {
     presence: status == FriendStatus.friends || status == FriendStatus.self
         ? presence ?? this.presence
         : null,
+    level: level,
     stats: stats,
   );
 
@@ -433,6 +465,7 @@ class PublicProfile {
       presence: presence is Map
           ? FriendPresence.fromJson(Map<String, dynamic>.from(presence))
           : null,
+      level: ProfileLevel.maybe(p['level']),
       stats: PlayerStats.fromJson(_map(p['stats'])),
     );
   }
