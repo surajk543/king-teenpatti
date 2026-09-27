@@ -52,9 +52,10 @@ func TestABootSurvivesALongReaderHoldingTheTables(t *testing.T) {
 	// And the emoji store's two (26 Sep 2026): a boot finds them there and
 	// does nothing to them. Nor to Friends V1's three (26 Sep 2026), nor to
 	// Player stats v2's statistics and receipts (27 Sep 2026), nor to Report
-	// Player's player_reports (27 Sep 2026).
+	// Player's player_reports (27 Sep 2026), nor to the sign-ins each token
+	// must match (user_sessions, 28 Sep 2026).
 	for _, table := range []string{"table_engines", "table_categories", "table_settings", "table_configs", "emojis", "user_emojis",
-		"player_stats", "player_variation_stats", "stats_flushes", "friend_requests", "friendships", "player_reports"} {
+		"player_stats", "player_variation_stats", "stats_flushes", "friend_requests", "friendships", "player_reports", "user_sessions"} {
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM `+table+` LIMIT 1`); err != nil {
 			t.Fatalf("read %s: %v", table, err)
 		}

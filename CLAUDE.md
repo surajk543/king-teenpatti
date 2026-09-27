@@ -989,8 +989,17 @@ event-by-event contract is also written down in `go-server/PORT_NOTES/specs/spec
 
 ### 7.1 Socket.IO contract (`socket/index.js` → `internal/socket/handler.go`, `wire.go`)
 Handshake: JWT in `handshake.auth.token`; `io.use` is async (`await findById`). Failures →
-`connect_error` `missing_token | invalid_session | unknown_user | account_disabled | unauthorized`. One live socket per
-user (`session:replaced` to the old one). On connect: `session:ready {user, config}`; if still seated
+`connect_error` `missing_token | invalid_session | unknown_user | account_disabled | session_replaced | unauthorized`. One live socket per
+user (`session:replaced` to the old one). **One signed-in DEVICE per account** (owner, 28 Sep 2026: "when someone is already
+logged in with google account in one device and some other guy tries to login with same google account in diff device, the
+first one will be auto logout and showing message someone has logged in your account and new guy will see the live state of
+game"; §7.2 "One signed-in device"): every login counts a new session (`user_sessions.version`, §7.3) and signs it into its
+token as `sv`; a token whose `sv` is not the account's current one is refused **`session_replaced`** at the handshake (and at
+every signed-in REST door, 401), and the login itself ends a live socket of an EARLIER session before it answers
+(`Deps.SignedIn` → `socket.Handler.ReplaceSessions`, which leaves the login's own or a later session alone): that socket is told
+`session:replaced` and let go, its seat held for the reconnect grace, which the new device's connection takes over
+(`room:joined`, the live hand). A join from a socket whose session was replaced in between is refused `session_replaced` by
+`freshUser`, and the guard ends that socket (never the account's newer one). On connect: `session:ready {user, config}`; if still seated
 → `room:joined` + `chat:history` (**why restarted bots land on their previous table**).
 
 `guard`: rate limit **30/5s per socket, and (Go, 24 Sep 2026) the same 30/5s per ACCOUNT** — a second limiter keyed on the
@@ -1250,6 +1259,19 @@ seat — the socket layer's `freshUser` (quickJoin, joinCode, create, switch) an
 seat lock — after which the guard ends the session as it does a deleted account's. A seat already taken plays on while
 its socket lasts; once that drops, the reconnect is refused and the seat lapses after the grace.
 `internal/app/accountdisabled_test.go`; the app's popup is §8.1.
+**One signed-in device** (owner, 28 Sep 2026, §7.1): `db.Users.UpsertFromProfile` — every login, any provider, new account
+or not — counts a new session in its transaction (`startSession`: `user_sessions.version + 1`, 1 for the first, under the login's
+row lock, so two logins at once number themselves one after the other); the account read carries it (`db.User.SessionVersion`,
+`json:"-"`, never on the wire) and `Tokens.Issue` signs it as the JWT's `sv` (left out at 0). `auth.SessionCurrent(claims, user)`
+is the one comparison: `RequireAuth` answers **401 `session_replaced`** "Your account has been signed in on another device." for
+any other figure (after the disabled check), and the handshake the same code. A token from before sessions were counted carries no
+`sv` (0), as does an account with no row, so every session alive at the deploy stays good until that account's next login. The
+catalogues' optional-token routes (`/api/profiles`, `/api/table-pictures`, `/api/emojis`) only read `owned` for the token's
+subject and do not check it. The last device to sign in is the one that plays; signing in again on the first takes the account
+back the same way. `internal/app/singlesession_test.go` (a Google account mid-hand: the first socket told and ended before the
+second connects, its token refused at `me`, a wallet door and the handshake, the new socket handed the same room and hand and
+the seat kept past the grace; a token without `sv` good until the next login; three sign-ins in a row; a late hand-over never
+ends the latest session's socket).
 **Friends V1** (owner's brief, 26 Sep 2026: "Friends System V1 … FRIENDS MUST BE A LOBBY FEATURE … Friends can see
 whether another friend is online and, if they are currently playing, which game/table TYPE and variant they are playing …
 This live information MUST come from Redis, NEVER PostgreSQL"; `auth/friends.go`, `db/friends.go`, `game/playing.go`).
@@ -1409,7 +1431,7 @@ owns `users`.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly thirty-six, and none of them is game state** (Report Player's `player_reports` since 27 Sep 2026, moderation audit, in its own paragraph after the friends graph) (Player stats v2's `player_variation_stats` and
+Tables — **there are exactly thirty-seven, and none of them is game state** (`user_sessions` since 28 Sep 2026, the sign-in each token must carry, in its own paragraph after the player reports) (Report Player's `player_reports` since 27 Sep 2026, moderation audit, in its own paragraph after the friends graph) (Player stats v2's `player_variation_stats` and
 `stats_flushes` since 27 Sep 2026, in the statistics paragraph below) (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph; `player_stats`, `friend_requests` and `friendships` since the same day, Friends V1, §7.2; and eight of levels, badges and the daily XP since 27 Sep 2026 — `player_levels`, `badges`, `user_badges`, `badge_purchases`, `xp_sources`, `xp_settings`, `player_xp`, `player_xp_claims`, §6.6): ten of accounts, money and the picture
 catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`, `user_table_choice` — the paragraph after the
 `users` trigger below; merged 23 Sep 2026) (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
@@ -1558,6 +1580,13 @@ a hand a report names** (`NOT EXISTS … player_reports.hand_id`): the hand's ro
 PostgreSQL holds, so a moderator can still read the hand after `LEDGER_PURGE_AFTER_MS`; a report filed after its hand's rows
 were purged names a hand with no rows. A moderation system to come adds its own table naming `player_reports (id)` for the
 actions it records; a player's history filed and received is the two player indexes.
+
+**Sessions** (owner, 28 Sep 2026; §7.1/§7.2 "One signed-in device"): **`user_sessions`** — `user_id` PK → `users` CASCADE,
+`version` BIGINT ≥ 0 (how many times the account has signed in since the table existed), `updated_at`. A side table, as
+`user_table_choice` is, so no `ALTER TABLE users` and no DEPLOY.md §7 one-off: a plain CREATE TABLE IF NOT EXISTS after
+`user_milestones`, nothing in the seed, joined into every account read (`userFromAt`, `COALESCE(us.version, 0)`), written by
+every login (`startSession`). An existing database gains it at its next boot, empty: every account reads 0, which is what every
+token issued before it carries (`handover_boot_test.go` re-creates it under §7).
 
 Timestamps are epoch-ms BIGINT. Rewards: milestone 25,000 / 25 hands (`didChaal` only), timed bonus 10,000 / 4h (`POST /api/rewards/bonus`, `rewards.bonus*`), and beside it the Go-only daily bonus 1,00,000 chips + 1 hammer / 24h (owner, 14 Sep 2026; `POST /api/rewards/daily`, `rewards.daily*`, ledger reason `daily_bonus`) —
 constants in `users.js`. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} ]*$/u` —
@@ -2062,6 +2091,23 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   `ServerConfig.supportEmail` support@sungamestudio.com selectable, Close) once, and `dismissAccountDisabled` clears
   it; the sign-in flows write no error line for that code. `test/account_disabled_test.dart` (the hook, the guest
   sign-in, the popup, 640x360 x1.25 in all five languages).
+- **Signed in on another device** (owner, 28 Sep 2026; server side §7.1/§7.2 "One signed-in device"): `session_replaced`
+  (`sessionReplacedCode`, `net/api_client.dart`) reaches the app three ways — a REST 401 (`ApiClient.onSessionReplaced`, fired
+  from `_decode` with the token the refused request carried, read off `response.request`'s `Authorization`, so a late answer
+  about a token this phone has already signed in past is dropped), the handshake's `connect_error`, and the `session:replaced`
+  push that ends a live connection (`GameConnection`, from the CURRENT socket only; it used to be a toast, "Signed in from another
+  device", and the phone kept its token — backgrounded and back, it reconnected and took the seat back). `GameState
+  ._sessionWasReplaced` signs out (the token goes, so nothing reconnects on it; the device id stays) and raises
+  `sessionReplaced`; on a cold start the splash finishes first, as for a disabled account; with nobody signed in it does
+  nothing. The sign-in screen shows `SessionReplacedDialog` ("Signed in on another device" — someone signed in to the account on
+  another device, so this one was signed out; signing in again here signs the other out) once; `dismissSessionReplaced`. main.dart's
+  `_TableRoutes` now also closes every route over the lobby or the table when the screen goes to the sign-in screen from either — a
+  picture sheet open when the push landed stood over the sign-in screen, emptied. The new device lands on the live table through
+  the ordinary `room:joined` (behind the no-winnings panel where that account has not confirmed on that phone). Two strings in all
+  five languages. `test/session_replaced_test.dart` (the hook and its token, the push at a table, a cold start, a late 401 about an
+  older token, a stray word with nobody signed in, the sheet closed under the popup, the popup at 640x360 ×1.25 in all five
+  languages). Played on TP_Tall and the Play emulator against a local server: one account on both, the first seated mid-hand;
+  the second's sign-in put the popup on the first and the live hand on the second; and a Google account signed in again elsewhere.
 - **No-winnings confirmation** (`state/consent.dart`, `_ConsentGate` in `main.dart`, added 11 Sep 2026):
   after sign-in (either door, or a restored session) the lobby/table is covered by a panel — "I confirm
   that I do not have any expectations of winning any monetary or other enrichment from playing this
@@ -3299,6 +3345,17 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `_raisedButtons` = state-driven elevation (`liftElevation`: disabled 0, pressed rest/3, hover 2×),
   tinted `shadowFor`, transparent surfaceTint; text buttons flat. `PremiumSurface` = the one raised
   treatment (3 shadows + bevel + optional `Glint`).
+- **The Google photo on the picture shelf** (owner, 28 Sep 2026: "in profile picture selection show his google profile image
+  also, which he can select again after selecting different profile picture"; `picture_shelf.dart` `providerPictureOf`,
+  `providerPictureKey`, `shelfCount`). The account's own sign-in photo (`user.providerAvatarUrl`) is the FIRST tile of the All
+  shelf — the picker's and the store's Pictures shelf alike, whichever way the prices run — as a `ProfilePicture` of its own (id -1,
+  FREE, owned, named "Google photo", or "Your photo" for another provider): "✓ Wearing" while no catalogue picture is worn (the
+  account's face then IS that photo), "✓ Owned" otherwise, and a tap takes the catalogue picture off (`chooseAvatar(null)` →
+  `POST /api/profile/avatar {avatar: null}`; nothing is sent when it is already worn). None for a guest or an account whose provider
+  sent no photo, and never on a priced shelf; the All shelf's menu counts it (`shelfCount`). It replaced the header's unlabelled
+  person icon (`Icons.account_circle_outlined`, "Use my Google picture" as its tooltip), which did the same and was not found. Two
+  strings (`googlePhoto`, `ownPhoto`) in all five languages. `test/provider_photo_test.dart`. Played on the Play emulator with a
+  Google account: first tile "Wearing", Bear worn, the Google photo tapped back on.
 - **The picture picker** (`openPicturePicker`, with a day/night `DayNightSwitch` — sun, switch, moon, `GameState.toggleTheme` — at the top of its header since 14 Sep 2026 (owner), and headed by the player's display name where it read "Your picture" (owner, the same day); its shelf — `PictureFilter`, `PictureFilterMenu`, `pictureShelf`,
   `PictureChoice`, `unlockPicture`, `DiamondBalance` — lives in `widgets/picture_shelf.dart`, shared with the chip
   store's **Pictures** tab (`chip_store.dart` `_StoreTabs`: Chips | Diamonds | Pictures in the header — **every shelf heads with the
@@ -3881,7 +3938,7 @@ deploy runbook; `steps.txt` the six-line routine.
   unchanged. Every shipped client is websocket-only.
 - **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, exactly two since 23 Sep 2026 —
   `V1.0.0__baseline.sql` all DDL, `V1.0.1__seed.sql` all DML — applied in version order, idempotent, run at
-  every start: thirty-six tables (§7.3) — money, accounts, gameplay stats, the friends graph, the player reports, the levels and badges, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
+  every start: thirty-seven tables (§7.3) — money, accounts, the sign-in each token must carry, gameplay stats, the friends graph, the player reports, the levels and badges, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
   state — §7.3), `TableConfigs.Load`/`ExportTableConfigSQL` (the table catalogue), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table
@@ -3906,7 +3963,9 @@ deploy runbook; `steps.txt` the six-line routine.
   `gomaxprocs`. Grafana's former "Node.js" row is now "Runtime"; alerts
   `GameServerSchedulerLatencyHigh` / `GameServerGoroutinesHigh` / `GameServerMemoryHigh` replaced
   the three `nodejs_*` ones (§7.5 bundle at `go-server/ops/monitoring/`, `MONITORING.md`).
-- Small honest deviations: **Report Player** (§7.2/§7.3; 27 Sep 2026) — `POST /api/reports`, `player_reports`, `Room.ReportContexts`, the manager's recent-departure memory, and the ledger purge sparing a reported hand's rows (no wire, snapshot or ledger row of a table changed); **the table pictures** (§7.2/§7.3; merged 23 Sep 2026) — three tables, three REST endpoints,
+- Small honest deviations: **one signed-in device per account** (§7.1/§7.2/§7.3; 28 Sep 2026) — `user_sessions`, the JWT's `sv`,
+  `session_replaced` (401 and connect_error), and a login ending an earlier session's live socket with `session:replaced`;
+  **Report Player** (§7.2/§7.3; 27 Sep 2026) — `POST /api/reports`, `player_reports`, `Room.ReportContexts`, the manager's recent-departure memory, and the ledger purge sparing a reported hand's rows (no wire, snapshot or ledger row of a table changed); **the table pictures** (§7.2/§7.3; merged 23 Sep 2026) — three tables, three REST endpoints,
   `user.tablePicture`, `room:state.tablePicture` on Teen Patti snapshots, `table_picture_purchase` ledger rows; **the Poker family** (§6.5) — four poker categories, `poker:action` in, the nine `poker:*` events
   out, `game`/`poker` on a poker room's `room:state`, `chip_ledger.game`/`variant`, `wrong_game`; a Teen Patti table's wire,
   snapshot and ledger rows are unchanged; **Variation Teen Patti** — the `variation` category, `game:selectVariation`, the two

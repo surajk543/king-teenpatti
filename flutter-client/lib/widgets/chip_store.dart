@@ -2080,7 +2080,7 @@ class _PicturesHead extends StatelessWidget {
               value: filter,
               counts: {
                 for (final f in PictureFilter.menu)
-                  f: state.pictures.where(f.holds).length,
+                  f: shelfCount(state, f),
               },
               onChanged: onFilter,
             ),
@@ -2098,7 +2098,7 @@ class _PicturesHead extends StatelessWidget {
             value: filter,
             counts: {
               for (final f in PictureFilter.menu)
-                f: state.pictures.where(f.holds).length,
+                f: shelfCount(state, f),
             },
             onChanged: onFilter,
           ),

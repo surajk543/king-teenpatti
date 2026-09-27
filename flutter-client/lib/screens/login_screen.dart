@@ -41,6 +41,23 @@ class _LoginScreenState extends State<LoginScreen> {
     state.dismissAccountDisabled();
   }
 
+  /// Whether the "signed in on another device" popup is up.
+  bool _replacedShown = false;
+
+  /// The popup a device gets when its account has signed in on another one
+  /// (owner, 28 Sep 2026: "the first one will be auto logout and showing
+  /// message someone has logged in your account"), raised after the frame
+  /// that noticed [GameState.sessionReplaced] and cleared once read.
+  Future<void> _showSessionReplaced(GameState state) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => SessionReplacedDialog(t: state.t),
+    );
+    if (!mounted) return;
+    _replacedShown = false;
+    state.dismissSessionReplaced();
+  }
+
   @override
   void dispose() {
     _name.dispose();
@@ -58,6 +75,12 @@ class _LoginScreenState extends State<LoginScreen> {
       _disabledShown = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _showAccountDisabled(state);
+      });
+    }
+    if (state.sessionReplaced && !_replacedShown) {
+      _replacedShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showSessionReplaced(state);
       });
     }
     final width = MediaQuery.sizeOf(context).width;
@@ -332,6 +355,53 @@ class AccountDisabledDialog extends StatelessWidget {
       actions: [
         GlassButton(
           key: const ValueKey('account-disabled-close'),
+          style: GlassButtonStyle.primary,
+          label: t.close,
+          onPressed: () => Navigator.pop(context),
+        ),
+      ],
+    );
+  }
+}
+
+/// "Signed in on another device": the account is now being played somewhere
+/// else, this device is signed out, and signing in here again takes it back.
+/// One key to close it.
+class SessionReplacedDialog extends StatelessWidget {
+  const SessionReplacedDialog({super.key, required this.t});
+
+  final Strings t;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final body = theme.textTheme.bodyMedium ?? const TextStyle();
+    return GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: Row(
+        children: [
+          Icon(Icons.devices_rounded, size: 20, color: scheme.primary),
+          const SizedBox(width: Space.md),
+          Expanded(
+            child: Text(
+              t.sessionReplacedTitle,
+              style: AppTheme.label(
+                theme.textTheme.titleMedium ?? const TextStyle(),
+              ),
+            ),
+          ),
+        ],
+      ),
+      content: Text(
+        t.sessionReplacedBody,
+        style: body.copyWith(
+          color: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
+        ),
+      ),
+      actions: [
+        GlassButton(
+          key: const ValueKey('session-replaced-close'),
           style: GlassButtonStyle.primary,
           label: t.close,
           onPressed: () => Navigator.pop(context),

@@ -162,6 +162,12 @@ class GameState extends ChangeNotifier {
       _api = ApiClient(serverUrl ?? defaultServerUrl),
       _conn = connection ?? GameConnection(serverUrl ?? defaultServerUrl) {
     _api.onAccountDisabled = _accountWasDisabled;
+    // A 401 about a token this phone has already replaced with a newer
+    // sign-in of its own is old news, not this session's.
+    _api.onSessionReplaced = (token) {
+      if (token != null && token != _token) return;
+      _sessionWasReplaced();
+    };
   }
 
   /// The backend this build was made against — [ServerConfig.url]: production
@@ -366,6 +372,15 @@ class GameState extends ChangeNotifier {
   /// login, a restored session, any signed-in request, the socket's handshake
   /// and a table's refusal alike ([accountDisabledCode]).
   bool accountDisabled = false;
+
+  /// True once the server has said this device's sign-in was replaced — the
+  /// account signed in on another device (owner, 28 Sep 2026: "the first one
+  /// will be auto logout and showing message someone has logged in your
+  /// account"): the device is signed out and the sign-in screen says why;
+  /// [dismissSessionReplaced] clears it. Set from a restored session, any
+  /// signed-in request, the socket's handshake and the `session:replaced`
+  /// push alike ([sessionReplacedCode]).
+  bool sessionReplaced = false;
 
   /// True while the signed-in player has yet to confirm that they expect no
   /// money or other enrichment from playing. The game is held behind that
@@ -1384,6 +1399,11 @@ class GameState extends ChangeNotifier {
         // The account was disabled while signed in: out, and the popup.
         if (e.code == accountDisabledCode) {
           _accountWasDisabled();
+          return;
+        }
+        // Signed in on another device: out, and the popup that says so.
+        if (e.code == sessionReplacedCode) {
+          _sessionWasReplaced();
           return;
         }
         // A Force Sideshow reads these two refusals from its ack, which the
@@ -2509,6 +2529,30 @@ class GameState extends ChangeNotifier {
       unawaited(signOut());
       return;
     }
+    notifyListeners();
+  }
+
+  /// The server said this device's sign-in was replaced: the account signed
+  /// in on another device. Signs out — the token is dropped, so the phone
+  /// never reconnects and takes the seat back from the device that now has
+  /// it — and raises [sessionReplaced] for the sign-in screen's popup. On a
+  /// cold start the splash is left to finish, as for a disabled account.
+  /// Nothing when nobody is signed in here: that is a late word about a
+  /// session this phone has already left.
+  void _sessionWasReplaced() {
+    if (_token == null && user == null) return;
+    sessionReplaced = true;
+    if (screen == Screen.splash) {
+      notifyListeners();
+      return;
+    }
+    unawaited(signOut());
+  }
+
+  /// The "signed in on another device" popup has been read.
+  void dismissSessionReplaced() {
+    if (!sessionReplaced) return;
+    sessionReplaced = false;
     notifyListeners();
   }
 

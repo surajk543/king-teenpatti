@@ -203,6 +203,43 @@ func (h *Handler) EndSession(userID string) {
 	h.onDisconnect(s, sio.ReasonServerNamespaceDisc)
 }
 
+// ReplaceSessions ends the account's live socket when it belongs to a
+// sign-in EARLIER than sessionVersion (owner, 28 Sep 2026: "the first one will
+// be auto logout and showing message someone has logged in your account"):
+// auth.Deps.SignedIn calls it for every login, once the login has counted its
+// session and before it answers. The socket is told session:replaced and let
+// go, as a second connection of the same account always did it; the seat, if
+// any, is held for the reconnect grace, which the new device's connection
+// takes over (room:joined, the live table). A socket of this sign-in or a
+// later one — the login's own device reconnecting fast — is left alone, which
+// is what makes the call safe to make at any moment. Safe from any goroutine.
+func (h *Handler) ReplaceSessions(userID string, sessionVersion int64) {
+	h.mu.Lock()
+	s := h.userSockets[userID]
+	h.mu.Unlock()
+	if s == nil {
+		return
+	}
+	if sess := sessionOf(s); sess == nil || sess.user.SessionVersion >= sessionVersion {
+		return
+	}
+	h.replace(s)
+}
+
+// replace tells a socket another session has taken its account's place and
+// ends it (session_replaced_total++, session:replaced {message:
+// MsgSignedInElsewhere}, Disconnect(true)). onDisconnect is run here as well
+// as by sio: Node ran the socket's disconnect handler synchronously inside
+// disconnect(true), so the seat is marked disconnected and its grace timer
+// armed before whatever replaced it looks for a pending removal (a no-op if
+// sio already ran it).
+func (h *Handler) replace(s *sio.Socket) {
+	h.incSessionReplaced()
+	h.emitTo(s, EvSessionReplaced, MessageOnly{Message: MsgSignedInElsewhere})
+	s.Disconnect(true)
+	h.onDisconnect(s, sio.ReasonServerNamespaceDisc)
+}
+
 // NotifyFriendRequest tells userID of a friend request just made to them
 // (Friends at the table, owner 26 Sep 2026; app: auth.Deps.FriendRequestSent,
 // called once POST /api/friends/requests has committed): friend:request with
@@ -239,6 +276,15 @@ func AccountDisabledError() error {
 	return game.NewGameError(auth.CodeAccountDisabled, auth.MsgAccountDisabled)
 }
 
+// SessionReplacedError is the refusal a join from a socket of a replaced
+// sign-in gets (owner, 28 Sep 2026: one signed-in device per account; see
+// ReplaceSessions): session_replaced. The guard then tells that socket
+// session:replaced and ends it; the handshake refuses its reconnect with the
+// same code.
+func SessionReplacedError() error {
+	return game.NewGameError(auth.CodeSessionReplaced, auth.MsgSessionReplaced)
+}
+
 // SetRooms supplies the RoomManager. Must be called before Attach.
 func (h *Handler) SetRooms(rooms *game.RoomManager) {
 	h.deps.Rooms = rooms
@@ -249,7 +295,8 @@ func (h *Handler) SetRooms(rooms *game.RoomManager) {
 //
 // Handshake (io.use): token = handshake.auth.token, falling back to
 // query.token; Tokens.Verify → Users.FindByID(sub); nil user →
-// "unknown_user"; a disabled one (users.is_active) → "account_disabled"; any
+// "unknown_user"; a disabled one (users.is_active) → "account_disabled"; a
+// token whose sign-in a later one replaced → "session_replaced"; any
 // AuthError → its Code; any other error → "unauthorized".
 // The middleware error message IS the code (CONNECT_ERROR {"message": code}).
 //
@@ -351,6 +398,13 @@ func (h *Handler) authenticate(s *sio.Socket) error {
 		// its "contact support" popup.
 		return errors.New(auth.CodeAccountDisabled)
 	}
+	if !auth.SessionCurrent(claims, user) {
+		// The account has signed in on another device since this token was
+		// issued (owner, 28 Sep 2026): no session here, so this device never
+		// takes the seat back from the one that replaced it. The app signs
+		// out and says why.
+		return errors.New(auth.CodeSessionReplaced)
+	}
 	cfg := h.cfg()
 	s.SetData(&session{
 		user:        user,
@@ -430,14 +484,9 @@ func (h *Handler) onConnection(s *sio.Socket) {
 	// 2 (second half). one live session per account: a second login kicks
 	// the first, which stops a player opening two clients on the same seat.
 	if previous != nil && previous != s && previous.ID() != s.ID() {
-		h.incSessionReplaced()
-		h.emitTo(previous, EvSessionReplaced, MessageOnly{Message: MsgSignedInElsewhere})
-		previous.Disconnect(true)
-		// Node ran the previous socket's disconnect handler synchronously
-		// inside disconnect(true): the seat is marked disconnected and a grace
-		// timer armed before the new socket looks for a pending removal.
-		// Force the same order here (a no-op if sio already ran it).
-		h.onDisconnect(previous, sio.ReasonServerNamespaceDisc)
+		// replace runs the previous socket's disconnect bookkeeping at once,
+		// so its seat is held before this socket looks for a pending removal.
+		h.replace(previous)
 	}
 	// Presence: this account is online on this instance until the heartbeat
 	// stops refreshing it (a crash) or onDisconnect clears it. Written after
@@ -596,6 +645,11 @@ func (h *Handler) guard(s *sio.Socket, event string, fn func(args []json.RawMess
 				// handshake.
 				h.EndSession(sess.user.ID)
 			}
+			if code == auth.CodeSessionReplaced {
+				// This socket's sign-in has been replaced: tell it so and end
+				// it — this socket, never the account's newer one.
+				h.replace(s)
+			}
 			return
 		}
 		if ack != nil {
@@ -680,8 +734,13 @@ func (h *Handler) teenPattiTable(userID string) (*game.Table, error) {
 // lock is taken. It costs one primary-key SELECT per join, outside the lock,
 // and keeps this layer right on a RoomManager with no loader (the socket
 // suites').
-func (h *Handler) freshUser(userID string) (*db.User, error) {
-	fresh, err := h.deps.Users.FindByID(context.Background(), userID)
+//
+// It also refuses a socket whose sign-in a later one has replaced
+// (session_replaced; owner, 28 Sep 2026): the login ends such a socket at
+// once (ReplaceSessions), and this catches one that finished its handshake in
+// the instant between that login's count and its call.
+func (h *Handler) freshUser(user *db.User) (*db.User, error) {
+	fresh, err := h.deps.Users.FindByID(context.Background(), user.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -690,6 +749,9 @@ func (h *Handler) freshUser(userID string) (*db.User, error) {
 	}
 	if fresh.Disabled {
 		return nil, AccountDisabledError()
+	}
+	if fresh.SessionVersion != user.SessionVersion {
+		return nil, SessionReplacedError()
 	}
 	return fresh, nil
 }
@@ -717,7 +779,7 @@ func (h *Handler) quickJoin(s *sio.Socket, req QuickJoinRequest) (any, error) {
 	started := time.Now()
 	var table game.Room
 	err := func() error {
-		fresh, err := h.freshUser(user.ID)
+		fresh, err := h.freshUser(user)
 		if err != nil {
 			return err
 		}
@@ -825,7 +887,7 @@ func (h *Handler) create(s *sio.Socket, req CreateRequest) (any, error) {
 	started := time.Now()
 	var table game.Room
 	err := func() error {
-		fresh, err := h.freshUser(user.ID)
+		fresh, err := h.freshUser(user)
 		if err != nil {
 			return err
 		}
@@ -864,7 +926,7 @@ func (h *Handler) joinCode(s *sio.Socket, req JoinCodeRequest) (any, error) {
 	started := time.Now()
 	var table game.Room
 	err := func() error {
-		fresh, err := h.freshUser(user.ID)
+		fresh, err := h.freshUser(user)
 		if err != nil {
 			return err
 		}
@@ -900,7 +962,7 @@ func (h *Handler) switchTable(s *sio.Socket) (any, error) {
 	started := time.Now()
 	var result game.SwitchResult
 	err := func() error {
-		fresh, err := h.freshUser(user.ID)
+		fresh, err := h.freshUser(user)
 		if err != nil {
 			return err
 		}

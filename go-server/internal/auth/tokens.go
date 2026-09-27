@@ -16,9 +16,17 @@ import (
 // Tokens issued by the Node server MUST verify here and vice versa (a rolling
 // deploy has both alive), so: no `iss`, no `aud`, no `jti`, no `nbf`;
 // iat/exp are integer seconds.
+//
+// SessionVersion (`sv`, Go only, 28 Sep 2026) is the sign-in the token was
+// issued for (db.User.SessionVersion): a token whose sv is not the account's
+// current one belongs to a device a later sign-in replaced, and is refused
+// session_replaced (SessionReplacedError). Absent on a token from before —
+// read as 0, the figure of an account nobody has signed in to since — so
+// those sessions stay good until the account's next login.
 type Claims struct {
-	Provider string `json:"provider"`
-	Name     string `json:"name"`
+	Provider       string `json:"provider"`
+	Name           string `json:"name"`
+	SessionVersion int64  `json:"sv,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -41,15 +49,17 @@ func NewTokens(secret string, expiresIn time.Duration, now func() time.Time) *To
 }
 
 // Issue signs {sub: user.ID, provider: user.Provider, name: user.DisplayName,
-// iat: now, exp: now + expiresIn} (issueToken). iat is floor(now) in seconds
+// sv: user.SessionVersion, iat: now, exp: now + expiresIn} (issueToken; sv
+// left out when 0). iat is floor(now) in seconds
 // and exp = floor(iat + expiresIn) exactly as jsonwebtoken's timespan() does,
 // so a Go-minted token is indistinguishable from a Node one to either
 // verifier. The header is {"alg":"HS256","typ":"JWT"}.
 func (t *Tokens) Issue(user *db.User) (string, error) {
 	issued := t.now().Truncate(time.Second)
 	claims := &Claims{
-		Provider: user.Provider,
-		Name:     user.DisplayName,
+		Provider:       user.Provider,
+		Name:           user.DisplayName,
+		SessionVersion: user.SessionVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   user.ID,
 			IssuedAt:  jwt.NewNumericDate(issued),

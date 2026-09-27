@@ -522,6 +522,10 @@ func New(opts Options) (*App, error) {
 			a.sockets.EndSession(userID)
 			a.statsRecorder.Forget(userID)
 		},
+		// One signed-in device per account (owner, 28 Sep 2026): a login ends
+		// the live socket of any earlier sign-in, which is told
+		// session:replaced; the new device's connection takes the seat.
+		SignedIn: a.sockets.ReplaceSessions,
 		// Friends at the table (owner, 26 Sep 2026): a request made and a
 		// request accepted are pushed to the other player's live socket,
 		// lobby or table, once committed (friend:request, friend:accepted).

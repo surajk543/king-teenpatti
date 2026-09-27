@@ -114,6 +114,12 @@ type Deps struct {
 	// account (app: the socket layer disconnects every socket of that user,
 	// 24 Sep 2026). Nil = nobody to tell.
 	AccountDeleted func(userID string)
+	// SignedIn is told of every login once its session has been counted and
+	// its token signed (owner, 28 Sep 2026: one signed-in device per
+	// account): app: the socket layer tells a live socket of an EARLIER
+	// sign-in session:replaced and ends it, so the device signed in before is
+	// out at once rather than when the new one connects. Nil = nobody to tell.
+	SignedIn func(userID string, sessionVersion int64)
 	// Pictures is the profile-picture catalogue. It replaced a live listing
 	// of <PublicDir>/profiles: the files are still served from there, but
 	// what is on offer, what it is called and what it costs are rows now.
@@ -379,7 +385,8 @@ type ctxKey struct{}
 
 // RequireAuth wraps a handler: TokenFromRequest → Tokens.Verify →
 // Users.FindByID(sub); nil user → unknown_user ("This account no longer
-// exists"); a disabled one (users.is_active FALSE) → 403 account_disabled. On failure WriteError(AuthError). The user is stored in the
+// exists"); a disabled one (users.is_active FALSE) → 403 account_disabled; a
+// token from a sign-in a later one replaced → 401 session_replaced. On failure WriteError(AuthError). The user is stored in the
 // request context (UserFrom). Authentication runs before any body or seated
 // check, so invalid_session / unknown_user beat every other refusal.
 func (h *Handler) RequireAuth(next func(w http.ResponseWriter, r *http.Request, user *db.User)) http.Handler {
@@ -407,6 +414,13 @@ func (h *Handler) RequireAuth(next func(w http.ResponseWriter, r *http.Request, 
 		// other signed-in request alike.
 		if user.Disabled {
 			h.writeError(w, r, AccountDisabledError())
+			return
+		}
+		// The account has signed in on another device since this token was
+		// issued (owner, 28 Sep 2026): this device is signed out, and a cold
+		// start's restored session (GET /api/auth/me) finds it so at once.
+		if !SessionCurrent(claims, user) {
+			h.writeError(w, r, SessionReplacedError())
 			return
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, user)), user)
@@ -827,6 +841,7 @@ const (
 	MsgInternalError           = "Something went wrong"
 	MsgUnknownUser             = "This account no longer exists"
 	MsgAccountDisabled         = "Your account is disabled. Please contact support."
+	MsgSessionReplaced         = "Your account has been signed in on another device."
 	// The emoji store's refusals (owner, 26 Sep 2026). The first two and
 	// MsgEmojiLocked are also chat:emoji's. A shortage names the wallet and
 	// the price (EmojiUnaffordableMessage): the singular for a price of one,
@@ -852,4 +867,21 @@ const (
 // RoomManager's loader turn it into the same code (socket.AccountDisabled).
 func AccountDisabledError() *AuthError {
 	return NewAuthError(CodeAccountDisabled, MsgAccountDisabled, http.StatusForbidden)
+}
+
+// SessionReplacedError is the refusal every signed-in door gives a token
+// whose sign-in a later one has replaced (owner, 28 Sep 2026: one signed-in
+// device per account): 401 session_replaced. RequireAuth writes it; the
+// socket's handshake answers connect_error session_replaced. The app signs
+// the device out and says why.
+func SessionReplacedError() *AuthError {
+	return NewAuthError(CodeSessionReplaced, MsgSessionReplaced, http.StatusUnauthorized)
+}
+
+// SessionCurrent says whether a token's claims belong to the account's
+// current sign-in: its sv is the account's user_sessions.version (0 for
+// both a token from before sessions were counted and an account with no
+// row, which is what lets those sessions live on until the next login).
+func SessionCurrent(claims *Claims, user *db.User) bool {
+	return claims.SessionVersion == user.SessionVersion
 }

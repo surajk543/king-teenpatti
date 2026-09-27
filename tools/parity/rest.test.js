@@ -110,7 +110,11 @@ test('the session token is an HS256 JWT with exactly the claims the clients rely
   const { header, payload } = decodeJwt(token);
   assert.equal(header.alg, 'HS256');
   assert.equal(header.typ, 'JWT');
-  assertKeys(payload, ['sub', 'provider', 'name', 'iat', 'exp'], 'jwt claims');
+  // sv (Go only, 28 Sep 2026) is the sign-in the token was issued for: one
+  // signed-in device per account, a token of an earlier sign-in refused
+  // session_replaced. A first login is sign-in 1.
+  assertKeys(payload, ['sub', 'provider', 'name', 'sv', 'iat', 'exp'], 'jwt claims');
+  assert.equal(payload.sv, 1);
   assert.equal(payload.sub, user.id);
   assert.equal(payload.provider, 'guest');
   assert.equal(payload.name, 'Jwt');
@@ -254,12 +258,20 @@ test('bad, missing, foreign-signed and orphaned session tokens are refused with 
   assert.deepEqual(unknown.body, { error: 'unknown_user', message: 'This account no longer exists' });
 
   // And a correctly minted token for a real user is accepted — the harness
-  // minted this one, so a Node-issued token verifies on a Go server and back.
-  const { user } = await guestLogin('device-mint-0001', 'Minted');
-  const minted = await signJwt({ sub: user.id, provider: 'guest', name: 'Minted', iat: now, exp: now + 3600 });
+  // minted this one, so a token from another signer verifies on a Go server.
+  // It carries the account's current sign-in (sv, Go only, 28 Sep 2026);
+  // one without it names a sign-in the account has signed in past, and is
+  // refused like a device the next login replaced.
+  const { user, token: issued } = await guestLogin('device-mint-0001', 'Minted');
+  const { sv } = decodeJwt(issued).payload;
+  const minted = await signJwt({ sub: user.id, provider: 'guest', name: 'Minted', sv, iat: now, exp: now + 3600 });
   const accepted = await http('GET', '/api/auth/me', { token: minted });
   assert.equal(accepted.status, 200);
   assert.equal(accepted.body.user.id, user.id);
+  const before = await signJwt({ sub: user.id, provider: 'guest', name: 'Minted', iat: now, exp: now + 3600 });
+  const replaced = await http('GET', '/api/auth/me', { token: before });
+  assert.equal(replaced.status, 401);
+  assert.equal(replaced.body.error, 'session_replaced');
 
   const expired = await signJwt({ sub: user.id, provider: 'guest', name: 'Minted', iat: now - 7200, exp: now - 3600 });
   const stale = await http('GET', '/api/auth/me', { token: expired });
@@ -850,7 +862,9 @@ test('/api/rooms lists public tables with the lobby options, to a signed-in play
 
   const all = await http('GET', '/api/rooms', { token: account.token });
   assert.equal(all.status, 200);
-  assertKeys(all.body, ['tables', 'options']);
+  // One page of them (Pagination, 27 Sep 2026): the total and the next page's
+  // cursor beside the rows.
+  assertKeys(all.body, ['tables', 'total', 'nextCursor', 'options']);
   const mine = all.body.tables.find((t) => t.roomId === joined.roomId);
   assert.ok(mine, 'the table is listed');
   assertKeys(mine, ['roomId', 'category', 'state', 'players', 'maxPlayers', 'bootAmount']);

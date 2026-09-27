@@ -89,6 +89,13 @@ final class TableConfigAbsent extends TableConfigAnswer {
 /// table's join.
 const accountDisabledCode = 'account_disabled';
 
+/// The code a signed-in door answers a device whose sign-in has been replaced
+/// with: the account signed in on another device since this token was issued
+/// (owner, 28 Sep 2026: one signed-in device per account). The REST 401, the
+/// socket's handshake refusal, and — as the event `session:replaced` — the
+/// push that ends a live connection all come to this.
+const sessionReplacedCode = 'session_replaced';
+
 class ApiClient {
   ApiClient(this.baseUrl, {this.client});
 
@@ -96,6 +103,13 @@ class ApiClient {
   /// ([accountDisabledCode]), before its [ApiException] is thrown, so the app
   /// puts up its popup whichever request met the refusal.
   void Function()? onAccountDisabled;
+
+  /// Called when an answer says this device's sign-in has been replaced
+  /// ([sessionReplacedCode]), before its [ApiException] is thrown, with the
+  /// token the refused request carried — so an answer to a request made
+  /// before a newer sign-in on this phone can be told from one about the
+  /// session the phone is in now.
+  void Function(String? token)? onSessionReplaced;
 
   final String baseUrl;
 
@@ -114,6 +128,13 @@ class ApiClient {
     if (token != null) 'Authorization': 'Bearer $token',
   };
 
+  /// The token an `Authorization: Bearer` header carried, or null.
+  static String? _bearerOf(Map<String, String>? headers) {
+    final value = headers?['Authorization'] ?? headers?['authorization'];
+    if (value == null || !value.startsWith('Bearer ')) return null;
+    return value.substring('Bearer '.length);
+  }
+
   Map<String, dynamic> _decode(http.Response r) {
     final body = r.body.isEmpty ? '{}' : r.body;
     final json = jsonDecode(body);
@@ -130,6 +151,9 @@ class ApiClient {
           ? error['code'] as String
           : null;
       if (code == accountDisabledCode) onAccountDisabled?.call();
+      if (code == sessionReplacedCode) {
+        onSessionReplaced?.call(_bearerOf(r.request?.headers));
+      }
       throw ApiException(
         '$message'.isEmpty || message == null
             ? 'Request failed (${r.statusCode})'
