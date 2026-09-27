@@ -51,7 +51,7 @@ import (
 type FriendStore interface {
 	Lookup(ctx context.Context, viewerID, playerID string) (*db.PlayerLookup, error)
 	List(ctx context.Context, userID string) ([]db.Friend, error)
-	Requests(ctx context.Context, userID string) (incoming, outgoing []db.FriendRequest, err error)
+	PendingPage(ctx context.Context, userID string, incoming bool, limit int, after *db.Keyset) (db.RequestPage, error)
 	// Send records a request and returns it as its recipient will list it
 	// (Player: the sender).
 	Send(ctx context.Context, fromID, toID string) (*db.FriendRequest, error)
@@ -207,10 +207,14 @@ type FriendItem struct {
 	FriendsSince int64  `json:"friendsSince"`
 }
 
-// FriendsResponse ← GET /api/friends: PLAYING first, then ONLINE, then
-// OFFLINE, each by display name, case-insensitive. [] when there are none.
+// FriendsResponse ← GET /api/friends: one page of the friends (pagination.go),
+// PLAYING first, then ONLINE, then OFFLINE, each by display name,
+// case-insensitive; how many friends there are in all; and the next page's
+// cursor, null on the last. [] when there are none.
 type FriendsResponse struct {
-	Friends []FriendItem `json:"friends"`
+	Friends    []FriendItem `json:"friends"`
+	Total      int          `json:"total"`
+	NextCursor *string      `json:"nextCursor"`
 }
 
 // FriendRequestItem is one pending request: its id, the OTHER player, and
@@ -235,11 +239,25 @@ type FriendAccepted struct {
 	FriendsSince int64      `json:"friendsSince"`
 }
 
-// FriendRequestsResponse ← GET /api/friends/requests: the pending requests
-// addressed to the caller and the ones they sent, newest first; [] for none.
+// FriendRequestsResponse ← GET /api/friends/requests: the first page of the
+// pending requests addressed to the caller and of the ones they sent, newest
+// first ([] for none), how many of each there are in all, and where each
+// box's next page starts (null on its last) — read with ?box=.
 type FriendRequestsResponse struct {
-	Incoming []FriendRequestItem `json:"incoming"`
-	Outgoing []FriendRequestItem `json:"outgoing"`
+	Incoming      []FriendRequestItem `json:"incoming"`
+	Outgoing      []FriendRequestItem `json:"outgoing"`
+	IncomingTotal int                 `json:"incomingTotal"`
+	OutgoingTotal int                 `json:"outgoingTotal"`
+	NextIncoming  *string             `json:"nextIncoming"`
+	NextOutgoing  *string             `json:"nextOutgoing"`
+}
+
+// FriendRequestBoxResponse ← GET /api/friends/requests?box=incoming|outgoing:
+// one page of that box, newest first, its total and the next page's cursor.
+type FriendRequestBoxResponse struct {
+	Requests   []FriendRequestItem `json:"requests"`
+	Total      int                 `json:"total"`
+	NextCursor *string             `json:"nextCursor"`
 }
 
 // SendFriendRequestBody ← POST /api/friends/requests {userId}: the Player ID
@@ -357,11 +375,23 @@ func (h *Handler) lookupPlayer(w http.ResponseWriter, r *http.Request, user *db.
 	return found, true
 }
 
-// FriendList is GET /api/friends: every friend, each with their presence
-// (one batched read of the live store for the whole list), PLAYING first,
-// then ONLINE, then OFFLINE, each group by display name, case-insensitive.
-// Deleted and disabled accounts are left out.
+// FriendList is GET /api/friends?limit&cursor: one page of the friends, each
+// with their presence, PLAYING first, then ONLINE, then OFFLINE, each group by
+// display name, case-insensitive. Deleted and disabled accounts are left out.
+//
+// The order is presence first, and presence lives in the live store, not in
+// PostgreSQL, so no query can page it: the whole list is read with its
+// presence (one batched live read), sorted, and the page cut from it; the
+// cursor is an offset into that order (OffsetCursor). A friend who starts or
+// stops playing between two pages can move across the cut — the app keeps
+// one row per friend.
 func (h *Handler) FriendList(w http.ResponseWriter, r *http.Request, user *db.User) {
+	page, ok := ReadPage(r)
+	offset, okCursor := ReadOffsetCursor(page.Cursor)
+	if !ok || !okCursor {
+		RefusePage(w)
+		return
+	}
 	friends, err := h.deps.Friends.List(r.Context(), user.ID)
 	if err != nil {
 		h.writeError(w, r, err)
@@ -377,18 +407,49 @@ func (h *Handler) FriendList(w http.ResponseWriter, r *http.Request, user *db.Us
 		items = append(items, friendItem(f, presence[f.Player.UserID]))
 	}
 	sortFriends(items)
-	WriteJSON(w, http.StatusOK, FriendsResponse{Friends: items})
+	start, end, next := PageBounds(offset, page.Limit, len(items))
+	WriteJSON(w, http.StatusOK, FriendsResponse{Friends: items[start:end], Total: len(items), NextCursor: next})
 }
 
 // FriendRequests is GET /api/friends/requests: the caller's PENDING requests,
-// received and sent, newest first.
+// newest first. With no box, the first page of each (?limit, 20 by default)
+// and each box's total and next cursor; with ?box=incoming|outgoing and that
+// box's ?cursor, the next page of it. A cursor with no box, or an unknown
+// box, is invalid_page.
 func (h *Handler) FriendRequests(w http.ResponseWriter, r *http.Request, user *db.User) {
-	incoming, outgoing, err := h.deps.Friends.Requests(r.Context(), user.ID)
+	page, ok := ReadPage(r)
+	after, okCursor := readKeysetCursor(page.Cursor)
+	box := r.URL.Query().Get("box")
+	if !ok || !okCursor || (box != "" && box != "incoming" && box != "outgoing") || (box == "" && after != nil) {
+		RefusePage(w)
+		return
+	}
+	if box != "" {
+		got, err := h.deps.Friends.PendingPage(r.Context(), user.ID, box == "incoming", page.Limit, after)
+		if err != nil {
+			h.writeError(w, r, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, FriendRequestBoxResponse{
+			Requests: requestItems(got.Requests), Total: got.Total, NextCursor: nextKeyset(got.Next),
+		})
+		return
+	}
+	incoming, err := h.deps.Friends.PendingPage(r.Context(), user.ID, true, page.Limit, nil)
 	if err != nil {
 		h.writeError(w, r, err)
 		return
 	}
-	WriteJSON(w, http.StatusOK, FriendRequestsResponse{Incoming: requestItems(incoming), Outgoing: requestItems(outgoing)})
+	outgoing, err := h.deps.Friends.PendingPage(r.Context(), user.ID, false, page.Limit, nil)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, FriendRequestsResponse{
+		Incoming: requestItems(incoming.Requests), Outgoing: requestItems(outgoing.Requests),
+		IncomingTotal: incoming.Total, OutgoingTotal: outgoing.Total,
+		NextIncoming: nextKeyset(incoming.Next), NextOutgoing: nextKeyset(outgoing.Next),
+	})
 }
 
 // SendFriendRequest is POST /api/friends/requests {userId}: a friend request

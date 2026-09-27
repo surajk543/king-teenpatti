@@ -92,4 +92,13 @@ const (
 	CodeFriendRequestNotFound   = "request_not_found"        // 404: no such request, or one not addressed to the caller
 	CodeFriendRequestNotPending = "request_not_pending"      // 409: accepted, rejected or cancelled already
 	CodeNotFriends              = "not_friends"              // 404: removing a player who is not a friend
+	// Report Player (owner, 27 Sep 2026; Go only; reports.go). invalid_player_id,
+	// player_not_found and rate_limited are shared with the routes above.
+	CodeSelfReport          = "self_report"           // 400: a report about oneself
+	CodeInvalidReportReason = "invalid_report_reason" // 400: a reason not in ReportReasons
+	CodeDescriptionRequired = "description_required"  // 400: OTHER without a description
+	CodeDescriptionTooLong  = "description_too_long"  // 400: over REPORT_DESCRIPTION_MAX characters
+	CodePlayerNotAtTable    = "player_not_at_table"   // 409: not at the reporter's table, nor lately
+	CodeAlreadyReported     = "already_reported"      // 409: this player, by this reporter, this hand or within the pair window
+	CodeReportLimitReached  = "report_limit_reached"  // 429: REPORT_MAX_PER_REPORTER reports in REPORT_WINDOW_MS
 )

@@ -8,6 +8,7 @@ import '../models/dtos.dart';
 import '../models/friends.dart';
 import '../state/friends_state.dart';
 import '../state/game_state.dart';
+import '../state/player_reports.dart';
 import '../theme/app_theme.dart';
 import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
@@ -17,6 +18,7 @@ import 'own_seat_drawer.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
 import 'player_profile.dart';
+import 'report_player.dart';
 import 'table_chrome.dart';
 import 'table_tax.dart' show levelStrut, levelTitle;
 
@@ -64,6 +66,7 @@ bool ownDrawerSeat(GameState state, Seat? seat) {
 void openOwnDrawer(BuildContext context) {
   final state = context.read<GameState>();
   tapHaptic(context);
+  state.reports.close();
   unawaited(state.refreshUser());
   unawaited(state.friends.openOwn());
   state.tableScaffold.currentState?.openEndDrawer();
@@ -78,6 +81,11 @@ void openPlayerDrawer(BuildContext context, Seat seat) {
   if (playerDrawerSeat(state, seat) == null) return;
   final userId = seat.userId!;
   tapHaptic(context);
+  // A report page left open for another player goes with them.
+  if (state.reports.target != userId) state.reports.close();
+  // Whether the player has a report left, and when the next opens if not:
+  // the drawer's Report line is off, counting down, while none is.
+  unawaited(state.reports.refreshLimit());
   unawaited(
     state.friends.openSeat(
       PlayerCard(
@@ -114,18 +122,25 @@ class PlayerDrawer extends StatefulWidget {
 
 class _PlayerDrawerState extends State<PlayerDrawer> {
   late final FriendsState _friends;
+  late final PlayerReports _reports;
+  late final Listenable _both;
 
   @override
   void initState() {
     super.initState();
-    _friends = context.read<GameState>().friends;
+    final state = context.read<GameState>();
+    _friends = state.friends;
+    _reports = state.reports;
+    _both = Listenable.merge([_friends, _reports]);
   }
 
   @override
   void dispose() {
     // A Scaffold builds its drawer only while it is at least partly open, so
-    // this is the moment the slide-out ends: the player goes with it.
+    // this is the moment the slide-out ends: the player goes with it, and a
+    // report being written about them (Report Player) with the page.
     _friends.closeSeat(notify: false);
+    _reports.close(notify: false);
     super.dispose();
   }
 
@@ -149,47 +164,76 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
     );
   }
 
-  /// Another player's card: the drawer as a pod of theirs opened it.
+  /// Another player's card: the drawer as a pod of theirs opened it — or,
+  /// once its Report player line is pressed, the report page about them
+  /// (Report Player, report_player.dart), under the same head.
   Widget _other(BuildContext context, Strings t, double screenW) {
+    // The report's description is typed here, and the table's Scaffold does
+    // not make room for the keyboard (resizeToAvoidBottomInset: false): the
+    // drawer rides above it itself, and while the player types its head
+    // stands aside, as the chat drawer's title does, so the field keeps the
+    // room a landscape phone has left.
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
     return GlassDrawerPanel(
       alignment: AlignmentDirectional.centerEnd,
       width: TableSpace.drawerW(screenW),
       padding: EdgeInsets.zero,
       child: SizedBox.expand(
-        child: ListenableBuilder(
-          listenable: _friends,
-          builder: (context, _) {
-            final who = _friends.seatPlayer;
-            if (who == null) return const SizedBox.shrink();
-            return Column(
-              key: ValueKey('player-drawer:${who.userId}'),
-              children: [
-                _Head(
-                  t: t,
-                  player: who,
-                  friendsSince: _friends.friendsSinceOf(who.userId),
-                  level: _friends.seatProfile?.userId == who.userId
-                      ? _friends.seatProfile?.level
-                      : null,
-                ),
-                const MenuRule(),
-                Expanded(
-                  child: EdgeFade(
-                    child: ListView(
-                      key: const ValueKey('player-drawer-list'),
-                      padding: const EdgeInsets.fromLTRB(
-                        TableSpace.drawerInset,
-                        Space.sm,
-                        TableSpace.drawerInset,
-                        Space.lg,
+        child: Padding(
+          padding: EdgeInsets.only(bottom: keyboard),
+          child: ListenableBuilder(
+            listenable: _both,
+            builder: (context, _) {
+              final who = _friends.seatPlayer;
+              if (who == null) return const SizedBox.shrink();
+              final reporting = _reports.target == who.userId;
+              final typing = reporting && keyboard > 0;
+              return Column(
+                key: ValueKey('player-drawer:${who.userId}'),
+                children: [
+                  if (!typing) ...[
+                    _Head(
+                      t: t,
+                      player: who,
+                      friendsSince: _friends.friendsSinceOf(who.userId),
+                      level: _friends.seatProfile?.userId == who.userId
+                          ? _friends.seatProfile?.level
+                          : null,
+                    ),
+                    const MenuRule(),
+                  ],
+                  Expanded(
+                    child: EdgeFade(
+                      child: ListView(
+                        // A list of its own for each page, so each opens at
+                        // its top: the report page scrolled to its Submit key
+                        // would otherwise hand the card back scrolled past its
+                        // head.
+                        key: ValueKey(
+                          reporting ? 'report-list' : 'player-drawer-list',
+                        ),
+                        padding: const EdgeInsets.fromLTRB(
+                          TableSpace.drawerInset,
+                          Space.sm,
+                          TableSpace.drawerInset,
+                          Space.lg,
+                        ),
+                        children: reporting
+                            ? [
+                                ReportPlayerPage(
+                                  key: ValueKey('report-page:${who.userId}'),
+                                  t: t,
+                                  reports: _reports,
+                                ),
+                              ]
+                            : _body(context, t, who),
                       ),
-                      children: _body(context, t, who),
                     ),
                   ),
-                ),
-              ],
-            );
-          },
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -221,7 +265,19 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
           key: const ValueKey('seat-note'),
           text: friendsRefusalText(t, note),
         ),
-      const SizedBox(height: Space.lg),
+      // Report Player (owner, 27 Sep 2026): the drawer is the player menu, and
+      // reporting is one of its lines — quiet, under the move the two
+      // players' standing offers, never a key on the table itself.
+      Padding(
+        padding: const EdgeInsets.only(top: Space.xs),
+        child: ReportPlayerRow(
+          t: t,
+          reported: _reports.wasReported(who.userId),
+          reports: _reports,
+          onReport: () => _reports.open(who.userId),
+        ),
+      ),
+      const SizedBox(height: Space.sm),
       // Keyed, so the game the player chose to look at stays chosen when a
       // refusal's note arrives above it and moves it down the list.
       PlayerStatsGrid(
@@ -452,7 +508,7 @@ class _Relation extends StatelessWidget {
     switch (profile.friendStatus) {
       case FriendStatus.none:
         final sending = friends.sendingTo == userId;
-        return _DrawerKey(
+        return DrawerKey(
           key: const ValueKey('seat-add-friend'),
           role: KeyRole.primary,
           icon: Icons.person_add_alt_1_rounded,
@@ -463,7 +519,7 @@ class _Relation extends StatelessWidget {
               : () => unawaited(friends.sendRequest(userId)),
         );
       case FriendStatus.pendingSent:
-        return _DrawerKey(
+        return DrawerKey(
           key: const ValueKey('seat-request-sent'),
           role: KeyRole.secondary,
           icon: Icons.schedule_rounded,
@@ -489,7 +545,7 @@ class _Relation extends StatelessWidget {
               ),
             ),
             const SizedBox(height: Space.sm),
-            _DrawerKey(
+            DrawerKey(
               key: const ValueKey('seat-accept'),
               role: KeyRole.primary,
               icon: Icons.check_rounded,
@@ -500,7 +556,7 @@ class _Relation extends StatelessWidget {
                   : () => unawaited(friends.accept(id)),
             ),
             const SizedBox(height: Space.sm),
-            _DrawerKey(
+            DrawerKey(
               key: const ValueKey('seat-reject'),
               role: KeyRole.secondary,
               icon: Icons.close_rounded,
@@ -523,14 +579,15 @@ class _Relation extends StatelessWidget {
 }
 
 /// One of the drawer's keys, as loud as what it does ([KeyRole]) — the
-/// table's dialogs' own two: the PRIMARY move (Add Friend, Accept) in the one
+/// table's dialogs' own two (the report page's Submit and Cancel too,
+/// report_player.dart): the PRIMARY move (Add Friend, Accept) in the one
 /// solid gold, its name in the primary key's type; a SECONDARY one (Reject)
 /// on the plaque's neutral ink with the live hairline; and a key that cannot
 /// be pressed faded as every dead key at the table is ([deadKeyOpacity]),
 /// words and all. Its name is set smaller rather than cut where a language's
 /// words need more than the drawer's width.
-class _DrawerKey extends StatelessWidget {
-  const _DrawerKey({
+class DrawerKey extends StatelessWidget {
+  const DrawerKey({
     super.key,
     required this.role,
     required this.icon,
@@ -732,7 +789,7 @@ class _Trouble extends StatelessWidget {
           ),
           if (again != null && retry != null) ...[
             const SizedBox(height: Space.md),
-            _DrawerKey(
+            DrawerKey(
               key: const ValueKey('seat-retry'),
               role: KeyRole.secondary,
               icon: Icons.refresh_rounded,

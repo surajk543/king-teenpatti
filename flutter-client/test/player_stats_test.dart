@@ -249,6 +249,8 @@ void _expectView(
       final cell = 'stats-hand-$field';
       expect(_textIn(cell, HandTally.names[i]), findsOneWidget, reason: where);
       expect(_textIn(cell, '${hands[field]}'), findsOneWidget, reason: where);
+      // Each hand wears its icon, the daily XP's own mark for it.
+      expect(_textIn(cell, HandTally.icons[i]), findsOneWidget, reason: where);
     }
   } else {
     expect(find.text(t.handsHeld), findsNothing, reason: where);
@@ -1103,7 +1105,10 @@ void main() {
     expect(lobby, contains('OwnRecord('));
     expect(page, contains('PlayerStatsGrid('));
     expect(drawer, contains('PlayerStatsGrid('));
-    expect(own, contains("show EvenGrid, countText"));
+    // The Stats drawer shares the grid, the counts' grouping and the hands'
+    // icons with the record, rather than drawing any of them twice.
+    expect(own, contains("show EvenGrid, HandIcon, countText"));
+    expect(own, isNot(contains("HandTally.icons[")));
     expect(own, isNot(contains('String _count(')));
     expect(own, isNot(contains('class _EvenGrid')));
     for (final source in [lobby, page, drawer]) {

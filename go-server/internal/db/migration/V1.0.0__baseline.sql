@@ -114,8 +114,9 @@
 -- table pictures, the emojis (`emojis`, then `user_emojis`, which names a
 -- player and an emoji), `chip_ledger` and the purchase and spend tables come
 -- after both for the same reason, as do the statistics (player_stats and
--- player_variation_stats, then stats_flushes, after user_milestones) and the
--- two friends tables (after the Lucky Draw). The Lucky Draw's three
+-- player_variation_stats, then stats_flushes, after user_milestones), the
+-- two friends tables (after the Lucky Draw) and player_reports (after the
+-- friends tables; it names two players). The Lucky Draw's three
 -- follow the purchase tables — its draws, their slots (which
 -- name a draw), and the spins (which name a player, a draw and a slot) — then
 -- the player levels, badges and XP (player_levels, badges, then user_badges,
@@ -1108,6 +1109,79 @@ CREATE TABLE IF NOT EXISTS friendships (
   UNIQUE (user_id, friend_user_id),
   CHECK (user_id <> friend_user_id)
 );
+
+
+-- ---------------------------------------------------------- player reports
+
+-- Report Player (owner, 27 Sep 2026: "A player sitting at a gameplay table
+-- must be able to report another player currently at the same table"). One
+-- row per report: MODERATION AUDIT, neither game state nor a copy of it. A
+-- report never changes anything at a table by itself — it pauses, kicks,
+-- folds and bans nobody; it is a row for a moderator to read.
+--
+-- The client sends only who, why and (optionally) what happened (POST
+-- /api/reports, auth/reports.go); the server fills every other column from
+-- the reporter's session and its own table state: the reporter, and — from
+-- the room the two shared, now or within REPORT_RECENT_MS — the KIND of table
+-- (game: the engine code, teen_patti | poker; category: seen … omaha;
+-- variant: the variation a Variation hand was decided by, the poker variant
+-- at a poker room, NULL otherwise), the room's id (table_id) and the hand
+-- (hand_id: the hand the reported player is in, else the last one they were
+-- dealt into at that table; NULL when neither is known). Those two are
+-- REFERENCES by value, never copies of the hand: a hand's authoritative
+-- record is its chip_ledger rows (chip_ledger.hand_id), which the ledger
+-- purge keeps for every hand a report names (db.PurgeLedger), and the room
+-- lives in the live store only while it plays. Neither id is ever sent to a
+-- client.
+--
+-- status is the moderation lifecycle — PENDING as filed, then UNDER_REVIEW,
+-- ACTION_TAKEN or DISMISSED — set by moderation (none is built yet) and never
+-- by a player. A CLOSED set, as friend_requests.status is, so a CHECK. reason
+-- is deliberately NOT checked here: the server validates it against its own
+-- list (auth.ReportReasons), so a new reason is code and never a change to a
+-- constraint an existing database already has (the trap
+-- profile_pictures_currency_check sprang when HAMMER arrived; the Lucky
+-- Draw's reward_type is left open the same way). description is NULL when the
+-- reporter wrote none; its length is the server's (REPORT_DESCRIPTION_MAX).
+--
+-- A moderation system to come adds a table of its own naming player_reports
+-- (id) for the actions it records; a player's reports filed and received are
+-- read off the two (player, created_at) indexes, a hand's off hand_id.
+--
+-- Both players are users rows, which are never deleted (users_no_delete) — an
+-- account deletion pseudonymises its row and its reports stay, as its ledger
+-- does; ON DELETE CASCADE is for the deliberate privileged removal only, as
+-- on every other table naming a player. Nothing on users: the two foreign
+-- keys need only ops/DEPLOY.md §7's REFERENCES grant, so a database built
+-- before this table takes it at its next boot whoever owns users.
+CREATE TABLE IF NOT EXISTS player_reports (
+  id               BIGSERIAL PRIMARY KEY,
+  reporter_user_id TEXT   NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  reported_user_id TEXT   NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  reason           TEXT   NOT NULL,
+  description      TEXT,
+  game             TEXT   NOT NULL,
+  category         TEXT   NOT NULL,
+  variant          TEXT,
+  table_id         TEXT   NOT NULL,
+  hand_id          TEXT,
+  status           TEXT   NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'UNDER_REVIEW', 'ACTION_TAKEN', 'DISMISSED')),
+  created_at       BIGINT NOT NULL,
+  updated_at       BIGINT NOT NULL,
+  CHECK (reporter_user_id <> reported_user_id)
+);
+
+-- A player's history as the one reported and as the reporter — the second is
+-- also what the per-reporter limit counts (the reports filed in the last
+-- REPORT_WINDOW_MS, db.Reports.Submit) — and the moderation queue by status.
+CREATE INDEX IF NOT EXISTS player_reports_reported_idx ON player_reports (reported_user_id, created_at);
+CREATE INDEX IF NOT EXISTS player_reports_reporter_idx ON player_reports (reporter_user_id, created_at);
+CREATE INDEX IF NOT EXISTS player_reports_status_idx ON player_reports (status, created_at);
+-- The reports about one hand (a moderator's, and the ledger purge's look for a
+-- hand to keep) — and, being UNIQUE, the guarantee under the server's own
+-- check that one reporter reports one player once per hand.
+CREATE UNIQUE INDEX IF NOT EXISTS player_reports_one_per_hand
+  ON player_reports (hand_id, reporter_user_id, reported_user_id) WHERE hand_id IS NOT NULL;
 
 
 -- --------------------------------------------------------- player levels

@@ -172,6 +172,11 @@ type Config struct {
 	// and in what batches the pending counters move from the live store into
 	// PostgreSQL.
 	Stats StatsConfig
+	// Reports is Report Player's abuse guards and reach (owner, 27 Sep 2026;
+	// Go only): how many reports a player may file, how often about one
+	// player, how long a description may be, and how long a player who has
+	// left a table stays reportable by those they sat with.
+	Reports ReportConfig
 
 	// TableConfigSource is TABLE_CONFIG_SOURCE resolved (tables.go): "db" —
 	// the four configuration tables in PostgreSQL (the engines, the
@@ -259,6 +264,77 @@ type StatsConfig struct {
 	// PostgreSQL transaction — holds. A pass takes batch after batch until no
 	// player is left waiting. At least 1.
 	FlushBatch int
+}
+
+// ReportConfig ← Report Player (owner, 27 Sep 2026: "Make the limits
+// configurable"; "a player may submit at most 2 reports in any 24 hours").
+// Go-only keys. Every limit is enforced by the server — the per-reporter and
+// per-pair ones in PostgreSQL, inside the transaction that files the report,
+// counted from the reports themselves, so no restart, reconnect or second
+// server resets them.
+type ReportConfig struct {
+	// MaxPerReporter is REPORT_MAX_PER_REPORTER (2): the most reports one
+	// player may file within Window, a rolling window. 0 = no such limit.
+	MaxPerReporter int
+	// Window is REPORT_WINDOW_MS (86400000 = 24 h), MaxPerReporter's window.
+	Window time.Duration
+	// PairWindow is REPORT_PAIR_WINDOW_MS (86400000 = 24 h): one report by a
+	// player about the same other player within it. 0 = no pair window; one
+	// report per player per hand holds whatever it is.
+	PairWindow time.Duration
+	// DescriptionMax is REPORT_DESCRIPTION_MAX (500): the longest description a
+	// report accepts, in characters (Unicode code points), 1 to 2000.
+	DescriptionMax int
+	// Recent is REPORT_RECENT_MS (600000 = 10 min): how long two players who
+	// shared a table stay reportable by each other once one has left it —
+	// remembered in the server's memory, so a restart forgets it. 0 = only a
+	// player seated at the reporter's table right now can be reported.
+	Recent time.Duration
+	// AttemptLimit / AttemptWindow are REPORT_ATTEMPT_LIMIT (10) and
+	// REPORT_ATTEMPT_WINDOW_MS (60000): the most report REQUESTS — refused or
+	// not — one account may make per window, before any is looked at (429
+	// rate_limited). Against rapid or malformed repeats; a filed report is
+	// limited by MaxPerReporter. 0 = off.
+	AttemptLimit  int
+	AttemptWindow time.Duration
+}
+
+// ReportDescriptionCeiling is the most REPORT_DESCRIPTION_MAX may be.
+const ReportDescriptionCeiling = 2000
+
+// readReportConfig overlays the REPORT_* keys on rc and refuses a figure the
+// server could not enforce: a negative count or window, a zero window under
+// a live limit, a description limit outside 1..ReportDescriptionCeiling.
+func readReportConfig(r *reader, rc *ReportConfig) {
+	ms := func(d time.Duration) string { return strconv.FormatInt(d.Milliseconds(), 10) }
+	rc.MaxPerReporter = r.integer("REPORT_MAX_PER_REPORTER", rc.MaxPerReporter)
+	rc.Window = r.millis("REPORT_WINDOW_MS", rc.Window)
+	rc.PairWindow = r.millis("REPORT_PAIR_WINDOW_MS", rc.PairWindow)
+	rc.DescriptionMax = r.integer("REPORT_DESCRIPTION_MAX", rc.DescriptionMax)
+	rc.Recent = r.millis("REPORT_RECENT_MS", rc.Recent)
+	rc.AttemptLimit = r.integer("REPORT_ATTEMPT_LIMIT", rc.AttemptLimit)
+	rc.AttemptWindow = r.millis("REPORT_ATTEMPT_WINDOW_MS", rc.AttemptWindow)
+	if rc.MaxPerReporter < 0 {
+		r.fail("REPORT_MAX_PER_REPORTER", strconv.Itoa(rc.MaxPerReporter), "must be 0 (no limit) or more")
+	}
+	if rc.Window < 0 || (rc.Window == 0 && rc.MaxPerReporter > 0) {
+		r.fail("REPORT_WINDOW_MS", ms(rc.Window), "must be above 0 while REPORT_MAX_PER_REPORTER is on")
+	}
+	if rc.PairWindow < 0 {
+		r.fail("REPORT_PAIR_WINDOW_MS", ms(rc.PairWindow), "must be 0 (off) or more")
+	}
+	if rc.DescriptionMax < 1 || rc.DescriptionMax > ReportDescriptionCeiling {
+		r.fail("REPORT_DESCRIPTION_MAX", strconv.Itoa(rc.DescriptionMax), "must be 1 to "+strconv.Itoa(ReportDescriptionCeiling))
+	}
+	if rc.Recent < 0 {
+		r.fail("REPORT_RECENT_MS", ms(rc.Recent), "must be 0 (off) or more")
+	}
+	if rc.AttemptLimit < 0 {
+		r.fail("REPORT_ATTEMPT_LIMIT", strconv.Itoa(rc.AttemptLimit), "must be 0 (off) or more")
+	}
+	if rc.AttemptWindow < 0 || (rc.AttemptWindow == 0 && rc.AttemptLimit > 0) {
+		r.fail("REPORT_ATTEMPT_WINDOW_MS", ms(rc.AttemptWindow), "must be above 0 while REPORT_ATTEMPT_LIMIT is on")
+	}
 }
 
 // LobbyTable is one "category:boot" entry of LOBBY_TABLES, in menu order.
@@ -671,6 +747,15 @@ func Defaults() *Config {
 		LiveInstanceID: "",
 		LiveReconcile:  30 * time.Second,
 		Stats:          StatsConfig{FlushInterval: 10 * time.Second, FlushBatch: 500},
+		Reports: ReportConfig{
+			MaxPerReporter: 2,
+			Window:         24 * time.Hour,
+			PairWindow:     24 * time.Hour,
+			DescriptionMax: 500,
+			Recent:         10 * time.Minute,
+			AttemptLimit:   10,
+			AttemptWindow:  time.Minute,
+		},
 		// No table env key set → the database (tables.go).
 		TableConfigSource: TableConfigSourceDB,
 	}
@@ -918,6 +1003,7 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	if c.Stats.FlushBatch < 1 {
 		r.fail("STATS_FLUSH_BATCH", strconv.Itoa(c.Stats.FlushBatch), "must be 1 or more")
 	}
+	readReportConfig(r, &c.Reports)
 
 	source, keysSet, err := resolveTableConfigSource(lookup)
 	if err != nil && r.err == nil {

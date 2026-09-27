@@ -72,6 +72,10 @@ type Table struct {
 	chat     *game.RoomChat
 	// lastResult is the previous hand's outcome, shown until the next deal.
 	lastResult *ResultView
+	// lastHand is the hand this room last finished — its id and its players —
+	// kept until the next one finishes, for a player report filed in the pause
+	// between hands (table_report.go). Memory only: not in the snapshot.
+	lastHand *game.RecentHand
 
 	turnTimer        game.Timer
 	startTimer       game.Timer
@@ -603,6 +607,9 @@ func (t *Table) emitState() {
 func (t *Table) setState(s game.TableState) { t.state.Store(s) }
 
 func (t *Table) setHand(h *hand) {
+	if h == nil && t.hand != nil {
+		t.lastHand = t.hand.recent(t.cfg.Category)
+	}
 	t.hand = h
 	t.hasHand.Store(h != nil)
 }

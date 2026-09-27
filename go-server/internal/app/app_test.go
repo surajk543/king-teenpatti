@@ -465,7 +465,7 @@ func TestRoomsEndpoint(t *testing.T) {
 	if err := json.Unmarshal(body, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(body), `{"tables":[],"options":{`) {
+	if !strings.HasPrefix(string(body), `{"tables":[],"total":0,"nextCursor":null,"options":{`) {
 		t.Errorf("tables must be [] never null: %s", body)
 	}
 	for _, key := range []string{"categories", "stakes", "tables", "entryCapBoot", "entryCapCategory", "entryCapMaxChips", "privateBoot", "privateMaxPot"} {

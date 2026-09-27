@@ -354,6 +354,10 @@ func New(opts Options) (*App, error) {
 		// under a seated player — and with no expiry at all when the
 		// reconciler is off (LIVE_RECONCILE_MS=0), cleared with the seat.
 		PlayingTTL: game.PlayingTTLFor(cfg.LiveReconcile),
+		// Report Player (owner, 27 Sep 2026): how long a player who has left a
+		// room stays reportable by the players they sat with there — kept in
+		// the manager's memory (REPORT_RECENT_MS).
+		ReportRecent: cfg.Reports.Recent,
 		Metrics: game.MetricsHooks{
 			ObserveCreation: func(d time.Duration) { metrics.Observe(a.metrics.CreationDuration, d) },
 			// game_hand_start_duration_seconds used to be timed around the
@@ -523,6 +527,13 @@ func New(opts Options) (*App, error) {
 		// lobby or table, once committed (friend:request, friend:accepted).
 		FriendRequestSent:     a.sockets.NotifyFriendRequest,
 		FriendRequestAccepted: a.sockets.NotifyFriendAccepted,
+		// Report Player (owner, 27 Sep 2026): a report is filed in PostgreSQL
+		// (player_reports), about a player the reporter shares a room with, or
+		// shared one with lately — which the RoomManager answers, reading the
+		// room (never changing it), with the room, game, category, variant and
+		// hand the report is about.
+		Reports:       db.NewReports(opts.DB, clock.Now),
+		ReportContext: a.rooms.ReportContext,
 	})
 	mux := http.NewServeMux()
 	if cfg.Metrics.Enabled {
@@ -1036,10 +1047,14 @@ func (a *App) Health(w http.ResponseWriter, r *http.Request) {
 	auth.WriteJSON(w, http.StatusOK, res)
 }
 
-// RoomsResponse is GET /api/rooms's body.
+// RoomsResponse is GET /api/rooms's body: one page of the live tables
+// (auth.ReadPage — 20 by default), how many there are in all, the next page's
+// cursor (null on the last), and the lobby's options.
 type RoomsResponse struct {
-	Tables  []RoomListing     `json:"tables"`
-	Options game.LobbyOptions `json:"options"`
+	Tables     []RoomListing     `json:"tables"`
+	Total      int               `json:"total"`
+	NextCursor *string           `json:"nextCursor"`
+	Options    game.LobbyOptions `json:"options"`
 }
 
 // RoomListing is one public table on GET /api/rooms: game.TableSummary less
@@ -1064,6 +1079,12 @@ type RoomListing struct {
 // leaving "variation" out of the switch would have answered a question about
 // variation tables with every table in the building.
 func (a *App) roomsHandler(w http.ResponseWriter, r *http.Request) {
+	page, ok := auth.ReadPage(r)
+	offset, okCursor := auth.ReadOffsetCursor(page.Cursor)
+	if !ok || !okCursor {
+		auth.RefusePage(w)
+		return
+	}
 	var category game.Category
 	if values := r.URL.Query()["category"]; len(values) == 1 {
 		// Exact spellings only — the seven the server knows (the four poker
@@ -1080,5 +1101,8 @@ func (a *App) roomsHandler(w http.ResponseWriter, r *http.Request) {
 			Players: t.Players, MaxPlayers: t.MaxPlayers, BootAmount: t.BootAmount,
 		})
 	}
-	auth.WriteJSON(w, http.StatusOK, RoomsResponse{Tables: tables, Options: a.rooms.LobbyOptions()})
+	start, end, next := auth.PageBounds(offset, page.Limit, len(tables))
+	auth.WriteJSON(w, http.StatusOK, RoomsResponse{
+		Tables: tables[start:end], Total: len(tables), NextCursor: next, Options: a.rooms.LobbyOptions(),
+	})
 }

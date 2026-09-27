@@ -24,6 +24,7 @@ import 'consent.dart';
 import 'friends_state.dart';
 import 'hammer_strike.dart';
 import 'missile_strike.dart';
+import 'player_reports.dart';
 import 'quick_message_order.dart';
 import 'table_config_cache.dart';
 import 'theme_preference.dart';
@@ -180,6 +181,15 @@ class GameState extends ChangeNotifier {
     token: () => _token,
     strings: () => t,
     say: say,
+  );
+
+  /// Report Player (owner, 27 Sep 2026): the report being written in the
+  /// table's player drawer and the players reported this session. A notifier
+  /// of its own, like [friends], so the drawer never rebuilds for this one's
+  /// tick; it signs out with this session.
+  late final PlayerReports reports = PlayerReports(
+    api: _api,
+    token: () => _token,
   );
 
   /// The daily XP missions just completed (owner, 27 Sep 2026: "whenever xp
@@ -2527,6 +2537,7 @@ class GameState extends ChangeNotifier {
     consentPending = false;
     // The next player on this phone never sees this one's friends.
     friends.reset();
+    reports.reset();
     xpMissions.clear();
     _awardsAwaitingLadder.clear();
     _xpSeen = null;
@@ -2985,6 +2996,7 @@ class GameState extends ChangeNotifier {
     luckyDraw = null;
     luckyDrawFailed = false;
     friends.reset();
+    reports.reset();
     xpMissions.clear();
     _awardsAwaitingLadder.clear();
     _xpSeen = null;
@@ -4629,6 +4641,7 @@ class GameState extends ChangeNotifier {
     _disposed = true;
     unawaited(purchases.dispose());
     friends.dispose();
+    reports.dispose();
     xpMissions.dispose();
     _rentalWatch?.cancel();
     _statsCatchUp?.cancel();

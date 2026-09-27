@@ -11,7 +11,7 @@ import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
 import 'avatar.dart';
 import 'glass_components.dart';
-import 'player_profile.dart' show EvenGrid, countText;
+import 'player_profile.dart' show EvenGrid, HandIcon, countText;
 import 'premium_surface.dart';
 import 'table_tax.dart' show badgeTitleOf, levelLineOf, levelStrut, xpTodayOf;
 
@@ -1016,8 +1016,8 @@ class _EmptyLine extends StatelessWidget {
 /// HAND RESULTS: how often the player finished with each Teen Patti hand,
 /// Trail down to High Card — named as the table names them, in the server's
 /// English (CLAUDE.md §6.3) — two to a row, each a compact cell with its
-/// name at the start and its count at the end, so the counts stand in two
-/// clean columns down the grid.
+/// icon and name at the start ([HandIcon]; owner, 27 Sep 2026) and its count
+/// at the end, so the counts stand in two clean columns down the grid.
 ///
 /// The name comes first. Two to a row, a cell of a 300dp drawer at text
 /// x1.25 is some 110dp inside, and "Sequence" beside "2,033" — or "Pure
@@ -1036,6 +1036,13 @@ class HandResultGrid extends StatelessWidget {
 
   /// Between a hand's name and its count.
   static const double _between = Space.sm;
+
+  /// A hand's icon, before the text scale: a step over the name's size, so
+  /// it reads as the hand's mark rather than a letter of its name.
+  static const double _iconSize = 14;
+
+  /// Between a hand's icon and its name.
+  static const double _iconGap = Space.xs;
 
   @override
   Widget build(BuildContext context) {
@@ -1067,8 +1074,16 @@ class HandResultGrid extends StatelessWidget {
       return width;
     }
 
-    // The widest any cell needs: a hand's longest word — the name may take
-    // two lines, a word to a line, never a word broken — then its count.
+    // The widest any cell needs: a hand's icon, its longest word — the name
+    // may take two lines, a word to a line, never a word broken — then its
+    // count. The icons are measured as one column, the widest of them, so
+    // every name starts at the same edge.
+    final lead =
+        HandTally.icons
+            .map((icon) => widthOf(icon, HandIcon.styleFor(_iconSize)))
+            .reduce(math.max)
+            .ceilToDouble() +
+        _iconGap;
     final longestWord = [
       for (final hand in HandTally.names)
         hand.split(' ').map((word) => widthOf(word, name)).reduce(math.max),
@@ -1077,7 +1092,7 @@ class HandResultGrid extends StatelessWidget {
     for (final (i, word) in longestWord.indexed) {
       needs = math.max(
         needs,
-        word + _between + widthOf(countText(counts[i]), figure),
+        lead + word + _between + widthOf(countText(counts[i]), figure),
       );
     }
 
@@ -1115,6 +1130,11 @@ class HandResultGrid extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
+                    SizedBox(
+                      width: lead - _iconGap,
+                      child: HandIcon(index: i, size: _iconSize),
+                    ),
+                    const SizedBox(width: _iconGap),
                     Expanded(
                       child: Text(
                         hand,
@@ -1129,7 +1149,10 @@ class HandResultGrid extends StatelessWidget {
                     ConstrainedBox(
                       constraints: BoxConstraints(
                         maxWidth: math.max(
-                          inner - _between - longestWord[i].ceilToDouble(),
+                          inner -
+                              lead -
+                              _between -
+                              longestWord[i].ceilToDouble(),
                           0,
                         ),
                       ),

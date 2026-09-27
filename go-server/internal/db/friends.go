@@ -287,6 +287,69 @@ func (f *Friends) Requests(ctx context.Context, userID string) (incoming, outgoi
 	return incoming, outgoing, nil
 }
 
+// RequestPage is one page of a player's pending requests, newest first: the
+// requests, how many there are in all, and where the next page starts (nil
+// on the last page).
+type RequestPage struct {
+	Requests []FriendRequest
+	Total    int
+	Next     *Keyset
+}
+
+// PendingPage is one page of userID's PENDING requests — the ones addressed
+// to them (incoming) or the ones they sent — newest first, at most limit of
+// them, after [after] (nil: from the newest), each naming the other player;
+// a request whose other player is deleted or disabled is left out, and not
+// counted. Requests is never nil.
+func (f *Friends) PendingPage(ctx context.Context, userID string, incoming bool, limit int, after *Keyset) (RequestPage, error) {
+	own, other := "r.recipient_id", "r.requester_id"
+	if !incoming {
+		own, other = "r.requester_id", "r.recipient_id"
+	}
+	var total int
+	if err := f.db.Pool.QueryRow(ctx,
+		`SELECT count(*)
+		   FROM friend_requests r
+		   JOIN users u ON u.id = `+other+`
+		  WHERE `+own+` = $1 AND r.status = 'PENDING' AND `+visibleAccount,
+		userID).Scan(&total); err != nil {
+		return RequestPage{}, err
+	}
+	at, id := int64(1<<62), int64(1<<62)
+	if after != nil {
+		at, id = after.At, after.ID
+	}
+	rows, err := f.db.Pool.Query(ctx,
+		`SELECT `+friendPlayerColumns+`, r.id, r.created_at
+		   FROM friend_requests r
+		   JOIN users u ON u.id = `+other+friendPictureJoin+`
+		  WHERE `+own+` = $1 AND r.status = 'PENDING' AND `+visibleAccount+`
+		    AND (r.created_at, r.id) < ($2, $3)
+		  ORDER BY r.created_at DESC, r.id DESC
+		  LIMIT $4`, userID, at, id, pageEnd(limit))
+	if err != nil {
+		return RequestPage{}, err
+	}
+	defer rows.Close()
+	page := RequestPage{Requests: []FriendRequest{}, Total: total}
+	for rows.Next() {
+		var r FriendRequest
+		if r.Player, err = scanFriendPlayer(rows, &r.ID, &r.CreatedAt); err != nil {
+			return RequestPage{}, err
+		}
+		page.Requests = append(page.Requests, r)
+	}
+	if err := rows.Err(); err != nil {
+		return RequestPage{}, err
+	}
+	if len(page.Requests) > limit {
+		page.Requests = page.Requests[:limit]
+		last := page.Requests[limit-1]
+		page.Next = &Keyset{At: last.CreatedAt, ID: last.ID}
+	}
+	return page, nil
+}
+
 // pendingRequests lists the pending requests whose own column (a constant of
 // this file, never input) is userID, naming the player in the other.
 func (f *Friends) pendingRequests(ctx context.Context, userID, own, other string) ([]FriendRequest, error) {

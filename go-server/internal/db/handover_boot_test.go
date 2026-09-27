@@ -200,10 +200,12 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	// user_emojis (26 Sep 2026), who has bought which emoji, the one after —
 	// then Friends V1's three the same day: player_stats (reshaped by Player
 	// stats v2, 27 Sep 2026: a row per bucket), friend_requests and
-	// friendships, which reference users twice each.
+	// friendships, which reference users twice each — and Report Player's
+	// player_reports (27 Sep 2026), twice as well: the reporter and the
+	// reported player.
 	referencing := []string{"diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends",
 		"user_table_pictures", "user_table_choice", "user_lucky_draws", "user_emojis",
-		"player_stats", "friend_requests", "friendships"}
+		"player_stats", "friend_requests", "friendships", "player_reports"}
 	for _, table := range referencing {
 		if _, err := admin.Exec(ctx, `DROP TABLE `+qualified(table)); err != nil {
 			t.Fatal(err)
@@ -221,7 +223,7 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 			t.Fatal(err)
 		}
 		want := int64(1)
-		if table == "friend_requests" || table == "friendships" {
+		if table == "friend_requests" || table == "friendships" || table == "player_reports" {
 			want = 2 // both players of the pair
 		}
 		if foreignKeys != want {

@@ -38,8 +38,11 @@ func (f *fakeFriendStore) List(context.Context, string) ([]db.Friend, error) {
 	return []db.Friend{}, nil
 }
 
-func (f *fakeFriendStore) Requests(context.Context, string) ([]db.FriendRequest, []db.FriendRequest, error) {
-	return f.incoming, []db.FriendRequest{}, nil
+func (f *fakeFriendStore) PendingPage(_ context.Context, _ string, incoming bool, _ int, _ *db.Keyset) (db.RequestPage, error) {
+	if !incoming {
+		return db.RequestPage{Requests: []db.FriendRequest{}}, nil
+	}
+	return db.RequestPage{Requests: f.incoming, Total: len(f.incoming)}, nil
 }
 
 func (f *fakeFriendStore) Send(context.Context, string, string) (*db.FriendRequest, error) {
