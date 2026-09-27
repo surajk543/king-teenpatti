@@ -379,7 +379,9 @@ groups:
 
       - alert: RedisMemoryNearCap
         # noeviction: at the cap, writes fail rather than data being dropped.
-        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+        # A Redis with no cap (maxmemory 0) is left out: used / 0 is +Inf, which
+        # read as "over 80%" on production's first scrape (27 Sep 2026).
+        expr: redis_memory_used_bytes / (redis_memory_max_bytes > 0) > 0.8
         for: 10m
         labels:
           severity: warning
