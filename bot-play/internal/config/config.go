@@ -73,6 +73,14 @@ type Config struct {
 		SearchDelay     [2]time.Duration   // idle before looking for a table, default 2.5–8 s
 		MaxBotsPerTable int                // default 0 (no limit)
 		NoHumanPatience time.Duration      // default 0 (bots may play among themselves)
+		// LobbyTables are the lobby tables the fleet plays, by key
+		// ("seen:200", "blind:50000"); empty = every table of Categories.
+		LobbyTables []string
+		// FleetPerTable is how many of the fleet's bots each lobby table (a
+		// category and a boot, however many rooms it runs) should hold:
+		// [floor, ceiling]. Tables under their floor are filled first; one at
+		// its ceiling takes no more. 0 = none for either.
+		FleetPerTable [2]int
 	}
 	Timing struct {
 		MinReaction  time.Duration     // default 700 ms
@@ -144,6 +152,8 @@ func Default() Config {
 	c.Table.SearchDelay = [2]time.Duration{2500 * time.Millisecond, 8 * time.Second}
 	c.Table.MaxBotsPerTable = 0
 	c.Table.NoHumanPatience = 0
+	c.Table.LobbyTables = []string{}
+	c.Table.FleetPerTable = [2]int{0, 0}
 
 	c.Timing.MinReaction = 700 * time.Millisecond
 	c.Timing.MaxReaction = 5 * time.Second
@@ -220,6 +230,9 @@ func (c *Config) finish() {
 	c.ServerURL = trimTrailingSlash(c.ServerURL)
 	for i, cat := range c.Table.Categories {
 		c.Table.Categories[i] = lowerTrim(cat)
+	}
+	for i, key := range c.Table.LobbyTables {
+		c.Table.LobbyTables[i] = lowerTrim(key)
 	}
 	c.Interaction.Language = lowerTrim(c.Interaction.Language)
 	c.Log.Level = lowerTrim(c.Log.Level)

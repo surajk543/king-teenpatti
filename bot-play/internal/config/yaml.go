@@ -138,6 +138,8 @@ func (d *decoder) schema() section {
 		"category_weights":   leaf(weights(&c.Table.CategoryWeights, strings.ToLower)),
 		"boots_to_sit":       leaf(number(&c.Table.BootsToSit)),
 		"max_bots_per_table": leaf(whole(&c.Table.MaxBotsPerTable)),
+		"lobby_tables":       leaf(textList(&c.Table.LobbyTables)),
+		"fleet_per_table":    leaf(wholePair(&c.Table.FleetPerTable)),
 	}
 	d.either(table, "table",
 		"search_delay", durationPair(&c.Table.SearchDelay),
@@ -477,6 +479,24 @@ func pairOf(n *yaml.Node, path string) ([]*yaml.Node, error) {
 		return nil, errAt(path, n, "must be a list of two values [low, high], not %s", describe(n))
 	}
 	return n.Content, nil
+}
+
+// wholePair reads a list of two whole numbers, [low, high].
+func wholePair(dst *[2]int) handler {
+	return func(n *yaml.Node, path string) error {
+		items, err := pairOf(n, path)
+		if err != nil {
+			return err
+		}
+		var v [2]int
+		for i, item := range items {
+			if v[i], err = wholeValue(item, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+				return err
+			}
+		}
+		*dst = v
+		return nil
+	}
 }
 
 // textList reads a list of words. An empty value is an empty list.

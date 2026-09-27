@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -975,8 +976,20 @@ func (b *Bot) joinSomewhere(attempt int) {
 		Recent:          b.recent,
 		Exclude:         b.exclude,
 		Occupancy:       b.d.Fleet.Occupancy(),
+		Only:            b.d.Config.Table.LobbyTables,
+		Held:            b.d.Fleet.Held(b.now()),
+		Floor:           b.d.Config.Table.FleetPerTable[0],
+		Ceiling:         b.d.Config.Table.FleetPerTable[1],
 	}
 	choice, ok := table.Select(menu, in, b.rand)
+	if !ok && table.FullOfFleet(menu, in) {
+		// Every table this stack could sit at already holds its share of the
+		// fleet (config table.fleet_per_table): nothing is wrong, the fleet is
+		// big enough there. Rest, and look again next session.
+		b.log.Info("every table holds its share of the fleet; resting", "chips", b.chips)
+		b.outcome = outEnded
+		return
+	}
 	if !ok {
 		// Nothing this stack may sit at: the lobby's bonus, as any player
 		// would, then rest and try again later (brief §20).
@@ -996,16 +1009,28 @@ func (b *Bot) joinSomewhere(attempt int) {
 			return
 		}
 	}
+	// Take the place before asking for it: bots choosing at the same moment
+	// must not all fill a table's last places (config table.fleet_per_table).
+	if !b.d.Fleet.ClaimTable(b.userID, choice.Key, b.d.Config.Table.FleetPerTable[1], b.now()) {
+		if attempt >= 8 {
+			b.outcome = outEnded
+			return
+		}
+		b.sched.after(time.Duration(b.rand.Between(0.5, 1.5)*float64(time.Second)), "search", func() { b.joinSomewhere(attempt + 1) })
+		return
+	}
 	b.table = choice
 	b.machine.To(state.JoiningTable, "table", choice.Key)
 	var ack protocol.RoomAck
 	if err := b.request(protocol.EvRoomQuickJoin, map[string]any{"bootAmount": choice.Boot, "category": choice.Category}, &ack); err != nil {
+		b.d.Fleet.ReleaseClaim(b.userID)
 		return
 	}
 	b.exclude = b.exclude[:0]
 	if ack.OK {
-		return // room:joined carries the table
+		return // room:joined carries the table, and Fleet.Seat settles the claim
 	}
+	b.d.Fleet.ReleaseClaim(b.userID)
 	b.d.Metrics.Refused(ack.Code)
 	retry := func(d time.Duration) {
 		if attempt >= 8 {
@@ -1054,19 +1079,33 @@ func (b *Bot) joinSame() {
 		return
 	}
 	c, ok := b.d.Finder.Menu().Lookup(b.table.Key)
-	if !ok || !b.d.Finder.Menu().Admits(c, b.chips) {
+	if !ok || !b.d.Finder.Menu().Admits(c, b.chips) || !b.playsTable(c.Key) {
+		b.joinSomewhere(0)
+		return
+	}
+	// The same kind again only while it has room for the fleet.
+	if !b.d.Fleet.ClaimTable(b.userID, c.Key, b.d.Config.Table.FleetPerTable[1], b.now()) {
 		b.joinSomewhere(0)
 		return
 	}
 	b.machine.To(state.JoiningTable, "table", c.Key)
 	var ack protocol.RoomAck
 	if err := b.request(protocol.EvRoomQuickJoin, map[string]any{"bootAmount": c.Boot, "category": c.Category}, &ack); err != nil {
+		b.d.Fleet.ReleaseClaim(b.userID)
 		return
 	}
 	if !ack.OK {
+		b.d.Fleet.ReleaseClaim(b.userID)
 		b.d.Metrics.Refused(ack.Code)
 		b.joinSomewhere(0)
 	}
+}
+
+// playsTable reports whether the fleet plays lobby table key (config
+// table.lobby_tables; an empty list plays every table).
+func (b *Bot) playsTable(key string) bool {
+	only := b.d.Config.Table.LobbyTables
+	return len(only) == 0 || slices.Contains(only, key)
 }
 
 // switchTable moves to another table of the same category and boot

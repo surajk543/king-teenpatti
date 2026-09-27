@@ -641,3 +641,60 @@ timing:
 		t.Errorf("ranges = %v", c.Timing.Ranges)
 	}
 }
+
+// The fleet's table layout (owner, 27 Sep 2026: "seen table 200, 50000,
+// blind 200, blind 50000, variation 50000 — each of these tables should have
+// 30-50 bots playing"): the file sets it, the environment overrides it.
+func TestTheFleetsTableLayoutReadsFromTheFileAndTheEnvironment(t *testing.T) {
+	c := load(t, `
+table:
+  lobby_tables: [Seen:200, blind:50000]
+  fleet_per_table: [30, 50]
+`, nil)
+	if !slices.Equal(c.Table.LobbyTables, []string{"seen:200", "blind:50000"}) {
+		t.Errorf("lobby_tables = %v", c.Table.LobbyTables)
+	}
+	if c.Table.FleetPerTable != [2]int{30, 50} {
+		t.Errorf("fleet_per_table = %v", c.Table.FleetPerTable)
+	}
+
+	c = load(t, "", map[string]string{
+		"BOT_LOBBY_TABLES":    "seen:200, seen:50000,blind:200 ,blind:50000,variation:50000",
+		"BOT_FLEET_PER_TABLE": " 30 , 50 ",
+		"BOT_BOOTS_TO_SIT":    "20",
+	})
+	want := []string{"seen:200", "seen:50000", "blind:200", "blind:50000", "variation:50000"}
+	if !slices.Equal(c.Table.LobbyTables, want) {
+		t.Errorf("BOT_LOBBY_TABLES read %v, want %v", c.Table.LobbyTables, want)
+	}
+	if c.Table.FleetPerTable != [2]int{30, 50} || c.Table.BootsToSit != 20 {
+		t.Errorf("fleet_per_table %v, boots_to_sit %v", c.Table.FleetPerTable, c.Table.BootsToSit)
+	}
+
+	// The defaults change nothing: every table, no band.
+	c = load(t, "", nil)
+	if len(c.Table.LobbyTables) != 0 || c.Table.FleetPerTable != [2]int{0, 0} {
+		t.Errorf("defaults: %v %v", c.Table.LobbyTables, c.Table.FleetPerTable)
+	}
+}
+
+func TestTheFleetsTableLayoutIsValidated(t *testing.T) {
+	loadErr(t, "table:\n  lobby_tables: [seen]\n", nil, "table.lobby_tables", `"seen"`, "category:boot")
+	loadErr(t, "table:\n  lobby_tables: [seen:abc]\n", nil, "category:boot")
+	loadErr(t, "table:\n  lobby_tables: [seen:0]\n", nil, "category:boot")
+	loadErr(t, "table:\n  lobby_tables: [poker:200]\n", nil, "not one table.categories plays")
+	loadErr(t, "table:\n  categories: [blind]\n  lobby_tables: [seen:200]\n", nil, "not one table.categories plays")
+	loadErr(t, "table:\n  lobby_tables: [seen:200, SEEN:200]\n", nil, "twice")
+	loadErr(t, "table:\n  fleet_per_table: [50, 30]\n", nil, "table.fleet_per_table", "[50, 30]")
+	loadErr(t, "table:\n  fleet_per_table: [-1, 30]\n", nil, "table.fleet_per_table")
+	loadErr(t, "table:\n  fleet_per_table: [30]\n", nil, "fleet_per_table")
+	loadErr(t, "", map[string]string{"BOT_FLEET_PER_TABLE": "30"}, "BOT_FLEET_PER_TABLE", "two whole numbers")
+	loadErr(t, "", map[string]string{"BOT_FLEET_PER_TABLE": "30,fifty"}, "BOT_FLEET_PER_TABLE")
+	loadErr(t, "", map[string]string{"BOT_BOOTS_TO_SIT": "lots"}, "BOT_BOOTS_TO_SIT")
+	loadErr(t, "", map[string]string{"BOT_BOOTS_TO_SIT": "0"}, "boots_to_sit")
+	// A floor with no ceiling is allowed: fill to 30, no cap.
+	c := load(t, "table:\n  fleet_per_table: [30, 0]\n", nil)
+	if c.Table.FleetPerTable != [2]int{30, 0} {
+		t.Errorf("fleet_per_table = %v", c.Table.FleetPerTable)
+	}
+}

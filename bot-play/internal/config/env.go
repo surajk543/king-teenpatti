@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +31,9 @@ var EnvKeys = []string{
 	"LOG_FORMAT",                      // log.format
 	"BOT_RECONNECT_MAX_DELAY_SECONDS", // reconnect.max_delay, whole seconds
 	"BOT_DEV_REPLENISH",               // bankroll.dev_replenish
+	"BOT_BOOTS_TO_SIT",                // table.boots_to_sit
+	"BOT_LOBBY_TABLES",                // table.lobby_tables, comma-separated keys (seen:200,blind:50000)
+	"BOT_FLEET_PER_TABLE",             // table.fleet_per_table, "floor,ceiling" (30,50)
 }
 
 // envReader reads the overrides through getenv, strictly, and keeps the
@@ -85,6 +89,43 @@ func (r *envReader) unsigned(key string, dst *uint64) {
 		return
 	}
 	*dst = n
+}
+
+// number sets *dst to a finite decimal number.
+func (r *envReader) number(key string, dst *float64) {
+	v, ok := r.raw(key)
+	if !ok {
+		return
+	}
+	n, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
+		r.fail(key, v, "expected a number")
+		return
+	}
+	*dst = n
+}
+
+// wholePair sets *dst to two comma-separated whole numbers, "low,high".
+func (r *envReader) wholePair(key string, dst *[2]int) {
+	v, ok := r.raw(key)
+	if !ok {
+		return
+	}
+	parts := strings.Split(v, ",")
+	if len(parts) != 2 {
+		r.fail(key, v, "expected two whole numbers, low,high")
+		return
+	}
+	var out [2]int
+	for i, part := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil {
+			r.fail(key, v, "expected two whole numbers, low,high")
+			return
+		}
+		out[i] = n
+	}
+	*dst = out
 }
 
 // count sets *dst to a whole number of unit, 0 or more.
@@ -157,5 +198,8 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	r.str("LOG_FORMAT", &c.Log.Format)
 	r.count("BOT_RECONNECT_MAX_DELAY_SECONDS", &c.Reconnect.MaxDelay, time.Second, "seconds")
 	r.flag("BOT_DEV_REPLENISH", &c.Bankroll.DevReplenish)
+	r.number("BOT_BOOTS_TO_SIT", &c.Table.BootsToSit)
+	r.list("BOT_LOBBY_TABLES", &c.Table.LobbyTables)
+	r.wholePair("BOT_FLEET_PER_TABLE", &c.Table.FleetPerTable)
 	return r.err
 }

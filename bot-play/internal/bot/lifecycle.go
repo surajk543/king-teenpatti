@@ -280,6 +280,7 @@ func (b *Bot) loop(ctx context.Context, sess protocol.Session) outcome {
 		if b.seated {
 			b.d.Fleet.Unseat(b.userID)
 		}
+		b.d.Fleet.ReleaseClaim(b.userID) // a join this connection never settled
 		b.seated = false
 		_ = sess.Close()
 		b.sess = nil
