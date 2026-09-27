@@ -1136,6 +1136,9 @@ class GameState extends ChangeNotifier {
         // session is a sign-in too — and a 304 makes that cheap.
         unawaited(_loadTableConfig());
         unawaited(loadLuckyDraw());
+        // The ladder says where the player's level starts, which the
+        // lobby's level bar measures from (owner, 27 Sep 2026).
+        if (levelLadder == null) unawaited(loadLevelLadder());
         // The lobby's Friends key counts the requests waiting, read at
         // every sign-in (owner, 26 Sep 2026).
         unawaited(friends.refreshBadge());
@@ -2243,6 +2246,9 @@ class GameState extends ChangeNotifier {
       unawaited(_loadPictures());
       unawaited(_loadTableConfig());
       unawaited(loadLuckyDraw());
+      // The ladder says where the player's level starts, which the
+      // lobby's level bar measures from (owner, 27 Sep 2026).
+      if (levelLadder == null) unawaited(loadLevelLadder());
       unawaited(friends.refreshBadge());
 
       final prefs = await SharedPreferences.getInstance();
@@ -2303,6 +2309,9 @@ class GameState extends ChangeNotifier {
       unawaited(_loadPictures());
       unawaited(_loadTableConfig());
       unawaited(loadLuckyDraw());
+      // The ladder says where the player's level starts, which the
+      // lobby's level bar measures from (owner, 27 Sep 2026).
+      if (levelLadder == null) unawaited(loadLevelLadder());
       unawaited(friends.refreshBadge());
 
       final prefs = await SharedPreferences.getInstance();

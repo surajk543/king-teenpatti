@@ -289,7 +289,9 @@ void main() {
       final state = await _open(tester, level: levelAt(50, xp: 2150000));
       final t = state.t;
       expect(find.byKey(const ValueKey('level-max')), findsOneWidget);
-      expect(find.text(t.levelMax), findsOneWidget);
+      // In the screen: the lobby's top bar behind it says MAX LEVEL too
+      // (lobby_level_bar_test).
+      expect(_inScreen(find.text(t.levelMax)), findsOneWidget);
       expect(find.byKey(const ValueKey('level-next')), findsNothing);
       expect(
         _text(tester, const ValueKey('level-xp-of')),

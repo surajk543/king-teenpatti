@@ -25,6 +25,7 @@ import '../widgets/edge_fade.dart';
 import '../widgets/fireworks.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
+import '../widgets/lobby_level_bar.dart';
 import '../widgets/own_record.dart';
 import '../widgets/picture_shelf.dart';
 import '../widgets/player_profile.dart';
@@ -1145,25 +1146,25 @@ class _TopBar extends StatelessWidget {
                               // on a Pixel while GUEST sat beside it at full width.
                               // Stacked, the name gets the room and the tag becomes
                               // the footnote it is.
+                              //
+                              // Under the name, the player's level and the XP
+                              // to the next one (owner, 27 Sep 2026: "In the
+                              // Lobby on Top show current level of player and
+                              // xp progress bar for next level"). A line under
+                              // the name rather than anything beside it or round
+                              // the picture: it takes no width from the name or
+                              // the wallets, the figure reads in words where a
+                              // ring could not carry it, and a tap anywhere on
+                              // the name block opens the level screen. The
+                              // provider tag keeps its line only where the three
+                              // lines fit the bar's height — the level is the
+                              // news, the tag a footnote the player knows.
                               Expanded(
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      user?.displayName ?? '',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      // A player's own name, in whatever script
-                                      // they wrote it.
-                                      style: AppTheme.label(text.titleMedium!),
-                                    ),
-                                    if (user != null && !tight)
-                                      _ProviderPill(
-                                        provider: user!.provider,
-                                        compact: true,
-                                      ),
-                                  ],
+                                child: _NameBlock(
+                                  user: user,
+                                  tight: tight,
+                                  maxHeight: room.maxHeight,
+                                  spill: pad,
                                 ),
                               ),
                               const SizedBox(width: Space.sm),
@@ -1317,6 +1318,116 @@ class _TopBar extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The top bar's name block: the player's name, their level and XP under it
+/// ([LobbyLevelBar]) and, where the bar is tall and wide enough for a third
+/// line, the provider tag. The name is laid out exactly as before — the same
+/// width, the same style — so the level costs it no letter. A tap on the
+/// block opens the level screen.
+class _NameBlock extends StatelessWidget {
+  const _NameBlock({
+    required this.user,
+    required this.tight,
+    required this.maxHeight,
+    required this.spill,
+  });
+
+  final User? user;
+
+  /// A tight bar has no provider tag, as before.
+  final bool tight;
+
+  /// The bar's content height, which the lines must fit.
+  final double maxHeight;
+
+  /// The bar's own vertical padding, which the block may reach into rather
+  /// than overflow where a tall script's name and the level line together
+  /// stand a hair taller than the content box.
+  final double spill;
+
+  /// The gap between the name and the level line.
+  static const double levelGap = 1;
+
+  static double _lineHeight(
+    BuildContext context,
+    String text,
+    TextStyle style,
+    TextScaler scaler,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text.isEmpty ? ' ' : text,
+        style: DefaultTextStyle.of(context).style.merge(style),
+      ),
+      textDirection: TextDirection.ltr,
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+    final h = painter.height;
+    painter.dispose();
+    return h;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = this.user;
+    final theme = Theme.of(context);
+    final nameStyle = AppTheme.label(theme.textTheme.titleMedium!);
+    final hasLevel = user?.playerLevel != null;
+    final name = Text(
+      user?.displayName ?? '',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      // A player's own name, in whatever script they wrote it.
+      style: nameStyle,
+    );
+
+    var showTag = user != null && !tight;
+    if (showTag && hasLevel) {
+      // Measured in the fonts the phone draws them in: a mixed-script line
+      // is taller than either font's own (§12.3).
+      final scaler = MediaQuery.textScalerOf(context);
+      final lang = context.select<GameState, AppLang>((s) => s.lang);
+      final english = lang == AppLang.english;
+      final tag = _ProviderPill.nameFor(lang, user.provider);
+      final lines =
+          _lineHeight(context, user.displayName, nameStyle, scaler) +
+          _lineHeight(
+            context,
+            english ? tag.toUpperCase() : tag,
+            _ProviderPill.styleFor(theme, english: english, compact: true),
+            scaler,
+          ) +
+          levelGap +
+          LobbyLevelBar.heightFor(scaler);
+      showTag = lines <= maxHeight;
+    }
+
+    final column = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        name,
+        if (showTag) _ProviderPill(provider: user!.provider, compact: true),
+        if (hasLevel) ...[
+          const SizedBox(height: levelGap),
+          const LobbyLevelBar(),
+        ],
+      ],
+    );
+    if (!hasLevel) return column;
+    return OverflowBox(
+      maxHeight: maxHeight + 2 * spill,
+      child: GestureDetector(
+        key: const ValueKey('lobby-name-block'),
+        behavior: HitTestBehavior.opaque,
+        excludeFromSemantics: true,
+        onTap: () => openLobbyLevel(context),
+        child: PressScale(child: column),
       ),
     );
   }
@@ -1483,6 +1594,25 @@ class _ProviderPill extends StatelessWidget {
   /// boxes; at this size the tracked capitals are label enough on their own.
   final bool compact;
 
+  /// The provider as the tag names it: a guest in the player's language, a
+  /// provider by its brand name.
+  static String nameFor(AppLang lang, String provider) => provider == 'guest'
+      ? Strings(lang).providerGuest
+      : provider.isEmpty
+      ? ''
+      : '${provider[0].toUpperCase()}${provider.substring(1)}';
+
+  /// The tag's type — which the top bar also measures ([_NameBlock]).
+  static TextStyle styleFor(
+    ThemeData theme, {
+    required bool english,
+    required bool compact,
+  }) => AppTheme.smallCaps(
+    theme.textTheme.labelSmall!,
+    tracking: english ? (compact ? 0.9 : 1.2) : 0,
+    colour: theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkLow),
+  ).copyWith(fontSize: compact ? 9 : null, height: compact ? 1.1 : null);
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1495,20 +1625,12 @@ class _ProviderPill extends StatelessWidget {
     // the vowel signs off their letters.
     final lang = context.select<GameState, AppLang>((s) => s.lang);
     final english = lang == AppLang.english;
-    final name = provider == 'guest'
-        ? Strings(lang).providerGuest
-        : provider.isEmpty
-        ? ''
-        : '${provider[0].toUpperCase()}${provider.substring(1)}';
+    final name = nameFor(lang, provider);
     final label = Text(
       english ? name.toUpperCase() : name,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: AppTheme.smallCaps(
-        theme.textTheme.labelSmall!,
-        tracking: english ? (compact ? 0.9 : 1.2) : 0,
-        colour: theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkLow),
-      ).copyWith(fontSize: compact ? 9 : null, height: compact ? 1.1 : null),
+      style: styleFor(theme, english: english, compact: compact),
     );
 
     if (compact) return label;
