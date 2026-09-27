@@ -17,7 +17,14 @@ ExecStart=/var/www/gameplay/king-teenpatti/bot-play/bin/bot-play -config configs
 # the game it plays. See README.
 Environment=BOT_MODE=server
 Environment=SERVER_URL=http://127.0.0.1:3000
-Environment=BOT_COUNT=60
+# 320 bots: online about 70% of the time and seated a little less, so about
+# 200 sit at once — 30 to 50 at each of the five lobby tables below (owner,
+# 27 Sep 2026); a table holding 50 of the fleet takes no more.
+Environment=BOT_COUNT=320
+Environment=BOT_LOBBY_TABLES=seen:200,seen:50000,blind:200,blind:50000,variation:50000
+Environment=BOT_FLEET_PER_TABLE=30,50
+# 20 boots, so a fresh 10 Lakh account can sit at the 50,000 tables.
+Environment=BOT_BOOTS_TO_SIT=20
 Environment=BOT_METRICS_ADDR=127.0.0.1:9101
 # The debug view lists every bot and its user id: loopback only (config
 # refuses anything else), and on a port of its own.

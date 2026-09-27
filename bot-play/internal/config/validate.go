@@ -176,6 +176,22 @@ func (c *Config) validateTable() error {
 	if t.NoHumanPatience < 0 {
 		return fmt.Errorf("table.no_human_patience is %s: want 0 (never) or more", t.NoHumanPatience)
 	}
+	for i, key := range t.LobbyTables {
+		cat, boot, ok := strings.Cut(key, ":")
+		n, err := strconv.ParseInt(boot, 10, 64)
+		if !ok || err != nil || n <= 0 {
+			return fmt.Errorf("table.lobby_tables (BOT_LOBBY_TABLES) names %q: want category:boot, such as seen:200", key)
+		}
+		if !slices.Contains(t.Categories, cat) {
+			return fmt.Errorf("table.lobby_tables (BOT_LOBBY_TABLES) names %q: its category is not one table.categories plays (%s)", key, strings.Join(t.Categories, ", "))
+		}
+		if slices.Contains(t.LobbyTables[:i], key) {
+			return fmt.Errorf("table.lobby_tables (BOT_LOBBY_TABLES) names %q twice", key)
+		}
+	}
+	if f := t.FleetPerTable; f[0] < 0 || f[1] < 0 || (f[1] > 0 && f[0] > f[1]) {
+		return fmt.Errorf("table.fleet_per_table (BOT_FLEET_PER_TABLE) is [%d, %d]: want [floor, ceiling], 0 or more, the floor no higher than the ceiling (a ceiling of 0 is none)", f[0], f[1])
+	}
 	return nil
 }
 

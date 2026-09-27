@@ -2,6 +2,7 @@ package table
 
 import (
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/surajk543/king-teenpatti/bot-play/internal/bot/strategy"
@@ -212,5 +213,100 @@ func TestSelectHonoursExcludeOccupancyAndCategoryWeights(t *testing.T) {
 	weighted.CategoryWeights = map[string]float64{"seen": 0, "blind": 0}
 	if s := share("seen:200", weighted, 2000, 8); s < 0.4 || s > 0.6 {
 		t.Fatalf("every category weighted 0 still picks, evenly: %.2f", s)
+	}
+}
+
+// fiveTables are the lobby tables the fleet plays in production (owner, 27
+// Sep 2026).
+var fiveTables = []string{"seen:200", "seen:50000", "blind:200", "blind:50000", "variation:50000"}
+
+func TestSelectPlaysOnlyTheNamedLobbyTables(t *testing.T) {
+	m := liveMenu()
+	r := rng.New(3)
+	kinds := []strategy.Kind{strategy.Cautious, strategy.Balanced, strategy.Aggressive, strategy.Loose, strategy.Random, strategy.Beginner}
+	picked := map[string]int{}
+	for i := range 3000 {
+		p := persona(kinds[i%len(kinds)], r.Float64(), r.Float64())
+		c, ok := Select(m, SelectInput{Chips: 1_000_000, Personality: p, BootsToSit: 20, Only: fiveTables}, r)
+		if !ok {
+			t.Fatal("a fresh 10 Lakh bot found nothing among the five")
+		}
+		if !slices.Contains(fiveTables, c.Key) {
+			t.Fatalf("picked %s, which is not one of %v", c.Key, fiveTables)
+		}
+		picked[c.Key]++
+	}
+	// With 20 boots to sit, a fresh 10 Lakh account reaches all five —
+	// the 50,000 tables included.
+	for _, k := range fiveTables {
+		if picked[k] == 0 {
+			t.Errorf("never picked %s: %v", k, picked)
+		}
+	}
+}
+
+func TestATableAtItsCeilingTakesNoMoreOfTheFleet(t *testing.T) {
+	m := liveMenu()
+	r := rng.New(5)
+	held := map[string]int{"seen:200": 50, "blind:200": 50, "seen:50000": 49, "blind:50000": 50, "variation:50000": 50}
+	for range 500 {
+		c, ok := Select(m, SelectInput{
+			Chips: 1_000_000, Personality: persona(strategy.Balanced, 0.2, 0.5), BootsToSit: 20,
+			Only: fiveTables, Held: held, Floor: 30, Ceiling: 50,
+		}, r)
+		if !ok || c.Key != "seen:50000" {
+			t.Fatalf("the one table under its ceiling is seen:50000, got %s %v", c.Key, ok)
+		}
+	}
+	held["seen:50000"] = 50
+	in := SelectInput{
+		Chips: 1_000_000, Personality: persona(strategy.Balanced, 0.2, 0.5), BootsToSit: 20,
+		Only: fiveTables, Held: held, Floor: 30, Ceiling: 50,
+	}
+	if _, ok := Select(m, in, r); ok {
+		t.Fatal("every table holds its ceiling: nothing to pick")
+	}
+	if !FullOfFleet(m, in) {
+		t.Fatal("FullOfFleet should say the fleet is simply big enough")
+	}
+	// A stack nothing admits is not "full of the fleet".
+	broke := in
+	broke.Chips = 100
+	if FullOfFleet(m, broke) {
+		t.Fatal("a broke bot is not refused for want of room")
+	}
+	// No ceiling: never full.
+	open := in
+	open.Ceiling = 0
+	if FullOfFleet(m, open) {
+		t.Fatal("without a ceiling nothing is full")
+	}
+}
+
+func TestATableUnderItsFloorIsChosenFirst(t *testing.T) {
+	m := liveMenu()
+	r := rng.New(11)
+	// A CAUTIOUS bot leans to low stakes; the floor still sends it to the
+	// one table the fleet is short at, a 50,000 one.
+	held := map[string]int{"seen:200": 40, "blind:200": 38, "seen:50000": 35, "blind:50000": 12, "variation:50000": 31}
+	for range 500 {
+		c, ok := Select(m, SelectInput{
+			Chips: 1_000_000, Personality: persona(strategy.Cautious, 0.1, 0.5), BootsToSit: 20,
+			Only: fiveTables, Held: held, Floor: 30, Ceiling: 50,
+		}, r)
+		if !ok || c.Key != "blind:50000" {
+			t.Fatalf("the table under its floor goes first, got %s %v", c.Key, ok)
+		}
+	}
+	// A bot that cannot afford the short table is not sent there: it
+	// chooses among those it can sit at.
+	for range 200 {
+		c, ok := Select(m, SelectInput{
+			Chips: 100_000, Personality: persona(strategy.Cautious, 0.1, 0.5), BootsToSit: 20,
+			Only: fiveTables, Held: held, Floor: 30, Ceiling: 50,
+		}, r)
+		if !ok || (c.Key != "seen:200" && c.Key != "blind:200") {
+			t.Fatalf("1 Lakh sits at a 200 table, got %s %v", c.Key, ok)
+		}
 	}
 }

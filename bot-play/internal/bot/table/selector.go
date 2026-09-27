@@ -17,6 +17,16 @@ type SelectInput struct {
 	Recent          []string           // table keys it played most recently, newest first
 	Exclude         []string           // keys not to pick now (just refused, just left)
 	Occupancy       map[string]float64 // key → share of the fleet's bots seated there, 0..1 (spreads the fleet)
+	// Only are the lobby tables the fleet plays (config table.lobby_tables);
+	// empty = every Teen Patti table on the menu.
+	Only []string
+	// Held is, per table key, how many of the fleet's bots sit at that lobby
+	// table or are on their way to it (Fleet.Held).
+	Held map[string]int
+	// Floor and Ceiling are config table.fleet_per_table: a lobby table
+	// holding Ceiling of the fleet's bots takes no more, and one holding
+	// fewer than Floor is chosen before any other. 0 = none.
+	Floor, Ceiling int
 }
 
 // The selector's weights. Every factor multiplies a table's weight; the bot
@@ -57,6 +67,13 @@ const (
 // tables are never picked: when Exclude removes every candidate the answer is
 // ok=false, and the caller may ask again without it.
 //
+// The fleet's own layout (owner, 27 Sep 2026: "seen table 200, 50000, blind
+// 200, blind 50000, variation 50000 — each of these tables should have 30-50
+// bots playing"): with Only set, only those lobby tables are candidates; a
+// lobby table already holding Ceiling of the fleet's bots is not one
+// (FullOfFleet tells that apart from a stack nothing admits); and while any
+// candidate holds fewer than Floor, the choice is among those alone.
+//
 // Each candidate's weight is the product of
 //   - stake fit: a Gaussian over the table's place on the ladder of stakes
 //     the stack can reach (0 lowest … 1 highest), centred on the bot's stake
@@ -74,38 +91,21 @@ const (
 //
 // flattened by the bot's Noise, then drawn by weight.
 func Select(m Menu, in SelectInput, r *rng.Rand) (c Choice, ok bool) {
-	bootsToSit := in.BootsToSit
-	if bootsToSit <= 0 {
-		bootsToSit = 1
-	}
-	excluded := make(map[string]bool, len(in.Exclude))
-	for _, k := range in.Exclude {
-		excluded[k] = true
-	}
-
-	var deep, fallback []Choice
-	for _, t := range m.Tables {
-		if !IsTeenPatti(t.Category) || excluded[t.Key] || !m.Admits(t, in.Chips) {
-			continue
-		}
-		fallback = append(fallback, t)
-		if affords(in.Chips, t.Boot, bootsToSit) {
-			deep = append(deep, t)
-		}
-	}
-	cands := deep
+	cands := candidates(m, in, true)
 	if len(cands) == 0 {
-		if len(fallback) == 0 {
-			return Choice{}, false
-		}
-		cheapest := fallback[0].Boot
-		for _, t := range fallback {
-			cheapest = min(cheapest, t.Boot)
-		}
-		for _, t := range fallback {
-			if t.Boot == cheapest {
-				cands = append(cands, t)
+		return Choice{}, false
+	}
+	// A lobby table the fleet is thin on — under its floor — goes before
+	// any other, so every table the fleet plays reaches its floor first.
+	if in.Floor > 0 {
+		var short []Choice
+		for _, t := range cands {
+			if in.Held[t.Key] < in.Floor {
+				short = append(short, t)
 			}
+		}
+		if len(short) > 0 {
+			cands = short
 		}
 	}
 
@@ -176,6 +176,67 @@ func Select(m Menu, in SelectInput, r *rng.Rand) (c Choice, ok bool) {
 		}
 	}
 	return cands[r.Weighted(weights)], true
+}
+
+// candidates are the tables Select chooses among for in: the menu's Teen
+// Patti tables (config table.lobby_tables, when it names any) whose band
+// admits the stack, less Exclude and — capped — less those holding their
+// ceiling of the fleet; of those, the ones the stack covers BootsToSit times
+// over, or failing any, the cheapest.
+func candidates(m Menu, in SelectInput, capped bool) []Choice {
+	bootsToSit := in.BootsToSit
+	if bootsToSit <= 0 {
+		bootsToSit = 1
+	}
+	excluded := make(map[string]bool, len(in.Exclude))
+	for _, k := range in.Exclude {
+		excluded[k] = true
+	}
+	only := make(map[string]bool, len(in.Only))
+	for _, k := range in.Only {
+		only[k] = true
+	}
+
+	var deep, fallback []Choice
+	for _, t := range m.Tables {
+		if !IsTeenPatti(t.Category) || excluded[t.Key] || !m.Admits(t, in.Chips) {
+			continue
+		}
+		if len(only) > 0 && !only[t.Key] {
+			continue
+		}
+		if capped && in.Ceiling > 0 && in.Held[t.Key] >= in.Ceiling {
+			continue
+		}
+		fallback = append(fallback, t)
+		if affords(in.Chips, t.Boot, bootsToSit) {
+			deep = append(deep, t)
+		}
+	}
+	if len(deep) > 0 {
+		return deep
+	}
+	if len(fallback) == 0 {
+		return nil
+	}
+	cheapest := fallback[0].Boot
+	for _, t := range fallback {
+		cheapest = min(cheapest, t.Boot)
+	}
+	var cands []Choice
+	for _, t := range fallback {
+		if t.Boot == cheapest {
+			cands = append(cands, t)
+		}
+	}
+	return cands
+}
+
+// FullOfFleet reports whether Select found nothing only because every table
+// that would take this stack already holds its ceiling of the fleet — the
+// bot is not broke, the fleet is simply big enough there, and it rests.
+func FullOfFleet(m Menu, in SelectInput) bool {
+	return in.Ceiling > 0 && len(candidates(m, in, true)) == 0 && len(candidates(m, in, false)) > 0
 }
 
 // affords reports whether chips covers boot bootsToSit times over.

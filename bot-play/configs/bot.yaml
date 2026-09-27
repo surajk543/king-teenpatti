@@ -60,12 +60,21 @@ table:
   # Category → weight when choosing where to sit; empty = even.
   #   category_weights: {seen: 2, blind: 2, variation: 1}
   category_weights: {}
-  boots_to_sit: 25                # sit only with at least this many boots in chips (a fresh 10 Lakh account plays 200 and 5,000 until it earns the depth for 50,000)
+  boots_to_sit: 25                # BOT_BOOTS_TO_SIT: sit only with at least this many boots in chips (a fresh 10 Lakh account plays 200 and 5,000 until it earns the depth for 50,000)
   search_delay_ms: [2500, 8000]   # idle before looking for a table — or search_delay: ["2.5s", "8s"]
   max_bots_per_table: 0           # 0 = no limit
   # Move on after this long with no human player at the table; 0 = never for
   # that reason (the bots may play among themselves).
   no_human_patience_seconds: 0    # or no_human_patience: 5m
+  # The lobby tables the fleet plays, by key (category:boot); empty = every
+  # table of the categories above. For example:
+  #   lobby_tables: [seen:200, seen:50000, blind:200, blind:50000, variation:50000]
+  lobby_tables: []                # BOT_LOBBY_TABLES=seen:200,blind:50000
+  # How many of the fleet's bots each lobby table (a category and a boot,
+  # however many rooms it runs) should hold: [floor, ceiling]. A table under
+  # its floor is chosen before any other; one at its ceiling takes no more,
+  # and a bot with nowhere else to go rests. 0 = none.
+  fleet_per_table: [0, 0]         # BOT_FLEET_PER_TABLE=30,50
 
 timing:
   min_reaction_ms: 700            # the floor for any action — or min_reaction: 700ms
