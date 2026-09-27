@@ -20,6 +20,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:teenpatti/config/features.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/screens/lobby_screen.dart';
@@ -363,23 +364,43 @@ void main() {
       final name =
           '${screen.width.toInt()}x${screen.height.toInt()} ${brightness.name}';
 
-      testWidgets('at $name every card is a GameCard lit from behind, with '
-          'no coloured disc round it', (tester) async {
-        final state = _state();
-        await _pumpLobby(tester, state, screen: screen, brightness: brightness);
-        expect(tester.takeException(), isNull);
-        // The front: Teen Patti, Poker, the private room.
-        expect(find.byType(GameCard, skipOffstage: false), findsNWidgets(3));
-        expect(find.byType(GlassOrb, skipOffstage: false), findsNothing);
-        expect(find.byType(CardLight, skipOffstage: false), findsNWidgets(3));
+      for (final poker in [false, true]) {
+        testWidgets('at $name${poker ? ' with the Poker family' : ''} every '
+            'card is a GameCard lit from behind, with no coloured disc round '
+            'it', (tester) async {
+          AppFeatures.poker = poker;
+          addTearDown(() => AppFeatures.poker = false);
+          final state = _state();
+          await _pumpLobby(
+            tester,
+            state,
+            screen: screen,
+            brightness: brightness,
+          );
+          expect(tester.takeException(), isNull);
+          // The front: Seen, Blind, Variation and the private room (owner,
+          // 27 Sep 2026: "In UI only show three cards seen, blind,
+          // variation"); with the Poker family, Teen Patti, Poker and the
+          // private room.
+          final front = poker ? 3 : 4;
+          expect(
+            find.byType(GameCard, skipOffstage: false),
+            findsNWidgets(front),
+          );
+          expect(find.byType(GlassOrb, skipOffstage: false), findsNothing);
+          expect(
+            find.byType(CardLight, skipOffstage: false),
+            findsNWidgets(front),
+          );
 
-        state.openLobbyCategory(TableCategory.blind);
-        await _settle(tester);
-        expect(tester.takeException(), isNull);
-        expect(find.byType(GlassOrb, skipOffstage: false), findsNothing);
-        await _unmount(tester);
-        state.dispose();
-      });
+          state.openLobbyCategory(TableCategory.blind);
+          await _settle(tester);
+          expect(tester.takeException(), isNull);
+          expect(find.byType(GlassOrb, skipOffstage: false), findsNothing);
+          await _unmount(tester);
+          state.dispose();
+        });
+      }
 
       testWidgets('at $name the boot is the largest figure on a table card, '
           'and the key carries its mode\'s colour', (tester) async {
@@ -640,65 +661,72 @@ void main() {
       const Size(1280, 800),
     ]) {
       final name = '${screen.width.toInt()}x${screen.height.toInt()}';
-      testWidgets('at $name every level stops on whole cards and a glimpse of '
-          'the next, and ends as far from the edge as it starts', (
-        tester,
-      ) async {
-        final state = _state();
-        await _pumpLobby(
-          tester,
-          state,
-          screen: screen,
-          brightness: Brightness.dark,
-        );
-        for (final open in <void Function()>[
-          () {},
-          () => state.openLobbyEngine(TableEngine.teenPatti),
-          () => state.openLobbyCategory(TableCategory.blind),
-        ]) {
-          open();
-          await _settle(tester);
-          expect(tester.takeException(), isNull);
-          final level = tester.widget<ListView>(_rail).key;
-          for (final shown in _cardsShown(tester)) {
-            expect(
-              shown <= 0.605 || shown >= 0.995,
-              isTrue,
-              reason: '$level: a card $shown on screen',
-            );
-          }
-
-          final scroll = tester.state<ScrollableState>(
-            // The rail's own, before any a card holds (the code field's).
-            find.descendant(of: _rail, matching: find.byType(Scrollable)).first,
+      for (final poker in [false, true]) {
+        testWidgets('at $name${poker ? ' with the Poker family' : ''} every '
+            'level stops on whole cards and a glimpse of the next, and ends as '
+            'far from the edge as it starts', (tester) async {
+          AppFeatures.poker = poker;
+          addTearDown(() => AppFeatures.poker = false);
+          final state = _state();
+          await _pumpLobby(
+            tester,
+            state,
+            screen: screen,
+            brightness: Brightness.dark,
           );
-          scroll.position.jumpTo(scroll.position.maxScrollExtent);
-          await tester.pump();
-          final rail = _onScreen(tester.renderObject<RenderBox>(_rail));
-          final last = find
-              .descendant(of: _rail, matching: find.byType(AspectRatio))
-              .evaluate()
-              .map((e) => _onScreen(e.renderObject! as RenderBox))
-              .reduce((a, b) => a.right > b.right ? a : b);
-          if (scroll.position.maxScrollExtent > 0) {
-            expect(
-              rail.right - last.right,
-              closeTo(Space.xl, 0.5),
-              reason: '$level',
+          // Without the Poker family there is no engine level: the front is
+          // Seen, Blind and Variation.
+          for (final open in <void Function()>[
+            () {},
+            if (poker) () => state.openLobbyEngine(TableEngine.teenPatti),
+            () => state.openLobbyCategory(TableCategory.blind),
+          ]) {
+            open();
+            await _settle(tester);
+            expect(tester.takeException(), isNull);
+            final level = tester.widget<ListView>(_rail).key;
+            for (final shown in _cardsShown(tester)) {
+              expect(
+                shown <= 0.605 || shown >= 0.995,
+                isTrue,
+                reason: '$level: a card $shown on screen',
+              );
+            }
+
+            final scroll = tester.state<ScrollableState>(
+              // The rail's own, before any a card holds (the code field's).
+              find
+                  .descendant(of: _rail, matching: find.byType(Scrollable))
+                  .first,
             );
-          } else {
-            expect(
-              rail.right - last.right,
-              greaterThanOrEqualTo(Space.xl - 0.5),
-              reason: '$level',
-            );
+            scroll.position.jumpTo(scroll.position.maxScrollExtent);
+            await tester.pump();
+            final rail = _onScreen(tester.renderObject<RenderBox>(_rail));
+            final last = find
+                .descendant(of: _rail, matching: find.byType(AspectRatio))
+                .evaluate()
+                .map((e) => _onScreen(e.renderObject! as RenderBox))
+                .reduce((a, b) => a.right > b.right ? a : b);
+            if (scroll.position.maxScrollExtent > 0) {
+              expect(
+                rail.right - last.right,
+                closeTo(Space.xl, 0.5),
+                reason: '$level',
+              );
+            } else {
+              expect(
+                rail.right - last.right,
+                greaterThanOrEqualTo(Space.xl - 0.5),
+                reason: '$level',
+              );
+            }
+            scroll.position.jumpTo(0);
+            await tester.pump();
           }
-          scroll.position.jumpTo(0);
-          await tester.pump();
-        }
-        await _unmount(tester);
-        state.dispose();
-      });
+          await _unmount(tester);
+          state.dispose();
+        });
+      }
     }
   });
 
@@ -798,8 +826,19 @@ void main() {
         (324500, (_) {}),
         (324500, (s) => s.openLobbyCategory(TableCategory.blind)),
         (600000000, (s) => s.openLobbyCategory(TableCategory.blind)),
-        (600000000, (s) => s.openLobbyCategory(TableCategory.fiveCardDraw)),
+        // The densest card of all, a 5-Card Draw table, and the engines'
+        // front, in a build with the Poker family.
+        (
+          600000000,
+          (s) {
+            AppFeatures.poker = true;
+            s.openLobbyCategory(TableCategory.fiveCardDraw);
+            expect(s.lobbyCategory, TableCategory.fiveCardDraw);
+          },
+        ),
+        (324500, (_) => AppFeatures.poker = true),
       ]) {
+        addTearDown(() => AppFeatures.poker = false);
         final state = _state(chips: chips);
         open(state);
         await _pumpLobby(
@@ -835,6 +874,7 @@ void main() {
         }
         await _unmount(tester);
         state.dispose();
+        AppFeatures.poker = false;
       }
     });
   }

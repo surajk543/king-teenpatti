@@ -21,6 +21,12 @@ Keys: `SERVER_URL` (REST and Socket.IO both hang off it — `lib/config/server_c
 site's page, the one the Play listing names, not the backend's; owner, 24 Sep 2026)
 and `GOOGLE_SERVER_CLIENT_ID` (the Web client id Google sign-in needs for an idToken; a public id, not a secret).
 
+One more define is not in these files because no environment needs it: `SHOW_POKER=true` (`lib/config/features.dart`)
+brings the Poker family back into the lobby — the Teen Patti and Poker engine cards, the Poker view of the record, the
+poker section of the rules. Off by default (owner, 27 Sep 2026: "In UI only show three cards seen, blind, variation");
+the server offers its poker tables either way. Add it beside a file: `--dart-define-from-file=config/preprod.json
+--dart-define=SHOW_POKER=true`.
+
 **`SERVER_URL` and `APP_ENV` are two separate defines and nothing ties them together** — always build from one of
 these files, never with a lone `--dart-define`. `--dart-define=SERVER_URL=https://prod.sungamestudio.com` on its own
 makes a production build labelled "· preprod"; `APP_ENV=production` on its own hides the label on a preprod build.

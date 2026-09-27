@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:teenpatti/config/features.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/screens/table_screen.dart';
@@ -173,6 +174,11 @@ Future<void> _teardown(WidgetTester tester, GameState state) async {
 }
 
 void main() {
+  // This suite holds the rules of a build that shows the Poker family
+  // (SHOW_POKER); the default build's lobby — Seen, Blind and Variation on
+  // the front, owner, 27 Sep 2026 — is lobby_teen_patti_only_test.dart's.
+  setUp(() => AppFeatures.poker = true);
+  tearDown(() => AppFeatures.poker = false);
   setUpAll(_loadInter);
 
   test('a poker room reads as the menu entry it would have had', () {
@@ -355,36 +361,50 @@ void main() {
     await _teardown(tester, state);
   });
 
-  testWidgets('the Teen Patti table has no rulebook key in its rail, and its '
-      'drawer still opens the whole reference', (tester) async {
-    const t = Strings(AppLang.english);
-    final state = _newState(_teenPattiRoom());
-    await _pumpTable(tester, state);
-    expect(tester.takeException(), isNull);
-    expect(find.byTooltip(t.tableRulesKey), findsNothing);
+  // Run in both builds: the default one (no Poker family) is what ships, and
+  // its Teen Patti drawer opens the whole reference WITHOUT the poker section.
+  for (final poker in [false, true]) {
+    testWidgets('the Teen Patti table has no rulebook key in its rail, and its '
+        'drawer still opens the whole reference'
+        '${poker ? ' with the poker family' : ', without poker'}', (
+      tester,
+    ) async {
+      AppFeatures.poker = poker;
+      const t = Strings(AppLang.english);
+      final state = _newState(_teenPattiRoom());
+      await _pumpTable(tester, state);
+      expect(tester.takeException(), isNull);
+      expect(find.byTooltip(t.tableRulesKey), findsNothing);
 
-    state.tableScaffold.currentState!.openDrawer();
-    await tester.pump();
-    await tester.pump(const Duration(seconds: 1));
-    // The menu is a list: the Rules row sits below the fold on this surface.
-    final rules = find.text(t.rules, skipOffstage: false);
-    await tester.dragUntilVisible(
-      rules,
-      find.byType(Scrollable).last,
-      const Offset(0, -80),
-    );
-    await tester.pump();
-    await tester.tap(rules);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 600));
-    expect(tester.takeException(), isNull);
-    // The whole reference: Teen Patti's rankings AND the poker family.
-    expect(find.text(t.rankTrail, skipOffstage: false), findsOneWidget);
-    expect(find.text(t.pokerRulesTitle, skipOffstage: false), findsOneWidget);
-    expect(find.text(t.variationRulesTitle, skipOffstage: false),
-        findsOneWidget);
-    await _teardown(tester, state);
-  });
+      state.tableScaffold.currentState!.openDrawer();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      // The menu is a list: the Rules row sits below the fold on this surface.
+      final rules = find.text(t.rules, skipOffstage: false);
+      await tester.dragUntilVisible(
+        rules,
+        find.byType(Scrollable).last,
+        const Offset(0, -80),
+      );
+      await tester.pump();
+      await tester.tap(rules);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(tester.takeException(), isNull);
+      // The whole reference: Teen Patti's rankings, the variations, and the
+      // poker family only in a build that shows it.
+      expect(find.text(t.rankTrail, skipOffstage: false), findsOneWidget);
+      expect(
+        find.text(t.pokerRulesTitle, skipOffstage: false),
+        poker ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.text(t.variationRulesTitle, skipOffstage: false),
+        findsOneWidget,
+      );
+      await _teardown(tester, state);
+    });
+  }
 
   for (final lang in AppLang.values) {
     testWidgets('in ${lang.englishName} every poker table\'s sheet lays out '

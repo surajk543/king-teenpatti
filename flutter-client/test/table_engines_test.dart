@@ -15,6 +15,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:teenpatti/config/features.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/screens/lobby_screen.dart';
@@ -199,6 +200,11 @@ Finder _named(String name) => find.byWidgetPredicate(
 );
 
 void main() {
+  // This suite holds the engine level of a build that shows the Poker family
+  // (SHOW_POKER); the default build's lobby — Seen, Blind and Variation on
+  // the front, owner, 27 Sep 2026 — is lobby_teen_patti_only_test.dart's.
+  setUp(() => AppFeatures.poker = true);
+  tearDown(() => AppFeatures.poker = false);
   group('on the wire', () {
     test('a catalogue names every table\'s engine and lists the engines with '
         'their categories, in the seed\'s order', () {

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../config/features.dart';
 import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../models/friends.dart';
@@ -201,15 +202,26 @@ class _PlayerStatsGridState extends State<PlayerStatsGrid> {
   }
 }
 
-/// All · Teen Patti · Variation · Poker: which view of the record is on show,
-/// as a segmented control sunk into its panel — the chosen view raised out of
-/// it in the gold a chosen thing wears (the appearance control's own words),
-/// the others in the body ink.
+/// The views of a record the switch offers: All and every game — Poker only
+/// in a build that shows the Poker family ([AppFeatures.poker]; owner,
+/// 27 Sep 2026: "remove poker category"). Its figures are still in the
+/// server's record and still counted in All; there is just no key to them.
+List<StatsCategory> statsViews() => [
+  for (final view in StatsCategory.values)
+    if (view != StatsCategory.poker || AppFeatures.poker) view,
+];
+
+/// All · Teen Patti · Variation (· Poker): which view of the record is on
+/// show, as a segmented control sunk into its panel — the chosen view raised
+/// out of it in the gold a chosen thing wears (the appearance control's own
+/// words), the others in the body ink.
 ///
-/// Four across where every name fits its quarter on one line; otherwise two
-/// over two, the width of a landscape drawer (260dp on a 640dp phone) and the
-/// names in five languages at text x1.25 being what they are. Each segment is
-/// a whole touch target.
+/// Every view across where every name fits its share on one line; otherwise
+/// two to a row — two over two of four, and of three All across the whole
+/// top row over the two games, rather than one key alone in half a row —
+/// the width of a landscape drawer (260dp on a 640dp phone) and the names in
+/// five languages at text x1.25 being what they are. Each segment is a whole
+/// touch target.
 class _CategorySwitch extends StatelessWidget {
   const _CategorySwitch({
     required this.t,
@@ -247,8 +259,8 @@ class _CategorySwitch extends StatelessWidget {
     final theme = Theme.of(context);
     final glass = GlassColors.of(context);
     final dark = theme.brightness == Brightness.dark;
-    const views = StatsCategory.values;
-    final names = [for (final view in views) statsCategoryName(t, view)];
+    final views = statsViews();
+    final names = {for (final view in views) view: statsCategoryName(t, view)};
 
     return LayoutBuilder(
       builder: (context, box) {
@@ -256,7 +268,7 @@ class _CategorySwitch extends StatelessWidget {
         // its segment the moment it is chosen.
         final measure = _style(theme, on: true);
         var widest = 0.0;
-        for (final name in names) {
+        for (final name in names.values) {
           final painter = TextPainter(
             text: TextSpan(text: name, style: measure),
             textDirection: Directionality.of(context),
@@ -272,6 +284,11 @@ class _CategorySwitch extends StatelessWidget {
             (inner - (across - 1) * _pad) / across >= widest + 2 * _inset + 1;
         final columns = oneRow ? across : 2;
         final width = _cellWidth(inner, columns, _pad);
+        // Where the views do not fill every row, the first row is the short
+        // one and its keys share it: of three, All across the top over the
+        // two games, the whole record over its parts.
+        final short = views.length % columns;
+        final shortWidth = short == 0 ? width : _cellWidth(inner, short, _pad);
 
         return DecoratedBox(
           key: const ValueKey('stats-categories'),
@@ -289,13 +306,13 @@ class _CategorySwitch extends StatelessWidget {
               spacing: _pad,
               runSpacing: _pad,
               children: [
-                for (final view in views)
+                for (final (i, view) in views.indexed)
                   SizedBox(
-                    width: width,
+                    width: i < short ? shortWidth : width,
                     height: Dim.minTouch,
                     child: _Segment(
                       key: ValueKey('stats-category-${view.name}'),
-                      label: names[view.index],
+                      label: names[view]!,
                       on: view == shown,
                       pill: oneRow,
                       style: _style,
@@ -327,7 +344,7 @@ class _Segment extends StatelessWidget {
   /// The view on show.
   final bool on;
 
-  /// A pill in a row of four; a rounded key in a grid of two over two.
+  /// A pill in a single row; a rounded key in a grid of two to a row.
   final bool pill;
   final TextStyle Function(ThemeData theme, {required bool on, Color? colour})
   style;

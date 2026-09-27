@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:teenpatti/config/features.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/screens/lobby_screen.dart';
@@ -66,63 +67,81 @@ Future<void> _settle(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('an engine, a category and a table card click; a padlocked '
-      'table stays quiet', (tester) async {
-    tester.view.physicalSize = const Size(891, 411);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final state = _state();
-    final sounds = _Heard();
-    addTearDown(sounds.dispose);
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider<GameState>.value(value: state),
-          ChangeNotifierProvider<FeedbackSettings>.value(value: sounds),
-        ],
-        child: MaterialApp(
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.dark(sound: false),
-          builder: (context, child) => GlassBudget(child: child!),
-          home: const LobbyScreen(),
-        ),
-      ),
+  // Twice: the default build, whose front is Seen, Blind and Variation
+  // (owner, 27 Sep 2026: "In UI only show three cards seen, blind,
+  // variation"), and one with the Poker family, whose front is the engines.
+  for (final poker in [false, true]) {
+    testWidgets(
+      poker
+          ? 'with the Poker family an engine, a category and a table card '
+                'click; a padlocked table stays quiet'
+          : 'a category and a table card click; a padlocked table stays quiet',
+      (tester) async {
+        AppFeatures.poker = poker;
+        addTearDown(() => AppFeatures.poker = false);
+        tester.view.physicalSize = const Size(891, 411);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final state = _state();
+        final sounds = _Heard();
+        addTearDown(sounds.dispose);
+        await tester.pumpWidget(
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider<GameState>.value(value: state),
+              ChangeNotifierProvider<FeedbackSettings>.value(value: sounds),
+            ],
+            child: MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: AppTheme.dark(sound: false),
+              builder: (context, child) => GlassBudget(child: child!),
+              home: const LobbyScreen(),
+            ),
+          ),
+        );
+        await _settle(tester);
+        final t = state.t;
+
+        // With the Poker family, the Teen Patti card, into its games. Without
+        // it the front has no engine card at all.
+        final clicks = <String>[];
+        if (poker) {
+          await tester.tap(find.text(t.viewGames).first);
+          await _settle(tester);
+          expect(state.lobbyEngine, isNotNull);
+          expect(sounds.heard, clicks..add('click'));
+        } else {
+          expect(find.text(t.viewGames), findsNothing);
+        }
+
+        // The Seen card, into its tables.
+        await tester.tap(find.text(t.viewTables).first);
+        await _settle(tester);
+        expect(state.lobbyCategory, 'seen');
+        expect(sounds.heard, clicks..add('click'));
+
+        // A padlocked table: nothing happens, nothing is heard.
+        final shut = find.text(t.lockedTitle);
+        await tester.ensureVisible(shut);
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.tap(shut, warnIfMissed: false);
+        await tester.pump();
+        expect(sounds.heard, clicks);
+
+        // A table the player may sit at: the click, and the door as they sit.
+        final open = find.text(t.tapToSit).first;
+        await tester.ensureVisible(open);
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.tap(open);
+        await tester.pump();
+        expect(sounds.heard, [...clicks, 'click', 'door']);
+
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump(const Duration(seconds: 1));
+        state.dispose();
+      },
     );
-    await _settle(tester);
-    final t = state.t;
-
-    // The Teen Patti card, into its games.
-    await tester.tap(find.text(t.viewGames).first);
-    await _settle(tester);
-    expect(state.lobbyEngine, isNotNull);
-    expect(sounds.heard, ['click']);
-
-    // The Seen card, into its tables.
-    await tester.tap(find.text(t.viewTables).first);
-    await _settle(tester);
-    expect(state.lobbyCategory, 'seen');
-    expect(sounds.heard, ['click', 'click']);
-
-    // A padlocked table: nothing happens, nothing is heard.
-    final shut = find.text(t.lockedTitle);
-    await tester.ensureVisible(shut);
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(shut, warnIfMissed: false);
-    await tester.pump();
-    expect(sounds.heard, ['click', 'click']);
-
-    // A table the player may sit at: the click, and the door as they sit.
-    final open = find.text(t.tapToSit).first;
-    await tester.ensureVisible(open);
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(open);
-    await tester.pump();
-    expect(sounds.heard, ['click', 'click', 'click', 'door']);
-
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump(const Duration(seconds: 1));
-    state.dispose();
-  });
+  }
 
   test("the owner's click is bundled where the lobby plays it from", () async {
     TestWidgetsFlutterBinding.ensureInitialized();

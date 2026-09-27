@@ -295,9 +295,10 @@ flutter analyze                 # must be clean (it is)
 flutter test                    # every suite under test/ (number formatting, connection failures, consent, … the table catalogue and the engine lobby)
 flutter test tool/render_icons.dart   # re-render launcher/adaptive/splash PNGs from assets/app_icon.svg (not part of `flutter test`)
 flutter build apk --debug       # ~7s incremental; build/app/outputs/flutter-apk/app-debug.apk
-flutter build apk --debug       # no define → PREPROD (https://preprod.sungamestudio.com), never production
+flutter build apk --debug       # no define → PRODUCTION (https://prod.sungamestudio.com, §3): name preprod or a local server with a config file
 flutter build apk --debug --dart-define-from-file=config/local-emulator.json   # local server on the emulator (= SERVER_URL=http://10.0.2.2:3000)
 flutter build apk --debug --dart-define=SERVER_URL=http://192.168.1.10:3000  # local server, real device
+flutter build apk --debug --dart-define-from-file=config/local-emulator.json --dart-define=SHOW_POKER=true   # the Poker family back in the lobby (engines → categories); off by default, §8.4 — always beside a config file, or the build talks to production
 flutter build appbundle --release --dart-define-from-file=config/production.json   # THE STORE BUILD: prod.sungamestudio.com + the Google client id
 # NEVER distribute --split-per-abi APKs: build 8 becomes 1008/2008/4008, which no MIN_CLIENT_BUILD floor holds and Play can
 # never update. build.gradle.kts refuses a split RELEASE build (24 Sep 2026; --android-project-arg=allowSplitPerAbiRelease=true
@@ -1854,6 +1855,26 @@ by `GameState._publishNumberFormat()`. Abbreviate only `> 100000`; Indian `3.24 
 in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
 
 ### 8.4 UI
+- **Teen Patti only, by default, since 27 Sep 2026** (owner: "do this change in UI only, remove poker category and In UI
+  only show three cards seen, blind, variation"). ONE build-time switch, `AppFeatures.poker` (`lib/config/features.dart`,
+  `--dart-define=SHOW_POKER=true`, off by default; a mutable static only so tests can flip it). Off, the lobby leaves every
+  table of a hidden engine out of everything it reads (`GameState.lobbyShowsEngine`: its engine list, category lists, table
+  lists and a group card's counts), and where exactly one engine is left to show it skips the engine level
+  (`GameState.lobbyFrontEngine`): the FRONT is Seen, Blind, Variation (the categories with a table, in the usual order) then
+  `_PrivateCard`; a category's tables stand behind a `_BackTile` saying `backToCategories` ("All games"), and Back — the tile
+  or `_BackGuard` → `closeLobbyLevel` — returns to the front in one step, then answers false (the quit question). The
+  record's switch (`PlayerStatsGrid`, `statsViews()`) is All · Teen Patti · Variation — three across where they fit, else All
+  across the top over the two games — and the general rules sheet drops its poker section. **Server-side nothing changed**:
+  poker tables are still in `session:ready.config.tables` and `GET /api/tables`, `TableConfigCache` keeps the body verbatim,
+  All still counts poker hands, and the poker felt, DTOs and refusal texts stay built in. The lobby offers no way into a poker
+  room, but a player can still meet two poker things, deliberately: a seat still held at a poker room, or one lapsed within
+  `RESUME_OFFER_MS` (`session:ready.resume` → `joinByCode`), from an older build that showed Poker still opens the poker felt —
+  their chips are at that table; and a friend playing poker on another build (the store's 1.2.x included) shows as
+  "Poker • Texas Hold'em" on the Friends page — where that friend really is. The front and a category's tables are sized
+  together (`lobbyRailSide`'s `also`: each stops cleanly at the other's side), so opening Blind does not shrink the cards; on
+  a 640dp phone the private card, now the fourth, starts just past the edge. With `SHOW_POKER=true` everything below is
+  exactly as it was.
+  `test/lobby_teen_patti_only_test.dart`; the engine/poker suites set the switch on in `setUp`.
 - **Lobby — three levels since 23 Sep 2026: engines → categories → tables** (owner: "IN UI also give two cards: Teen
   Patti and Poker. inside TeenPatti give seen, blind and variation. Inside poker give three card poker, five card draw,
   texas holdem, omaha"). The FRONT is one `_EngineCard` per engine the server offers a table in (`GameState.lobbyEngines`:
