@@ -2181,7 +2181,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`widgets/player_profile.dart`, `RecordSurface.lobby|table`, shared with the lobby profile; the lobby's Stats drawer drew
   it too, as `PlayerStatsGrid.own` — removed with its chip tiles — until its own presentation of 27 Sep 2026, "The Stats drawer" below): since Player stats v2 (27 Sep 2026) a game switch — All · Teen Patti ·
   Variation · Poker (`StatsCategory`, `models/player_stats.dart`) — over the counts, and for Teen Patti and Variation the hands
-  held (Trail down to High Card) and the variations played; counts in thousands grouping, and no chip figure. No presence, no wallet, no
+  held (Trail down to High Card) and the variations played; counts in thousands grouping, and no chip figure. **Every hand
+  wears an icon** (owner, 27 Sep 2026: "there is no icon in hands held category in player stats, add icons also"):
+  `HandTally.icons` — the daily XP's own "Win by" marks, 🔥 Trail, 💎 Pure Sequence, 🃏 Sequence, 🎨 Color, 👥 Pair, and ☝️
+  High Card (🔝 drew as a blue "TOP" key) — drawn by ONE `HandIcon` (`player_profile.dart`, decoration only: the name is
+  what a screen reader hears) over the count in the record's cells and before the name in the Stats drawer's
+  `HandResultGrid`, whose width sum counts the widest icon so every name of a column starts at one edge. No presence, no wallet, no
   table id. Its own state slot (`FriendsState.seatPlayer/seatProfile/openSeat/closeSeat`), apart from the page's. A seat
   whose player has asked the viewer wears **`SeatRequestBadge`** (a gold person-add disc on the lower-LEFT corner of their
   picture — on the pod's top corner it covered a long name's first letter), and a seat whose player is the viewer's
@@ -3076,7 +3081,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   75" as one quiet line; HAND RESULTS ("Hands held" renamed, `HandResultGrid`: two across, name at the start, count at the
   end — given only the room the name's longest word leaves, a third of the cell at least, and set smaller in it, so "Pure
   Sequence" beside "18,182" is never cut; measured round the grid, whose rows ask intrinsic heights a cell's builder cannot
-  answer); VARIATIONS PLAYED (`VariationStatsList`: a hairline-parted list, PLAYED/WON columns right-aligned). Section names at
+  answer; each hand's icon at the cell's start — `HandIcon`, below); VARIATIONS PLAYED (`VariationStatsList`: a hairline-parted list, PLAYED/WON columns right-aligned). Section names at
   11 in tracked capitals in English only. A scope changes only what is under the menu, in a 200ms fade and 6dp rise; the
   scope survives a scroll (`AutomaticKeepAliveClientMixin` — a jump to the list's end once dropped it back to All Games).
   **What each scope shows is the model's own**: All Games is `User.totals` (which, being the server's career totals, include

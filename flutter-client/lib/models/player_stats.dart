@@ -68,6 +68,16 @@ class HandTally {
     'High Card',
   ];
 
+  /// Each hand's icon, in the order of [names] (owner, 27 Sep 2026: "there is
+  /// no icon in hands held category in player stats, add icons also"): the
+  /// daily XP's own "Win by" marks (`xp_sources.icon` — 🔥 Trail, 💎 Pure
+  /// Sequence, 🃏 Sequence, 🎨 Color, 👥 Pair), so a hand wears the same icon
+  /// on the record as on its mission, and ☝️ for High Card — one card, the
+  /// highest — which has no mission (🔝 drew as a blue "TOP" key beside the
+  /// others). ☝ is text by default, so it carries U+FE0F and a phone draws it
+  /// in colour from its emoji font like the other five.
+  static const icons = ['🔥', '💎', '🃏', '🎨', '👥', '\u261D\uFE0F'];
+
   /// The six as the wire keys them, in the order of [names].
   static const fields = [
     'trail',

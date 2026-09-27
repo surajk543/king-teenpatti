@@ -193,6 +193,8 @@ void _expectScope(
       final cell = 'stats-hand-$field';
       expect(_textIn(cell, HandTally.names[i]), findsOneWidget, reason: where);
       expect(_textIn(cell, '${hands[field]}'), findsOneWidget, reason: where);
+      // Each hand wears its icon, the daily XP's own mark for it.
+      expect(_textIn(cell, HandTally.icons[i]), findsOneWidget, reason: where);
     }
   }
   final lists = scope.category.listsVariations;
@@ -801,6 +803,24 @@ void main() {
       expect(pure.top, closeTo(trail.top, 0.5));
       expect(sequence.top, greaterThan(trail.bottom));
       expect(sequence.left, closeTo(trail.left, 0.5));
+      // Each hand's icon at the start of its cell, before its name, and the
+      // names of one column starting at one edge whatever the icon's width.
+      expect(HandTally.icons, hasLength(HandTally.names.length));
+      final nameLefts = <double>[];
+      for (final (i, field) in HandTally.fields.indexed) {
+        final icon = tester.getRect(_key('stats-hand-icon-$field'));
+        final name = tester.getRect(
+          _textIn('stats-hand-$field', HandTally.names[i]),
+        );
+        final cell = tester.getRect(_key('stats-hand-$field'));
+        expect(icon.left, greaterThanOrEqualTo(cell.left), reason: field);
+        expect(icon.right, lessThanOrEqualTo(name.left + 0.5), reason: field);
+        expect(icon.center.dy, closeTo(cell.center.dy, 2), reason: field);
+        if (i.isEven) nameLefts.add(name.left - cell.left);
+      }
+      for (final left in nameLefts) {
+        expect(left, closeTo(nameLefts.first, 0.5));
+      }
       await _scrollToEnd(tester);
       expect(_textIn('stats-variations', 'PLAYED'), findsOneWidget);
       expect(_textIn('stats-variations', 'WON'), findsOneWidget);

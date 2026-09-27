@@ -662,9 +662,40 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
+/// A hand's icon ([HandTally.icons]) at [size], set in one line box of that
+/// height so it stands level with the words beside or under it. Decoration:
+/// the hand's name, beside it, is what a screen reader hears.
+class HandIcon extends StatelessWidget {
+  const HandIcon({super.key, required this.index, required this.size});
+
+  /// The hand, in [HandTally.names] order.
+  final int index;
+
+  /// The glyph's size before the phone's text scale.
+  final double size;
+
+  /// The style the icon is set in: [size], one line box high.
+  static TextStyle styleFor(double size) =>
+      TextStyle(fontSize: size, height: 1, fontWeight: FontWeight.w400);
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: Text(
+        HandTally.icons[index],
+        key: ValueKey('stats-hand-icon-${HandTally.fields[index]}'),
+        maxLines: 1,
+        textAlign: TextAlign.center,
+        style: styleFor(size),
+      ),
+    );
+  }
+}
+
 /// How often the player held each Teen Patti hand, Trail down to High Card —
 /// named as the table names them, in the server's English (CLAUDE.md §6.3) —
-/// each over its count on a well of its own: a step under the figures above,
+/// each under its icon ([HandIcon], as the figures above stand under theirs)
+/// and over its count on a well of its own: a step under the figures above,
 /// which stand on raised cards.
 class _HandsHeld extends StatelessWidget {
   const _HandsHeld({
@@ -721,6 +752,8 @@ class _HandsHeld extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    HandIcon(index: i, size: 16),
+                    const SizedBox(height: Space.xxs),
                     FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
