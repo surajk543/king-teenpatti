@@ -707,8 +707,14 @@ void main() {
       void read() {
         final system = find.byType(ChatSystemLine);
         for (var i = 0; i < system.evaluate().length; i++) {
+          // The line's words; its time ([ChatTime]) is the other Text.
           final text = tester.widget<Text>(
-            find.descendant(of: system.at(i), matching: find.byType(Text)),
+            find.descendant(
+              of: system.at(i),
+              matching: find.byWidgetPredicate(
+                (w) => w is Text && w.key != const ValueKey('chat-time'),
+              ),
+            ),
           );
           expect(text.textAlign, TextAlign.center);
           expect(text.style!.color, TableType.metadata(theme).color);

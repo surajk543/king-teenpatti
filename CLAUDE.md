@@ -2187,8 +2187,34 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (menu, chat — each key fills the rail so the target stays
   ≥44dp, which is why they sit flush to the screen edge on a 360dp phone), `_PackKey` bottom-left with the Missile key directly above it, and `_ActionCluster` bottom-right (`Force Sideshow` and
   `Sideshow` over `− Chaal +`; Chaal is dark on the player's own turn when they cannot pay the chaal — `GameState.canChaal`, an empty server ladder — and keeps showing the price, owner 14 Sep 2026). **The quick messages are a tab of the chat drawer** (owner, 14 Sep 2026; they had a third rail
-  key and a `_QuickDrawer` of their own): `_ChatDrawer` heads with two `_ChatTab`s, Table chat and Quick messages,
-  opens on the chat every time, and sends a quick line through `sendChat` and closes, as a typed one does.
+  key and a `_QuickDrawer` of their own): `ChatDrawer` heads with two `ChatTab`s and the block key after them —
+  **Quick messages first, then Table chat, then Block** — and **opens on Quick messages every time** (owner, 27 Sep 2026:
+  "when i click chat message icon the first tab should be quick message, then table chat, then block"; until then it
+  opened on the chat, Table chat the first tab), and sends a quick line through `sendChat` and closes, as a typed one does.
+  The block key toggles the players page and a second tap goes back to the tab it was opened from; a long-press on a
+  chat line still opens it. Since the drawer now opens a tab away from the conversation, **opening it no longer clears the
+  unread count** (`_open` in both felts called `markChatRead`): the lines stay counted on the rail's key and on the Table
+  chat tab (a gold `Badge`, `ValueKey('chat-tab-unread')`) until that tab is up, and the drawer clears them there, after
+  the frame, including lines that land while it shows. **Every line of the chat log shows when it was sent** (owner,
+  27 Sep 2026: "show timing in every chat message in table ui"): `ChatTime`, from `ChatMessage.at` — the server's stamp,
+  never the phone's receive time — in local hours and minutes through `MaterialLocalizations.formatTimeOfDay`
+  (`chatTimeLabel`), following the phone's 24-hour setting (`MediaQuery.alwaysUse24HourFormatOf`: "3:07 PM" / "15:07";
+  the app has no Material localisations for its four Indic languages, so the 12-hour form says AM/PM in every
+  language), in the quiet tier's type (`TableType.metadata(figures: true)`) at a firmer night ink (`ChatTime.inkAlpha`:
+  0.56 by night, where the tier's 0.46 measured 4.4:1 on the dark drawer; the tier's 0.68 by day). Every time ends at the
+  right edge, one width
+  (`ChatTime.widthFor`, the widest time of the day in that format and text size): a player's words keep the drawer's
+  whole measure and the time stands at the right of their LAST line on its baseline (`ChatTime.liftOver`) — an inline
+  blank as wide as the time ends the words, so the last line makes room or gives the time a line of its own. An emoji
+  line (`_EmojiLine`) carries it at the right of its row, level with the emoji, and never cuts the sender's name for it:
+  when name, emoji and time cannot share a row the name takes the whole row (and a second line where even that is too
+  narrow) and the emoji and its time stand under it — beside a fixed time column "Guest0E00B" was cut at 640x360 ×1.25.
+  The emoji's `Semantics` is its own node, so the time is not read into "Ravi sent Laughing". A `ChatSystemLine` keeps a
+  time column at its right and may take three lines (two before), so "<a 24-letter name> joined the table" is whole at
+  592 and 640dp ×1.25. A line with no stamp (`at` 0) shows none. Seat bubbles carry no time.
+  `test/chat_time_test.dart` (the order, the unread count, 12 and 24 hours, the system and emoji lines, the time's
+  contrast in both themes, emoji and joined lines under names up to 24 letters, 592x360 / 640x360 / 915x412 at x1.0 and
+  x1.25 in all five languages and both themes); pictures by hand, `test/chat_shots.dart`.
   **Each quick message stands in a box of its own with an icon for its meaning** (owner, 24 Sep 2026: "in quick chat
   message also add some icons, and every message of quick message should be in some box"): `QuickLine` is a tinted, flat
   `GlassCard` (`Radii.md`, `Space.sm` apart, `Space.lg` in from the drawer's sides, the whole box the target at
@@ -2299,8 +2325,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   PACKED in `TableInk.alarm` (the dark scheme's red) in both — the light brick read under 3:1 on it. Chat lines now
   follow the phone's text size (a `RichText` ignores it unless given the `textScaler`; they were fixed at ×1.0), so at
   ×1.25 on a 640dp phone fewer lines fit and the list fades at the top. **Chat** — a line the table wrote (no
-  `userId`: joined, left) is a centred, muted `ChatSystemLine` (it was signed "Table:" in the colour an empty id hashed
-  to, a red); a player's line is signed in the full ink at w700 (the viewer's in gold), their colour kept in the bar
+  `userId`: joined, left) is a centred, muted `ChatSystemLine` with its time at the right (27 Sep 2026; it was signed
+  "Table:" in the colour an empty id hashed to, a red); a player's line is signed in the full ink at w700 (the viewer's in gold), their colour kept in the bar
   beside it; the composer and its hint in the chat's own type; the two tabs keep their names on up to two lines at one
   measured height (`ChatTab.heightFor`). **Clipping** — the table has no carousel; what scrolls, fades:
   `widgets/edge_fade.dart` `EdgeFade` masks a scrollable's edge only while there is more beyond it (the menu, the chat,

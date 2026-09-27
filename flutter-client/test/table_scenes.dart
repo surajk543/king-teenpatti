@@ -164,28 +164,56 @@ Future<void> openChat(WidgetTester tester, GameState state) async {
   await tester.pump(const Duration(milliseconds: 600));
 }
 
-ChatMessage _line(String? id, String name, String text) =>
+/// Opens the chat drawer on its Table chat tab: the drawer opens on the quick
+/// messages (27 Sep 2026), the conversation a tab along.
+Future<void> openTableChat(WidgetTester tester, GameState state) async {
+  await openChat(tester, state);
+  await tester.tap(find.text(state.t.tableChat));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+}
+
+/// [hour]:[minute] today in the phone's local time, as the server's epoch ms
+/// — the stamp a chat line carries ([ChatMessage.at]).
+int chatAt(int hour, int minute) =>
+    DateTime(2026, 9, 27, hour, minute).millisecondsSinceEpoch;
+
+ChatMessage _line(String? id, String name, String text, int at) =>
     ChatMessage.fromJson({
       'messageId': '$id-$text',
       'userId': id,
       'displayName': name,
       'text': text,
-      'at': 0,
+      'at': at,
       if (id == null) 'system': true,
     });
 
-/// A conversation with two lines the table wrote itself among the players'.
+/// A conversation with two lines the table wrote itself among the players',
+/// each stamped with the time it was sent — the afternoon's, so a 12-hour
+/// phone and a 24-hour one read them differently ("3:02 PM", "15:02").
 void chatHistory(GameState state) {
   state.chat
-    ..add(_line(null, 'Table', 'Vikramaditya joined the table'))
-    ..add(_line('u1', 'Ravi', 'Good luck everyone'))
-    ..add(_line('u2', 'Meera', 'Please Play fast.'))
-    ..add(_line('u0', 'Priya', 'All the best'))
+    ..add(_line(null, 'Table', 'Vikramaditya joined the table', chatAt(9, 58)))
+    ..add(_line('u1', 'Ravi', 'Good luck everyone', chatAt(10, 0)))
+    ..add(_line('u2', 'Meera', 'Please Play fast.', chatAt(12, 41)))
+    ..add(_line('u0', 'Priya', 'All the best', chatAt(15, 2)))
     ..add(
-      _line('u4', 'Vikramaditya', 'That was a close one, next hand is mine'),
+      _line(
+        'u4',
+        'Vikramaditya',
+        'That was a close one, next hand is mine',
+        chatAt(15, 7),
+      ),
     )
-    ..add(_line(null, 'Table', 'Kavya left the table'))
-    ..add(_line('u3', 'Arjun', 'Oops! I should not have played it.'));
+    ..add(_line(null, 'Table', 'Kavya left the table', chatAt(15, 9)))
+    ..add(
+      _line(
+        'u3',
+        'Arjun',
+        'Oops! I should not have played it.',
+        chatAt(23, 45),
+      ),
+    );
 }
 
 /// The viewer's seen turn with Sideshow and Force Sideshow on offer — every
@@ -241,7 +269,7 @@ void topSeatsTalking(GameState state) {
     ('u2', 'Meera', 'That was a close one, next hand is mine'),
     ('u3', 'Arjun', 'Good luck everyone, play fast please'),
   ]) {
-    state.saidRecently[id] = _line(id, name, text);
+    state.saidRecently[id] = _line(id, name, text, chatAt(15, 2));
   }
 }
 
@@ -478,15 +506,13 @@ final tableScenes = <TableScene>[
   TableScene('11-chat-drawer', (s) {
     s.handleState(opponentTurnRoom());
     chatHistory(s);
-  }, openChat),
+  }, openTableChat),
   TableScene('12-quick-messages', (s) => s.handleState(opponentTurnRoom()), (
     tester,
     state,
   ) async {
+    // The drawer opens on the quick messages; no tab to tap.
     await openChat(tester, state);
-    await tester.tap(find.text(state.t.quickMessagesTitle));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
   }),
   TableScene('13-rules', (s) => s.handleState(opponentTurnRoom()), (
     tester,

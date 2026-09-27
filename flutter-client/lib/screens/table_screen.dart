@@ -87,20 +87,19 @@ class _TableScreenState extends State<TableScreen> {
       context.read<GameState>().tableScaffold;
 
   void _open(LeftPanel panel) {
-    // Only the chat shows the conversation, so only the chat clears its
-    // badge. It always opens on the conversation, even though its quick
-    // messages tab sends into it without showing it.
-    if (panel == LeftPanel.chat) context.read<GameState>().markChatRead();
+    // Opening the chat no longer clears its badge: the drawer opens on its
+    // quick messages (owner, 27 Sep 2026), a tab away from the conversation,
+    // and the new lines stay counted until the Table chat tab shows them
+    // (ChatDrawer marks them read there).
     setState(() => _panel = panel);
     _scaffold.currentState?.openDrawer();
   }
 
   /// Puts the menu back behind the edge once the drawer has finished closing.
   ///
-  /// Left as it was, a swipe in from the edge after the chat would show the
-  /// conversation without clearing its badge, a tab away from quick messages
-  /// where one stray tap talks to the whole table. The menu sends nothing and
-  /// reads nothing, so it is what a swipe should find.
+  /// Left as it was, a swipe in from the edge after the chat would land on
+  /// the quick messages, where one stray tap talks to the whole table. The
+  /// menu sends nothing and reads nothing, so it is what a swipe should find.
   ///
   /// `Scaffold.onDrawerChanged` cannot do this: it fires as the close starts,
   /// with the panel still on screen, and swapping it there would flash the

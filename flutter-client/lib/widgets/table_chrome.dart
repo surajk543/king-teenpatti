@@ -1977,9 +1977,11 @@ class ChatDrawer extends StatefulWidget {
   State<ChatDrawer> createState() => _ChatDrawerState();
 }
 
-/// The chat drawer's three pages: the conversation, the quick messages, and
-/// the players list where blocking lives.
-enum _ChatView { chat, quick, players }
+/// The chat drawer's three pages: the quick messages, the conversation, and
+/// the players list where blocking lives — in the order the header offers
+/// them (owner, 27 Sep 2026: "when i click chat message icon the first tab
+/// should be quick message, then table chat, then block").
+enum _ChatView { quick, chat, players }
 
 class _ChatDrawerState extends State<ChatDrawer> {
   final _input = TextEditingController();
@@ -1996,10 +1998,38 @@ class _ChatDrawerState extends State<ChatDrawer> {
   /// message) rather than the Add message key.
   bool _composing = false;
 
-  /// Which page is up. Every opening starts on the conversation — the drawer
-  /// goes back to the menu once it closes, so this state is new each time —
-  /// because the conversation is what the rail's key promised.
-  _ChatView _view = _ChatView.chat;
+  /// Which page is up. Every opening starts on the quick messages (owner,
+  /// 27 Sep 2026: the first tab, and the one the chat key opens) — the drawer
+  /// goes back to the menu once it closes, so this state is new each time.
+  _ChatView _view = _ChatView.quick;
+
+  /// The tab the players list was opened from, where a second tap on the
+  /// block key goes back to.
+  _ChatView _tab = _ChatView.quick;
+
+  /// Whether a [GameState.markChatRead] is already waiting for the frame's
+  /// end ([_readWhileShown]).
+  bool _marking = false;
+
+  /// Shows [view]: a tab, or the players list over the tab it was opened from.
+  void _show(_ChatView view) => setState(() {
+    if (view != _ChatView.players) _tab = view;
+    _view = view;
+  });
+
+  /// The conversation's unread count is cleared by LOOKING at it, not by
+  /// opening the drawer: the drawer opens on the quick messages now, where the
+  /// new lines are a tab away, so they stay counted — on the rail's key and on
+  /// the Table chat tab — until that tab is up. Cleared after the frame, since
+  /// a build may not notify the state it watches.
+  void _readWhileShown(GameState state) {
+    if (_view != _ChatView.chat || state.unreadChat == 0 || _marking) return;
+    _marking = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _marking = false;
+      if (mounted && _view == _ChatView.chat) state.markChatRead();
+    });
+  }
 
   @override
   void dispose() {
@@ -2021,6 +2051,7 @@ class _ChatDrawerState extends State<ChatDrawer> {
     // history behind it is hidden anyway, so both stand down and the composer
     // gets the whole panel.
     final typing = MediaQuery.viewInsetsOf(context).bottom > 0;
+    _readWhileShown(state);
 
     return GlassDrawerPanel(
       width: TableSpace.drawerW(MediaQuery.sizeOf(context).width),
@@ -2057,35 +2088,17 @@ class _ChatDrawerState extends State<ChatDrawer> {
                         child: LayoutBuilder(
                           builder: (context, box) {
                             final tabH = ChatTab.heightFor(context, [
-                              t.tableChat,
                               t.quickMessagesTitle,
+                              t.tableChat,
                             ], width: (box.maxWidth - Space.xs) / 2);
                             return Row(
                               children: [
                                 Expanded(
                                   child: ChatTab(
-                                    label: t.tableChat,
-                                    height: tabH,
-                                    selected: _view == _ChatView.chat,
-                                    onTap: () =>
-                                        setState(() => _view = _ChatView.chat),
-                                    glyph: RailLottie(
-                                      asset: 'assets/animations/Message.json',
-                                      fallback: Icons.forum_rounded,
-                                      recolour: strokesInInk,
-                                      size: 24,
-                                      animate: _view == _ChatView.chat,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: Space.xs),
-                                Expanded(
-                                  child: ChatTab(
                                     label: t.quickMessagesTitle,
                                     height: tabH,
                                     selected: _view == _ChatView.quick,
-                                    onTap: () =>
-                                        setState(() => _view = _ChatView.quick),
+                                    onTap: () => _show(_ChatView.quick),
                                     // The rail's proportions (a 56dp canvas in
                                     // a 30dp slot, lifted 2dp), scaled to the
                                     // tab.
@@ -2098,6 +2111,35 @@ class _ChatDrawerState extends State<ChatDrawer> {
                                       art: 45,
                                       artShift: const Offset(0, -1.6),
                                       animate: _view == _ChatView.quick,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: Space.xs),
+                                Expanded(
+                                  child: ChatTab(
+                                    label: t.tableChat,
+                                    height: tabH,
+                                    selected: _view == _ChatView.chat,
+                                    onTap: () => _show(_ChatView.chat),
+                                    // Lines nobody has looked at yet carry
+                                    // their count here as on the rail's key,
+                                    // since the drawer opens a tab away from
+                                    // them ([_readWhileShown]).
+                                    glyph: Badge(
+                                      key: const ValueKey('chat-tab-unread'),
+                                      isLabelVisible:
+                                          _view != _ChatView.chat &&
+                                          state.unreadChat > 0,
+                                      backgroundColor: AppTheme.gold,
+                                      textColor: AppTheme.ink900,
+                                      label: Text('${state.unreadChat}'),
+                                      child: RailLottie(
+                                        asset: 'assets/animations/Message.json',
+                                        fallback: Icons.forum_rounded,
+                                        recolour: strokesInInk,
+                                        size: 24,
+                                        animate: _view == _ChatView.chat,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -2115,8 +2157,11 @@ class _ChatDrawerState extends State<ChatDrawer> {
                       // 24 Sep 2026: "when user click on block button do not
                       // show pop up, instead show block button of players in
                       // drawer itself"), so the key toggles: lit while the
-                      // list is up, and a second tap — or a tab — goes back
-                      // to the chat. It stays lit while a block is in force
+                      // list is up, and a second tap goes back to the tab it
+                      // was opened from (a tab does too). It is the header's
+                      // third place, after both tabs (owner, 27 Sep 2026:
+                      // "quick message, then table chat, then block"). It
+                      // stays lit while a block is in force
                       // too: with the unblock row gone from the chat page,
                       // this key is the drawer's only sign of one.
                       PressScale(
@@ -2131,9 +2176,9 @@ class _ChatDrawerState extends State<ChatDrawer> {
                                 ? goldInk(theme.brightness)
                                 : null,
                           ),
-                          onPressed: () => setState(
-                            () => _view = _view == _ChatView.players
-                                ? _ChatView.chat
+                          onPressed: () => _show(
+                            _view == _ChatView.players
+                                ? _tab
                                 : _ChatView.players,
                           ),
                         ),
@@ -2161,204 +2206,223 @@ class _ChatDrawerState extends State<ChatDrawer> {
                 _quickComposer(state, theme),
               ] else ...[
                 Expanded(
-                  child: EdgeFade(
-                    child: ListView.builder(
-                      reverse: true,
-                      padding: const EdgeInsets.fromLTRB(
-                        Space.lg,
-                        Space.sm,
-                        Space.lg,
-                        Space.sm,
-                      ),
-                      itemCount: state.chat.length,
-                      itemBuilder: (context, i) {
-                        final m = state.chat[state.chat.length - 1 - i];
-                        // A line the table wrote itself — somebody joined or
-                        // left — arrives with no sender (the server's system
-                        // line: `userId` null, signed "Table"). It is a note in
-                        // the margin of the conversation, not a voice in it
-                        // (owner's brief: "System messages should be subtle
-                        // and muted"); it used to be signed "Table:" in red,
-                        // the colour a missing seat's id happened to hash to.
-                        if (m.userId.isEmpty) {
-                          return ChatSystemLine(text: m.text);
-                        }
-                        final mine = m.userId == state.user?.id;
-                        // Everyone gets their own colour, kept from their seat
-                        // so a player looks the same every time they speak — on
-                        // the bar beside the line. The NAME carries the line,
-                        // in the full ink; in the player's colour it was red
-                        // for whoever sat in the third seat, and a pale mint on
-                        // the light theme nobody could read.
-                        final colour = state.colourFor(
-                          m.userId,
-                          theme.colorScheme,
-                        );
-
-                        final name = mine ? 'You' : m.displayName;
-                        final nameStyle = TableType.chatName(
-                          theme,
-                          colour: mine
-                              ? goldInk(theme.brightness)
-                              : theme.colorScheme.onSurface,
-                        );
-                        final emoji = m.emoji;
-                        final row = Padding(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: Space.xs,
-                          ),
-                          child: Row(
-                            crossAxisAlignment: emoji == null
-                                ? CrossAxisAlignment.start
-                                : CrossAxisAlignment.center,
-                            children: [
-                              Container(
-                                width: 3,
-                                height: 16,
-                                margin: EdgeInsets.only(
-                                  right: Space.md,
-                                  top: emoji == null ? 3 : 0,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: colour,
-                                  borderRadius: BorderRadius.circular(Radii.xs),
-                                ),
-                              ),
-                              // An emoji line (owner, 26 Sep 2026): the
-                              // sender's name, then the emoji itself, small
-                              // and playing — what the table saw over their
-                              // seat. A screen reader hears who sent which.
-                              if (emoji != null)
-                                Expanded(
-                                  child: Semantics(
-                                    label: t.emojiSentBy(name, emoji.name),
-                                    excludeSemantics: true,
-                                    child: Row(
-                                      children: [
-                                        Flexible(
-                                          child: Text(
-                                            '$name:',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: nameStyle,
-                                          ),
-                                        ),
-                                        const SizedBox(width: Space.sm),
-                                        EmojiArt(
-                                          key: const ValueKey('chat-emoji'),
-                                          url: state.absoluteUrl(emoji.url),
-                                          size: ChatDrawer.chatEmojiSize,
-                                          semanticLabel: emoji.name,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                )
-                              else
-                                Expanded(
-                                  child: RichText(
-                                    textScaler: MediaQuery.textScalerOf(
-                                      context,
-                                    ),
-                                    text: TextSpan(
-                                      style: TableType.chatText(theme),
-                                      children: [
-                                        TextSpan(
-                                          text: '$name: ',
-                                          style: nameStyle,
-                                        ),
-                                        TextSpan(text: m.text),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        );
-
-                        // Long-press somebody else's line to reach the
-                        // players list, where their Block key is (owner,
-                        // 24 Sep 2026: no popup — it used to ask in a dialog).
-                        // Your own line has nothing to block, and an opaque
-                        // hit test means the press lands on the whole row
-                        // rather than only on the glyph it started over.
-                        return mine
-                            ? row
-                            : GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onLongPress: () =>
-                                    setState(() => _view = _ChatView.players),
-                                child: row,
-                              );
-                      },
-                    ),
-                  ),
+                  child: EdgeFade(child: _chatLines(context, state, theme)),
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    Space.lg,
-                    Space.sm,
-                    Space.lg,
-                    Space.md,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        // The composer on glass: the same controller, limit,
-                        // hint and submit, with the field's fill from the
-                        // glass tokens rather than the bare input theme. The
-                        // counter stays hidden (the component's default).
-                        //
-                        // In the chat's own type, the lines it adds to: at the
-                        // input theme's larger size the hint lost its last
-                        // letters in the 260dp drawer it had then ("Say
-                        // somethin…").
-                        child: GlassTextField(
-                          controller: _input,
-                          maxLength: 200,
-                          hintText: t.saySomething,
-                          style: TableType.chatText(
-                            theme,
-                          ).copyWith(color: theme.colorScheme.onSurface),
-                          decoration: InputDecoration(
-                            isDense: true,
-                            hintStyle: TableType.chatText(theme).copyWith(
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: AppTheme.inkLowOn(theme.brightness),
-                              ),
-                            ),
-                          ),
-                          onSubmitted: (_) => _send(state),
-                        ),
-                      ),
-                      const SizedBox(width: Space.md),
-                      PressScale(
-                        enabled: state.canChat,
-                        child: IconButton.filled(
-                          tooltip: state.canChat
-                              ? null
-                              : '${state.chatCooldownLeft}s',
-                          onPressed: state.canChat ? () => _send(state) : null,
-                          style: stepperStyle(theme).copyWith(
-                            minimumSize: const WidgetStatePropertyAll(
-                              Size(Dim.minTouch, Dim.minTouch),
-                            ),
-                          ),
-                          icon: state.canChat
-                              ? const Icon(Icons.send_rounded)
-                              : ChatCountdown(
-                                  left: state.chatCooldownLeft,
-                                  total: GameState.chatCooldown.inSeconds,
-                                ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                _chatComposer(state, theme),
               ],
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// The conversation, newest line at the foot. Every line carries the time
+  /// it was sent ([ChatTime], owner, 27 Sep 2026: "show timing in every chat
+  /// message"), all of them ending at the right edge: a player's words keep
+  /// the drawer's whole measure and wrap as before, the time standing at the
+  /// right of their last line.
+  Widget _chatLines(BuildContext context, GameState state, ThemeData theme) {
+    final t = state.t;
+    final timeW = ChatTime.widthFor(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final textStyle = TableType.chatText(theme);
+    // The blank that ends a line of words for its time: the time's width and
+    // a gap, given in the unscaled units an inline widget is scaled from.
+    final fontSize = textStyle.fontSize ?? 14;
+    final room = (timeW + Space.md) * fontSize / scaler.scale(fontSize);
+    final lift = ChatTime.liftOver(context, textStyle);
+    return ListView.builder(
+      reverse: true,
+      padding: const EdgeInsets.fromLTRB(
+        Space.lg,
+        Space.sm,
+        Space.lg,
+        Space.sm,
+      ),
+      itemCount: state.chat.length,
+      itemBuilder: (context, i) {
+        final m = state.chat[state.chat.length - 1 - i];
+        // A line the table wrote itself — somebody joined or
+        // left — arrives with no sender (the server's system
+        // line: `userId` null, signed "Table"). It is a note in
+        // the margin of the conversation, not a voice in it
+        // (owner's brief: "System messages should be subtle
+        // and muted"); it used to be signed "Table:" in red,
+        // the colour a missing seat's id happened to hash to.
+        if (m.userId.isEmpty) {
+          return ChatSystemLine(text: m.text, at: m.at, timeWidth: timeW);
+        }
+        final mine = m.userId == state.user?.id;
+        // Everyone gets their own colour, kept from their seat
+        // so a player looks the same every time they speak — on
+        // the bar beside the line. The NAME carries the line,
+        // in the full ink; in the player's colour it was red
+        // for whoever sat in the third seat, and a pale mint on
+        // the light theme nobody could read.
+        final colour = state.colourFor(m.userId, theme.colorScheme);
+
+        final name = mine ? 'You' : m.displayName;
+        final nameStyle = TableType.chatName(
+          theme,
+          colour: mine
+              ? goldInk(theme.brightness)
+              : theme.colorScheme.onSurface,
+        );
+        final emoji = m.emoji;
+        final row = Padding(
+          padding: const EdgeInsets.symmetric(vertical: Space.xs),
+          child: Row(
+            crossAxisAlignment: emoji == null
+                ? CrossAxisAlignment.start
+                : CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 3,
+                height: 16,
+                margin: EdgeInsets.only(
+                  right: Space.md,
+                  top: emoji == null ? 3 : 0,
+                ),
+                decoration: BoxDecoration(
+                  color: colour,
+                  borderRadius: BorderRadius.circular(Radii.xs),
+                ),
+              ),
+              // An emoji line (owner, 26 Sep 2026): the
+              // sender's name, then the emoji itself, small
+              // and playing — what the table saw over their
+              // seat. A screen reader hears who sent which.
+              if (emoji != null)
+                Expanded(
+                  child: _EmojiLine(
+                    name: '$name:',
+                    nameStyle: nameStyle,
+                    label: t.emojiSentBy(name, emoji.name),
+                    art: EmojiArt(
+                      key: const ValueKey('chat-emoji'),
+                      url: state.absoluteUrl(emoji.url),
+                      size: ChatDrawer.chatEmojiSize,
+                      semanticLabel: emoji.name,
+                    ),
+                    time: ChatTime(at: m.at, width: timeW),
+                    timeWidth: timeW,
+                  ),
+                )
+              else
+                // A line of words takes the drawer's whole measure, and its
+                // time stands at the right of its LAST line, on that line's
+                // baseline — where a messenger puts it: a blank as wide as the
+                // time ends the words, so the last line makes room for it or
+                // gives it a line of its own, and every time ends at one edge.
+                Expanded(
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      RichText(
+                        textScaler: scaler,
+                        text: TextSpan(
+                          style: textStyle,
+                          children: [
+                            TextSpan(text: '$name: ', style: nameStyle),
+                            TextSpan(text: m.text),
+                            if (m.at > 0)
+                              WidgetSpan(
+                                child: SizedBox(width: room, height: 1),
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (m.at > 0)
+                        Positioned(
+                          right: 0,
+                          bottom: lift,
+                          child: ChatTime(at: m.at, width: timeW),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        );
+
+        // Long-press somebody else's line to reach the
+        // players list, where their Block key is (owner,
+        // 24 Sep 2026: no popup — it used to ask in a dialog).
+        // Your own line has nothing to block, and an opaque
+        // hit test means the press lands on the whole row
+        // rather than only on the glyph it started over.
+        return mine
+            ? row
+            : GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onLongPress: () => _show(_ChatView.players),
+                child: row,
+              );
+      },
+    );
+  }
+
+  /// The conversation's composer: a line typed and sent to the table.
+  Widget _chatComposer(GameState state, ThemeData theme) {
+    final t = state.t;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        Space.lg,
+        Space.sm,
+        Space.lg,
+        Space.md,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            // The composer on glass: the same controller, limit,
+            // hint and submit, with the field's fill from the
+            // glass tokens rather than the bare input theme. The
+            // counter stays hidden (the component's default).
+            //
+            // In the chat's own type, the lines it adds to: at the
+            // input theme's larger size the hint lost its last
+            // letters in the 260dp drawer it had then ("Say
+            // somethin…").
+            child: GlassTextField(
+              controller: _input,
+              maxLength: 200,
+              hintText: t.saySomething,
+              style: TableType.chatText(
+                theme,
+              ).copyWith(color: theme.colorScheme.onSurface),
+              decoration: InputDecoration(
+                isDense: true,
+                hintStyle: TableType.chatText(theme).copyWith(
+                  color: theme.colorScheme.onSurface.withValues(
+                    alpha: AppTheme.inkLowOn(theme.brightness),
+                  ),
+                ),
+              ),
+              onSubmitted: (_) => _send(state),
+            ),
+          ),
+          const SizedBox(width: Space.md),
+          PressScale(
+            enabled: state.canChat,
+            child: IconButton.filled(
+              tooltip: state.canChat ? null : '${state.chatCooldownLeft}s',
+              onPressed: state.canChat ? () => _send(state) : null,
+              style: stepperStyle(theme).copyWith(
+                minimumSize: const WidgetStatePropertyAll(
+                  Size(Dim.minTouch, Dim.minTouch),
+                ),
+              ),
+              icon: state.canChat
+                  ? const Icon(Icons.send_rounded)
+                  : ChatCountdown(
+                      left: state.chatCooldownLeft,
+                      total: GameState.chatCooldown.inSeconds,
+                    ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2703,26 +2767,295 @@ class ChatPlayers extends StatelessWidget {
   static const _keyShare = 0.62;
 }
 
+/// An emoji line of the table chat (owner, 26 Sep 2026): the sender's name,
+/// then the emoji itself, small and playing — what the table saw over their
+/// seat — and the time it was sent at the right ([ChatTime], 27 Sep 2026).
+///
+/// The name is never cut to make room for the time: when the name, the emoji
+/// and the time cannot share one row, the name takes the whole row and the
+/// emoji and its time stand on the next, level with each other — as a
+/// player's words give their time a line of its own; a name wider than even
+/// the whole row takes a second line there rather than an ellipsis.
+class _EmojiLine extends StatelessWidget {
+  const _EmojiLine({
+    required this.name,
+    required this.nameStyle,
+    required this.label,
+    required this.art,
+    required this.time,
+    required this.timeWidth,
+  });
+
+  final String name;
+  final TextStyle nameStyle;
+
+  /// What a screen reader hears: who sent which emoji. A node of its own, so
+  /// the time beside it is heard as the time and not run into it.
+  final String label;
+  final Widget art;
+  final Widget time;
+  final double timeWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    return LayoutBuilder(
+      builder: (context, box) {
+        final painter = TextPainter(
+          text: TextSpan(text: name, style: nameStyle),
+          textDirection: Directionality.of(context),
+          textScaler: scaler,
+          maxLines: 1,
+        )..layout();
+        final nameW = painter.width.ceilToDouble();
+        painter.dispose();
+        final oneRow =
+            nameW +
+                Space.sm +
+                ChatDrawer.chatEmojiSize +
+                Space.sm +
+                timeWidth <=
+            box.maxWidth;
+        final nameText = Text(
+          name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: nameStyle,
+        );
+        // The time, centred on the emoji's height, at the row's right.
+        final timeOnRow = SizedBox(
+          height: ChatDrawer.chatEmojiSize,
+          child: Align(alignment: Alignment.centerRight, child: time),
+        );
+        if (oneRow) {
+          return Row(
+            children: [
+              Expanded(
+                child: Semantics(
+                  container: true,
+                  label: label,
+                  excludeSemantics: true,
+                  child: Row(
+                    children: [
+                      Flexible(child: nameText),
+                      const SizedBox(width: Space.sm),
+                      art,
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: Space.sm),
+              timeOnRow,
+            ],
+          );
+        }
+        // Two rows: the name, then the emoji with the time level with it at
+        // the right — laid over the foot of the row, so the emoji keeps its
+        // place under the name and the time its place in the column.
+        return SizedBox(
+          width: box.maxWidth,
+          child: Stack(
+            children: [
+              Semantics(
+                container: true,
+                label: label,
+                excludeSemantics: true,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // The whole row, and a second line where even that is
+                    // too narrow (24 letters at text x1.25 on a 592dp phone).
+                    Text(
+                      name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: nameStyle,
+                    ),
+                    const SizedBox(height: Space.xs),
+                    art,
+                  ],
+                ),
+              ),
+              Positioned(right: 0, bottom: 0, child: timeOnRow),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 /// A line the table wrote in the chat itself — somebody joined, somebody left:
 /// small, muted and centred, a note in the margin of the conversation rather
 /// than a voice in it (owner's brief: "System messages should be subtle and
-/// muted"). No sender, no colour bar: nobody said it.
+/// muted"). No sender, no colour bar: nobody said it. Its time stands in the
+/// conversation's time column like every other line's ([ChatTime]).
 class ChatSystemLine extends StatelessWidget {
-  const ChatSystemLine({super.key, required this.text});
+  const ChatSystemLine({
+    super.key,
+    required this.text,
+    this.at = 0,
+    this.timeWidth,
+  });
 
   final String text;
+
+  /// When the table wrote it: the server's epoch ms, as [ChatMessage.at].
+  final int at;
+
+  /// The time column's width, shared with every line of the conversation;
+  /// [ChatTime.widthFor] when not given.
+  final double? timeWidth;
 
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(vertical: Space.xs),
-    child: Text(
-      text,
-      textAlign: TextAlign.center,
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
-      style: TableType.metadata(Theme.of(context)),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Expanded(
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            // Three lines, not two: the time's column takes its width from
+            // the words, and "<a 24-letter name> joined the table" needs a
+            // third on a 592 or 640dp phone at text x1.25 (27 Sep 2026).
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: TableType.metadata(Theme.of(context)),
+          ),
+        ),
+        const SizedBox(width: Space.sm),
+        ChatTime(at: at, width: timeWidth ?? ChatTime.widthFor(context)),
+      ],
     ),
   );
+}
+
+/// [at] — the server's epoch-ms stamp on a chat line — as the phone's clock
+/// reads it: hours and minutes in local time, in the 12- or 24-hour form
+/// [use24h] asks for ("3:05 PM", "15:05"), through Material's own time
+/// format.
+String chatTimeLabel(
+  int at, {
+  required MaterialLocalizations localizations,
+  required bool use24h,
+}) => localizations.formatTimeOfDay(
+  TimeOfDay.fromDateTime(DateTime.fromMillisecondsSinceEpoch(at)),
+  alwaysUse24HourFormat: use24h,
+);
+
+/// When a chat line was sent (owner, 27 Sep 2026: "show timing in every chat
+/// message in table ui"): the server's own stamp ([ChatMessage.at], never the
+/// moment this phone heard it), in local hours and minutes, following the
+/// phone's 24-hour setting ([MediaQuery.alwaysUse24HourFormatOf]).
+///
+/// It ends at the right edge of the conversation, [width] wide on every line
+/// ([widthFor]) — at the right of a player's last line, beside an emoji or a
+/// line the table wrote — in the quiet tier, tabular, so one minute's time is
+/// as wide as the next. A line with no stamp (0: a server that sent none) leaves
+/// its place in the column empty rather than claim 1970.
+class ChatTime extends StatelessWidget {
+  const ChatTime({super.key, required this.at, required this.width});
+
+  final int at;
+  final double width;
+
+  /// The quiet tier ([TableType.metadata]), a step firmer by night: at the
+  /// tier's 0.46 the time measured 4.4:1 on the dark drawer's glass over the
+  /// table, and it stands on every line. 0.56 is the firmer night alpha the
+  /// table already gives its quiet figures ([TableType.inPotLabelAlpha]).
+  static double inkAlpha(Brightness b) =>
+      b == Brightness.dark ? 0.56 : AppTheme.inkLowOn(b);
+
+  static TextStyle style(ThemeData theme) => TableType.metadata(
+    theme,
+    figures: true,
+    colour: theme.colorScheme.onSurface.withValues(
+      alpha: inkAlpha(theme.brightness),
+    ),
+  );
+
+  static MaterialLocalizations _localizations(BuildContext context) =>
+      Localizations.of<MaterialLocalizations>(context, MaterialLocalizations) ??
+      const DefaultMaterialLocalizations();
+
+  /// What [at] reads in [context]'s time format, or null for no stamp.
+  static String? labelFor(BuildContext context, int at) => at <= 0
+      ? null
+      : chatTimeLabel(
+          at,
+          localizations: _localizations(context),
+          use24h: MediaQuery.alwaysUse24HourFormatOf(context),
+        );
+
+  /// The widest time of the day in this format, at the phone's text size —
+  /// "12:58 PM" or "22:58" — so no time is ever cut and every time ends at
+  /// one edge.
+  static double widthFor(BuildContext context) {
+    final localizations = _localizations(context);
+    final use24h = MediaQuery.alwaysUse24HourFormatOf(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final textStyle = style(Theme.of(context));
+    var widest = 0.0;
+    for (final hour in const [0, 10, 12, 22]) {
+      final painter = TextPainter(
+        text: TextSpan(
+          text: localizations.formatTimeOfDay(
+            TimeOfDay(hour: hour, minute: 58),
+            alwaysUse24HourFormat: use24h,
+          ),
+          style: textStyle,
+        ),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      widest = math.max(widest, painter.width);
+      painter.dispose();
+    }
+    return widest.ceilToDouble() + 1;
+  }
+
+  /// How far above the foot of a line set in [lineStyle] the time must stand
+  /// for its baseline to meet that line's: the line's depth below its
+  /// baseline less the time's own, at the phone's text size.
+  static double liftOver(BuildContext context, TextStyle lineStyle) {
+    final scaler = MediaQuery.textScalerOf(context);
+    double depth(TextStyle textStyle) {
+      final painter = TextPainter(
+        text: TextSpan(text: '0', style: textStyle),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final line = painter.computeLineMetrics().first;
+      painter.dispose();
+      return line.height - line.baseline;
+    }
+
+    return depth(lineStyle) - depth(style(Theme.of(context)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = labelFor(context, at);
+    return SizedBox(
+      width: width,
+      child: label == null
+          ? null
+          : Text(
+              label,
+              key: const ValueKey('chat-time'),
+              textAlign: TextAlign.end,
+              maxLines: 1,
+              softWrap: false,
+              style: style(Theme.of(context)),
+            ),
+    );
+  }
 }
 
 /// One of the chat drawer's two tabs, the conversation or the quick messages:
