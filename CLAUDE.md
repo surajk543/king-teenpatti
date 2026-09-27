@@ -927,8 +927,14 @@ and column below is in `V1.0.0__baseline.sql`'s CREATE TABLEs and every row in `
   (owner, 27 Sep 2026: "On Lobby in top right of card show the badge with minimum tax user holding" — "show badge only on
   seen, blind and variation card"; `widgets/lobby_card_badge.dart` `LobbyCardBadge`): at the right end of the card's name
   line, its top-right corner, the badge that brings the player's rate lowest (`User.shownBadge` — Regular for everybody, a
-  Royal badge where one runs; the first on a tie) as its own Lottie (`BadgeArt`, 1.5 × the name's size) over its OWN rate
-  ("20%", "0%") on the tax pill's amber, the pill tucked into the foot of the art's canvas (`tuck` 0.2). Never on the private
+  Royal badge where one runs; the first on a tie) as its own Lottie (`BadgeArt`, 1.5 × the name's size), with the player's
+  **level mark** before it (owner, 27 Sep 2026: "on top right also show player level icon along with badge and under that show
+  tax percentage minimum of badge or level" — `playerLevel.icon`, `levelShare` 0.5 of the art, its middle on the emblem's,
+  `lobby-card-level`), and under both the rate the player PAYS — `LobbyCardBadge.rateOf`: the server's `user.taxBps`, which is
+  the lower of the level's and every running badge's, else the lower of the level's and the shown badge's (Level 10 under
+  Regular reads 17.43%, a Royal badge 0%; it read the badge's own "20%" until then) — on the tax pill's amber, the pill tucked
+  into the foot of the art's canvas (`tuck` 0.2). No badge (an older server): the level and its rate alone; neither: nothing.
+  A screen reader hears "Level 10, Regular badge, 17.43% winning tax" (`cardRateSemantics` where there is no badge). Never on the private
   card, an engine's card or a poker game's; nothing where the player holds no badge. The card watches GameState and hands
   it a new widget every second, so it `select`s only its figures and hands back the SAME subtree while they, its size and
   the brightness hold (a State that keeps what it built): the tick never rebuilds the art — `level_screen_test`'s "rebuilds

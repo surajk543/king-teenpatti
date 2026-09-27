@@ -55,8 +55,11 @@ GameState _state({
   List<Map<String, Object?>>? badges,
   AppLang lang = AppLang.english,
   bool poker = false,
+  int levelNo = 10,
+  bool noLevel = false,
+  int? taxBps,
 }) {
-  final level = levelAt(10, xp: 4180);
+  final level = levelAt(levelNo, xp: 4180);
   final state = levelState(level: level, lang: lang)
     ..config = _menu(poker: poker);
   state.user = User.fromJson({
@@ -64,11 +67,28 @@ GameState _state({
     'provider': 'guest',
     'displayName': 'Guest0E00B',
     'chips': 324500,
-    'playerLevel': level,
+    if (!noLevel) 'playerLevel': level,
     'badges': badges ?? [regularBadge()],
+    'taxBps': ?taxBps,
   });
   return state;
 }
+
+/// Level [n]'s mark and its rate as the corner writes it.
+String _markOf(int n) => ownersLevels[n - 1].$4;
+String _rateOf(int n) => formatTaxRate(ownersLevels[n - 1].$5);
+
+/// The level marks the drawn corners show.
+List<String> _marks(WidgetTester tester) => [
+  for (final e
+      in find
+          .descendant(
+            of: _drawn,
+            matching: find.byKey(const ValueKey('lobby-card-level')),
+          )
+          .evaluate())
+    (e.widget as Text).data!,
+];
 
 /// The card a finder's widget stands on.
 Rect _cardOf(WidgetTester tester, Finder f) =>
@@ -146,15 +166,60 @@ void main() {
   });
 
   group('which badge', () {
-    testWidgets('Regular at 20% for everybody', (tester) async {
+    testWidgets('the level\'s mark beside the badge, and under them the '
+        'lower rate: Level 10 pays its own rate below Regular\'s 20%', (
+      tester,
+    ) async {
       final state = _state();
       await pumpLevelLobby(tester, state, screen: const Size(1280, 800));
       await tester.pump(const Duration(seconds: 1));
-      expect(_rates(tester), ['20%', '20%', '20%']);
+      expect(_rateOf(10), isNot('20%'));
+      expect(_rates(tester), [_rateOf(10), _rateOf(10), _rateOf(10)]);
+      expect(_marks(tester), [_markOf(10), _markOf(10), _markOf(10)]);
       final art = tester.widgetList<BadgeArt>(
         find.descendant(of: _drawn, matching: find.byType(BadgeArt)),
       );
       expect(art.map((a) => a.assetUrl).toSet(), {badgeUrl('REGULAR')});
+      // The mark stands before the badge, its middle on the emblem's, and
+      // the rate under both.
+      final corner = _drawn.first;
+      final mark = tester.getRect(
+        find.descendant(
+          of: corner,
+          matching: find.byKey(const ValueKey('lobby-card-level')),
+        ),
+      );
+      final emblem = tester.getRect(
+        find.descendant(of: corner, matching: find.byType(BadgeArt)),
+      );
+      final rate = tester.getRect(
+        find.descendant(
+          of: corner,
+          matching: find.byKey(const ValueKey('lobby-card-badge-rate')),
+        ),
+      );
+      expect(mark.right, lessThanOrEqualTo(emblem.left + 0.5));
+      expect(mark.center.dy, closeTo(emblem.center.dy, 2));
+      expect(rate.top, greaterThanOrEqualTo(mark.bottom - 0.5));
+      await unmountLevel(tester, state);
+    });
+
+    testWidgets('Level 1 and Regular are both 20%: 20%', (tester) async {
+      final state = _state(levelNo: 1);
+      await pumpLevelLobby(tester, state, screen: const Size(1280, 800));
+      await tester.pump(const Duration(seconds: 1));
+      expect(_rates(tester), ['20%', '20%', '20%']);
+      expect(_marks(tester).toSet(), {_markOf(1)});
+      await unmountLevel(tester, state);
+    });
+
+    testWidgets('the server\'s own figure is what the player pays', (
+      tester,
+    ) async {
+      final state = _state(taxBps: 1500);
+      await pumpLevelLobby(tester, state, screen: const Size(1280, 800));
+      await tester.pump(const Duration(seconds: 1));
+      expect(_rates(tester), ['15%', '15%', '15%']);
       await unmountLevel(tester, state);
     });
 
@@ -177,8 +242,24 @@ void main() {
       await unmountLevel(tester, state);
     });
 
-    testWidgets('nothing where the player holds no badge', (tester) async {
+    testWidgets('no badge: the level and its rate alone', (tester) async {
       final state = _state(badges: const []);
+      await pumpLevelLobby(tester, state, screen: const Size(1280, 800));
+      await tester.pump(const Duration(seconds: 1));
+      expect(_drawn, findsNWidgets(3));
+      expect(
+        find.descendant(of: _drawn, matching: find.byType(BadgeArt)),
+        findsNothing,
+      );
+      expect(_marks(tester), [_markOf(10), _markOf(10), _markOf(10)]);
+      expect(_rates(tester), [_rateOf(10), _rateOf(10), _rateOf(10)]);
+      await unmountLevel(tester, state);
+    });
+
+    testWidgets('nothing where the player has neither a level nor a badge', (
+      tester,
+    ) async {
+      final state = _state(badges: const [], noLevel: true);
       await pumpLevelLobby(tester, state, screen: const Size(1280, 800));
       await tester.pump(const Duration(seconds: 1));
       expect(_badge, findsNWidgets(3), reason: 'the slot is there');
@@ -192,7 +273,7 @@ void main() {
       final state = _state();
       await pumpLevelLobby(tester, state, screen: const Size(1280, 800));
       await tester.pump(const Duration(seconds: 1));
-      expect(_rates(tester), ['20%', '20%', '20%']);
+      expect(_rates(tester), [_rateOf(10), _rateOf(10), _rateOf(10)]);
       state.user = User.fromJson({
         'id': 'u0',
         'provider': 'guest',
@@ -255,7 +336,31 @@ void main() {
     await unmountLevel(tester, state);
   });
 
+  testWidgets('a screen reader hears the level, the badge and the rate', (
+    tester,
+  ) async {
+    final state = _state();
+    await pumpLevelLobby(tester, state, screen: const Size(1280, 800));
+    await tester.pump(const Duration(seconds: 1));
+    const t = Strings(AppLang.english);
+    final semantics = tester.ensureSemantics();
+    // The card, a button, reads the corner's words among its own.
+    expect(
+      tester.getSemantics(_drawn.first).label,
+      contains(
+        '${t.levelNumber(10)}, ${t.cardBadgeSemantics('Regular', _rateOf(10))}',
+      ),
+    );
+    semantics.dispose();
+    await unmountLevel(tester, state);
+  });
+
   test('what a screen reader hears, in every language', () {
+    for (final lang in AppLang.values) {
+      final said = Strings(lang).cardRateSemantics('17.43%');
+      expect(said, contains('17.43%'), reason: lang.name);
+      expect(Strings(lang).ownEntry('cardRateSemantics'), isNotNull);
+    }
     const english = 'Regular badge, 20% winning tax';
     expect(
       Strings(AppLang.english).cardBadgeSemantics('Regular', '20%'),

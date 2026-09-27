@@ -791,6 +791,11 @@ class Strings {
     'cardBadgeSemantics',
   ).replaceFirst('{badge}', badge).replaceFirst('{rate}', rate);
 
+  /// The card corner's rate alone, where no badge is shown: "17.43% winning
+  /// tax".
+  String cardRateSemantics(String rate) =>
+      _('cardRateSemantics').replaceFirst('{rate}', rate);
+
   /// The ladder's rate column, and the viewer's own row in it.
   String get taxColumn => _('taxColumn');
   String get levelYou => _('levelYou');
@@ -1999,6 +2004,7 @@ class Strings {
       'badgesTitle': 'Badges',
       'yourBadgesTitle': 'Your badges',
       'cardBadgeSemantics': '{badge} badge, {rate} winning tax',
+      'cardRateSemantics': '{rate} winning tax',
       'taxColumn': 'Tax',
       'levelYou': 'You',
       'levelTaxLabel': 'level tax',
@@ -2871,6 +2877,7 @@ class Strings {
       'badgesTitle': 'बैज',
       'yourBadgesTitle': 'आपके बैज',
       'cardBadgeSemantics': '{badge} बैज, {rate} जीत टैक्स',
+      'cardRateSemantics': '{rate} जीत टैक्स',
       'taxColumn': 'टैक्स',
       'levelYou': 'आप',
       'levelTaxLabel': 'लेवल टैक्स',
@@ -3726,6 +3733,7 @@ class Strings {
       'badgesTitle': 'ব্যাজ',
       'yourBadgesTitle': 'আপনার ব্যাজ',
       'cardBadgeSemantics': '{badge} ব্যাজ, {rate} জয়ের ট্যাক্স',
+      'cardRateSemantics': '{rate} জয়ের ট্যাক্স',
       'taxColumn': 'ট্যাক্স',
       'levelYou': 'আপনি',
       'levelTaxLabel': 'লেভেল ট্যাক্স',
@@ -4586,6 +4594,7 @@ class Strings {
       'badgesTitle': 'બેજ',
       'yourBadgesTitle': 'તમારા બેજ',
       'cardBadgeSemantics': '{badge} બેજ, {rate} જીત ટેક્સ',
+      'cardRateSemantics': '{rate} જીત ટેક્સ',
       'taxColumn': 'ટેક્સ',
       'levelYou': 'તમે',
       'levelTaxLabel': 'લેવલ ટેક્સ',
@@ -5442,6 +5451,7 @@ class Strings {
       'badgesTitle': 'ਬੈਜ',
       'yourBadgesTitle': 'ਤੁਹਾਡੇ ਬੈਜ',
       'cardBadgeSemantics': '{badge} ਬੈਜ, {rate} ਜਿੱਤ ਟੈਕਸ',
+      'cardRateSemantics': '{rate} ਜਿੱਤ ਟੈਕਸ',
       'taxColumn': 'ਟੈਕਸ',
       'levelYou': 'ਤੁਸੀਂ',
       'levelTaxLabel': 'ਲੈਵਲ ਟੈਕਸ',
