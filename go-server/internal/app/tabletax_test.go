@@ -419,11 +419,12 @@ func TestTheLevelLadderIsPublicAndWhole(t *testing.T) {
 		t.Errorf("the badges = %+v", body.Badges)
 	}
 	// The Royal badges the store lists (owner, 27 Sep 2026): each with its
-	// rupee price, its validity and its Lottie, and no Play product — asked
-	// for through support.
-	if ace, kings := body.Badges[1], body.Badges[6]; ace.Code != "ROYAL_ACE" || *ace.PriceInr != 499 || ace.ValidityDays != 7 ||
-		ace.ProductID != "" || *ace.TaxBps != 0 || ace.AssetFormat != "LOTTIE" || !strings.HasPrefix(ace.AssetURL, "https://drive.google.com/uc?export=download&id=") ||
-		kings.Code != "ROYAL_KING_OF_KINGS" || *kings.PriceInr != 4499 || kings.ValidityDays != 90 {
+	// rupee price, its validity, its Lottie and the Play product it is sold
+	// under.
+	if ace, kings := body.Badges[1], body.Badges[6]; ace.Code != "ROYAL_ACE" || *ace.PriceInr != 500 || ace.ValidityDays != 7 ||
+		ace.ProductID != "badge_royal_ace_499" || *ace.TaxBps != 0 || ace.AssetFormat != "LOTTIE" || !strings.HasPrefix(ace.AssetURL, "https://drive.google.com/uc?export=download&id=") ||
+		kings.Code != "ROYAL_KING_OF_KINGS" || *kings.PriceInr != 4500 || kings.ValidityDays != 90 ||
+		kings.ProductID != "badge_royal_king_of_kings_4499" || body.Badges[0].ProductID != "" {
 		t.Errorf("the store's badges = %+v %+v", ace, kings)
 	}
 	if len(body.XPSources) != 8 || body.DailyCap != nil || body.XPSources[0].Code != "PLAY_15_MIN" || body.XPSources[0].XP != 3 {

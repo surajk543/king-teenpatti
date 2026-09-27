@@ -7,35 +7,32 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 )
 
-// sellInApp gives a seeded badge a Play product, as an owner's UPDATE would:
-// as seeded, no badge is sold in the app — every Royal badge is asked for
-// through support (owner, 27 Sep 2026) — and the purchase path is there for
-// the badge an owner puts on Play.
-func (f *fixture) sellInApp(code, productID string) {
+// takeOffPlay takes a seeded badge off Play, as an owner's UPDATE setting its
+// product to NULL would: its store key goes back to asking support.
+func (f *fixture) takeOffPlay(code string) {
 	f.t.Helper()
-	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE badges SET play_product_id = $2 WHERE code = $1`, code, productID); err != nil {
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE badges SET play_product_id = NULL WHERE code = $1`, code); err != nil {
 		f.t.Fatal(err)
 	}
 }
 
-// A badge the app sells is found by its Play product, and only while it is
-// active; a badge with no product — every one as seeded — is sold by nothing.
+// Every Royal badge is sold under the Play product the owner created for it
+// (27 Sep 2026), and only while it is active and keeps that product; nothing
+// else — Regular, a badge's code, a pack's product, a near miss — sells a badge.
 func TestAStoreBadgeIsFoundByItsPlayProduct(t *testing.T) {
 	f := newFixture(t)
-	for _, id := range []string{"", "REGULAR", "ROYAL_KING", "chips_a_99", "badge_royal_king_999"} {
+	for _, id := range []string{"", "REGULAR", "ROYAL_KING", "chips_a_99", "badge_royal_king", "BADGE_ROYAL_KING_999"} {
 		if b, ok, err := db.BadgeForProduct(f.ctx, f.d, id); err != nil || ok {
-			t.Errorf("%q sells %+v (%v) before any badge is put on Play", id, b, err)
+			t.Errorf("%q sells %+v (%v)", id, b, err)
 		}
 	}
-	f.sellInApp("ROYAL_KING", "badge_royal_king_999")
-	f.sellInApp("ROYAL_ACE", "badge_royal_ace_499")
 	king, ok, err := db.BadgeForProduct(f.ctx, f.d, "badge_royal_king_999")
-	if err != nil || !ok || king.Code != "ROYAL_KING" || king.ValidityDays != 15 || king.PriceInr == nil || *king.PriceInr != 999 ||
+	if err != nil || !ok || king.Code != "ROYAL_KING" || king.ValidityDays != 15 || king.PriceInr == nil || *king.PriceInr != 1000 ||
 		king.ProductID != "badge_royal_king_999" || king.Title != "Royal King" {
 		t.Fatalf("the king: %+v %v %v", king, ok, err)
 	}
 	ace, ok, err := db.BadgeForProduct(f.ctx, f.d, "badge_royal_ace_499")
-	if err != nil || !ok || ace.Code != "ROYAL_ACE" || ace.ValidityDays != 7 || *ace.PriceInr != 499 {
+	if err != nil || !ok || ace.Code != "ROYAL_ACE" || ace.ValidityDays != 7 || *ace.PriceInr != 500 {
 		t.Fatalf("the ace: %+v %v %v", ace, ok, err)
 	}
 	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE badges SET is_active = FALSE WHERE code = 'ROYAL_ACE'`); err != nil {
@@ -43,6 +40,10 @@ func TestAStoreBadgeIsFoundByItsPlayProduct(t *testing.T) {
 	}
 	if _, ok, _ := db.BadgeForProduct(f.ctx, f.d, "badge_royal_ace_499"); ok {
 		t.Error("a retired badge is not for sale")
+	}
+	f.takeOffPlay("ROYAL_KING")
+	if _, ok, _ := db.BadgeForProduct(f.ctx, f.d, "badge_royal_king_999"); ok {
+		t.Error("a badge taken off Play is sold by nothing")
 	}
 }
 
@@ -55,8 +56,7 @@ func TestAStoreBadgeIsFoundByItsPlayProduct(t *testing.T) {
 func TestABadgeBoughtInTheStoreIsGrantedOncePerReceiptAndExtendsARunningGrant(t *testing.T) {
 	f := newFixture(t)
 	u := f.user("buyer")
-	// Royal King, 15 days at ₹999, put on Play for the test.
-	f.sellInApp("ROYAL_KING", "badge_royal_king_999")
+	// Royal King, 15 days at ₹1,000, sold on Play as seeded.
 	king, _, err := db.BadgeForProduct(f.ctx, f.d, "badge_royal_king_999")
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestABadgeBoughtInTheStoreIsGrantedOncePerReceiptAndExtendsARunningGrant(t 
 	}
 
 	if n := f.count(`SELECT count(*) FROM badge_purchases WHERE user_id = $1 AND badge_code = 'ROYAL_KING'
-	      AND price_inr = 999 AND product_id = 'badge_royal_king_999'`, u.ID); n != 3 {
+	      AND price_inr = 1000 AND product_id = 'badge_royal_king_999'`, u.ID); n != 3 {
 		t.Fatalf("%d receipts, want 3", n)
 	}
 	if got := len(f.ledgerRows(u.ID)); got != ledgerBefore {

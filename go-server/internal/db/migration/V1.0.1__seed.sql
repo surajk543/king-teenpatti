@@ -29,9 +29,11 @@
 --                 daily cap (xp_settings). No player_xp or user_badges row is
 --                 ever seeded. Levels and XP never expire — XP is only ever
 --                 added to, and the window resets what may still be EARNED
---                 today, never what was. A Royal badge asked for through
---                 support is given BY HAND, for its validity_days (7 for
---                 Royal Ace up to 90 for Royal King of Kings), with:
+--                 today, never what was. A Royal badge is bought in the app
+--                 through Google Play (its play_product_id, below); one
+--                 given BY HAND instead — a support grant, a compensation —
+--                 runs for its validity_days (7 for Royal Ace up to 90 for
+--                 Royal King of Kings), with:
 --
 --     INSERT INTO user_badges (user_id, badge_code) VALUES ('<users.id>', 'ROYAL_KING')
 --     ON CONFLICT (user_id, badge_code) DO UPDATE
@@ -985,39 +987,45 @@ VALUES
 -- badge of the owner's first list.
 -- Then the ROYAL badges the store lists (owner, 27 Sep 2026: "for badges use
 -- this entry, not vips entry … Add this in UI store and with their lottie
--- animation u can store in db"): 0% winning tax for 7 to 90 days at ₹499 to
--- ₹4,499, each with the owner's Lottie (asset_url: their Drive uploads, public,
+-- animation u can store in db"): 0% winning tax for 7 to 90 days at ₹500 to
+-- ₹4,500, each with the owner's Lottie (asset_url: their Drive uploads, public,
 -- as the download link; every one checked for what a phone's player cannot
 -- draw — no 3D layers, no images, no text; Royal King of Kings's crown pulse
 -- is a loopOut('pingpong') a phone plays once a loop rather than throughout,
 -- and Royal Ace's 16:9 canvas has its crown in the middle, which a square
--- shows whole). They name no Play product: every royal badge is asked for
--- through support ("for all type of royal badges Add a button to contact
--- support in store") and granted by hand (this file's header); a
--- play_product_id on one (a managed product in the Play Console) would sell it
--- in the app instead. price_inr is the price in rupees, always INR ("price in
+-- shows whole). Each is SOLD IN THE APP through Google Play under its
+-- play_product_id, a managed one-time product in the Play Console (owner,
+-- 27 Sep 2026, who created the six that day: badge_royal_<name>_<rupees>);
+-- until then every royal badge was asked for through support ("for all type
+-- of royal badges Add a button to contact support in store") and granted by
+-- hand (this file's header, still the way to grant one without a purchase).
+-- A product id set to NULL takes a badge back to the support key.
+-- price_inr is the price in rupees, always INR ("price in
 -- badges will always be in inr currency"). They replace the two badges of the
 -- owner's first list, Tax Free Ace and Tax Free King; the VIP, Royal VIP and
 -- Elite VIP badges of the same day are gone (owner, 27 Sep 2026: "remove the
 -- entry vip, royal vip and elite vip"). Written only where the code is
 -- missing, so an owner's UPDATE — a re-priced badge, a new icon, a longer
--- validity — survives every restart.
+-- validity — survives every restart. The prices are Play's own in India
+-- (owner, 27 Sep 2026: "change price to match"): ₹500 to ₹4,500, where the
+-- first list said ₹499 to ₹4,499 — the product ids keep that list's figures,
+-- since Play never renames a product.
 INSERT INTO badges (code, title, icon, tax_bps, validity_days, price_inr, play_product_id,
                     asset_url, asset_format, is_default, is_active, sort_order)
 VALUES
   ('REGULAR',   'Regular',   '',    2000, 0,    0,    NULL,
    'https://drive.google.com/uc?export=download&id=1zz4gVBpw579xeR1LLn3dBd3Os3cG8jQT', 'LOTTIE', TRUE, TRUE, 10),
-  ('ROYAL_ACE',           'Royal Ace',           '', 0, 7,  499,  NULL,
+  ('ROYAL_ACE',           'Royal Ace',           '', 0, 7,  500,  'badge_royal_ace_499',
    'https://drive.google.com/uc?export=download&id=1lwt8uXauqnX77WEb73xZAbTz_TR-rJKm', 'LOTTIE', FALSE, TRUE, 20),
-  ('ROYAL_KING',          'Royal King',          '', 0, 15, 999,  NULL,
+  ('ROYAL_KING',          'Royal King',          '', 0, 15, 1000,  'badge_royal_king_999',
    'https://drive.google.com/uc?export=download&id=1Frs4uv6oAkxK9YgHhh52Rwi_kCRpngNU', 'LOTTIE', FALSE, TRUE, 30),
-  ('ROYAL_MASTER',        'Royal Master',        '', 0, 30, 1799, NULL,
+  ('ROYAL_MASTER',        'Royal Master',        '', 0, 30, 1800, 'badge_royal_master_1799',
    'https://drive.google.com/uc?export=download&id=1ifJxiC6l59fQ1i-RulfLn2SzJfw5sgiJ', 'LOTTIE', FALSE, TRUE, 40),
-  ('ROYAL_EMPEROR',       'Royal Emperor',       '', 0, 45, 2499, NULL,
+  ('ROYAL_EMPEROR',       'Royal Emperor',       '', 0, 45, 2500, 'badge_royal_emperor_2499',
    'https://drive.google.com/uc?export=download&id=1gBUNiLrdoSqkL29UEKCI7DjqAr8wZiSd', 'LOTTIE', FALSE, TRUE, 50),
-  ('ROYAL_LEGEND',        'Royal Legend',        '', 0, 60, 3299, NULL,
+  ('ROYAL_LEGEND',        'Royal Legend',        '', 0, 60, 3300, 'badge_royal_legend_3299',
    'https://drive.google.com/uc?export=download&id=1kn5KJLW96mcMaXLygpvM_sIxPA7L1Ov-', 'LOTTIE', FALSE, TRUE, 60),
-  ('ROYAL_KING_OF_KINGS', 'Royal King of Kings', '', 0, 90, 4499, NULL,
+  ('ROYAL_KING_OF_KINGS', 'Royal King of Kings', '', 0, 90, 4500, 'badge_royal_king_of_kings_4499',
    'https://drive.google.com/uc?export=download&id=1A1ckgYQjocbcYfeJsOKFNO8hCrCDCWNI', 'LOTTIE', FALSE, TRUE, 70)
     ON CONFLICT (code) DO NOTHING;
 

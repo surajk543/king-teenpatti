@@ -199,18 +199,18 @@ func TestTheSeededBadgesAreTheOwners(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The Royal badges the store lists (owner, 27 Sep 2026: "for badges use
-	// this entry, not vips entry"): 0% for 7 to 90 days at ₹499 to ₹4,499,
-	// each with the owner's Lottie on Drive, and no Play product — asked for
-	// through support. The store does not list Regular, everyone's by
-	// default.
+	// this entry, not vips entry"): 0% for 7 to 90 days at ₹500 to ₹4,500 (Play's own prices),
+	// each with the owner's Lottie on Drive, and each sold in the app under
+	// the Play product the owner created for it. The store does not list
+	// Regular, everyone's by default, and it has no product.
 	want := []string{
 		`REGULAR/Regular/""/2000/0d/₹0/""/LOTTIE:1zz4gVBpw579xeR1LLn3dBd3Os3cG8jQT/default=true/active=true`,
-		`ROYAL_ACE/Royal Ace/""/0/7d/₹499/""/LOTTIE:1lwt8uXauqnX77WEb73xZAbTz_TR-rJKm/default=false/active=true`,
-		`ROYAL_KING/Royal King/""/0/15d/₹999/""/LOTTIE:1Frs4uv6oAkxK9YgHhh52Rwi_kCRpngNU/default=false/active=true`,
-		`ROYAL_MASTER/Royal Master/""/0/30d/₹1799/""/LOTTIE:1ifJxiC6l59fQ1i-RulfLn2SzJfw5sgiJ/default=false/active=true`,
-		`ROYAL_EMPEROR/Royal Emperor/""/0/45d/₹2499/""/LOTTIE:1gBUNiLrdoSqkL29UEKCI7DjqAr8wZiSd/default=false/active=true`,
-		`ROYAL_LEGEND/Royal Legend/""/0/60d/₹3299/""/LOTTIE:1kn5KJLW96mcMaXLygpvM_sIxPA7L1Ov-/default=false/active=true`,
-		`ROYAL_KING_OF_KINGS/Royal King of Kings/""/0/90d/₹4499/""/LOTTIE:1A1ckgYQjocbcYfeJsOKFNO8hCrCDCWNI/default=false/active=true`,
+		`ROYAL_ACE/Royal Ace/""/0/7d/₹500/"badge_royal_ace_499"/LOTTIE:1lwt8uXauqnX77WEb73xZAbTz_TR-rJKm/default=false/active=true`,
+		`ROYAL_KING/Royal King/""/0/15d/₹1000/"badge_royal_king_999"/LOTTIE:1Frs4uv6oAkxK9YgHhh52Rwi_kCRpngNU/default=false/active=true`,
+		`ROYAL_MASTER/Royal Master/""/0/30d/₹1800/"badge_royal_master_1799"/LOTTIE:1ifJxiC6l59fQ1i-RulfLn2SzJfw5sgiJ/default=false/active=true`,
+		`ROYAL_EMPEROR/Royal Emperor/""/0/45d/₹2500/"badge_royal_emperor_2499"/LOTTIE:1gBUNiLrdoSqkL29UEKCI7DjqAr8wZiSd/default=false/active=true`,
+		`ROYAL_LEGEND/Royal Legend/""/0/60d/₹3300/"badge_royal_legend_3299"/LOTTIE:1kn5KJLW96mcMaXLygpvM_sIxPA7L1Ov-/default=false/active=true`,
+		`ROYAL_KING_OF_KINGS/Royal King of Kings/""/0/90d/₹4500/"badge_royal_king_of_kings_4499"/LOTTIE:1A1ckgYQjocbcYfeJsOKFNO8hCrCDCWNI/default=false/active=true`,
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("badges:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -1021,8 +1021,8 @@ func TestTheLadderIsEveryLevelAndBadgeWithTheSourcesAndTheCap(t *testing.T) {
 		badges = append(badges, fmt.Sprintf("%s:%s:%d:%v:%s:%s:%s", b.Code, rate, b.ValidityDays, b.IsDefault, rupees, b.ProductID, b.AssetFormat))
 	}
 	if got := strings.Join(badges, ","); got != "REGULAR:2000:0:true:0::LOTTIE,"+
-		"ROYAL_ACE:0:7:false:499::LOTTIE,ROYAL_KING:0:15:false:999::LOTTIE,ROYAL_MASTER:0:30:false:1799::LOTTIE,"+
-		"ROYAL_EMPEROR:0:45:false:2499::LOTTIE,ROYAL_LEGEND:0:60:false:3299::LOTTIE,ROYAL_KING_OF_KINGS:0:90:false:4499::LOTTIE" {
+		"ROYAL_ACE:0:7:false:500:badge_royal_ace_499:LOTTIE,ROYAL_KING:0:15:false:1000:badge_royal_king_999:LOTTIE,ROYAL_MASTER:0:30:false:1800:badge_royal_master_1799:LOTTIE,"+
+		"ROYAL_EMPEROR:0:45:false:2500:badge_royal_emperor_2499:LOTTIE,ROYAL_LEGEND:0:60:false:3300:badge_royal_legend_3299:LOTTIE,ROYAL_KING_OF_KINGS:0:90:false:4500:badge_royal_king_of_kings_4499:LOTTIE" {
 		t.Errorf("badges = %s", got)
 	}
 	if url := ladder.Badges[1].AssetURL; url != "https://drive.google.com/uc?export=download&id=1lwt8uXauqnX77WEb73xZAbTz_TR-rJKm" {
