@@ -166,6 +166,8 @@ class _FriendsKeyState extends State<FriendsKey> {
           surface: GlassSurface.card,
           live: lit,
           minHeight: FriendsKey.side,
+          // The lobby's click (owner, 27 Sep 2026).
+          click: true,
           onTap: () => showFriends(context),
           padding: const EdgeInsets.all((FriendsKey.side - _Mark.size) / 2),
           child: _Mark(
@@ -183,7 +185,10 @@ class _FriendsKeyState extends State<FriendsKey> {
             label: lit
                 ? '${t.friends}, ${t.friendRequestsWaiting(waiting)}'
                 : t.friends,
-            onTap: () => showFriends(context),
+            onTap: () {
+              lobbyClick(context);
+              showFriends(context);
+            },
             excludeSemantics: true,
             child: Tooltip(
               message: t.friends,

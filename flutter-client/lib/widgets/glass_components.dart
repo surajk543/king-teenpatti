@@ -36,6 +36,22 @@ void tapHaptic(BuildContext context) {
   if (on) HapticFeedback.lightImpact();
 }
 
+/// The lobby's click (owner, 27 Sep 2026: "This Card click.mp3 sound should
+/// be played when i click back button and any button in Lobby UI"): the
+/// owner's recording through [FeedbackSettings.cardClick], behind the Sound
+/// switch. Every control the lobby screen draws calls it once per tap, and so
+/// does a system Back the lobby takes (main.dart's `_BackGuard`). A control
+/// that plays it turns Material's own platform tick off, so a tap is heard
+/// once. Safe anywhere: with no [FeedbackSettings] above it there is nothing
+/// to play.
+void lobbyClick(BuildContext context) {
+  try {
+    Provider.of<FeedbackSettings>(context, listen: false).cardClick();
+  } on ProviderNotFoundException {
+    // No sounds in scope (a bare widget test, a tool).
+  }
+}
+
 /// Whether Material's own click should play on a tap — the player's Sound
 /// switch, or on when there is no switch in scope.
 ///
@@ -236,6 +252,7 @@ class GlassButton extends StatelessWidget {
     this.tone,
     this.buttonStyle,
     this.pressScale = true,
+    this.click = false,
   }) : assert(
          label != null || child != null,
          'a GlassButton needs a label or a child',
@@ -263,6 +280,10 @@ class GlassButton extends StatelessWidget {
   /// inside a card that scales on tap would otherwise shrink twice.
   final bool pressScale;
 
+  /// A lobby key: the tap plays [lobbyClick] in place of Material's platform
+  /// tick. A disabled key stays silent.
+  final bool click;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -272,6 +293,7 @@ class GlassButton extends StatelessWidget {
 
     void press() {
       tapHaptic(context);
+      if (click) lobbyClick(context);
       onPressed!();
     }
 
@@ -309,9 +331,11 @@ class GlassButton extends StatelessWidget {
           ? null
           : WidgetStatePropertyAll(minimumSize),
     );
-    final merged = (buttonStyle ?? const ButtonStyle())
+    var merged = (buttonStyle ?? const ButtonStyle())
         .merge(variant)
         .merge(base);
+    // The owner's click replaces Material's tick, so the tap sounds once.
+    if (click) merged = const ButtonStyle(enableFeedback: false).merge(merged);
     final onTap = enabled ? press : null;
 
     Widget button = switch (style) {

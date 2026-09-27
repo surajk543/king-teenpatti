@@ -3,7 +3,9 @@
 // assets/sound/Card click.mp3, played by FeedbackSettings.cardClick() when an
 // engine card (Teen Patti, Poker), a category card (Seen, Blind, Variation)
 // or a table the player may sit at is tapped. Sitting down keeps its door as
-// well; a padlocked table card goes nowhere and stays quiet.
+// well; a padlocked table card goes nowhere and stays quiet. Since 27 Sep
+// 2026 every other key in the lobby, and Back, clicks too
+// (test/lobby_click_sound_test.dart).
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

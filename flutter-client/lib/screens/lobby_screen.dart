@@ -130,10 +130,19 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   /// On the code field's box, so the lift can be measured against the field
   /// itself rather than guessed from the card's layout.
-  final _codeField = GlobalKey();
+  ///
+  /// This key and the card's below are made afresh each time the rail comes
+  /// back to the front ([build]). The level that is leaving stays in the tree
+  /// through its transition. A player who goes in and straight back out
+  /// again (a tap on Seen, then one on the back tile that has just appeared
+  /// under the finger) would otherwise put two front levels in the tree, each
+  /// with a private card under the same GlobalKey, and the framework would
+  /// throw "Duplicate GlobalKey". The new keys belong to the level coming in,
+  /// which is the only one [_codeFieldInCard] needs to measure.
+  var _codeField = GlobalKey();
 
   /// On the private card, the box the code field is measured against.
-  final _privateCard = GlobalKey();
+  var _privateCard = GlobalKey();
 
   @override
   void dispose() {
@@ -248,6 +257,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
       _levelForward = _levelDepth(level) >= _levelDepth(_shownLevel!);
       _shownLevel = level;
       _levelChanged = true;
+      // Back at the front: the private card coming in takes keys of its own,
+      // while any front level still leaving keeps the old ones.
+      if (level.isEmpty) {
+        _codeField = GlobalKey();
+        _privateCard = GlobalKey();
+      }
     }
     // The open level's colour, let into the room as its ambient light (owner,
     // 24 Sep 2026: "the glow should feel like ambient lighting behind the
@@ -966,6 +981,7 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                             GlassButton(
                               style: GlassButtonStyle.primary,
                               onPressed: state.dismissReward,
+                              click: true,
                               label: t.tapToClose,
                             ),
                           ],
@@ -1090,15 +1106,14 @@ class _TopBar extends StatelessWidget {
                           width: math.max(Dim.minTouch, avatarD),
                           child: PressScale(
                             child: InkWell(
-                              // Material's own click, gated on the player's Sound
-                              // switch — otherwise a silenced game would still
-                              // tick on every tap.
-                              enableFeedback: context
-                                  .select<FeedbackSettings, bool>(
-                                    (f) => f.sound,
-                                  ),
+                              // The owner's lobby click in place of
+                              // Material's tick (owner, 27 Sep 2026).
+                              enableFeedback: false,
                               customBorder: const CircleBorder(),
-                              onTap: () => openPicturePicker(context),
+                              onTap: () {
+                                lobbyClick(context);
+                                openPicturePicker(context);
+                              },
                               child: Center(
                                 child: _AvatarWithPip(
                                   url: state.avatarUrl,
@@ -1291,7 +1306,7 @@ class _TopBar extends StatelessWidget {
                       // sat under the table rail and competed with the
                       // milestone chip for the same corner.
                       // Icon-only on a tight bar, so the name keeps its letters.
-                      ShopButton(compact: tight),
+                      ShopButton(compact: tight, click: true),
                       const SizedBox(width: Space.md),
                       _BarActions(onOpen: onOpen),
                     ],
@@ -1592,14 +1607,15 @@ class _BarActions extends StatelessWidget {
             height: Dim.minTouch,
             child: PressScale(
               child: InkWell(
-                // Material's own click, gated on the player's Sound switch —
-                // otherwise a silenced game would still tick on every tap.
-                enableFeedback: context.select<FeedbackSettings, bool>(
-                  (f) => f.sound,
-                ),
-                // The caller's own callback, unchanged: the light haptic comes
-                // from the PressScale above, which fires it on release.
-                onTap: onTap,
+                // The owner's lobby click in place of Material's tick (owner,
+                // 27 Sep 2026), then the caller's own callback: the light
+                // haptic comes from the PressScale above, which fires it on
+                // release.
+                enableFeedback: false,
+                onTap: () {
+                  lobbyClick(context);
+                  onTap();
+                },
                 customBorder: const CircleBorder(),
                 child: Icon(
                   icon,
@@ -1900,7 +1916,7 @@ class _GroupCard extends StatelessWidget {
           child: _Pressable(
             onTap: () {
               tapHaptic(context);
-              context.read<FeedbackSettings>().cardClick();
+              lobbyClick(context);
               onOpen();
             },
             child: LayoutBuilder(
@@ -2203,6 +2219,7 @@ class _BackTile extends StatelessWidget {
               child: _Pressable(
                 onTap: () {
                   tapHaptic(context);
+                  lobbyClick(context);
                   context.read<GameState>().closeLobbyLevel();
                 },
                 child: GameCard(
@@ -2400,9 +2417,8 @@ class _TableCard extends StatelessWidget {
               ? () {}
               : () {
                   // The card's click, the door, then the room.
-                  context.read<FeedbackSettings>()
-                    ..cardClick()
-                    ..enterTable();
+                  lobbyClick(context);
+                  context.read<FeedbackSettings>().enterTable();
                   context.read<GameState>().quickJoin(boot, category);
                 },
           child: LayoutBuilder(
@@ -2890,8 +2906,11 @@ class _CardCornerKey extends StatelessWidget {
       label: label,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        // Its own click, and only its own: the key wins the tap over the card
+        // it stands on, so the card underneath neither opens nor clicks.
         onTap: () {
           tapHaptic(context);
+          lobbyClick(context);
           onTap();
         },
         child: SizedBox.square(
@@ -3749,6 +3768,7 @@ class _PrivateCardState extends State<_PrivateCard> {
                           child: GlassButton(
                             style: GlassButtonStyle.glass,
                             onPressed: state.createPrivate,
+                            click: true,
                             buttonStyle: _accentKeyStyle(palette, brightness),
                             child: _CardKeyLabel(state.t.create),
                           ),
@@ -3765,6 +3785,7 @@ class _PrivateCardState extends State<_PrivateCard> {
                             onPressed: isValidTableCode(_code.text)
                                 ? () => state.joinByCode(_code.text)
                                 : null,
+                            click: true,
                             buttonStyle: _cardKeyStyle,
                             child: _CardKeyLabel(state.t.join),
                           ),
@@ -6371,6 +6392,9 @@ class _CornerChip extends StatelessWidget {
             // Both states are the same size, so a chip becoming claimable does
             // not shove the row it is in.
             minHeight: Dim.minTouch,
+            // The lobby's click (owner, 27 Sep 2026): on a reward taken and on
+            // a bonus's popup opened alike; a chip with no tap stays silent.
+            click: true,
             onTap: enabled ? onTap : onWaitTap,
             // The mark sits in the pill's own round end, as far from the rim
             // as it is from the top and the foot.

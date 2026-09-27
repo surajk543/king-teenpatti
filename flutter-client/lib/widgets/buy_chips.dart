@@ -155,12 +155,16 @@ class BuyChipsButton extends StatelessWidget {
 /// rest of the cycle off its edge, so the key is still far more often than
 /// not. The breathing bloom it had is gone; a shadow that pulses is noise.
 class ShopButton extends StatefulWidget {
-  const ShopButton({super.key, this.compact = false});
+  const ShopButton({super.key, this.compact = false, this.click = false});
 
   /// The storefront alone, without the word. The lobby's top bar asks for it
   /// when the row is tight (a 640dp phone), where the label cost the player's
   /// name its letters; a tooltip still names the key.
   final bool compact;
+
+  /// The lobby's Shop key: the tap plays [lobbyClick] in place of Material's
+  /// platform tick (owner, 27 Sep 2026). The table's Shop key keeps the tick.
+  final bool click;
 
   @override
   State<ShopButton> createState() => _ShopButtonState();
@@ -258,10 +262,13 @@ class _ShopButtonState extends State<ShopButton>
                   ),
                 ),
                 child: InkWell(
-                  enableFeedback: context.select<FeedbackSettings, bool>(
-                    (f) => f.sound,
-                  ),
-                  onTap: () => showChipStore(context),
+                  enableFeedback:
+                      !widget.click &&
+                      context.select<FeedbackSettings, bool>((f) => f.sound),
+                  onTap: () {
+                    if (widget.click) lobbyClick(context);
+                    showChipStore(context);
+                  },
                   splashColor: AppTheme.inkOnLight.withValues(alpha: 0.16),
                   highlightColor: AppTheme.inkOnLight.withValues(alpha: 0.08),
                   child: ConstrainedBox(

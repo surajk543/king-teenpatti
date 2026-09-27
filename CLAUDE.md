@@ -164,7 +164,7 @@ king-teenpatti/
     ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/ (synthesised clips),
     │                         assets/sound/ (the owner's recordings, §8.4 "Sounds": see card sound.mp3 — the look at a hand;
     │                         Card Distribute.mp3 — each card of the deal; hammer hit.mp3 — a Force Sideshow's hammer;
-    │                         Missile hit.mp3 — a missile volley; Card click.mp3 — a tap on a lobby card),
+    │                         Missile hit.mp3 — a missile volley; Card click.mp3 — a tap on any lobby key or card, and Back in the lobby),
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
     │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
@@ -2670,8 +2670,32 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   sound should be played when user click on card" — the lobby's cards, the owner chose): **`assets/sound/Card click.mp3`**
   (`cardClick()`, full volume; a click 60 ms in, gone by 150 ms) on a tap on an engine card (Teen Patti, Poker), a category
   card (`_GroupCard`) or a table the player may sit at (`_TableCard`, where the door `enterTable()` still plays with it). A
-  padlocked table card goes nowhere and stays quiet; the back tile, the corner keys and the private card's keys are not
-  cards. `test/card_click_sound_test.dart`.
+  padlocked table card goes nowhere and stays quiet. `test/card_click_sound_test.dart`. **Every lobby key and Back**
+  (owner, 27 Sep 2026: "This Card click.mp3 sound should be played when i click back button and any button in Lobby
+  UI"): the same click, once per tap, through ONE helper, `lobbyClick(context)` (`widgets/glass_components.dart`, beside
+  `tapHaptic`; nothing without a `FeedbackSettings` in scope) — the top bar (the 4-hour bonus chip, the picture, Shop, the
+  record, Settings, Sign out), the foot (the daily bonus, the Lucky Draw, the level key, Friends, the milestone), the back
+  tile, a table card's ⓘ and rules keys (their own click only: the key wins the tap over the card, which neither clicks
+  nor opens), the private card's Create and Join, the reward celebration's close key, and the cards as before. The shared
+  widgets take it as a flag — `GlassCapsule(click:)` (every `_CornerChip`, `LevelKey`, `FriendsKey`), `GlassButton(click:)`,
+  `ShopButton(click:)` (the lobby's only; the table's keeps Material's tick) — and a control that clicks turns Material's
+  own platform tick off (`enableFeedback: false`), so a tap is heard once. **System Back** clicks whenever the LOBBY takes
+  it (main.dart `_BackGuard`): closing the Stats or Settings drawer, going up a level (`closeLobbyLevel`), or asking to
+  quit — not the quit question's own keys, not under the no-winnings panel, not under a cold start's resume veil (the
+  player sees the veil, not the lobby: `!state.resuming`), not at the table or sign-in, and never when a dialog, sheet or
+  page is over the lobby (it takes Back itself). Silent: a padlocked table card, a disabled key (Join before 8
+  characters, the milestone still counting hands), the celebration's scrim, the code field and its keyboard Enter, and
+  the no-winnings panel's *I confirm* (the panel covers the lobby; it is not a lobby key). The tests hear Material's
+  tick too (`SystemSound.play` on a mocked platform channel, a sound-on theme): every key that clicks makes no tick. **Not yet extended** (surfaces opened FROM the lobby, their own keys keep Material's tick): the Stats and
+  Settings drawers' rows, the bonus popup, the table-info popup, the rules sheet, the sign-out and quit questions, the
+  picture picker, the store, the Lucky Draw page, the level popup, the Friends page. Rapid taps restart the one voice the
+  clip has (`_playAsset` stops it and plays again), so each tap clicks and nothing stacks. The seam the tests hear
+  through is `FeedbackSettings.playClip` (`@visibleForTesting`), after the Sound switch has decided.
+  `test/lobby_click_sound_test.dart`. **Found with it, and fixed** (it predates the click, master `b7f9c27` threw it too): a
+  tap on a category card and another on the same spot straight after — the back tile coming in over the leaving front —
+  put two front levels in the rail's `AnimatedSwitcher`, each with the private card under the same `GlobalKey`
+  ("Duplicate GlobalKey detected in widget tree"). `_LobbyScreenState` now makes the private card's and its code field's
+  keys afresh each time the rail comes back to the front; a front still leaving keeps the old ones.
 - **The Settings drawer** (owner's brief, 26 Sep 2026: "Settings = premium + clean + calm + functional", some 20–30% of the
   store's language; presentation only — every dialog and what every row does is as it was; the app is landscape-only, so the
   brief's portrait case does not arise). `_LobbyDrawer`, which the Stats drawer shares, takes a fixed `head` (`_DrawerHead`: a
