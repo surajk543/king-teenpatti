@@ -37,6 +37,7 @@ import 'package:teenpatti/state/missile_strike.dart';
 import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/widgets/buy_chips.dart';
 import 'package:teenpatti/widgets/game_card.dart';
+import 'package:teenpatti/widgets/level_screen.dart';
 import 'package:teenpatti/widgets/missile_flight.dart';
 import 'package:teenpatti/widgets/picture_shelf.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
@@ -2053,18 +2054,28 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('Level 10 · 🌟 Rising Star'), findsOneWidget);
+      // The level screen (27 Sep 2026) names the level on its hero — its
+      // number over its title, the mark in the medal — where the old tab
+      // wrote "Level 10 · 🌟 Rising Star" in one line.
+      expect(find.text(t.levelNumber(10)), findsOneWidget);
+      expect(find.text('Rising Star'), findsOneWidget);
       expect(
         find.text('Play 15 active minutes', skipOffstage: false),
         findsNothing,
       );
-      expect(_private('_LadderRow'), findsNothing);
+      expect(find.byType(LevelRow, skipOffstage: false), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('level-tab-daily')));
       await tester.pump(const Duration(milliseconds: 300));
-      for (final name in ['Play 15 active minutes', 'Win by Trail']) {
-        expect(find.text(name, skipOffstage: false), findsOneWidget);
+      // The play-time milestones stand on a track by their minutes; the
+      // winning hands by name.
+      for (final minutes in [15, 60, 120]) {
+        expect(
+          find.byKey(ValueKey('play-milestone-$minutes'), skipOffstage: false),
+          findsOneWidget,
+        );
       }
+      expect(find.text('Win by Trail', skipOffstage: false), findsOneWidget);
       expect(
         find.byKey(
           const ValueKey('xp-earned-Play 15 active minutes'),
@@ -2072,12 +2083,12 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(_private('_LadderRow'), findsNothing);
+      expect(find.byType(LevelRow, skipOffstage: false), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('level-tab-ladder')));
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pump(const Duration(milliseconds: 300));
-      expect(_private('_LadderRow').evaluate().length, 50);
+      expect(find.byType(LevelRow, skipOffstage: false).evaluate().length, 50);
       expect(
         find.byKey(const ValueKey('ladder-you'), skipOffstage: false),
         findsOneWidget,
