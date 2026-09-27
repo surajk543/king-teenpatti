@@ -14,6 +14,8 @@
 ///   away from the store.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -145,7 +147,8 @@ Widget emojiShelf({
 /// One tile of the Emojis shelf, built as the picture shelf's is (the store
 /// polish, 26 Sep 2026): the emoji playing in a rounded well, its one
 /// [ShelfBadge] — Owned, or the padlock and the price — its name, and the
-/// small print: a rental's term, or what is left of one ([ShelfDetail]). An
+/// small print: a rental's term, or what is left of one, counting down
+/// ([RentalCountdown]). An
 /// emoji is never worn, so there is no gold "in use" state; the well's line
 /// is green round what the player can send and the hairline round the rest.
 class EmojiChoice extends StatelessWidget {
@@ -180,11 +183,13 @@ class EmojiChoice extends StatelessWidget {
     final Widget badge = locked
         ? PriceTag(cost: emoji.cost, currency: emoji.currency)
         : ShelfBadge(kind: kind, label: t.pictureOwned);
-    final String? detail = locked
-        ? (emoji.rented
-              ? t.rentalTerm(emoji.durationDays, emoji.durationHours)
-              : null)
-        : rentalTagLeft(t, emoji.expiresAt, DateTime.now());
+    // Locked: the term a purchase buys. Owned and rented: the time left,
+    // counting down (owner, 27 Sep 2026: "after purchasing emoji, cooldown
+    // should be shown also"). Owned for ever: nothing.
+    final String? term = locked && emoji.rented
+        ? t.rentalTerm(emoji.durationDays, emoji.durationHours)
+        : null;
+    final bool counting = !locked && emoji.expiresAt > 0;
 
     return PressScale(
       enabled: !busy,
@@ -220,9 +225,17 @@ class EmojiChoice extends StatelessWidget {
                   selected: false,
                 ),
               ),
-              if (detail != null) ...[
+              if (term != null) ...[
                 const SizedBox(height: Space.xxs),
-                ShelfDetail(text: detail),
+                ShelfDetail(text: term),
+              ],
+              if (counting) ...[
+                const SizedBox(height: Space.xxs),
+                RentalCountdown(
+                  key: ValueKey('emoji-left-${emoji.id}'),
+                  expiresAt: emoji.expiresAt,
+                  onExpired: () => unawaited(state.reloadEmojis()),
+                ),
               ],
             ],
           ),
@@ -312,6 +325,19 @@ class _EmojiOnOffer extends StatelessWidget {
   );
 }
 
+/// What an emoji costs, on the dark pill the store's wallets are drawn on —
+/// the unlock question's figure (owner, 27 Sep 2026: "it should show hammer
+/// cost, not the count of hammers user have"; it showed the wallet). The
+/// wallet's own glyph and ink, so it reads as the price in that wallet.
+Widget emojiPricePill(EmojiItem emoji) => KeyedSubtree(
+  key: const ValueKey('emoji-unlock-price'),
+  child: switch (emoji.currency) {
+    PictureCurrency.hammer => HammerBalance(count: emoji.cost),
+    PictureCurrency.diamond => DiamondBalance(count: emoji.cost),
+    _ => ChipBalance(chips: emoji.cost),
+  },
+);
+
 /// Asks before spending on a premium emoji, then buys it — [unlockPicture]
 /// for the emoji shelf, with the same two answers before the question: a
 /// chip-priced emoji tapped at a table is refused on the spot
@@ -342,7 +368,7 @@ Future<void> unlockEmoji(
     );
     return;
   }
-  final balance = walletBalanceFor(state, emoji.currency);
+  final price = emojiPricePill(emoji);
 
   final confirmed = await showDialog<bool>(
     context: context,
@@ -375,7 +401,8 @@ Future<void> unlockEmoji(
               ),
             ),
           ),
-          if (balance != null) ...[const SizedBox(height: Space.md), balance],
+          const SizedBox(height: Space.md),
+          price,
         ],
       ),
       actions: [

@@ -2634,24 +2634,48 @@ class _TableCard extends StatelessWidget {
                         ),
                         keepClear: keys,
                         children: [
-                          _CategoryBadge(
-                            label: _tableName(state, table),
-                            palette: palette,
-                            height: m.plateH,
-                            // The two cards at the same stake sit side
-                            // by side, so their badges are offset
-                            // rather than pulsing together. The
-                            // variation card takes the beat between
-                            // them.
-                            delay: Duration(
-                              milliseconds: blind
-                                  ? 900
-                                  : variation
-                                  ? 450
-                                  : poker
-                                  ? 300
-                                  : 0,
-                            ),
+                          // The top line: the table's plate and, at a
+                          // table that taxes its winners, the corner the
+                          // Seen, Blind and Variation cards carry (owner,
+                          // 27 Sep 2026: "in these all cards show the same
+                          // badge and level icon on top right with minimum
+                          // tax which u show in lobby card") — the level's
+                          // mark, the badge that sets the rate, and the
+                          // rate the player pays. The column stops this
+                          // line short of the corner keys (keepClear), and
+                          // the plate's name gives way before the corner.
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Flexible(
+                                child: _CategoryBadge(
+                                  label: _tableName(state, table),
+                                  palette: palette,
+                                  height: m.plateH,
+                                  // The two cards at the same stake sit
+                                  // side by side, so their badges are
+                                  // offset rather than pulsing together.
+                                  // The variation card takes the beat
+                                  // between them.
+                                  delay: Duration(
+                                    milliseconds: blind
+                                        ? 900
+                                        : variation
+                                        ? 450
+                                        : poker
+                                        ? 300
+                                        : 0,
+                                  ),
+                                ),
+                              ),
+                              if (taxes) ...[
+                                SizedBox(width: m.markGap / 2),
+                                LobbyCardBadge(
+                                  key: const ValueKey('table-card-badge'),
+                                  artSize: m.plateH * 1.5,
+                                ),
+                              ],
+                            ],
                           ),
                           CardGap(m.headGap),
                           // The boot is what a player chooses a table
@@ -2697,33 +2721,11 @@ class _TableCard extends StatelessWidget {
                             ],
                           ),
                           // Under the figure by a hair more than its
-                          // line, which its comma hangs below. A table that
-                          // taxes its winners says so on this line, after
-                          // the word, with the rate THIS player would pay
-                          // there (owner, 26 Sep 2026): the line with the
-                          // most room beside it at the lobby's smallest
-                          // size, and the stake the tax is taken from. The
-                          // pill is hung on the line without making it any
-                          // taller, so no line of the card moves for it
-                          // (WinningTaxBeside).
-                          if (taxes)
-                            WinningTaxBeside(
-                              lead: caption,
-                              gap: CardSpace.s8,
-                              // The words' line is under the caption's top
-                              // padding, a little below its middle.
-                              shift: CardSpace.s4 / 2,
-                              trail: WinningTaxPill(
-                                key: const ValueKey('winning-tax-pill'),
-                                label: taxPillLabel(
-                                  t,
-                                  bps: state.user?.paysTaxBps,
-                                ),
-                                style: text.labelSmall!,
-                              ),
-                            )
-                          else
-                            caption,
+                          // line, which its comma hangs below. (The "20%
+                          // TAX" pill that hung on this line went on 27 Sep
+                          // 2026 — owner: "remove the text 20% Tax" — the
+                          // rate is in the corner now, with the badge.)
+                          caption,
                           CardGap(m.gap),
                           // One blurb line a card, so every card
                           // keeps the same rhythm down to its key: a

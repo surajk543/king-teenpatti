@@ -555,15 +555,20 @@ void main() {
         (e.renderObject! as RenderBox).localToGlobal(Offset.zero),
     ];
     final columns = {for (final o in lefts) o.dx.round()};
-    final rows = {for (final o in lefts) o.dy.round()};
+    final rows = <int, List<int>>{};
+    for (final o in lefts) {
+      (rows[o.dy.round()] ??= []).add(o.dx.round());
+    }
     expect(rows.length, greaterThan(1), reason: 'the shelf wraps');
-    // Every tile stands in one of the first row's columns, the last row's
-    // included; a centred Wrap set a short last row between them.
-    final firstRow = {
-      for (final o in lefts)
-        if (o.dy.round() == rows.reduce((a, b) => a < b ? a : b)) o.dx.round(),
-    };
-    expect(columns, firstRow);
+    // Every tile stands in one of the fullest row's columns — every wallet's
+    // section and its short last row included; a centred Wrap set a short
+    // last row between them — and every row starts at the block's left edge.
+    final fullest = rows.values.reduce((a, b) => a.length >= b.length ? a : b);
+    expect(columns, fullest.toSet());
+    final leftEdge = fullest.reduce((a, b) => a < b ? a : b);
+    for (final row in rows.values) {
+      expect(row.reduce((a, b) => a < b ? a : b), leftEdge);
+    }
     // And the block of columns is centred in the shelf.
     final grid = tester.getRect(find.byType(ShelfGrid));
     final block = tester.getRect(find.byType(Wrap).last);
@@ -715,5 +720,225 @@ void main() {
     _expectTilesHold(tester, PictureChoice, 'at a table');
     expect(tester.takeException(), isNull);
     await _close(tester, state, feedback);
+  });
+
+  group('a shelf of several wallets (owner, 27 Sep 2026: "there should be '
+      'separate line between coins, hammers and diamonds category list")', () {
+    test(
+      'splits into free, chips, hammers and diamonds, in the shelf order',
+      () {
+        final low = shelfGroups(shelfOrder(_pictures()));
+        expect(
+          [for (final g in low) (g.kind, g.count)],
+          [
+            (ShelfKind.free, 1),
+            (ShelfKind.chips, 5),
+            (ShelfKind.hammers, 2),
+            (ShelfKind.diamonds, 2),
+          ],
+        );
+        // Runs that follow on from each other and hold every picture once.
+        var next = 0;
+        for (final g in low) {
+          expect(g.start, next);
+          next += g.count;
+        }
+        expect(next, _pictures().length);
+        // Dearest first, the wallets keep their order and free goes last.
+        expect(
+          [
+            for (final g in shelfGroups(
+              shelfOrder(_pictures(), PictureSort.highToLow),
+            ))
+              g.kind,
+          ],
+          [
+            ShelfKind.chips,
+            ShelfKind.hammers,
+            ShelfKind.diamonds,
+            ShelfKind.free,
+          ],
+        );
+        expect(shelfGroups(const []), isEmpty);
+      },
+    );
+
+    testWidgets('sets each wallet on rows of its own, a heading line between '
+        'one and the next', (tester) async {
+      _setScreen(tester, const Size(891, 411));
+      final state = _state();
+      final feedback = FeedbackSettings();
+      final host = await _host(tester, state, feedback);
+      unawaited(showChipStore(host, opensOn: StoreTab.pictures));
+      await _settle(tester);
+
+      // A line before every wallet but the first, which starts the shelf.
+      final headers = [
+        for (final e in find.byType(ShelfSectionHeader).evaluate())
+          e.widget as ShelfSectionHeader,
+      ];
+      expect(
+        [for (final h in headers) (h.kind, h.count)],
+        [(ShelfKind.chips, 5), (ShelfKind.hammers, 2), (ShelfKind.diamonds, 2)],
+      );
+      const t = Strings(AppLang.english);
+      for (final label in [
+        t.storeTabChips,
+        t.storeTabHammers,
+        t.storeTabDiamonds,
+      ]) {
+        expect(
+          find.descendant(
+            of: find.byType(ShelfSectionHeader),
+            matching: find.text(label),
+          ),
+          findsOneWidget,
+          reason: label,
+        );
+      }
+
+      // Each wallet's tiles stand in its own section, under its heading and
+      // above the next section; the first section's first row is the top of
+      // the shelf, as it was before there were sections.
+      Rect rectOf(Finder f) => tester.getRect(f);
+      final sections = [
+        (ShelfKind.free, 1),
+        (ShelfKind.chips, 5),
+        (ShelfKind.hammers, 2),
+        (ShelfKind.diamonds, 2),
+      ];
+      for (final (i, (kind, count)) in sections.indexed) {
+        final section = find.byKey(ValueKey('shelf-section-${kind.name}'));
+        final tiles = find.descendant(
+          of: section,
+          matching: find.byType(PictureChoice),
+        );
+        expect(tiles, findsNWidgets(count), reason: kind.name);
+        final tileRects = [for (var k = 0; k < count; k++) rectOf(tiles.at(k))];
+        final heading = find.descendant(
+          of: section,
+          matching: find.byType(ShelfSectionHeader),
+        );
+        if (i == 0) {
+          expect(heading, findsNothing);
+          expect(
+            tileRects.first.top,
+            closeTo(rectOf(find.byType(ShelfGrid)).top, 0.5),
+          );
+        } else {
+          final header = rectOf(heading);
+          for (final r in tileRects) {
+            expect(r.top, greaterThan(header.bottom), reason: kind.name);
+          }
+          // The heading spans the block, and its line reaches the block's
+          // right edge — on TP_Tall the first cut's line stopped half way.
+          final block = rectOf(find.byType(Wrap).at(i));
+          expect(header.width, closeTo(block.width, 1));
+          final line = rectOf(
+            find.descendant(
+              of: heading,
+              matching: find.byKey(const ValueKey('shelf-section-line')),
+            ),
+          );
+          expect(line.right, closeTo(block.right, 1), reason: kind.name);
+          expect(line.width, greaterThan(block.width * 0.5), reason: kind.name);
+        }
+        if (i + 1 < sections.length) {
+          final next = rectOf(
+            find.byKey(ValueKey('shelf-section-${sections[i + 1].$1.name}')),
+          );
+          for (final r in tileRects) {
+            expect(r.bottom, lessThanOrEqualTo(next.top), reason: kind.name);
+          }
+        }
+      }
+      // A screen reader hears each heading as one, with its count.
+      expect(find.bySemanticsLabel('${t.storeTabHammers}, 2'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await _close(tester, state, feedback);
+    });
+
+    testWidgets('a shelf of one wallet has no headings', (tester) async {
+      _setScreen(tester, const Size(891, 411));
+      final state = _state();
+      final feedback = FeedbackSettings();
+      Future<void> shelf(PictureFilter filter) async {
+        await tester.pumpWidget(
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider<GameState>.value(value: state),
+              ChangeNotifierProvider<FeedbackSettings>.value(value: feedback),
+            ],
+            child: MaterialApp(
+              theme: AppTheme.dark(sound: false),
+              home: Scaffold(
+                body: Builder(
+                  builder: (context) => SingleChildScrollView(
+                    child: pictureShelf(
+                      context: context,
+                      state: state,
+                      filter: filter,
+                      radius: 40,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump(const Duration(seconds: 2));
+      }
+
+      for (final filter in [
+        PictureFilter.chips,
+        PictureFilter.hammers,
+        PictureFilter.diamonds,
+      ]) {
+        await shelf(filter);
+        expect(find.byType(PictureChoice), findsWidgets, reason: filter.name);
+        expect(
+          find.byType(ShelfSectionHeader),
+          findsNothing,
+          reason: filter.name,
+        );
+      }
+      await shelf(PictureFilter.all);
+      expect(find.byType(ShelfSectionHeader), findsNWidgets(3));
+      expect(tester.takeException(), isNull);
+      await _close(tester, state, feedback);
+    });
+
+    for (final lang in AppLang.values) {
+      for (final dark in [true, false]) {
+        testWidgets('the headings stand whole at 640x360, text x1.25, in '
+            '${lang.name}, ${dark ? 'dark' : 'light'}', (tester) async {
+          _setScreen(tester, const Size(640, 360), scale: 1.25);
+          final state = _state(lang: lang);
+          final feedback = FeedbackSettings();
+          final host = await _host(tester, state, feedback, dark: dark);
+          unawaited(showChipStore(host, opensOn: StoreTab.pictures));
+          await _settle(tester);
+
+          final t = Strings(lang);
+          final labels = [
+            t.storeTabChips,
+            t.storeTabHammers,
+            t.storeTabDiamonds,
+          ];
+          expect(find.byType(ShelfSectionHeader), findsNWidgets(3));
+          for (final label in labels) {
+            final text = find.descendant(
+              of: find.byType(ShelfSectionHeader),
+              matching: find.text(label),
+            );
+            expect(text, findsOneWidget, reason: label);
+            final paragraph = tester.renderObject<RenderParagraph>(text);
+            expect(paragraph.didExceedMaxLines, isFalse, reason: label);
+          }
+          expect(tester.takeException(), isNull);
+          await _close(tester, state, feedback);
+        });
+      }
+    }
   });
 }
