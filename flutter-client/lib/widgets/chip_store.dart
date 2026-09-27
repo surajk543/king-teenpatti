@@ -414,63 +414,236 @@ enum StoreTab {
   badges,
 }
 
-/// The switch between the store's shelves, in the header beside the close key:
-/// one key a shelf — a [Dim.minTouch] circle holding the shelf's glyph where
-/// the header is short of room, a pill of the same height with the glyph and
-/// the shelf's word where every word fits.
+/// Where the store's shelf keys stand: how many rows, which keys each row
+/// holds, and how wide each key is — worked out once per build from the
+/// sheet's width, the language and the text scale ([_StoreTabs.layoutFor]),
+/// so the header can measure itself before anything is laid out.
+@immutable
+class _NavLayout {
+  const _NavLayout({
+    required this.rows,
+    required this.widths,
+    required this.keyHeight,
+    this.gap = _StoreTabs.gap,
+  });
+
+  /// The keys' indices, row by row, in header order.
+  final List<List<int>> rows;
+
+  /// Each key's width, by index.
+  final List<double> widths;
+
+  /// Every key's height: the touch floor, or what its glyph and word take.
+  final double keyHeight;
+
+  /// Between two keys across: [_StoreTabs.gap], or [_StoreTabs.tightGap]
+  /// where that is all that keeps the keys in one row.
+  final double gap;
+
+  /// The navigation's whole height.
+  double get height =>
+      rows.length * keyHeight + (rows.length - 1) * _StoreTabs.runGap;
+}
+
+/// The store's shelf navigation, under the header: one key a shelf, each its
+/// glyph over its word, EVERY shelf on screen at once (owner, 27 Sep 2026: "I
+/// do NOT want the user to horizontally scroll the main store navigation ...
+/// The user should immediately understand that more store categories exist").
 ///
-/// Keys rather than a Material TabBar: the header is one row in landscape,
-/// and a TabBar is a row of its own taken straight out of the shelf. The key
-/// that is on is lit in gold — a gold rim, a gold light inside it and its
-/// glyph in full gold ink — the house's one signal colour; the others are
-/// quiet ink on a faint well, a touch smaller, and every change between the
-/// two is animated (premium store polish, 26 Sep 2026: "subtle scale, opacity,
-/// color transition ... fast and premium"). The light is inside the key, not
-/// a glow round it, which the strip — a scroll view, and so a clip — would
-/// cut.
+/// It used to share the header's row with the title, the balance and the
+/// close key, as circles that became a strip which scrolled — six, then eight
+/// shelves did not fit a 640dp phone beside the title, so some were a swipe
+/// away and nothing said so. It now has a row of the sheet's own, the
+/// sheet's whole width, and [layoutFor] decides how the keys stand in it:
 ///
-/// Every key is exactly [Dim.minTouch] tall. They used to take the header
-/// row's height, so on a two-line header each was a 44 by 69dp capsule
-/// rather than the circle it was drawn to be.
+///  * **one row of equal keys** wherever every word fits a key an equal
+///    share of the row wide (at most [maxKeyWidth], so a tablet's keys stay
+///    keys and not a banner);
+///  * **one row of keys as wide as their words**, the room left shared out
+///    between them, where one long word ("Diamonds" at the 1.25 text ceiling
+///    on a 592dp phone) is all that stops equal keys;
+///  * **balanced rows** — four over four, four over three — only where the
+///    words cannot stand in one row at all, never by screen size.
+///
+/// A glyph over its word rather than beside it: beside, eight words need some
+/// 760dp at the 1.25 text scale and would wrap to two rows on every landscape
+/// phone, which is height a 360dp screen gives straight out of the products.
+///
+/// The key that is on is lit in gold — a gold wash, its rim in full champagne,
+/// a soft gold light round it and its glyph and word in gold ink, at full
+/// size; the others are quiet ink on a faint well, drawn down a touch — and
+/// every change between the two takes [Motion.base] (the brief: "category
+/// selection 200-250ms", "a subtle scale/glow"). With no scroll view round
+/// the keys there is no clip, so the light may fall outside the key.
 class _StoreTabs extends StatelessWidget {
   const _StoreTabs({
     required this.value,
     required this.onChanged,
-    this.keys = const {},
+    required this.layout,
     this.animatedOnly = false,
-    this.compact = false,
   });
 
   final StoreTab value;
   final ValueChanged<StoreTab> onChanged;
 
-  /// One key a shelf, so the strip can bring the key that is on into view
-  /// ([_ChipStoreState._revealTab]).
-  final Map<StoreTab, GlobalKey> keys;
-
-  /// Icons alone, without their words. On a 640dp phone three labelled keys
-  /// left the header's blurb a few words ("The bigger the pack, the bigge…");
-  /// the title over the blurb already names the shelf that is on.
-  final bool compact;
+  /// Where the keys stand ([layoutFor]).
+  final _NavLayout layout;
 
   /// Whether the picture key sells the animated shelf alone, and is named for
   /// it. True at a table (owner, 13 Sep 2026), where a seated player may buy
-  /// and wear an animated picture. Chips and diamonds are always on sale.
+  /// and wear an animated picture. Every other shelf is on sale at a table
+  /// too, so the table's keys are the lobby's with that one renamed.
   final bool animatedOnly;
 
-  /// The glyph in a key, one size on every key (it was 18 in a 44dp key).
-  static const double iconSize = 20;
+  /// The glyph in a key, one size on every key (it was 20 beside a word; over
+  /// one, 18 keeps the key at the touch floor at the normal text scale).
+  static const double iconSize = 18;
 
-  /// A key's rim, one width on and off, so a labelled key never changes
-  /// width — and the strip never shifts — as it is switched on.
+  /// Between the glyph and its word.
+  static const double iconGap = 2;
+
+  /// A key's rim, one width on and off, so its words never shift as it is
+  /// switched on; the key that is on says so by the rim's colour.
   static const double rim = 1.5;
 
-  /// How far a key that is off is drawn down from its full size. Only the
-  /// face: its target stays the whole [Dim.minTouch].
-  static const double quietScale = 0.92;
+  /// Inside a key: either side of its word, and above and below its glyph and
+  /// word. A key is at least [Dim.minTouch] wide whatever its word, so the
+  /// narrow inset only ever tightens a long word's key.
+  static const double padX = Space.xs;
+  static const double padY = Space.xs;
 
-  /// The space between two keys.
+  /// Above and below the glyph and word on a short screen
+  /// ([Breaks.isShort]), where every dp the keys take is one the products
+  /// lose; the key still never drops under [Dim.minTouch].
+  static const double shortPadY = Space.xxs;
+
+  /// The word of the key that is on, by day: a gold deep enough to read at
+  /// the smallest label size on the lit face (5.6:1 there; goldDeep, the
+  /// glyph's, measured 3.8:1).
+  static const Color dayWordInk = Color(0xFF6B5212);
+
+  /// How far a key that is off is drawn down from its full size. Only the
+  /// face: its target stays the key's whole box.
+  static const double quietScale = 0.96;
+
+  /// Between two keys across, and between two rows.
   static const double gap = Space.sm;
+  static const double runGap = Space.sm;
+
+  /// Between two keys across where the usual [gap] is all that would push
+  /// the last key to a second row: on a 592dp phone at the 1.25 text ceiling
+  /// the table's eight English keys ("Animated" for "Pictures") missed one
+  /// row by a single dp.
+  static const double tightGap = Space.xs;
+
+  /// The widest a key grows: past it the row stops short of the sheet's
+  /// right edge rather than stretching eight keys into a banner.
+  static const double maxKeyWidth = 120;
+
+  /// A key's word: the ramp's smallest label (10.5), set solid rather than
+  /// tracked — tracked out, eight English words made a row too wide for a
+  /// 592dp phone at the 1.25 text ceiling. Measured in the weight of the key
+  /// that is on, the heavier, so a key never outgrows its box as it is
+  /// switched on.
+  static TextStyle labelStyle(ThemeData theme, {bool on = true}) =>
+      (theme.textTheme.labelSmall ?? const TextStyle(fontSize: 10.5)).copyWith(
+        letterSpacing: 0,
+        fontWeight: on ? FontWeight.w700 : FontWeight.w600,
+      );
+
+  /// Where the keys stand in a row [width] wide, in this language at this
+  /// text scale. Measured, never decided by screen size: whether eight words
+  /// fit one row depends on the words and the scale as much as the phone.
+  static _NavLayout layoutFor(
+    BuildContext context,
+    Strings t, {
+    required double width,
+    required bool animatedOnly,
+    bool short = false,
+  }) {
+    final theme = Theme.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    final style = labelStyle(theme);
+    final shelves = _shelves(t, animatedOnly);
+    final n = shelves.length;
+    var lineH = 0.0;
+    final natural = <double>[];
+    for (final shelf in shelves) {
+      final painter = TextPainter(
+        text: TextSpan(text: shelf.label, style: style),
+        textDirection: direction,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      lineH = math.max(lineH, painter.height);
+      natural.add(
+        math.max(
+          Dim.minTouch,
+          (painter.width + 2 * padX + 2 * rim).ceilToDouble(),
+        ),
+      );
+      painter.dispose();
+    }
+    // The tallest word in the fonts the phone draws it in (an Indic word is
+    // taller than Inter's line, CLAUDE.md §12.3), under the glyph.
+    final keyH = math.max(
+      Dim.minTouch,
+      (2 * (short ? shortPadY : padY) + 2 * rim + iconSize + iconGap + lineH)
+          .ceilToDouble(),
+    );
+    final widest = natural.reduce(math.max);
+    final sum = natural.fold(0.0, (a, b) => a + b);
+    final all = [for (var i = 0; i < n; i++) i];
+
+    // One row of equal keys.
+    final cell = math.min(maxKeyWidth, (width - gap * (n - 1)) / n);
+    if (cell >= widest) {
+      return _NavLayout(
+        rows: [all],
+        widths: List.filled(n, cell.floorToDouble()),
+        keyHeight: keyH,
+      );
+    }
+    // One row of keys as wide as their words, the rest shared out — with
+    // the gaps between them tightened a step before a second row is let in.
+    for (final between in const [gap, tightGap]) {
+      if (sum + between * (n - 1) > width) continue;
+      final extra = (width - sum - between * (n - 1)) / n;
+      return _NavLayout(
+        rows: [all],
+        widths: [for (final w in natural) (w + extra).floorToDouble()],
+        keyHeight: keyH,
+        gap: between,
+      );
+    }
+    // Balanced rows of equal keys: as few as hold every word, the first rows
+    // one key longer where the keys do not divide evenly.
+    for (var count = 2; count <= n; count++) {
+      final perRow = (n / count).ceil();
+      final cell = math.min(maxKeyWidth, (width - gap * (perRow - 1)) / perRow);
+      if (cell < widest && perRow > 1) continue;
+      return _NavLayout(
+        rows: [
+          for (var r = 0; r < count; r++)
+            [
+              for (var i = r * perRow; i < math.min(n, (r + 1) * perRow); i++)
+                i,
+            ],
+        ]..removeWhere((row) => row.isEmpty),
+        widths: List.filled(n, math.max(1.0, cell.floorToDouble())),
+        keyHeight: keyH,
+      );
+    }
+    // Unreachable: one key a row always holds its word.
+    return _NavLayout(
+      rows: [
+        for (final i in all) [i],
+      ],
+      widths: List.filled(n, math.max(1.0, width.floorToDouble())),
+      keyHeight: keyH,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -478,6 +651,10 @@ class _StoreTabs extends StatelessWidget {
     final t = context.read<GameState>().t;
     final dark = theme.brightness == Brightness.dark;
     final champagne = dark ? AppTheme.goldBright : AppTheme.goldDeep;
+    // The word of the key that is on: the glyph's gold by night; by day a
+    // deeper one, since goldDeep on the lit face measured under 4:1 and the
+    // word is the ramp's smallest label.
+    final wordOn = dark ? AppTheme.goldBright : dayWordInk;
     final quiet = theme.colorScheme.onSurface.withValues(
       alpha: AppTheme.inkMed,
     );
@@ -485,78 +662,110 @@ class _StoreTabs extends StatelessWidget {
     // resting hairline — so it still reads as a key on either theme's glass.
     final well = dark
         ? Colors.white.withValues(alpha: 0.05)
-        : Colors.white.withValues(alpha: 0.55);
+        : Colors.white.withValues(alpha: 0.60);
+    // The key that is on is lit OVER that well, never instead of it: by day
+    // the wash straight on the grey sheet made the key that is on darker than
+    // its neighbours, and its gold word the hardest on the row to read
+    // (about 2.5:1; review, 27 Sep 2026).
+    final litCentre = Color.alphaBlend(
+      dark
+          ? AppTheme.gold.withValues(alpha: 0.30)
+          : AppTheme.goldBright.withValues(alpha: 0.55),
+      well,
+    );
+    final litEdge = Color.alphaBlend(
+      AppTheme.gold.withValues(alpha: dark ? 0.10 : 0.14),
+      well,
+    );
+    final shelves = _shelves(t, animatedOnly);
 
-    Widget key(StoreTab tab, IconData icon, String label) {
-      final on = tab == value;
-      final ink = on ? champagne : quiet;
+    Widget key(int index) {
+      final shelf = shelves[index];
+      final on = shelf.tab == value;
       final face = AnimatedContainer(
         duration: Motion.base,
         curve: Motion.standard,
-        height: Dim.minTouch,
-        width: compact ? Dim.minTouch : null,
-        padding: compact
-            ? EdgeInsets.zero
-            : const EdgeInsets.symmetric(horizontal: Space.md),
+        width: layout.widths[index],
+        height: layout.keyHeight,
+        // The glyph and word are centred in the height [layoutFor] gave the
+        // key, which already holds their inset above and below.
+        padding: const EdgeInsets.symmetric(horizontal: padX),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(Radii.pill),
+          borderRadius: BorderRadius.circular(Radii.sm),
           // Lit from inside: brightest at the glyph, a whisper of gold at
           // the rim. Off, the same gradient in the well's one colour, so the
           // two lerp into each other.
           gradient: RadialGradient(
-            radius: 0.75,
-            colors: on
-                ? [
-                    AppTheme.gold.withValues(alpha: dark ? 0.34 : 0.26),
-                    AppTheme.gold.withValues(alpha: dark ? 0.12 : 0.10),
-                  ]
-                : [well, well],
+            center: const Alignment(0, -0.35),
+            radius: 0.9,
+            // By day the light is champagne rather than gold: gold over the
+            // pale glass read as a tan smudge.
+            colors: on ? [litCentre, litEdge] : [well, well],
           ),
           border: Border.all(
             color: on
-                ? champagne.withValues(alpha: dark ? 0.85 : 0.75)
+                ? champagne.withValues(alpha: dark ? 0.90 : 0.80)
                 : AppTheme.hairlineColour(theme.brightness),
             width: rim,
           ),
+          // A soft gold light round the key that is on: a glow, not a
+          // halo — it stays within the gap to the next key. None at all
+          // round the others: a shadow is painted blurred whatever its
+          // colour, so a transparent one was seven blurs for nothing. The
+          // container lerps the list's length, so the light still rises
+          // and falls over the change.
+          boxShadow: on
+              ? [
+                  BoxShadow(
+                    color: AppTheme.gold.withValues(alpha: dark ? 0.26 : 0.20),
+                    blurRadius: 10,
+                    spreadRadius: -2,
+                  ),
+                ]
+              : const [],
         ),
-        child: TweenAnimationBuilder<Color?>(
-          tween: ColorTween(end: ink),
+        // 0 off, 1 on: the glyph and the word each turn from the quiet ink
+        // to their own gold together.
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(end: on ? 1 : 0),
           duration: Motion.base,
           curve: Motion.standard,
-          builder: (context, colour, _) => compact
-              ? Center(
-                  child: Icon(icon, size: iconSize, color: colour),
-                )
-              : Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: iconSize, color: colour),
-                    const SizedBox(width: Space.xs),
-                    Text(
-                      label,
-                      maxLines: 1,
-                      style: AppTheme.label(
-                        theme.textTheme.labelLarge ?? const TextStyle(),
-                        colour: colour,
-                        weight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
+          builder: (context, lit, _) => Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                shelf.icon,
+                size: iconSize,
+                color: Color.lerp(quiet, champagne, lit),
+              ),
+              const SizedBox(height: iconGap),
+              Text(
+                shelf.label,
+                maxLines: 1,
+                softWrap: false,
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.visible,
+                style: labelStyle(
+                  theme,
+                  on: on,
+                ).copyWith(color: Color.lerp(quiet, wordOn, lit)),
+              ),
+            ],
+          ),
         ),
       );
       final body = PressScale(
         child: Material(
           type: MaterialType.transparency,
           child: InkWell(
-            key: keys[tab],
-            customBorder: const StadiumBorder(),
+            key: ValueKey('store-tab-${shelf.tab.name}'),
+            borderRadius: BorderRadius.circular(Radii.sm),
             enableFeedback: soundOn(context),
             onTap: on
                 ? null
                 : () {
                     tapHaptic(context);
-                    onChanged(tab);
+                    onChanged(shelf.tab);
                   },
             child: AnimatedScale(
               scale: on ? 1 : quietScale,
@@ -567,22 +776,25 @@ class _StoreTabs extends StatelessWidget {
           ),
         ),
       );
-      // An icon-only key still says what it is: in a tooltip on a long press,
-      // and to a screen reader, which also hears which shelf is on.
-      return compact
-          ? Tooltip(
-              message: label,
-              child: Semantics(selected: on, child: body),
-            )
-          : Semantics(selected: on, child: body);
+      // A screen reader hears which shelf is on.
+      return Semantics(selected: on, button: true, child: body);
     }
 
-    return Row(
+    return Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final (i, shelf) in _shelves(t, animatedOnly).indexed) ...[
-          if (i > 0) const SizedBox(width: gap),
-          key(shelf.tab, shelf.icon, shelf.label),
+        for (final (r, row) in layout.rows.indexed) ...[
+          if (r > 0) const SizedBox(height: runGap),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final (i, index) in row.indexed) ...[
+                if (i > 0) SizedBox(width: layout.gap),
+                key(index),
+              ],
+            ],
+          ),
         ],
       ],
     );
@@ -632,47 +844,6 @@ class _StoreTabs extends StatelessWidget {
       label: t.storeTabBadges,
     ),
   ];
-
-  /// How wide the keys are with their words, in this language at this text
-  /// scale, so the header drops the words only when they do not fit.
-  ///
-  /// Measured rather than decided by screen width. With a fourth shelf the
-  /// labelled keys fit a 891dp phone in English but not in every language at
-  /// the 1.25 text ceiling, and any single width rule would either starve the
-  /// title in one language or hide the words needlessly in another.
-  static double labelledWidth(
-    BuildContext context,
-    Strings t, {
-    required bool animatedOnly,
-  }) {
-    final theme = Theme.of(context);
-    final style = AppTheme.label(
-      theme.textTheme.labelLarge ?? const TextStyle(),
-      weight: FontWeight.w700,
-    );
-    final shelves = _shelves(t, animatedOnly);
-    var total = gap * (shelves.length - 1);
-    for (final shelf in shelves) {
-      final painter = TextPainter(
-        text: TextSpan(text: shelf.label, style: style),
-        textDirection: Directionality.of(context),
-        textScaler: MediaQuery.textScalerOf(context),
-        maxLines: 1,
-      )..layout();
-      // The key's padding either side, its icon and the gap after it, and
-      // the rim round it.
-      total += 2 * Space.md + iconSize + Space.xs + painter.width + 2 * rim;
-      painter.dispose();
-    }
-    return total.ceilToDouble();
-  }
-
-  /// How wide the keys are as icons alone ([compact]): a [Dim.minTouch]
-  /// circle each, with the gaps between them.
-  static double compactWidth({required bool animatedOnly}) {
-    final shelves = _shelves(const Strings(AppLang.english), animatedOnly);
-    return shelves.length * Dim.minTouch + gap * (shelves.length - 1);
-  }
 }
 
 /// Opens the store.
@@ -704,12 +875,13 @@ Future<void> showChipStore(
     barrierDismissible: true,
     barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
     barrierColor: AppTheme.ink900.withValues(alpha: 0.72),
-    transitionDuration: Motion.enter,
+    transitionDuration: Motion.slow,
     pageBuilder: (_, a, b) => _ChipStore(atTable: atTable, opensOn: opensOn),
     transitionBuilder: (context, anim, _, child) {
       // Rises from the foot of the screen and settles, which is how the
       // picture picker arrives too — the two shelves should not open in two
-      // different ways.
+      // different ways. In [Motion.slow] (300ms; it took 420): the owner's
+      // brief of 27 Sep 2026 asks 200-300ms of a drawer's entrance.
       final fade = Motion.standard.transform(anim.value);
       return Opacity(
         opacity: fade,
@@ -746,68 +918,12 @@ class _ChipStoreState extends State<_ChipStore> {
   /// dispose() is the teardown trap CLAUDE.md §12.3 documents.
   final ScrollController _scroller = ScrollController();
 
-  /// The header's tab strip, which scrolls where six keys crowd the blurb
-  /// (owner, 15 Sep 2026: the Tables shelf).
-  final ScrollController _tabScroller = ScrollController();
-
-  /// A global key for each shelf's key, so the one that is on can be brought
-  /// into view.
-  final Map<StoreTab, GlobalKey> _tabKeys = {
-    for (final tab in StoreTab.values) tab: GlobalKey(),
-  };
-
   /// The body's scroll view, kept — its position and its shelf's entrance —
   /// when the fade over it comes and goes with the shelf.
   final GlobalKey _bodyKey = GlobalKey();
 
   /// Which shelf is showing. Set from [_ChipStore.opensOn] in initState.
   StoreTab _tab = StoreTab.chips;
-
-  /// Brings the key of the shelf that is on into view when the strip is cut:
-  /// a shelf opened from a table key, or picked from a strip that scrolled,
-  /// must never sit past its edge.
-  ///
-  /// By the least movement that shows the whole key — to the strip's end for
-  /// a key past it, its start for one before it — so the strip, a whole
-  /// number of keys wide, always stops on whole keys. It used to jump to a
-  /// share of its length, which could leave half a key at either edge.
-  /// [animate] glides there (a key tapped); otherwise it jumps (the store
-  /// opening).
-  void _revealTab({bool animate = false}) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_tabScroller.hasClients) return;
-      final position = _tabScroller.position;
-      if (position.maxScrollExtent <= 0) return;
-      final keyContext = _tabKeys[_tab]?.currentContext;
-      final box = keyContext?.findRenderObject();
-      if (keyContext == null || box is! RenderBox) return;
-      // Where the key stands in the strip's own coordinates.
-      final strip = Scrollable.maybeOf(keyContext);
-      final stripBox = strip?.context.findRenderObject();
-      if (stripBox is! RenderBox) return;
-      final left =
-          box.localToGlobal(Offset.zero, ancestor: stripBox).dx +
-          position.pixels;
-      final right = left + box.size.width;
-      final shown = position.viewportDimension;
-      final target = right > position.pixels + shown
-          ? right - shown
-          : left < position.pixels
-          ? left
-          : position.pixels;
-      final to = target.clamp(0.0, position.maxScrollExtent);
-      if (to == position.pixels) return;
-      if (animate) {
-        _tabScroller.animateTo(
-          to,
-          duration: Motion.base,
-          curve: Motion.standard,
-        );
-      } else {
-        _tabScroller.jumpTo(to);
-      }
-    });
-  }
 
   /// The picture shelf's filter, as in the picker; it opens on All. At a table
   /// the shelf is the animated one whatever this says.
@@ -822,16 +938,14 @@ class _ChipStoreState extends State<_ChipStore> {
     if (_scroller.hasClients) _scroller.jumpTo(0);
   }
 
-  /// Moves the store to [next]: back to the top of the new shelf, and its key
-  /// brought into view — the strip may be cut and scrolled to its far end
-  /// (six keys on a small phone).
-  void _show(StoreTab next, {bool animate = true}) {
+  /// Moves the store to [next], back to the top of the new shelf. Its key
+  /// is always on screen: the navigation never scrolls ([_StoreTabs]).
+  void _show(StoreTab next) {
     if (!mounted) return;
     setState(() {
       _tab = next;
       _toTop();
     });
-    _revealTab(animate: animate);
   }
 
   @override
@@ -839,7 +953,6 @@ class _ChipStoreState extends State<_ChipStore> {
     super.initState();
     _tab = widget.opensOn;
     _loadPrices();
-    _revealTab();
     // The badges are the server's (GET /api/levels): read them now if they
     // are not on the phone yet, then ask Play what the ones it sells cost.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -856,7 +969,6 @@ class _ChipStoreState extends State<_ChipStore> {
   @override
   void dispose() {
     _scroller.dispose();
-    _tabScroller.dispose();
     super.dispose();
   }
 
@@ -903,6 +1015,20 @@ class _ChipStoreState extends State<_ChipStore> {
     Space.md,
   );
 
+  /// The strip of scrim left above the sheet: 3% of the screen, from 10dp
+  /// on a phone to 40 on a tablet — enough to show the store is laid over
+  /// the game, and a place to tap it away.
+  static double sheetGap(Size size) =>
+      (size.height * 0.03).clamp(Space.md, 40.0);
+
+  /// The sheet's height on a screen of [size] with [safe] insets: the screen
+  /// less its safe area, the sheet's margin at its foot and [sheetGap]. It
+  /// was 88% of the screen, which on a 360dp phone left 43dp of scrim above
+  /// the store and, with the navigation in a row of its own, too little for
+  /// a row of products at the 1.25 text scale.
+  static double sheetHeight(Size size, EdgeInsets safe) =>
+      math.max(0, size.height - safe.vertical - Space.md - sheetGap(size));
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -925,22 +1051,30 @@ class _ChipStoreState extends State<_ChipStore> {
     final scaler = MediaQuery.textScalerOf(context);
 
     // Every height here is measured from what it holds, and the shelf gets
-    // whatever is left. Header: the title over the blurb, or the close
-    // button's touch target, whichever is taller — 44dp at the normal text
-    // scale, 48 at the 1.25 ceiling.
-    // The tabs keep their words only while every shelf's blurb still fits
-    // beside them on one line. The header row is the screen less the safe
-    // area, the sheet's margin and its padding; its fixed parts are the
-    // shelf's glyph, a balance, the close key and the gaps between them. A
-    // balance is counted on every shelf — the widest of the chips, a diamond
-    // or hammer count, the Pictures pair and the Missiles pair — and the
-    // widest blurb of all the shelves decides, so the tabs never change size
-    // — and move under a finger — on the way from one shelf to the next. It
-    // used to keep a flat
-    // 96dp for the title, which left the Hammers and Pictures blurbs cut off
-    // even on an 891dp phone ("A hammer forces a sideshow — nob…", QA 14 Sep
-    // 2026).
+    // whatever is left. Two rows head the sheet (owner, 27 Sep 2026: "Do not
+    // squeeze everything into one row"):
+    //
+    //  * the HEADER: the shelf's glyph, its title over its blurb, the shelf's
+    //    balance and the close key — the title and blurb, or the close key's
+    //    touch target, whichever is taller;
+    //  * the NAVIGATION under it, the sheet's whole width, every shelf's key
+    //    on screen at once ([_StoreTabs]).
+    //
+    // The balance stands in the header on every screen: it can never meet a
+    // key there, and the keys keep the whole width they need. The header row
+    // is the screen less the safe area, the sheet's margin and its padding;
+    // its fixed parts are the shelf's glyph, a balance, the close key and the
+    // gaps between them. A balance is counted on every shelf — the widest of
+    // the chips, a diamond or hammer count, the Pictures pair and the Missiles
+    // pair — and the widest blurb of all the shelves decides how many lines
+    // the blurb takes, so the navigation never moves under a finger on the
+    // way from one shelf to the next.
     final safe = MediaQuery.paddingOf(context);
+    // A landscape phone: the height is what the store is short of.
+    final short = Breaks.isShort(size.height);
+    // On a phone the shelf's own controls stand beside its products, not
+    // over them ([_ChipStoreState._sideControls]); a tablet has the height.
+    final beside = !Breaks.isExpanded(size.width);
     final headerW =
         size.width - safe.left - safe.right - 2 * Space.md - 2 * Space.lg;
     //
@@ -953,7 +1087,6 @@ class _ChipStoreState extends State<_ChipStore> {
     // should also show the user current missile count just like it is
     // showing diamond count"), and is counted and laid out by the same rule.
     const balanceW = 72.0;
-    const titleFloor = 96.0;
     final diamonds = state.user?.diamond ?? 0;
     final hammers = state.user?.hammer ?? 0;
     // Read on every build, under the store's watch, so a pack traded on the
@@ -993,8 +1126,7 @@ class _ChipStoreState extends State<_ChipStore> {
       ),
       ChipBalance.width(context, chips: chips),
     ].reduce(math.max);
-    final fixedW =
-        22 + Space.md + Space.md + walletW + Space.md + Space.sm + Dim.minTouch;
+    final fixedW = 22 + Space.md + Space.md + walletW + Space.sm + Dim.minTouch;
     final blurbStyle = theme.textTheme.bodySmall ?? const TextStyle();
     final blurbs = [
       t.storeBlurb,
@@ -1033,35 +1165,22 @@ class _ChipStoreState extends State<_ChipStore> {
       return most;
     }
 
-    final labelledW = _StoreTabs.labelledWidth(
+    // What the title and blurb have beside the balance and the close key. It
+    // used to share the row with the shelf keys too, and on a 640dp phone the
+    // blurb was down to two lines of a narrow column.
+    final columnW = headerW - fixedW;
+    final blurbLines = blurbLinesAt(columnW).clamp(1, 3);
+    // A pair of wallets stands in a row where the widest blurb still keeps
+    // its one line beside the row, and stacked otherwise.
+    final walletPairInRow = columnW - (walletPairRowW - walletW) >= blurbW;
+    final missilePairInRow = columnW - (missilePairRowW - walletW) >= blurbW;
+    final nav = _StoreTabs.layoutFor(
       context,
       t,
+      width: headerW,
       animatedOnly: atTable,
+      short: short,
     );
-    final compactTabs =
-        headerW - fixedW - math.max(titleFloor, blurbW) < labelledW;
-    // With the words gone the keys are icons alone; where even then the widest
-    // blurb does not fit on one line (a 640dp phone), it takes two, and the
-    // header is measured for two rather than cutting the sentence off.
-    final tabsW = compactTabs
-        ? _StoreTabs.compactWidth(animatedOnly: atTable)
-        : labelledW;
-    // With a sixth shelf (Tables, owner 15 Sep 2026) even the icons alone can
-    // crowd the blurb off its two lines on a 640dp phone at the 1.25 text
-    // ceiling. The strip is then cut, one key at a time, to the width that
-    // leaves the widest blurb two lines, and scrolls: the keys past the cut
-    // are a swipe away, and nothing in the header is ever cut off.
-    const keyStep = Dim.minTouch + _StoreTabs.gap;
-    var tabsShown = tabsW;
-    while (tabsShown - keyStep > 2 * keyStep &&
-        blurbLinesAt(headerW - fixedW - tabsShown) > 2) {
-      tabsShown -= keyStep;
-    }
-    final blurbLines = headerW - fixedW - tabsShown >= blurbW ? 1 : 2;
-    final walletPairInRow =
-        headerW - fixedW - tabsShown - (walletPairRowW - walletW) >= blurbW;
-    final missilePairInRow =
-        headerW - fixedW - tabsShown - (missilePairRowW - walletW) >= blurbW;
     // Each line the taller of the Latin line and the tallest the shelves'
     // own words make in the fonts the phone draws them in (_measuredLine), so
     // a Hindi, Bengali, Gujarati or Punjabi header is not a pixel short.
@@ -1138,13 +1257,18 @@ class _ChipStoreState extends State<_ChipStore> {
         alignment: Alignment.bottomCenter,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(Space.md, 0, Space.md, Space.md),
-          // One height whatever the shelf holds, so the header and its tabs
+          // One height whatever the shelf holds, so the header and its keys
           // stay put from Chips to Diamonds to Pictures. Sized to its content,
           // the sheet shrank under the four diamond packs, and a tap aimed at
-          // the next tab landed on the scrim and closed the store. Only the
+          // the next key landed on the scrim and closed the store. Only the
           // packs scroll.
+          //
+          // As tall as the screen allows less a strip of scrim above it
+          // ([sheetGap]): the navigation has a row of its own since 27 Sep
+          // 2026, and on a 360dp phone the 12% of the screen the sheet left
+          // above itself was the products' height, not the scrim's.
           child: SizedBox(
-            height: size.height * 0.88,
+            height: sheetHeight(size, safe),
             child: PremiumGlassPanel(
               // A modal, and the only one of its kind on screen: it may take the
               // app's single blur if nothing louder has claimed it. The blur
@@ -1152,29 +1276,36 @@ class _ChipStoreState extends State<_ChipStore> {
               mode: GlassMode.auto,
               priority: 20,
               radius: Radii.lg,
-              padding: const EdgeInsets.fromLTRB(
+              // On a short screen every dp over the navigation's own row is
+              // a dp of the products', so the sheet there has no grab handle
+              // (a mark on a sheet that does not drag, and 16dp of a 360dp
+              // phone) and a step less at its foot.
+              padding: EdgeInsets.fromLTRB(
                 Space.lg,
-                Space.md,
+                short ? Space.md : Space.sm,
                 Space.lg,
-                Space.lg,
+                short ? Space.md : Space.lg,
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // The grab handle, at the resting hairline: it marks the
                   // sheet's top edge and asks for nothing (it was at the live
-                  // gold, the brightest line on the sheet).
-                  Center(
-                    child: Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(Radii.pill),
-                        color: AppTheme.hairlineColour(theme.brightness),
+                  // gold, the brightest line on the sheet). Not on a short
+                  // screen, above.
+                  if (!short) ...[
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(Radii.pill),
+                          color: AppTheme.hairlineColour(theme.brightness),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: Space.md),
+                    const SizedBox(height: Space.sm),
+                  ],
                   SizedBox(
                     height: headerH,
                     child: Row(
@@ -1242,77 +1373,40 @@ class _ChipStoreState extends State<_ChipStore> {
                           ),
                         ),
                         const SizedBox(width: Space.md),
-                        // A shelf's balance stands before the tabs, not after
-                        // them. Chips showed none at first, and between the
-                        // tabs and the close key a balance's coming and going
-                        // slid the whole tab row sideways, so a tap on a tab
-                        // where it had just been landed on the balance. Here
-                        // the title gives up the room instead, and the tabs
-                        // stay anchored to the close key on every shelf.
-                        // Chips heads with the chips themselves since 24 Sep
-                        // 2026 (owner: "when user click on Coins tab, then it
-                        // is not showing users current coin on top, just like
-                        // we show for hammer"). The Missiles shelf heads with
-                        // the missiles held and, since its packs are paid for
-                        // in diamonds, the diamonds there are to trade — both
-                        // since 24 Sep 2026 (owner: "when user click on
-                        // Missile tab, then it should also show the user
-                        // current missile count just like it is showing
-                        // diamond count"; it headed with the diamonds alone);
-                        // Pictures with both wallets a picture can cost
-                        // besides chips.
-                        // The Tables shelf is priced in the same three
-                        // wallets as the pictures, so it heads the same way.
-                        if (onChips) ...[
-                          ChipBalance(chips: chips),
-                          const SizedBox(width: Space.md),
-                        ],
-                        // The Emojis shelf is priced in the pictures' three
-                        // wallets too, and heads the same way.
-                        if (onPictures || onTables || onEmojis) ...[
+                        // The shelf's balance, beside the close key and away
+                        // from the shelf keys, which have a row of their own
+                        // under the header: the two can never meet (owner,
+                        // 27 Sep 2026: "The balance pill and the icons must
+                        // never collide"). Chips heads with the chips
+                        // themselves since 24 Sep 2026 (owner: "when user
+                        // click on Coins tab, then it is not showing users
+                        // current coin on top, just like we show for
+                        // hammer"). The Missiles shelf heads with the missiles
+                        // held and, since its packs are paid for in diamonds,
+                        // the diamonds there are to trade — both since 24 Sep
+                        // 2026 (owner: "when user click on Missile tab, then
+                        // it should also show the user current missile count
+                        // just like it is showing diamond count"); Pictures
+                        // with both wallets a picture can cost besides chips.
+                        // The Tables and Emojis shelves are priced in the
+                        // same three wallets as the pictures, so they head
+                        // the same way. The Badges shelf is priced in rupees
+                        // and heads with no balance.
+                        if (onChips) ChipBalance(chips: chips),
+                        if (onPictures || onTables || onEmojis)
                           PictureWalletBalances(
                             diamonds: diamonds,
                             hammers: hammers,
                             stacked: !walletPairInRow,
                           ),
-                          const SizedBox(width: Space.md),
-                        ],
-                        if (onDiamonds) ...[
-                          DiamondBalance(count: diamonds),
-                          const SizedBox(width: Space.md),
-                        ],
-                        if (onMissiles) ...[
+                        if (onDiamonds) DiamondBalance(count: diamonds),
+                        if (onMissiles)
                           MissileWalletBalances(
                             missiles: missiles,
                             diamonds: diamonds,
                             stacked: !missilePairInRow,
                           ),
-                          const SizedBox(width: Space.md),
-                        ],
-                        if (onHammers) ...[
-                          HammerBalance(count: hammers),
-                          const SizedBox(width: Space.md),
-                        ],
-                        // Where the strip is cut, its edge fades while more
-                        // keys lie past it — the hint that it scrolls — and
-                        // it stops on whole keys ([_revealTab]).
-                        SizedBox(
-                          width: math.min(tabsW, tabsShown),
-                          child: EdgeFade(
-                            extent: Space.sm,
-                            child: SingleChildScrollView(
-                              controller: _tabScroller,
-                              scrollDirection: Axis.horizontal,
-                              child: _StoreTabs(
-                                value: tab,
-                                keys: _tabKeys,
-                                animatedOnly: atTable,
-                                compact: compactTabs,
-                                onChanged: _show,
-                              ),
-                            ),
-                          ),
-                        ),
+                        if (onHammers) HammerBalance(count: hammers),
                         const SizedBox(width: Space.sm),
                         PressScale(
                           child: IconButton(
@@ -1334,10 +1428,26 @@ class _ChipStoreState extends State<_ChipStore> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: Space.md),
+                  // A step closer on a short screen, where the products are
+                  // short of height: the keys' own rims set them apart.
+                  SizedBox(height: short ? Space.xs : Space.sm),
+                  // Every shelf's key, all on screen, in rows of their own
+                  // the sheet's whole width — one where the words fit it,
+                  // balanced rows where they cannot ([_StoreTabs.layoutFor]).
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: _StoreTabs(
+                      value: tab,
+                      layout: nav,
+                      animatedOnly: atTable,
+                      onChanged: _show,
+                    ),
+                  ),
+                  SizedBox(height: short ? Space.xs : Space.sm),
                   // The Pictures shelf heads its grid with the picture being
-                  // worn, beside the shelf's two menus.
-                  if (onPictures) ...[
+                  // worn, beside the shelf's two menus — over the grid on a
+                  // tablet, beside it on a phone ([_sideControls]).
+                  if (onPictures && !beside) ...[
                     _PicturesHead(
                       atTable: atTable,
                       filter: _shelf,
@@ -1356,58 +1466,85 @@ class _ChipStoreState extends State<_ChipStore> {
                   // Expanded, so a short shelf sits at the top of the fixed
                   // body rather than letting the sheet shrink around it.
                   Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, body) {
-                        final grid = _ShelfGeometry.of(
-                          width: body.maxWidth - _bodyPadding.horizontal,
-                          height: body.maxHeight - _bodyPadding.vertical,
-                          screenWidth: size.width,
-                        );
-                        final scroll = SingleChildScrollView(
-                          key: _bodyKey,
-                          controller: _scroller,
-                          padding: _bodyPadding,
-                          // A new shelf fades in with a small scale, at once
-                          // — the one it replaces does not linger under it.
-                          child: AnimatedSwitcher(
-                            duration: Motion.base,
-                            switchInCurve: Motion.standard,
-                            transitionBuilder: _fadeScale,
-                            layoutBuilder: (current, _) =>
-                                current ?? const SizedBox.shrink(),
-                            child: KeyedSubtree(
-                              key: ValueKey(tab),
-                              child: _shelfBody(context, state, grid),
-                            ),
-                          ),
-                        );
-                        return ScrollbarTheme(
-                          data: ScrollbarThemeData(
-                            thickness: const WidgetStatePropertyAll(4),
-                            radius: const Radius.circular(Radii.pill),
-                            thumbColor: WidgetStatePropertyAll(
-                              AppTheme.hairlineColour(
-                                theme.brightness,
-                                live: true,
+                    child: _sideControls(
+                      beside: beside,
+                      onPictures: onPictures,
+                      onTables: onTables,
+                      maxWidth: headerW * _sideShare,
+                      pictures: () => _PicturesHead(
+                        atTable: atTable,
+                        filter: _shelf,
+                        order: _order,
+                        rail: true,
+                        onFilter: (f) => setState(() {
+                          _shelf = f;
+                          _toTop();
+                        }),
+                        onOrder: (s) => setState(() {
+                          _order = s;
+                          _toTop();
+                        }),
+                      ),
+                      body: LayoutBuilder(
+                        builder: (context, body) {
+                          final grid = _ShelfGeometry.of(
+                            width: body.maxWidth - _bodyPadding.horizontal,
+                            height: body.maxHeight - _bodyPadding.vertical,
+                            screenWidth: size.width,
+                          );
+                          final scroll = SingleChildScrollView(
+                            key: _bodyKey,
+                            controller: _scroller,
+                            padding: _bodyPadding,
+                            // A new shelf fades in with a small scale, at once
+                            // — the one it replaces does not linger under it.
+                            child: AnimatedSwitcher(
+                              duration: Motion.base,
+                              switchInCurve: Motion.standard,
+                              transitionBuilder: _fadeScale,
+                              layoutBuilder: (current, _) =>
+                                  current ?? const SizedBox.shrink(),
+                              child: KeyedSubtree(
+                                key: ValueKey(tab),
+                                child: _shelfBody(
+                                  context,
+                                  state,
+                                  grid,
+                                  shelfW:
+                                      body.maxWidth - _bodyPadding.horizontal,
+                                  beside: beside,
+                                ),
                               ),
                             ),
-                          ),
-                          child: Scrollbar(
-                            controller: _scroller,
-                            thumbVisibility: true,
-                            // A row of packs cut by the foot of the sheet
-                            // fades out rather than stopping on a hard line:
-                            // there is more below, and it reads as that. Only
-                            // on the pack shelves, whose cards stand still: a
-                            // mask over the Pictures and Tables shelves, whose
-                            // Lotties and chips move every frame, would be an
-                            // offscreen pass every frame.
-                            child: onPictures || onTables || onEmojis
-                                ? scroll
-                                : EdgeFade(child: scroll),
-                          ),
-                        );
-                      },
+                          );
+                          return ScrollbarTheme(
+                            data: ScrollbarThemeData(
+                              thickness: const WidgetStatePropertyAll(4),
+                              radius: const Radius.circular(Radii.pill),
+                              thumbColor: WidgetStatePropertyAll(
+                                AppTheme.hairlineColour(
+                                  theme.brightness,
+                                  live: true,
+                                ),
+                              ),
+                            ),
+                            child: Scrollbar(
+                              controller: _scroller,
+                              thumbVisibility: true,
+                              // A row of packs cut by the foot of the sheet
+                              // fades out rather than stopping on a hard line:
+                              // there is more below, and it reads as that. Only
+                              // on the pack shelves, whose cards stand still: a
+                              // mask over the Pictures and Tables shelves, whose
+                              // Lotties and chips move every frame, would be an
+                              // offscreen pass every frame.
+                              child: onPictures || onTables || onEmojis
+                                  ? scroll
+                                  : EdgeFade(child: scroll),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ],
@@ -1419,12 +1556,76 @@ class _ChipStoreState extends State<_ChipStore> {
     );
   }
 
-  /// What the shelf that is on holds, laid out on [grid].
+  /// The most of the header's width a phone's side controls take
+  /// ([_sideControls]): enough for the widest order menu at the 1.25 text
+  /// scale, and never so much that the tiles beside it lose a column.
+  static const double _sideShare = 0.4;
+
+  /// The products' area, with the shelf's own controls — the Pictures
+  /// shelf's worn picture and menus, the Tables shelf's day/night switch —
+  /// beside it on a phone ([beside]) rather than over it.
+  ///
+  /// On a 360dp phone at the 1.25 text scale the header and the row of shelf
+  /// keys leave the products some 190dp, and a row of faces with two-line
+  /// names and a rental's term stands 160dp: with the worn picture's 57dp
+  /// head over the grid the first row was cut through its names, with
+  /// nothing of the next showing, and the Tables shelf's switch did the same
+  /// to its row of tables (review, 27 Sep 2026); at 844x390 and 915x412 the
+  /// faces were cut the same way. A landscape phone is short of height and
+  /// has width to spare, so there the controls stand in a column of their
+  /// own at the side, and the grid under the navigation starts with the
+  /// products. A tablet keeps them over the grid.
+  Widget _sideControls({
+    required bool beside,
+    required bool onPictures,
+    required bool onTables,
+    required double maxWidth,
+    required Widget Function() pictures,
+    required Widget body,
+  }) {
+    if (!beside || !(onPictures || onTables)) return body;
+    // Level with the first row's top edge, below the body's own inset.
+    final top = EdgeInsets.only(top: _bodyPadding.top);
+    if (onPictures) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: top,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxWidth),
+              // As wide as its widest menu, and no wider than [maxWidth]; a
+              // long picture name gives way first, cut short.
+              child: IntrinsicWidth(child: pictures()),
+            ),
+          ),
+          const SizedBox(width: Space.md),
+          Expanded(child: body),
+        ],
+      );
+    }
+    // The Tables shelf's day/night switch stays at the right, where it
+    // stands over the shelf on a taller screen.
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: body),
+        const SizedBox(width: Space.md),
+        Padding(padding: top, child: const DayNightSwitch()),
+      ],
+    );
+  }
+
+  /// What the shelf that is on holds, laid out on [grid], in a shelf
+  /// [shelfW] wide; [beside] says the shelf's controls stand at its side
+  /// ([_sideControls]).
   Widget _shelfBody(
     BuildContext context,
     GameState state,
-    _ShelfGeometry grid,
-  ) {
+    _ShelfGeometry grid, {
+    required double shelfW,
+    required bool beside,
+  }) {
     final prices = _prices;
     final size = MediaQuery.sizeOf(context);
     switch (_tab) {
@@ -1457,14 +1658,16 @@ class _ChipStoreState extends State<_ChipStore> {
               // one button for switching day to dark mode"): every tile
               // previews both halves, and this flips the theme — the felt
               // behind the sheet and the sheet's own glass — so either look is
-              // seen whole, as the picture menu's switch does.
-              const Padding(
-                padding: EdgeInsets.fromLTRB(0, 0, Space.lg, Space.sm),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: DayNightSwitch(),
+              // seen whole, as the picture menu's switch does. On a phone it
+              // stands beside the shelf instead ([_sideControls]).
+              if (!beside)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(0, 0, Space.lg, Space.sm),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: DayNightSwitch(),
+                  ),
                 ),
-              ),
               tablePictureShelf(
                 context: context,
                 state: state,
@@ -1472,7 +1675,17 @@ class _ChipStoreState extends State<_ChipStore> {
                 // their rows (Dim.packW): a table tile stands a preview, a
                 // tag and a name tall, and at the widened width its first
                 // row no longer fit a 640x360 phone at the 1.25 text scale.
-                width: Dim.packW(size.width),
+                // Beside the switch on a narrow phone, the shelf keeps three
+                // tables to the row, each at most a tenth narrower.
+                width: beside
+                    ? math.min(
+                        Dim.packW(size.width),
+                        math.max(
+                          Dim.packW(size.width) * 0.9,
+                          ((shelfW - 2 * Space.md) / 3).floorToDouble(),
+                        ),
+                      )
+                    : Dim.packW(size.width),
                 openStore: _show,
               ),
             ],
@@ -1764,10 +1977,16 @@ class _PicturesHead extends StatelessWidget {
     required this.order,
     required this.onFilter,
     required this.onOrder,
+    this.rail = false,
   });
 
   /// At a table the shelf is the animated one, and has no filter menu.
   final bool atTable;
+
+  /// Whether it stands in a column beside the grid — the worn picture over
+  /// the two menus — rather than in a row over it: a phone's layout
+  /// ([_ChipStoreState._sideControls]).
+  final bool rail;
   final PictureFilter filter;
   final PictureSort order;
   final ValueChanged<PictureFilter> onFilter;
@@ -1848,6 +2067,29 @@ class _PicturesHead extends StatelessWidget {
         ),
       ],
     );
+
+    if (rail) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          head,
+          const SizedBox(height: Space.md),
+          if (!atTable) ...[
+            PictureFilterMenu(
+              value: filter,
+              counts: {
+                for (final f in PictureFilter.menu)
+                  f: state.pictures.where(f.holds).length,
+              },
+              onChanged: onFilter,
+            ),
+            const SizedBox(height: Space.sm),
+          ],
+          PictureSortMenu(value: order, onChanged: onOrder),
+        ],
+      );
+    }
 
     return Row(
       children: [
@@ -2092,7 +2334,8 @@ Future<bool> _offerDiamonds(BuildContext context, MissilePack pack) async {
 
 /// Slides each pack up as the shelf is set out, one stagger apart — a short
 /// rise and a fade, no bounce (premium store polish, 26 Sep 2026: "very
-/// subtle entrance animation"; it rose 26dp).
+/// subtle entrance animation"; it rose 26dp), each in [Motion.base] (the
+/// brief of 27 Sep 2026: "product appearance 150-250ms"; it took 420).
 class _PackEntrance extends StatefulWidget {
   const _PackEntrance({required this.index, required this.child});
 
@@ -2110,7 +2353,7 @@ class _PackEntranceState extends State<_PackEntrance>
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(vsync: this, duration: Motion.enter);
+    _c = AnimationController(vsync: this, duration: Motion.base);
     Future<void>.delayed(Motion.stagger * widget.index, () {
       if (mounted) _c.forward();
     });

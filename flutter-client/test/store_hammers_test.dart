@@ -216,7 +216,18 @@ void main() {
     // two unmarked ones carried the shelf's name on a plate as well as under
     // their count. Every pack names the wallet under its count.
     expect(find.text('HAMMERS'), findsNothing);
-    expect(find.text('Hammers'), findsNWidgets(hammerPacks.length));
+    // ... and once more on the shelf's own key, which since 27 Sep 2026
+    // always carries its word (it was a bare glyph on this phone).
+    expect(find.text('Hammers'), findsNWidgets(hammerPacks.length + 1));
+    expect(
+      find.descendant(
+        of: find.byWidgetPredicate(
+          (w) => w.runtimeType.toString() == '_StoreTabs',
+        ),
+        matching: find.text('Hammers'),
+      ),
+      findsOneWidget,
+    );
 
     await _closeStore(tester);
     state.dispose();

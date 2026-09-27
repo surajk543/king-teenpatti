@@ -177,10 +177,10 @@ void main() {
         // A header that no longer fits reports a RenderFlex overflow.
         expect(tester.takeException(), isNull);
 
-        // The Hammers key: the tab strip's hammer, not the small ones on the
-        // Premium Packages' cards (found by the strip, since its glyphs grew
-        // from 18 to 20dp in the store polish of 26 Sep 2026). The strip may
-        // be cut and scrolling on this phone, so bring it in first.
+        // The Hammers key: the navigation's hammer, not the small ones on the
+        // Premium Packages' cards (found by the navigation). Every key is on
+        // screen since 27 Sep 2026 — the strip that scrolled, which had to be
+        // brought into view first, is gone — so it is tapped where it stands.
         final hammersKey = find.descendant(
           of: find.byWidgetPredicate(
             (w) => w.runtimeType.toString() == '_StoreTabs',
@@ -188,7 +188,6 @@ void main() {
           matching: find.byIcon(Icons.hardware),
         );
         expect(hammersKey, findsOneWidget);
-        await tester.ensureVisible(hammersKey);
         await tester.tap(hammersKey);
         await tester.pump();
         await tester.pump(const Duration(seconds: 2));
