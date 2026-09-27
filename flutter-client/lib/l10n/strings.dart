@@ -738,6 +738,21 @@ class Strings {
   String xpPlayMinutes(int minutes) =>
       _('xpPlayMinutes').replaceFirst('{n}', '$minutes');
   String xpWinBy(String hand) => _('xpWinBy').replaceFirst('{hand}', hand);
+
+  /// The bar at the top of the screen when a daily XP mission is completed
+  /// (owner, 27 Sep 2026: "show top notification bar for 5 seconds showing
+  /// this is completed and xp increased"): "Win by Pair completed", the XP it
+  /// gave ("+1 XP"), and the name for a mission the level ladder has not
+  /// described yet.
+  String xpMissionDone(String mission) =>
+      _('xpMissionDone').replaceFirst('{mission}', mission);
+  String xpGained(String xp) => _('xpGained').replaceFirst('{xp}', xp);
+  String get xpMissionFallback => _('xpMissionFallback');
+
+  /// Under the bar's level up, when the level changed the winning tax the
+  /// player pays: "Winning tax now 19.71%".
+  String xpBarTaxNow(String rate) =>
+      _('xpBarTaxNow').replaceFirst('{rate}', rate);
   String xpListResets(int hours) =>
       _('xpListResets').replaceFirst('{time}', timeHours(hours));
   String get xpEarned => _('xpEarned');
@@ -1918,6 +1933,10 @@ class Strings {
       'xpDailyTitle': 'Daily XP',
       'xpPlayMinutes': 'Play {n} active minutes',
       'xpWinBy': 'Win by {hand}',
+      'xpMissionDone': '{mission} completed',
+      'xpGained': '+{xp} XP',
+      'xpMissionFallback': 'Daily XP mission',
+      'xpBarTaxNow': 'Winning tax now {rate}',
       'xpListResets': 'The list resets every {time}.',
       'xpEarned': 'Earned',
       'xpDailyCap': 'Up to {cap} XP every {time}.',
@@ -2738,6 +2757,10 @@ class Strings {
       'xpDailyTitle': 'रोज़ का XP',
       'xpPlayMinutes': '{n} मिनट सक्रिय खेलें',
       'xpWinBy': '{hand} से जीतें',
+      'xpMissionDone': 'मिशन पूरा: {mission}',
+      'xpGained': '+{xp} XP',
+      'xpMissionFallback': 'रोज़ का XP मिशन',
+      'xpBarTaxNow': 'अब जीत टैक्स {rate}',
       'xpListResets': 'यह सूची हर {time} में फिर से शुरू होती है।',
       'xpEarned': 'मिल गया',
       'xpDailyCap': 'हर {time} में ज़्यादा से ज़्यादा {cap} XP।',
@@ -3543,6 +3566,10 @@ class Strings {
       'xpDailyTitle': 'দৈনিক XP',
       'xpPlayMinutes': '{n} মিনিট সক্রিয় খেলুন',
       'xpWinBy': '{hand} দিয়ে জিতুন',
+      'xpMissionDone': 'মিশন সম্পূর্ণ: {mission}',
+      'xpGained': '+{xp} XP',
+      'xpMissionFallback': 'দৈনিক XP মিশন',
+      'xpBarTaxNow': 'এখন জয়ের ট্যাক্স {rate}',
       'xpListResets': 'এই তালিকা প্রতি {time}য় আবার শুরু হয়।',
       'xpEarned': 'পাওয়া গেছে',
       'xpDailyCap': 'প্রতি {time}য় সর্বোচ্চ {cap} XP।',
@@ -4353,6 +4380,10 @@ class Strings {
       'xpDailyTitle': 'દૈનિક XP',
       'xpPlayMinutes': '{n} મિનિટ સક્રિય રમો',
       'xpWinBy': '{hand}થી જીતો',
+      'xpMissionDone': 'મિશન પૂર્ણ: {mission}',
+      'xpGained': '+{xp} XP',
+      'xpMissionFallback': 'દૈનિક XP મિશન',
+      'xpBarTaxNow': 'હવે જીત ટેક્સ {rate}',
       'xpListResets': 'આ યાદી દર {time}માં ફરી શરૂ થાય છે.',
       'xpEarned': 'મળી ગયું',
       'xpDailyCap': 'દર {time}માં વધુમાં વધુ {cap} XP.',
@@ -5159,6 +5190,10 @@ class Strings {
       'xpDailyTitle': 'ਰੋਜ਼ਾਨਾ XP',
       'xpPlayMinutes': '{n} ਮਿੰਟ ਸਰਗਰਮ ਖੇਡੋ',
       'xpWinBy': '{hand} ਨਾਲ ਜਿੱਤੋ',
+      'xpMissionDone': 'ਮਿਸ਼ਨ ਪੂਰਾ: {mission}',
+      'xpGained': '+{xp} XP',
+      'xpMissionFallback': 'ਰੋਜ਼ਾਨਾ XP ਮਿਸ਼ਨ',
+      'xpBarTaxNow': 'ਹੁਣ ਜਿੱਤ ਟੈਕਸ {rate}',
       'xpListResets': 'ਇਹ ਸੂਚੀ ਹਰ {time} ਵਿੱਚ ਮੁੜ ਸ਼ੁਰੂ ਹੁੰਦੀ ਹੈ।',
       'xpEarned': 'ਮਿਲ ਗਿਆ',
       'xpDailyCap': 'ਹਰ {time} ਵਿੱਚ ਵੱਧ ਤੋਂ ਵੱਧ {cap} XP।',
