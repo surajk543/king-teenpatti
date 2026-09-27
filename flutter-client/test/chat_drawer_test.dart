@@ -181,6 +181,14 @@ Finder _line(String text) => find.byWidgetPredicate(
 const _t = Strings(AppLang.english);
 final _blockKey = find.byTooltip(_t.blockPlayersTitle);
 
+/// Turns to the conversation. The drawer opens on the quick messages since
+/// 27 Sep 2026 (owner: "the first tab should be quick message, then table
+/// chat, then block"), so a test of the chat page goes there first.
+Future<void> _toChat(WidgetTester tester) async {
+  await tester.tap(find.text(_t.tableChat));
+  await tester.pump(const Duration(milliseconds: 300));
+}
+
 void main() {
   testWidgets(
     "the header's block key shows the players list in the drawer and pushes "
@@ -190,6 +198,7 @@ void main() {
         room: _room([('ravi', 'Ravi'), ('meera', 'Meera')]),
       );
       final routes = await _pumpDrawer(tester, state);
+      await _toChat(tester);
 
       expect(find.byType(ChatPlayers), findsNothing);
       expect(find.byType(GlassTextField), findsOneWidget);
@@ -259,6 +268,7 @@ void main() {
       state.chat.add(_msg('meera', 'Meera', 'nice hand'));
       state.blockPlayer('ravi');
       await _pumpDrawer(tester, state);
+      await _toChat(tester);
 
       expect(_line('nice hand'), findsOneWidget);
       expect(find.byType(GlassTextField), findsOneWidget);
@@ -286,6 +296,7 @@ void main() {
       final state = _newState(room: _room([('ravi', 'Ravi')]));
       state.chat.add(_msg('ravi', 'Ravi', 'good hand'));
       final routes = await _pumpDrawer(tester, state);
+      await _toChat(tester);
 
       await tester.longPress(_line('good hand'));
       await tester.pump(const Duration(milliseconds: 300));
@@ -301,16 +312,27 @@ void main() {
     },
   );
 
-  testWidgets('the key toggles the list, and a tab takes it down too', (
-    tester,
-  ) async {
+  testWidgets('the key toggles the list back to the tab it was opened from, '
+      'and a tab takes it down too', (tester) async {
     final state = _newState(room: _room([('ravi', 'Ravi')]));
     await _pumpDrawer(tester, state);
 
+    // From the quick messages, where the drawer opens, and back to them.
     await tester.tap(_blockKey);
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(ChatPlayers), findsOneWidget);
+    expect(find.byType(QuickLine), findsNothing);
 
+    await tester.tap(_blockKey);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(ChatPlayers), findsNothing);
+    expect(find.byType(QuickLine), findsWidgets);
+
+    // From the conversation, and back to it.
+    await _toChat(tester);
+    await tester.tap(_blockKey);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(ChatPlayers), findsOneWidget);
     await tester.tap(_blockKey);
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byType(ChatPlayers), findsNothing);

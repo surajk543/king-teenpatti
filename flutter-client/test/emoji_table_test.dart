@@ -553,6 +553,10 @@ void main() {
         await tester.tap(find.byTooltip(state.t.tableChat).first);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
+        // The drawer opens on the quick messages; the log is a tab along.
+        await tester.tap(find.text(state.t.tableChat));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
 
         expect(find.byType(ChatDrawer), findsOneWidget);
         final art = find.descendant(
@@ -577,6 +581,20 @@ void main() {
           find.bySemanticsLabel(state.t.emojiSentBy('Player 2', 'Laughing')),
           findsOneWidget,
         );
+        // The line carries the time it was sent, from its own stamp.
+        expect(
+          find.descendant(
+            of: find.byType(ChatDrawer),
+            matching: find.text(
+              chatTimeLabel(
+                1790000000000,
+                localizations: const DefaultMaterialLocalizations(),
+                use24h: false,
+              ),
+            ),
+          ),
+          findsOneWidget,
+        );
         await tester.pump(GameState.emojiBubbleFor);
         await _teardown(tester, state);
       });
@@ -590,6 +608,10 @@ void main() {
         expect(_seatEmoji('u2'), findsNothing);
 
         await tester.tap(find.byTooltip(state.t.tableChat).first);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        // The drawer opens on the quick messages; the log is a tab along.
+        await tester.tap(find.text(state.t.tableChat));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
         expect(find.byKey(const ValueKey('chat-emoji')), findsNothing);

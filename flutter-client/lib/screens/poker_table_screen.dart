@@ -59,7 +59,8 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
       context.read<GameState>().tableScaffold;
 
   void _open(LeftPanel panel) {
-    if (panel == LeftPanel.chat) context.read<GameState>().markChatRead();
+    // The chat's badge is cleared by its Table chat tab, not by opening it
+    // (ChatDrawer; the drawer opens on the quick messages).
     setState(() => _panel = panel);
     _scaffold.currentState?.openDrawer();
   }
