@@ -397,3 +397,70 @@ func TestTheLedgerPurgeKeepsTheRowsOfAReportedHand(t *testing.T) {
 		t.Fatalf("an unreported hand keeps %d rows after the purge", len(rows))
 	}
 }
+
+// The standing the app switches its Report line off by (owner, 27 Sep 2026:
+// "if user has reported 2 player, then reporting by him should be disabled in
+// UI, and show a cool down time in UI when can he report again"): Quota
+// counts what Submit counts, says when the next report opens, and the limit's
+// refusal carries the same.
+func TestTheQuotaSaysWhatSubmitWillDecideAndWhenTheNextReportOpens(t *testing.T) {
+	f := newFixture(t)
+	clock := newReportClock()
+	reports := db.NewReports(f.d, clock.Now)
+	alice := f.user("Alice")
+	targets := []*db.User{f.user("Bob"), f.user("Carla"), f.user("Dev")}
+	quota := func(limits db.ReportLimits) db.ReportQuota {
+		t.Helper()
+		q, err := reports.Quota(f.ctx, alice.ID, limits)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return q
+	}
+
+	if q := quota(dayLimits); q != (db.ReportQuota{Max: 2, Remaining: 2, Window: 24 * time.Hour, Now: clock.Now().UnixMilli()}) {
+		t.Fatalf("nothing filed: %+v", q)
+	}
+	first := clock.Now()
+	if _, err := reports.Submit(f.ctx, aReport(alice, targets[0], "h1"), dayLimits); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(5 * time.Hour)
+	if q := quota(dayLimits); q.Used != 1 || q.Remaining != 1 || q.AvailableAt != 0 || q.Limited() {
+		t.Fatalf("one filed: %+v", q)
+	}
+	second := clock.Now()
+	if _, err := reports.Submit(f.ctx, aReport(alice, targets[1], "h2"), dayLimits); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(time.Hour)
+	q := quota(dayLimits)
+	if !q.Limited() || q.Used != 2 || q.Remaining != 0 || q.AvailableAt != first.Add(24*time.Hour).UnixMilli() ||
+		q.Now != clock.Now().UnixMilli() {
+		t.Fatalf("both used: %+v, want open at the first report's 24 h", q)
+	}
+	_, err := reports.Submit(f.ctx, aReport(alice, targets[2], "h3"), dayLimits)
+	var limited *db.ReportLimitReached
+	if !errors.As(err, &limited) || limited.Quota != q || limited.RetryAt != q.AvailableAt {
+		t.Fatalf("the refusal's standing: %v %+v, want %+v", err, limited, q)
+	}
+
+	// A limit lowered under what was filed opens when the count falls under
+	// it: here, the second report's 24 h.
+	if q := quota(db.ReportLimits{MaxPerReporter: 1, Window: 24 * time.Hour}); q.Used != 2 || q.AvailableAt != second.Add(24*time.Hour).UnixMilli() {
+		t.Fatalf("a lowered limit: %+v", q)
+	}
+	// No limit: nothing counted, nothing to wait for.
+	if q := quota(db.ReportLimits{PairWindow: time.Hour}); q.Max != 0 || q.Used != 0 || q.Limited() || q.AvailableAt != 0 {
+		t.Fatalf("no limit: %+v", q)
+	}
+	// Once the first leaves the window, one opens — and another reporter's
+	// standing is their own.
+	clock.now = first.Add(24 * time.Hour)
+	if q := quota(dayLimits); q.Used != 1 || q.Remaining != 1 || q.Limited() {
+		t.Fatalf("after the first's 24 h: %+v", q)
+	}
+	if q, err := reports.Quota(f.ctx, targets[0].ID, dayLimits); err != nil || q.Used != 0 || q.Remaining != 2 {
+		t.Fatalf("another reporter: %+v %v", q, err)
+	}
+}

@@ -50,9 +50,11 @@ var (
 // ReportLimitReached is Submit refusing a report because its reporter has used
 // every report the window allows: errors.Is(err, ErrReportLimitReached) is
 // true of it, and RetryAt (epoch ms) is when the oldest report counted leaves
-// the window — when one more will be accepted.
+// the window — when one more will be accepted. Quota is the reporter's
+// standing as the refusal found it (Quota.AvailableAt == RetryAt).
 type ReportLimitReached struct {
 	RetryAt int64
+	Quota   ReportQuota
 }
 
 func (e *ReportLimitReached) Error() string {
@@ -92,6 +94,88 @@ type ReportLimits struct {
 	MaxPerReporter int
 	Window         time.Duration
 	PairWindow     time.Duration
+}
+
+// ReportQuota is how a reporter stands against ReportLimits.MaxPerReporter
+// (owner, 27 Sep 2026: "if user has reported 2 player, then reporting by him
+// should be disabled in UI, and show a cool down time in UI when can he
+// report again"): the reports they have filed within the window, how many
+// more it allows, and — when none — the moment one more will be accepted.
+// Counted from their own rows, as Submit counts them, so the app is told
+// exactly what Submit will decide.
+type ReportQuota struct {
+	// Max is the limit (MaxPerReporter); 0 = no per-reporter limit, and then
+	// Used and Remaining are 0 too.
+	Max int
+	// Used is the reports this reporter filed within the window, ending now.
+	Used int
+	// Remaining is Max − Used, never below 0.
+	Remaining int
+	// Window is the rolling window the reports are counted in.
+	Window time.Duration
+	// AvailableAt (epoch ms) is when the next report will be accepted, when
+	// Remaining is 0: the moment enough of the reports counted leave the
+	// window. 0 while one can be filed now.
+	AvailableAt int64
+	// Now (epoch ms) is the store's clock when it counted — so a caller can
+	// say how long is left without trusting another clock.
+	Now int64
+}
+
+// Limited reports whether no report can be filed now.
+func (q ReportQuota) Limited() bool { return q.Max > 0 && q.Remaining == 0 }
+
+// reportQuota counts reporter's reports within limits.Window ending at stamp
+// (created_at > stamp − window, as Submit counts them). The retry moment is
+// the created_at of the report whose leaving brings the count under the
+// limit, plus the window: the oldest one when exactly Max are counted, a
+// later one where the limit was lowered under what a reporter had filed.
+func reportQuota(ctx context.Context, q queryer, reporterID string, stamp int64, limits ReportLimits) (ReportQuota, error) {
+	quota := ReportQuota{Window: limits.Window, Now: stamp}
+	if limits.MaxPerReporter <= 0 || limits.Window <= 0 {
+		return quota, nil
+	}
+	quota.Max = limits.MaxPerReporter
+	windowMs := limits.Window.Milliseconds()
+	rows, err := q.Query(ctx,
+		`SELECT created_at FROM player_reports
+		  WHERE reporter_user_id = $1 AND created_at > $2
+		  ORDER BY created_at, id`,
+		reporterID, stamp-windowMs)
+	if err != nil {
+		return quota, err
+	}
+	var times []int64
+	for rows.Next() {
+		var at int64
+		if err := rows.Scan(&at); err != nil {
+			rows.Close()
+			return quota, err
+		}
+		times = append(times, at)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return quota, err
+	}
+	quota.Used = len(times)
+	quota.Remaining = max(quota.Max-quota.Used, 0)
+	if quota.Remaining == 0 {
+		// The window counts reports with created_at > now − window, so a
+		// report stops counting the moment now reaches its created_at +
+		// window; the count falls under Max once the (Used − Max + 1)th
+		// oldest has.
+		quota.AvailableAt = times[quota.Used-quota.Max] + windowMs
+	}
+	return quota, nil
+}
+
+// Quota is reporterID's standing against limits now: what the app shows
+// before a report is written, so a player who has used every report sees the
+// Report line switched off with the time it opens again. A read, taking no
+// lock; Submit decides, under its own.
+func (r *Reports) Quota(ctx context.Context, reporterID string, limits ReportLimits) (ReportQuota, error) {
+	return reportQuota(ctx, r.db.Pool, reporterID, now(r.clock), limits)
 }
 
 // Reports is the player-report store.
@@ -183,26 +267,12 @@ func (r *Reports) Submit(ctx context.Context, report PlayerReport, limits Report
 				return ErrAlreadyReported
 			}
 		}
-		if limits.MaxPerReporter > 0 && limits.Window > 0 {
-			windowMs := limits.Window.Milliseconds()
-			var count int64
-			var oldest *int64
-			if err := tx.QueryRow(ctx,
-				`SELECT count(*), min(created_at) FROM player_reports
-				  WHERE reporter_user_id = $1 AND created_at > $2`,
-				report.ReporterID, stamp-windowMs).Scan(&count, &oldest); err != nil {
-				return err
-			}
-			if count >= int64(limits.MaxPerReporter) {
-				retryAt := stamp + windowMs
-				if oldest != nil {
-					// The window counts reports with created_at > now − window,
-					// so the oldest stops counting the moment now reaches its
-					// created_at + window.
-					retryAt = *oldest + windowMs
-				}
-				return &ReportLimitReached{RetryAt: retryAt}
-			}
+		quota, err := reportQuota(ctx, tx, report.ReporterID, stamp, limits)
+		if err != nil {
+			return err
+		}
+		if quota.Limited() {
+			return &ReportLimitReached{RetryAt: quota.AvailableAt, Quota: quota}
 		}
 		if r.counted != nil {
 			r.counted()

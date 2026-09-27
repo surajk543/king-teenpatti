@@ -354,6 +354,17 @@ class Strings {
   String get reportNetworkError => _('reportNetworkError');
   String get reportServerError => _('reportServerError');
 
+  /// The report limit used (owner, 27 Sep 2026: "if user has reported 2
+  /// player, then reporting by him should be disabled in UI, and show a cool
+  /// down time in UI when can he report again"): the drawer's dead Report
+  /// line, how many of the limit are used, and the countdown to the next.
+  String get reportLimitTitle => _('reportLimitTitle');
+  String reportLimitUsed(int used, int max) => _(
+    'reportLimitUsed',
+  ).replaceFirst('{used}', '$used').replaceFirst('{max}', '$max');
+  String reportAgainIn(String time) =>
+      _('reportAgainIn').replaceFirst('{time}', time);
+
   // --- buying chips, not open yet
   String get buyChips => _('buyChips');
 
@@ -2530,6 +2541,9 @@ class Strings {
       'reportAlready': 'You have already reported this player.',
       'reportLimited':
           'You have sent too many reports. Please try again later.',
+      'reportLimitTitle': 'Report limit reached',
+      'reportLimitUsed': '{used} of {max} reports used',
+      'reportAgainIn': 'You can report again in {time}',
       'reportNotAtTable': 'This player is no longer at your table.',
       'reportInvalidPlayer': 'This player can’t be reported.',
       'reportDescriptionRequired': 'Please describe what happened.',
@@ -2587,7 +2601,8 @@ class Strings {
       'statsHandResults': 'हाथों के नतीजे',
       'statsNoHandResults': 'अभी कोई हाथ का नतीजा नहीं',
       'statsNoVariationGames': 'अभी तक कोई वेरिएशन गेम नहीं खेला',
-      'statsHandResultsHint': 'इन्हें देखने के लिए तीन पत्ती या वेरिएशन गेम चुनें',
+      'statsHandResultsHint':
+          'इन्हें देखने के लिए तीन पत्ती या वेरिएशन गेम चुनें',
       'statsVariationsHint': 'इन्हें देखने के लिए वेरिएशन गेम चुनें',
       'fourHourBonus': '4-घंटे का बोनस',
       'dailyBonus': 'दैनिक बोनस',
@@ -3376,6 +3391,9 @@ class Strings {
       'reportAlready': 'आप इस खिलाड़ी की रिपोर्ट पहले ही कर चुके हैं।',
       'reportLimited':
           'आपने बहुत सारी रिपोर्ट भेजी हैं। कृपया बाद में फिर कोशिश करें।',
+      'reportLimitTitle': 'रिपोर्ट की सीमा पूरी',
+      'reportLimitUsed': '{max} में से {used} रिपोर्ट इस्तेमाल',
+      'reportAgainIn': '{time} बाद फिर रिपोर्ट कर सकेंगे',
       'reportNotAtTable': 'यह खिलाड़ी अब आपकी टेबल पर नहीं है।',
       'reportInvalidPlayer': 'इस खिलाड़ी की रिपोर्ट नहीं की जा सकती।',
       'reportDescriptionRequired': 'कृपया बताएँ कि क्या हुआ।',
@@ -4221,6 +4239,9 @@ class Strings {
       'reportAlready': 'আপনি এই খেলোয়াড়কে আগেই রিপোর্ট করেছেন।',
       'reportLimited':
           'আপনি অনেক বেশি রিপোর্ট পাঠিয়েছেন। পরে আবার চেষ্টা করুন।',
+      'reportLimitTitle': 'রিপোর্টের সীমা পূর্ণ',
+      'reportLimitUsed': '{max}টির মধ্যে {used}টি রিপোর্ট ব্যবহৃত',
+      'reportAgainIn': '{time} পরে আবার রিপোর্ট করতে পারবেন',
       'reportNotAtTable': 'এই খেলোয়াড় আর আপনার টেবিলে নেই।',
       'reportInvalidPlayer': 'এই খেলোয়াড়কে রিপোর্ট করা যাবে না।',
       'reportDescriptionRequired': 'অনুগ্রহ করে লিখুন কী হয়েছিল।',
@@ -5061,6 +5082,9 @@ class Strings {
       'reportAlready': 'તમે આ ખેલાડીની જાણ પહેલેથી કરી છે.',
       'reportLimited':
           'તમે ઘણા બધા રિપોર્ટ મોકલ્યા છે. કૃપા કરીને પછી ફરી પ્રયાસ કરો.',
+      'reportLimitTitle': 'રિપોર્ટની મર્યાદા પૂરી',
+      'reportLimitUsed': '{max} માંથી {used} રિપોર્ટ વપરાયા',
+      'reportAgainIn': '{time} પછી ફરી રિપોર્ટ કરી શકશો',
       'reportNotAtTable': 'આ ખેલાડી હવે તમારા ટેબલ પર નથી.',
       'reportInvalidPlayer': 'આ ખેલાડીની જાણ કરી શકાતી નથી.',
       'reportDescriptionRequired': 'કૃપા કરીને જણાવો કે શું થયું.',
@@ -5911,6 +5935,9 @@ class Strings {
       'reportAlready': 'ਤੁਸੀਂ ਇਸ ਖਿਡਾਰੀ ਦੀ ਰਿਪੋਰਟ ਪਹਿਲਾਂ ਹੀ ਕਰ ਚੁੱਕੇ ਹੋ।',
       'reportLimited':
           'ਤੁਸੀਂ ਬਹੁਤ ਸਾਰੀਆਂ ਰਿਪੋਰਟਾਂ ਭੇਜੀਆਂ ਹਨ। ਕਿਰਪਾ ਕਰਕੇ ਬਾਅਦ ਵਿੱਚ ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+      'reportLimitTitle': 'ਰਿਪੋਰਟ ਦੀ ਸੀਮਾ ਪੂਰੀ',
+      'reportLimitUsed': '{max} ਵਿੱਚੋਂ {used} ਰਿਪੋਰਟਾਂ ਵਰਤੀਆਂ',
+      'reportAgainIn': '{time} ਬਾਅਦ ਮੁੜ ਰਿਪੋਰਟ ਕਰ ਸਕੋਗੇ',
       'reportNotAtTable': 'ਇਹ ਖਿਡਾਰੀ ਹੁਣ ਤੁਹਾਡੇ ਟੇਬਲ ਉੱਤੇ ਨਹੀਂ ਹੈ।',
       'reportInvalidPlayer': 'ਇਸ ਖਿਡਾਰੀ ਦੀ ਰਿਪੋਰਟ ਨਹੀਂ ਕੀਤੀ ਜਾ ਸਕਦੀ।',
       'reportDescriptionRequired': 'ਕਿਰਪਾ ਕਰਕੇ ਦੱਸੋ ਕਿ ਕੀ ਹੋਇਆ।',

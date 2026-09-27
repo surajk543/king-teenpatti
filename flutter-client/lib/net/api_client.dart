@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/dtos.dart';
 import '../models/friends.dart';
+import '../models/report.dart';
 
 /// Thrown when the server refuses a request. The message is the server's own,
 /// so it is safe to put in front of the player.
@@ -29,6 +30,16 @@ class LuckyDrawNotReady extends ApiException {
   LuckyDrawNotReady(super.message, {required this.readyAt})
     : super(code: 'lucky_draw_not_ready', status: 409);
   final int readyAt;
+}
+
+/// A report refused because the player has used every report the window
+/// allows: 429 `report_limit_reached`, carrying the server's [limit] — how
+/// long until the next one opens — so the drawer can switch its Report line
+/// off and count down to the server's moment.
+class ReportLimitRefusal extends ApiException {
+  ReportLimitRefusal(super.message, {this.limit})
+    : super(code: 'report_limit_reached', status: 429);
+  final ReportLimit? limit;
 }
 
 /// A Friends refusal (owner, 26 Sep 2026): an [ApiException] with the code
@@ -656,9 +667,12 @@ class ApiClient {
   /// `invalid_player_id`, `self_report`, `invalid_report_reason`,
   /// `description_required`, `description_too_long`; 404 `player_not_found`;
   /// 409 `player_not_at_table`, `already_reported`; 429
-  /// `report_limit_reached`, `rate_limited`; 401 for a session that is gone;
-  /// 500 `internal_error`.
-  Future<void> reportPlayer(
+  /// `report_limit_reached` (a [ReportLimitRefusal], with the wait),
+  /// `rate_limited`; 401 for a session that is gone; 500 `internal_error`.
+  ///
+  /// Answers the player's standing against the report limit after this one
+  /// (`limit`), or null from a server that does not say.
+  Future<ReportLimit?> reportPlayer(
     String token, {
     required String reportedUserId,
     required String reason,
@@ -673,6 +687,21 @@ class ApiClient {
         if (description.isNotEmpty) 'description': description,
       }),
     );
+    final receivedAt = DateTime.now();
+    if (r.statusCode == 429) {
+      Object? body;
+      try {
+        body = jsonDecode(r.body);
+      } on FormatException {
+        body = null;
+      }
+      if (body is Map && body['error'] == 'report_limit_reached') {
+        throw ReportLimitRefusal(
+          '${body['message'] ?? 'Report limit reached'}',
+          limit: ReportLimit.fromJson(body['limit'], receivedAt: receivedAt),
+        );
+      }
+    }
     final j = _decode(r);
     if (j['success'] == false) {
       throw ApiException(
@@ -680,6 +709,23 @@ class ApiClient {
         status: r.statusCode,
       );
     }
+    return ReportLimit.fromJson(j['limit'], receivedAt: receivedAt);
+  }
+
+  /// The player's standing against the report limit: `GET
+  /// /api/reports/limit` → `{limit: {max, used, remaining, windowMs,
+  /// availableAt, waitMs}}` — read as the player drawer opens, so a player who
+  /// has used every report finds the Report line switched off with the time
+  /// it opens again. Null from a server that predates it (404).
+  Future<ReportLimit?> reportLimit(String token) async {
+    final r = await http.get(
+      _uri('/api/reports/limit'),
+      headers: _headers(token),
+    );
+    if (r.statusCode == 404) return null;
+    final receivedAt = DateTime.now();
+    final j = _decode(r);
+    return ReportLimit.fromJson(j['limit'], receivedAt: receivedAt);
   }
 
   /// Requirement 29: renames the player. The server validates the name and

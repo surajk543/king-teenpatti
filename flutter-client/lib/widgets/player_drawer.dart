@@ -83,6 +83,9 @@ void openPlayerDrawer(BuildContext context, Seat seat) {
   tapHaptic(context);
   // A report page left open for another player goes with them.
   if (state.reports.target != userId) state.reports.close();
+  // Whether the player has a report left, and when the next opens if not:
+  // the drawer's Report line is off, counting down, while none is.
+  unawaited(state.reports.refreshLimit());
   unawaited(
     state.friends.openSeat(
       PlayerCard(
@@ -270,6 +273,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
         child: ReportPlayerRow(
           t: t,
           reported: _reports.wasReported(who.userId),
+          reports: _reports,
           onReport: () => _reports.open(who.userId),
         ),
       ),

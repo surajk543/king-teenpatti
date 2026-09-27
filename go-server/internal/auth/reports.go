@@ -31,6 +31,18 @@ import (
 // the brief's {success, message} and nothing more: never the report's id, its
 // status, the table, the hand, or anything moderation decides.
 //
+// and, beside it, the reporter's own standing against the limit (owner, 27
+// Sep 2026: "if user has reported 2 player, then reporting by him should be
+// disabled in UI, and show a cool down time in UI when can he report again"):
+//
+//	GET  /api/reports/limit → ReportLimit (200 {limit})
+//
+// read when the app opens a player's drawer, and carried on every answer that
+// changes it — a report filed (201) and one refused for the limit (429) — so
+// the drawer switches its Report line off, and counts down to the moment it
+// opens again, from the server's own count. It names nothing but the caller's
+// own figures: no report, no player reported, no table.
+//
 // SERVER AUTHORITY. The body is three fields and nothing else is read: the
 // reporter is the session's account; the table, its game, category and
 // variant, and the hand are the server's own (Deps.ReportContext: the room the
@@ -72,9 +84,10 @@ const (
 	MsgReportLimitReached         = "You have reached the report limit. Try again later."
 )
 
-// ReportStore is the slice of db.Reports the report route uses.
+// ReportStore is the slice of db.Reports the report routes use.
 type ReportStore interface {
 	Submit(ctx context.Context, report db.PlayerReport, limits db.ReportLimits) (int64, error)
+	Quota(ctx context.Context, reporterID string, limits db.ReportLimits) (db.ReportQuota, error)
 }
 
 // ReportPlayerBody ← POST /api/reports {reportedUserId, reason, description}:
@@ -109,11 +122,71 @@ func (b *ReportPlayerBody) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ReportSubmitted ← POST /api/reports (201): the brief's answer, and only
-// that.
+// ReportSubmitted ← POST /api/reports (201): the brief's answer, and the
+// reporter's standing after it (Limit; absent when the store could not say —
+// the report is filed either way).
 type ReportSubmitted struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
+	Success bool             `json:"success"`
+	Message string           `json:"message"`
+	Limit   *ReportLimitView `json:"limit,omitempty"`
+}
+
+// ReportLimitView is a reporter's standing against the report limit, as the
+// app reads it (db.ReportQuota): {max, used, remaining, windowMs, availableAt,
+// waitMs}. max 0 = no limit. availableAt (epoch ms, the server's clock) and
+// waitMs (how long from this answer) say when the next report is accepted
+// while remaining is 0, and are 0 otherwise; the app counts down from waitMs,
+// so a phone whose clock is wrong still counts to the server's moment.
+type ReportLimitView struct {
+	Max         int   `json:"max"`
+	Used        int   `json:"used"`
+	Remaining   int   `json:"remaining"`
+	WindowMs    int64 `json:"windowMs"`
+	AvailableAt int64 `json:"availableAt"`
+	WaitMs      int64 `json:"waitMs"`
+}
+
+// reportLimitView is q on the wire.
+func reportLimitView(q db.ReportQuota) *ReportLimitView {
+	v := &ReportLimitView{Max: q.Max, Used: q.Used, Remaining: q.Remaining, WindowMs: q.Window.Milliseconds()}
+	if q.Limited() {
+		v.AvailableAt = q.AvailableAt
+		v.WaitMs = max(q.AvailableAt-q.Now, 0)
+	}
+	return v
+}
+
+// limitedQuota is the standing a limit refusal reports: the store's own
+// (db.ReportLimitReached.Quota), or — for a refusal that carries only the
+// moment it lifts — every report of the limit used until RetryAt, counted
+// from this process's clock.
+func limitedQuota(limited *db.ReportLimitReached, limits db.ReportLimits) db.ReportQuota {
+	q := limited.Quota
+	if q.Max == 0 {
+		q = db.ReportQuota{Max: max(limits.MaxPerReporter, 1), Window: limits.Window}
+		q.Used = q.Max
+	}
+	if q.AvailableAt == 0 {
+		q.AvailableAt = limited.RetryAt
+	}
+	if q.Now == 0 {
+		q.Now = time.Now().UnixMilli()
+	}
+	q.Remaining = 0
+	return q
+}
+
+// ReportLimitAnswer ← GET /api/reports/limit.
+type ReportLimitAnswer struct {
+	Limit *ReportLimitView `json:"limit"`
+}
+
+// reportLimitRefusal ← POST /api/reports (429 report_limit_reached): the
+// refusal, and the standing that caused it.
+type reportLimitRefusal struct {
+	Error   string           `json:"error"`
+	Message string           `json:"message"`
+	Limit   *ReportLimitView `json:"limit"`
 }
 
 // ReportPlayer is POST /api/reports: the caller reports a player they share a
@@ -181,6 +254,11 @@ func (h *Handler) ReportPlayer(w http.ResponseWriter, r *http.Request, user *db.
 		refuseReport(w, http.StatusConflict, CodePlayerNotAtTable, MsgPlayerNotAtTable)
 		return
 	}
+	dbLimits := db.ReportLimits{
+		MaxPerReporter: limits.MaxPerReporter,
+		Window:         limits.Window,
+		PairWindow:     limits.PairWindow,
+	}
 	id, err := h.deps.Reports.Submit(r.Context(), db.PlayerReport{
 		ReporterID:  user.ID,
 		ReportedID:  reportedID,
@@ -191,11 +269,7 @@ func (h *Handler) ReportPlayer(w http.ResponseWriter, r *http.Request, user *db.
 		Variant:     where.Variant,
 		TableID:     where.RoomID,
 		HandID:      where.HandID,
-	}, db.ReportLimits{
-		MaxPerReporter: limits.MaxPerReporter,
-		Window:         limits.Window,
-		PairWindow:     limits.PairWindow,
-	})
+	}, dbLimits)
 	var limited *db.ReportLimitReached
 	switch {
 	case errors.Is(err, db.ErrReportedNotFound):
@@ -205,8 +279,11 @@ func (h *Handler) ReportPlayer(w http.ResponseWriter, r *http.Request, user *db.
 	case errors.Is(err, db.ErrAlreadyReported):
 		refuseReport(w, http.StatusConflict, CodeAlreadyReported, MsgAlreadyReported)
 	case errors.As(err, &limited):
-		w.Header().Set("Retry-After", retryAfterSeconds(time.Until(time.UnixMilli(limited.RetryAt))))
-		refuseReport(w, http.StatusTooManyRequests, CodeReportLimitReached, MsgReportLimitReached)
+		quota := limitedQuota(limited, dbLimits)
+		w.Header().Set("Retry-After", retryAfterSeconds(time.Duration(max(quota.AvailableAt-quota.Now, 0))*time.Millisecond))
+		WriteJSON(w, http.StatusTooManyRequests, reportLimitRefusal{
+			Error: CodeReportLimitReached, Message: MsgReportLimitReached, Limit: reportLimitView(quota),
+		})
 	case err != nil:
 		h.writeError(w, r, err)
 	default:
@@ -214,8 +291,34 @@ func (h *Handler) ReportPlayer(w http.ResponseWriter, r *http.Request, user *db.
 			h.deps.Logger.Info("player report filed", "reportId", id, "reason", body.Reason,
 				"game", string(where.Game), "category", string(where.Category))
 		}
-		WriteJSON(w, http.StatusCreated, ReportSubmitted{Success: true, Message: MsgReportSubmitted})
+		answer := ReportSubmitted{Success: true, Message: MsgReportSubmitted}
+		if quota, err := h.deps.Reports.Quota(r.Context(), user.ID, dbLimits); err == nil {
+			answer.Limit = reportLimitView(quota)
+		} else if h.deps.Logger != nil {
+			h.deps.Logger.Warn("report limit not read after a report", "userId", user.ID, "err", err.Error())
+		}
+		WriteJSON(w, http.StatusCreated, answer)
 	}
+}
+
+// ReportLimit is GET /api/reports/limit: the caller's standing against the
+// report limit — how many reports they have filed within the window, how many
+// more it allows, and when the next opens when none do. Signed in; it reads
+// the caller's own rows and nothing else, and is not counted against the
+// report attempts (opening a drawer is not a report). 500 internal_error when
+// the database fails.
+func (h *Handler) ReportLimit(w http.ResponseWriter, r *http.Request, user *db.User) {
+	limits := h.reportConfig()
+	quota, err := h.deps.Reports.Quota(r.Context(), user.ID, db.ReportLimits{
+		MaxPerReporter: limits.MaxPerReporter,
+		Window:         limits.Window,
+		PairWindow:     limits.PairWindow,
+	})
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, ReportLimitAnswer{Limit: reportLimitView(quota)})
 }
 
 // reportConfig is the configured limits, or config.Defaults()' where the

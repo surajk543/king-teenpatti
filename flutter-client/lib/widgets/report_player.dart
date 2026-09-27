@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../l10n/strings.dart';
 import '../models/report.dart';
+import '../state/game_state.dart' show formatCountdown;
 import '../state/player_reports.dart';
 import '../theme/app_theme.dart';
 import '../theme/table_theme.dart';
@@ -42,12 +43,21 @@ String reportReasonLabel(Strings t, ReportReason r) => switch (r) {
 /// and the words, no fill, no gold — under the move the two players' standing
 /// offers, so it is found without being a key the eye goes to first. A
 /// player already reported this session reads "✓ Reported", dead.
+///
+/// With every report the limit allows used ([PlayerReports.limited]; owner,
+/// 27 Sep 2026: "if user has reported 2 player, then reporting by him should
+/// be disabled in UI, and show a cool down time in UI when can he report
+/// again") it is dead for every other player too: an hourglass, "Report limit
+/// reached · 2 of 2 reports used", and under it the time to the next report,
+/// counting down ([ReportCooldown]). The moment it runs out the line is
+/// pressable again.
 class ReportPlayerRow extends StatelessWidget {
   const ReportPlayerRow({
     super.key,
     required this.t,
     required this.reported,
     required this.onReport,
+    this.reports,
   });
 
   final Strings t;
@@ -56,6 +66,10 @@ class ReportPlayerRow extends StatelessWidget {
   final bool reported;
   final VoidCallback onReport;
 
+  /// The player's report limit, when known: used up, the line is dead and
+  /// counts down to the next report.
+  final PlayerReports? reports;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -63,6 +77,11 @@ class ReportPlayerRow extends StatelessWidget {
       alpha: AppTheme.inkLowOn(theme.brightness),
     );
     final style = TableType.info(theme, colour: ink);
+    final reports = this.reports;
+    final opensAt = reports?.limitOpensAt;
+    if (!reported && reports != null && opensAt != null) {
+      return _limitedRow(context, reports, opensAt, ink, style);
+    }
     final row = ConstrainedBox(
       constraints: const BoxConstraints(minHeight: Dim.minTouch),
       child: Row(
@@ -102,6 +121,151 @@ class ReportPlayerRow extends StatelessWidget {
         },
         child: row,
       ),
+    );
+  }
+}
+
+/// The line with every report used: dead, the limit said, and the wait.
+extension on ReportPlayerRow {
+  Widget _limitedRow(
+    BuildContext context,
+    PlayerReports reports,
+    DateTime opensAt,
+    Color ink,
+    TextStyle style,
+  ) {
+    final theme = Theme.of(context);
+    final limit = reports.limit;
+    final title = limit == null || limit.max <= 0
+        ? t.reportLimitTitle
+        : '${t.reportLimitTitle} · ${t.reportLimitUsed(limit.used, limit.max)}';
+    return Semantics(
+      key: const ValueKey('seat-report-limited'),
+      container: true,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: Dim.minTouch),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: Space.xs),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: Icon(Icons.hourglass_top_rounded, size: 18, color: ink),
+              ),
+              const SizedBox(width: Space.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      key: const ValueKey('seat-report-limit-title'),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: style,
+                    ),
+                    const SizedBox(height: Space.xxs),
+                    ReportCooldown(
+                      key: const ValueKey('seat-report-cooldown'),
+                      t: t,
+                      opensAt: opensAt,
+                      now: reports.now,
+                      style: TableType.metadata(
+                        theme,
+                        colour: AppTheme.goldInk(theme.brightness),
+                        figures: true,
+                      ).copyWith(fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "You can report again in 23h 41m 5s", counted every second by itself
+/// against [now] down to [opensAt] — rounded up, so it never reads 0s while
+/// the wait is still on — and nothing once it has passed (the report limit's
+/// own timer brings the Report line back then). Only this line ticks: the
+/// drawer around it rebuilds for nothing.
+class ReportCooldown extends StatefulWidget {
+  const ReportCooldown({
+    super.key,
+    required this.t,
+    required this.opensAt,
+    required this.now,
+    this.style,
+    this.textAlign,
+  });
+
+  final Strings t;
+  final DateTime opensAt;
+  final DateTime Function() now;
+  final TextStyle? style;
+  final TextAlign? textAlign;
+
+  /// The line at [now], or null once the wait is over.
+  static String? lineAt(Strings t, DateTime opensAt, DateTime now) {
+    final ms = opensAt.difference(now).inMilliseconds;
+    if (ms <= 0) return null;
+    final wait = Duration(seconds: (ms + 999) ~/ 1000);
+    return t.reportAgainIn(formatCountdown(wait, t));
+  }
+
+  @override
+  State<ReportCooldown> createState() => _ReportCooldownState();
+}
+
+class _ReportCooldownState extends State<ReportCooldown> {
+  Timer? _timer;
+  String? _line;
+
+  @override
+  void initState() {
+    super.initState();
+    _line = _read();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final line = _read();
+      if (line != _line) setState(() => _line = line);
+      if (line == null) {
+        _timer?.cancel();
+        _timer = null;
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant ReportCooldown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _line = _read();
+  }
+
+  String? _read() =>
+      ReportCooldown.lineAt(widget.t, widget.opensAt, widget.now());
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final line = _line;
+    if (line == null) return const SizedBox.shrink();
+    return Text(
+      line,
+      maxLines: 2,
+      textAlign: widget.textAlign,
+      style:
+          widget.style ?? TableType.metadata(Theme.of(context), figures: true),
     );
   }
 }
@@ -146,6 +310,7 @@ class _ReportPlayerPageState extends State<ReportPlayerPage> {
           ? _Sent(
               key: const ValueKey('report-sent'),
               t: t,
+              reports: reports,
               onDone: reports.close,
             )
           : _Form(
@@ -261,7 +426,23 @@ class _Form extends StatelessWidget {
             style: TableType.metadata(theme, figures: true),
           ),
         ),
-        if (error != null)
+        if (reports.limited)
+          _ReportNote(
+            key: const ValueKey('report-error'),
+            text: t.reportLimitTitle,
+            below: ReportCooldown(
+              key: const ValueKey('report-cooldown'),
+              t: t,
+              opensAt: reports.limitOpensAt!,
+              now: reports.now,
+              style: TableType.metadata(
+                theme,
+                colour: scheme.error,
+                figures: true,
+              ),
+            ),
+          )
+        else if (error != null)
           _ReportNote(
             key: const ValueKey('report-error'),
             text: reportRefusalText(t, error),
@@ -371,9 +552,15 @@ class _ReasonChip extends StatelessWidget {
 /// helping keep the game fair.", "Our team will review the report." Nothing
 /// about what will be done, or when.
 class _Sent extends StatelessWidget {
-  const _Sent({super.key, required this.t, required this.onDone});
+  const _Sent({
+    super.key,
+    required this.t,
+    required this.reports,
+    required this.onDone,
+  });
 
   final Strings t;
+  final PlayerReports reports;
   final VoidCallback onDone;
 
   @override
@@ -417,6 +604,23 @@ class _Sent extends StatelessWidget {
             textAlign: TextAlign.center,
             style: TableType.modalBody(theme).copyWith(color: quiet),
           ),
+          // That was the last report the limit allows: say when the next opens,
+          // so the Report line switched off on the next player is no surprise.
+          if (reports.limitOpensAt case final opensAt?) ...[
+            const SizedBox(height: Space.md),
+            ReportCooldown(
+              key: const ValueKey('report-sent-cooldown'),
+              t: t,
+              opensAt: opensAt,
+              now: reports.now,
+              textAlign: TextAlign.center,
+              style: TableType.metadata(
+                theme,
+                colour: AppTheme.goldInk(theme.brightness),
+                figures: true,
+              ).copyWith(fontWeight: FontWeight.w600),
+            ),
+          ],
           const SizedBox(height: Space.lg),
           DrawerKey(
             key: const ValueKey('report-done'),
@@ -433,9 +637,12 @@ class _Sent extends StatelessWidget {
 
 /// Why the report did not go, said where it was made.
 class _ReportNote extends StatelessWidget {
-  const _ReportNote({super.key, required this.text});
+  const _ReportNote({super.key, required this.text, this.below});
 
   final String text;
+
+  /// A second line under the words (the limit's countdown).
+  final Widget? below;
 
   @override
   Widget build(BuildContext context) {
@@ -454,7 +661,17 @@ class _ReportNote extends StatelessWidget {
             ),
             const SizedBox(width: Space.sm),
             Expanded(
-              child: Text(text, style: TableType.info(theme, colour: ink)),
+              child: below == null
+                  ? Text(text, style: TableType.info(theme, colour: ink))
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(text, style: TableType.info(theme, colour: ink)),
+                        const SizedBox(height: Space.xxs),
+                        below!,
+                      ],
+                    ),
             ),
           ],
         ),

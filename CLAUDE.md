@@ -98,7 +98,7 @@ king-teenpatti/
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go,
 │   │   │                         poker.go (poker:action in, the poker:* events out — the Handler's poker.Listener); testclient/
-│   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go, reports.go (Report Player's POST /api/reports, §7.2)
+│   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go, reports.go (Report Player's POST /api/reports and GET /api/reports/limit, §7.2)
 │   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — EXACTLY TWO since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = all DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL), luckydraw.go (the Lucky Draw: State, Spin — draw, grant and record in one transaction, §7.3), reports.go (player_reports: Submit — the limits and the insert in one transaction, §7.3); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js),
@@ -1258,9 +1258,16 @@ suite on all three stores; the pushes in `internal/{auth,app}/friendpush_test.go
 events over real sockets, nothing on reject/remove/refusal or to an account with no socket, two players seated mid-hand
 befriending each other with no `seated` refusal, no wallet word, room id or code in a push).
 **Report Player** (owner's brief, 27 Sep 2026: "A player sitting at a gameplay table must be able to report another player
-currently at the same table … Go server is authoritative"; `auth/reports.go`, `db/reports.go`, `game/report.go`). ONE route,
+currently at the same table … Go server is authoritative"; `auth/reports.go`, `db/reports.go`, `game/report.go`). TWO routes,
 **`POST /api/reports {reportedUserId, reason, description?}`** → **201 `{"success":true,"message":"Report submitted
-successfully."}`** and nothing more (no report id, status, table or hand). REST, as Friends at the table is: a persistent
+successfully.","limit":{…}}`** and nothing more (no report id, status, table or hand), and **`GET /api/reports/limit`** →
+`{limit:{max, used, remaining, windowMs, availableAt, waitMs}}` — the caller's OWN standing against the limit (owner, 27 Sep
+2026: "if user has reported 2 player, then reporting by him should be disabled in UI, and show a cool down time in UI when can
+he report again"; `db.Reports.Quota`, the same count `Submit` makes — `reportQuota`, shared — with `availableAt` the moment
+enough counted reports leave the window, the server's clock, and `waitMs` how long that is from the answer, so a phone with a
+wrong clock still counts to the server's moment; both 0 while a report is open; signed in, not counted against the attempt
+limiter). The same `limit` rides on the 201 (absent if the read failed — the report is filed anyway) and on the 429
+`report_limit_reached` (`db.ReportLimitReached.Quota`). REST, as Friends at the table is: a persistent
 account action made from the table's player drawer, allowed while seated, and never through the table's actor — **a report
 changes nothing in the game** (no pause, kick, fold or ban; `TestAReportFromTheTableIsFiledWithTheTableAndTheHandAndChangesNothing`).
 Signed in (`RequireAuth`), the `wallet(…)` per-IP limiter, and a per-ACCOUNT attempt limiter (`REPORT_ATTEMPT_*`, every
@@ -1288,8 +1295,9 @@ reporter → player per hand (and the partial UNIQUE index under it), one per pa
 **`REPORT_MAX_PER_REPORTER` (2) per rolling `REPORT_WINDOW_MS` (24 h), counted from the reporter's own rows** (owner: "a player
 may submit at most 2 reports in any 24 hours") — so no restart, reconnect or second process resets it, and two reports racing
 for the last slot file exactly one (`TestConcurrentReportsWithOneSlotLeftFileExactlyOne`, proven to fail without the lock
-through the `SetReportCounted` seam). No moderation route exists (every other method on `/api/reports` is the JSON 404): the
-data model is ready for one (§7.3), none is built. Tests: `internal/{db,auth,app,game,config}/report*_test.go`.
+through the `SetReportCounted` seam); the retry moment counts a lowered limit right (the report whose leaving brings the count
+under it, not always the oldest; `TestTheQuotaSaysWhatSubmitWillDecideAndWhenTheNextReportOpens`). No moderation route exists
+(every other method on `/api/reports` is the JSON 404): the data model is ready for one (§7.3), none is built. Tests: `internal/{db,auth,app,game,config}/report*_test.go`.
 `GET /health` (since 23 Sep 2026 it ends with `tableConfig: {source, version, fallback}` — where the tables came
 from; `fallback:true` is a `TABLE_CONFIG_SOURCE=db` boot that could not use the database's catalogue and runs the env
 composition, the one state an operator must go and fix). Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
@@ -2252,10 +2260,26 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   after `already_reported`). Every refusal is said in the page in the player's language (`reportRefusalText`:
   already_reported, report_limit_reached and rate_limited alike, player_not_at_table, an invalid or gone player, the
   description's two, no connection — a 12 s timeout —, anything else "something went wrong"), and the report can be sent again.
+  **The limit on the phone** (owner, 27 Sep 2026: "if user has reported 2 player, then reporting by him should be disabled in
+  UI, and show a cool down time in UI when can he report again"): `PlayerReports.limit` (`ReportLimit`, `models/report.dart`:
+  the server's `waitMs` added to the moment its answer arrived) is read as every other player's drawer opens
+  (`refreshLimit`, from `openPlayerDrawer`; skipped within `limitFresh` 10 s of the last read or while one is out; a 404 — a
+  server from before — leaves it null and the line as it was) and taken from a filed report's 201 and a 429's body. While it
+  is used up (`limited`) the line is `seat-report-limited`: dead, an hourglass, "Report limit reached · 2 of 2 reports used",
+  and under it in gold `ReportCooldown` — "You can report again in 23h 41m 5s", its own one-second timer (the drawer rebuilds
+  for nothing), rounded up so it never reads 0s while waiting. A player already reported still reads "✓ Reported". The report
+  that uses the last one says the same under the thank-you (`report-sent-cooldown`); a limit met elsewhere, answered 429 with
+  its wait, puts "Report limit reached" and the countdown in the page's note and keeps Submit dead (`canSubmit`). The moment
+  the wait ends a timer (`_limitOpened`, half a second past it) brings the line back and reads the limit again; sign-out forgets
+  it (`reset`). `PlayerReports.clock` is the tests' seam. Three strings in all five languages (`reportLimitTitle`,
+  `reportLimitUsed`, `reportAgainIn`). Played on TP_Small against the local server: an account with two reports filed opened a
+  third player's drawer to the dead line counting down from 23h 34m 46s, and a tap did nothing.
   The client sends `{reportedUserId, reason, description?}` and nothing else. `PlayerReports` is GameState's own notifier
   beside `FriendsState` (no one-second rebuilds), reset at sign-out; the drawer listens to both, drops the page when it shuts
   or another seat opens, keeps a separate list (and scroll) per page, and rides above the keyboard with its head stepped aside
-  while typing, as the chat drawer does. 29 strings in all five languages. `test/report_player_test.dart` (34: both felts,
+  while typing, as the chat drawer does. 32 strings in all five languages. `test/report_player_test.dart` (51: the limit's
+  wire and countdown, the dead line counting down and coming back, the last report's countdown, a 429 with its wait on the
+  page, an older server, sign-out, the limited line at 640x360 ×1.25 in every language and theme; and: both felts,
   the quiet line, no route, the exact body, loading and no double send, the thank-you, OTHER, the 500 code points, every
   refusal in every language, a closed page ignoring a late answer, the keyboard, and 640x360 ×1.25 in all five languages and
   both themes with the Noto fonts).
@@ -3463,7 +3487,8 @@ spun, granted and recorded by the server (weighted `crypto/rand`, cooldown, idem
 existing wallets and picture catalogues, `reward_type` open for future kinds — §7.2, §7.3, §8.4.
 **Report Player** (owner's brief, 27 Sep 2026; §7.2, §7.3, §8.4): a player at a table reports another at it (or one who shared
 it within 10 minutes) from the player drawer; the server derives the table, game, category, variant and hand, enforces 2
-reports per 24 hours per reporter in PostgreSQL, and files a PENDING row that changes nothing in the game.
+reports per 24 hours per reporter in PostgreSQL, and files a PENDING row that changes nothing in the game. With both used the
+drawer's Report line is off and counts down to when the next opens (`GET /api/reports/limit`).
 **The winning tax, levels and badges** (owner, 26–27 Sep 2026; §6.6): the one winner of a hand at every public Seen, Blind
 and Variation table pays their rate — the lowest of their level's (20% at Level 1 to 6% at Level 50, by XP) and their badges'
 (Regular 20% for everyone; the Royal badges 0%, sold for rupees through support) — of their winnings of 50 Lakh or more; a

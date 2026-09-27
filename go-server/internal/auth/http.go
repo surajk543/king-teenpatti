@@ -265,9 +265,10 @@ type BoughtBadge struct {
 // Their patterns are registered with the {wildcards}, so the metrics label a
 // request by the pattern (/api/players/{playerId}) and never by an id.
 //
-// and, when Deps.Reports is set, Report Player's one (reports.go; Go only):
+// and, when Deps.Reports is set, Report Player's two (reports.go; Go only):
 //
 //	POST   /api/reports                             → ReportPlayer        (RequireAuth, wallet limiter)
+//	GET    /api/reports/limit                       → ReportLimit         (RequireAuth)
 //
 // Responses are JSON; errors are ErrorResponse. Body parsing (ReadJSONBody):
 // JSON only, UTF-8 only, 32 KiB limit (express.json({limit:'32kb'})); a
@@ -341,6 +342,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	}
 	if h.deps.Reports != nil {
 		mux.Handle("/api/reports", methods(http.MethodPost, wallet(h.ReportPlayer)))
+		mux.Handle("/api/reports/limit", methods(http.MethodGet, h.RequireAuth(h.ReportLimit)))
 	}
 }
 

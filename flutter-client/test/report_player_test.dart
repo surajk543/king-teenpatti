@@ -31,6 +31,7 @@ import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/widgets/hammer_flight.dart' show PodImpact;
 import 'package:teenpatti/widgets/player_drawer.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
+import 'package:teenpatti/widgets/report_player.dart';
 import 'package:teenpatti/widgets/seat_pod.dart';
 
 import 'friends_fixture.dart';
@@ -146,6 +147,19 @@ class _Server {
         winRate: 34.09,
       ),
     };
+    for (final id in ['u2', 'u3', 'u4']) {
+      friends.profiles[id] = {
+        ...cardJson(id, _names[id]!),
+        'friendStatus': 'NONE',
+        'stats': statsJson(
+          played: 12,
+          won: 4,
+          lost: 7,
+          left: 1,
+          winRate: 33.33,
+        ),
+      };
+    }
   }
 
   final friends = FakeFriendsServer();
@@ -154,7 +168,27 @@ class _Server {
   http.Response Function()? answer;
   bool unreachable = false;
 
+  /// What `GET /api/reports/limit` answers (`{limit: …}`); null → 404, a
+  /// server from before the limit was said.
+  Map<String, dynamic>? limit;
+
+  /// The limit a filed report's answer carries; null → none.
+  Map<String, dynamic>? filedLimit;
+
+  /// How many times the limit was read.
+  int limitReads = 0;
+
   MockClient get client => MockClient((r) async {
+    if (r.url.path == '/api/reports/limit') {
+      limitReads++;
+      final l = limit;
+      if (r.method != 'GET' || l == null) return refusal('not_found', 404);
+      return http.Response(
+        jsonEncode({'limit': l}),
+        200,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+      );
+    }
     if (r.url.path == '/api/reports') {
       if (r.method != 'POST') return refusal('not_found', 404);
       reports.add(Map<String, dynamic>.from(jsonDecode(r.body) as Map));
@@ -166,6 +200,7 @@ class _Server {
         jsonEncode({
           'success': true,
           'message': 'Report submitted successfully.',
+          'limit': ?filedLimit,
         }),
         201,
         headers: {'content-type': 'application/json; charset=utf-8'},
@@ -740,6 +775,296 @@ void main() {
         }, () => server.client);
       },
     );
+  });
+
+  group('the report limit', () {
+    Map<String, dynamic> spent(Duration wait) => {
+      'max': 2,
+      'used': 2,
+      'remaining': 0,
+      'windowMs': 86400000,
+      'availableAt': _now + wait.inMilliseconds,
+      'waitMs': wait.inMilliseconds,
+    };
+    const oneLeft = {
+      'max': 2,
+      'used': 1,
+      'remaining': 1,
+      'windowMs': 86400000,
+      'availableAt': 0,
+      'waitMs': 0,
+    };
+
+    test('is read off the wire, anchored to when the answer came', () {
+      final at = DateTime(2026, 9, 27, 19, 44);
+      final l = ReportLimit.fromJson(
+        spent(const Duration(hours: 23, minutes: 41)),
+        receivedAt: at,
+      )!;
+      expect((l.max, l.used, l.remaining), (2, 2, 0));
+      expect(l.availableAt, at.add(const Duration(hours: 23, minutes: 41)));
+      expect(l.limitedAt(at), isTrue);
+      expect(l.waitAt(at), const Duration(hours: 23, minutes: 41));
+      expect(l.limitedAt(at.add(const Duration(hours: 24))), isFalse);
+      final open = ReportLimit.fromJson(oneLeft, receivedAt: at)!;
+      expect(open.availableAt, isNull);
+      expect(open.limitedAt(at), isFalse);
+      expect(ReportLimit.fromJson('nonsense', receivedAt: at), isNull);
+      expect(ReportLimit.fromJson(null, receivedAt: at), isNull);
+    });
+
+    test('the countdown rounds up and says nothing once it is over', () {
+      final at = DateTime(2026, 9, 27, 19, 44);
+      String? line(Duration left) => ReportCooldown.lineAt(t, at.add(left), at);
+      expect(
+        line(
+          const Duration(hours: 23, minutes: 41, seconds: 4, milliseconds: 1),
+        ),
+        'You can report again in 23h 41m 5s',
+      );
+      expect(line(const Duration(minutes: 3)), 'You can report again in 3m 0s');
+      expect(
+        line(const Duration(milliseconds: 200)),
+        'You can report again in 1s',
+      );
+      expect(line(Duration.zero), isNull);
+      expect(line(const Duration(seconds: -5)), isNull);
+      const hi = Strings(AppLang.hindi);
+      expect(
+        ReportCooldown.lineAt(hi, at.add(const Duration(hours: 2)), at),
+        hi.reportAgainIn(formatCountdown(const Duration(hours: 2), hi)),
+      );
+    });
+
+    testWidgets(
+      'both reports used: the Report line is off, says so, counts down '
+      'every second, and comes back the moment the wait is over',
+      (tester) async {
+        final server = _Server()
+          ..limit = spent(const Duration(hours: 23, minutes: 41, seconds: 5));
+        await http.runWithClient(() async {
+          final state = _state();
+          var offset = Duration.zero;
+          state.reports.clock = () => DateTime.now().add(offset);
+          await _mount(tester, state, _teenPatti());
+          await tester.tap(_plaqueOf('u1'));
+          await _settle(tester);
+          expect(server.limitReads, 1, reason: 'read as the drawer opens');
+          expect(state.reports.limited, isTrue);
+
+          final row = _inDrawer(_key('seat-report-limited'));
+          expect(row, findsOneWidget);
+          expect(_inDrawer(_key('seat-report')), findsNothing);
+          expect(
+            _inDrawer(find.text('Report limit reached · 2 of 2 reports used')),
+            findsOneWidget,
+          );
+          Text cooldown() => tester.widget<Text>(
+            find.descendant(
+              of: _inDrawer(_key('seat-report-cooldown')),
+              matching: find.byType(Text),
+            ),
+          );
+          final first = cooldown().data!;
+          expect(
+            first,
+            matches(RegExp(r'^You can report again in 23h 41m [45]s$')),
+          );
+          // Dead: a tap opens no report page.
+          await tester.tap(row, warnIfMissed: false);
+          await _settle(tester);
+          expect(_inDrawer(_key('report-reasons')), findsNothing);
+          expect(state.reports.target, isNull);
+          _expectDrawerFits(tester, 'the limited line');
+
+          // A minute on: the line has counted down by itself.
+          offset += const Duration(minutes: 1);
+          await tester.pump(const Duration(seconds: 1));
+          expect(
+            cooldown().data,
+            matches(RegExp(r'^You can report again in 23h 40m [45]s$')),
+          );
+
+          // Another player's drawer, a minute on (past limitFresh): the limit
+          // is read again, and the line is off there too.
+          state.tableScaffold.currentState!.closeEndDrawer();
+          await _settle(tester);
+          await tester.tap(_plaqueOf('u2'));
+          await _settle(tester);
+          expect(server.limitReads, 2);
+          expect(_inDrawer(_key('seat-report-limited')), findsOneWidget);
+
+          // The wait runs out: the line is back, and the server is asked.
+          server.limit = oneLeft;
+          offset += const Duration(hours: 23, minutes: 41);
+          await tester.pump(const Duration(hours: 23, minutes: 41));
+          await _settle(tester);
+          expect(state.reports.limited, isFalse);
+          expect(server.limitReads, 3, reason: 'read again as it opened');
+          expect(_inDrawer(_key('seat-report-limited')), findsNothing);
+          expect(_inDrawer(_key('seat-report')), findsOneWidget);
+          await tester.tap(_inDrawer(_key('seat-report')));
+          await _settle(tester);
+          expect(_inDrawer(_key('report-reasons')), findsOneWidget);
+          await _unmount(tester, state);
+        }, () => server.client);
+      },
+    );
+
+    testWidgets(
+      'the report that uses the last one says when the next opens, and the '
+      'next player\'s line is off',
+      (tester) async {
+        final server = _Server()
+          ..limit = oneLeft
+          ..filedLimit = spent(const Duration(hours: 24));
+        await http.runWithClient(() async {
+          final state = _state();
+          await _mount(tester, state, _teenPatti());
+          await _openReport(tester);
+          expect(state.reports.limited, isFalse);
+          await _choose(tester, ReportReason.cheating);
+          await _submit(tester);
+          await _settle(tester);
+          expect(_inDrawer(find.text(t.reportSubmitted)), findsOneWidget);
+          final line = tester.widget<Text>(
+            find.descendant(
+              of: _inDrawer(_key('report-sent-cooldown')),
+              matching: find.byType(Text),
+            ),
+          );
+          expect(
+            line.data,
+            matches(
+              RegExp(r'^You can report again in (24h 0m 0s|23h 59m 59s)$'),
+            ),
+          );
+          _expectDrawerFits(tester, 'the last report\'s thank-you');
+          await tester.ensureVisible(_inDrawer(_key('report-done')));
+          await tester.pump();
+          await tester.tap(_inDrawer(_key('report-done')));
+          await _settle(tester);
+          // The player just reported reads Reported; the next one is off.
+          expect(_inDrawer(_key('seat-reported')), findsOneWidget);
+          server.limit = spent(const Duration(hours: 24));
+          state.tableScaffold.currentState!.closeEndDrawer();
+          await _settle(tester);
+          await tester.tap(_plaqueOf('u3'));
+          await _settle(tester);
+          expect(_inDrawer(_key('seat-report-limited')), findsOneWidget);
+          expect(_inDrawer(_key('seat-report-cooldown')), findsOneWidget);
+          await _unmount(tester, state);
+        }, () => server.client);
+      },
+    );
+
+    testWidgets(
+      'a limit reached elsewhere is said on the page with the countdown, '
+      'and Submit stays off until it opens',
+      (tester) async {
+        final server = _Server()
+          ..answer = () => http.Response(
+            jsonEncode({
+              'error': 'report_limit_reached',
+              'message': 'You have reached the report limit. Try again later.',
+              'limit': spent(const Duration(minutes: 5)),
+            }),
+            429,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        await http.runWithClient(() async {
+          final state = _state();
+          var offset = Duration.zero;
+          state.reports.clock = () => DateTime.now().add(offset);
+          await _mount(tester, state, _teenPatti());
+          await _openReport(tester);
+          await _choose(tester, ReportReason.spam);
+          await _submit(tester);
+          await _settle(tester);
+          expect(state.reports.limited, isTrue);
+          expect(_inDrawer(_key('report-cooldown')), findsOneWidget);
+          expect(_inDrawer(find.text(t.reportLimitTitle)), findsOneWidget);
+          expect(
+            _inDrawer(find.textContaining('You can report again in 5m')),
+            findsOneWidget,
+          );
+          expect(_live(tester, 'report-submit'), isFalse);
+          expect(server.reports, hasLength(1));
+          _expectDrawerFits(tester, 'the limit on the page');
+
+          // Five minutes on, the note goes and Submit is back.
+          server.answer = null;
+          offset += const Duration(minutes: 5, seconds: 1);
+          await tester.pump(const Duration(minutes: 5, seconds: 1));
+          await _settle(tester);
+          expect(state.reports.limited, isFalse);
+          expect(_inDrawer(_key('report-cooldown')), findsNothing);
+          expect(_inDrawer(_key('report-error')), findsNothing);
+          expect(_live(tester, 'report-submit'), isTrue);
+          await _unmount(tester, state);
+        }, () => server.client);
+      },
+    );
+
+    testWidgets('a server that does not say leaves the line as it was', (
+      tester,
+    ) async {
+      final server = _Server();
+      await http.runWithClient(() async {
+        final state = _state();
+        await _mount(tester, state, _teenPatti());
+        await tester.tap(_plaqueOf('u1'));
+        await _settle(tester);
+        expect(server.limitReads, 1);
+        expect(state.reports.limit, isNull);
+        expect(_inDrawer(_key('seat-report')), findsOneWidget);
+        await _unmount(tester, state);
+      }, () => server.client);
+    });
+
+    testWidgets('signing out forgets the limit', (tester) async {
+      final server = _Server()..limit = spent(const Duration(hours: 3));
+      await http.runWithClient(() async {
+        final state = _state();
+        await _mount(tester, state, _teenPatti());
+        await tester.tap(_plaqueOf('u1'));
+        await _settle(tester);
+        expect(state.reports.limited, isTrue);
+        state.reports.reset();
+        expect(state.reports.limited, isFalse);
+        expect(state.reports.limit, isNull);
+        await _unmount(tester, state);
+      }, () => server.client);
+    });
+
+    for (final brightness in Brightness.values) {
+      for (final lang in AppLang.values) {
+        testWidgets('the limited line and the page fit 640x360 at x1.25 in '
+            '${lang.name} (${brightness.name})', (tester) async {
+          final server = _Server()
+            ..limit = spent(const Duration(hours: 23, minutes: 41, seconds: 5));
+          final t = Strings(lang);
+          await http.runWithClient(() async {
+            final state = _state(lang: lang);
+            await _mount(tester, state, _teenPatti(), brightness: brightness);
+            await tester.tap(_plaqueOf('u4'));
+            await _settle(tester);
+            expect(_inDrawer(_key('seat-report-limited')), findsOneWidget);
+            expect(t.ownEntry('reportLimitTitle'), isNotNull);
+            expect(t.ownEntry('reportLimitUsed'), isNotNull);
+            expect(t.ownEntry('reportAgainIn'), isNotNull);
+            expect(
+              _inDrawer(
+                find.text('${t.reportLimitTitle} · ${t.reportLimitUsed(2, 2)}'),
+              ),
+              findsOneWidget,
+            );
+            _expectDrawerFits(tester, '${lang.name}: the limited line');
+            await _unmount(tester, state);
+          }, () => server.client);
+        });
+      }
+    }
   });
 
   group('the page fits a 640x360 phone at text x1.25', () {

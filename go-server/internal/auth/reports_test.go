@@ -3,9 +3,11 @@ package auth
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -22,12 +24,27 @@ import (
 // {success, message} and nothing else; and nothing the client sends about a
 // table, a hand, a status, a time or a reporter is read.
 
-// fakeReports records every report Submit is asked to file.
+// fakeReports records every report Submit is asked to file, and answers
+// Quota with quota (or quotaErr).
 type fakeReports struct {
-	mu      sync.Mutex
-	filed   []db.PlayerReport
-	limits  []db.ReportLimits
-	failure error
+	mu       sync.Mutex
+	filed    []db.PlayerReport
+	limits   []db.ReportLimits
+	failure  error
+	quota    db.ReportQuota
+	quotaErr error
+	asked    []string // Quota's reporters, in order
+}
+
+func (f *fakeReports) Quota(_ context.Context, reporterID string, limits db.ReportLimits) (db.ReportQuota, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.asked = append(f.asked, reporterID)
+	q := f.quota
+	if q.Max == 0 && q.Used == 0 {
+		q = db.ReportQuota{Max: limits.MaxPerReporter, Remaining: limits.MaxPerReporter, Window: limits.Window, Now: time.Now().UnixMilli()}
+	}
+	return q, f.quotaErr
 }
 
 func (f *fakeReports) Submit(_ context.Context, report db.PlayerReport, limits db.ReportLimits) (int64, error) {
@@ -112,7 +129,9 @@ func TestAReportIsFiledWithWhatTheServerKnowsAndAnsweredWithTheBriefsBody(t *tes
 		"reporterUserId": bobID, "tableId": "room-forged", "handId": "hand-forged", "status": "DISMISSED",
 		"createdAt": 1, "updatedAt": 1, "game": "poker", "category": "omaha", "variant": "MUFLIS",
 	})
-	if res.status != http.StatusCreated || string(res.raw) != `{"success":true,"message":"Report submitted successfully."}` {
+	// The brief's body, then the reporter's own standing against the limit
+	// (TestTheReportLimitIsReadAndCarriedOnTheAnswersThatChangeIt).
+	if res.status != http.StatusCreated || !strings.HasPrefix(string(res.raw), `{"success":true,"message":"Report submitted successfully.","limit":{"max":2,`) {
 		t.Fatalf("the answer: %d %s", res.status, res.raw)
 	}
 	if len(rh.reports.filed) != 1 {
@@ -313,5 +332,89 @@ func TestADescriptionKeepsItsLinesAndLosesItsControlCharacters(t *testing.T) {
 		if got := NormalizeReportDescription(raw); got != want {
 			t.Errorf("NormalizeReportDescription(%q) = %q, want %q", raw, got, want)
 		}
+	}
+}
+
+// The limit the app switches the Report line off by (owner, 27 Sep 2026: "if
+// user has reported 2 player, then reporting by him should be disabled in UI,
+// and show a cool down time"): GET /api/reports/limit says the caller's own
+// standing, and the answers that change it — a report filed, one refused for
+// the limit — carry it too, the wait counted from the server's clock.
+func TestTheReportLimitIsReadAndCarriedOnTheAnswersThatChangeIt(t *testing.T) {
+	rh := newReportHarness(t, nil)
+	tokA, alice := rh.login("report-device-alice", "Alice")
+	_, bob := rh.login("report-device-bobby", "Bob")
+	rh.seatTogether(alice["id"].(string), bob["id"].(string), atSeen200)
+
+	expectError(t, rh.do(http.MethodGet, "/api/reports/limit", nil), http.StatusUnauthorized, CodeMissingToken)
+
+	// Nothing filed: both reports open, nothing to wait for.
+	res := rh.do(http.MethodGet, "/api/reports/limit", nil, bearer(tokA)...)
+	if res.status != http.StatusOK {
+		t.Fatalf("limit: %d %s", res.status, res.raw)
+	}
+	var fresh ReportLimitAnswer
+	decodeInto(t, res.raw, &fresh)
+	if l := fresh.Limit; l == nil || *l != (ReportLimitView{Max: 2, Remaining: 2, WindowMs: 86400000}) {
+		t.Fatalf("a fresh reporter's limit: %s", res.raw)
+	}
+	if got := rh.reports.asked; len(got) != 1 || got[0] != alice["id"] {
+		t.Fatalf("the limit was read for %v, want the caller alone", got)
+	}
+
+	// A report filed says what is left.
+	now := time.Now().UnixMilli()
+	rh.reports.quota = db.ReportQuota{Max: 2, Used: 1, Remaining: 1, Window: 24 * time.Hour, Now: now}
+	filed := rh.report(tokA, map[string]any{"reportedUserId": bob["id"], "reason": "SPAM"})
+	var answer ReportSubmitted
+	decodeInto(t, filed.raw, &answer)
+	if filed.status != http.StatusCreated || !answer.Success || answer.Limit == nil ||
+		*answer.Limit != (ReportLimitView{Max: 2, Used: 1, Remaining: 1, WindowMs: 86400000}) {
+		t.Fatalf("a filed report's answer: %d %s", filed.status, filed.raw)
+	}
+
+	// Both used: the moment the next opens, and how long that is from now.
+	openAt := now + (23*time.Hour + 41*time.Minute).Milliseconds()
+	used := db.ReportQuota{Max: 2, Used: 2, Remaining: 0, Window: 24 * time.Hour, AvailableAt: openAt, Now: now}
+	rh.reports.quota = used
+	res = rh.do(http.MethodGet, "/api/reports/limit", nil, bearer(tokA)...)
+	var spent ReportLimitAnswer
+	decodeInto(t, res.raw, &spent)
+	want := ReportLimitView{Max: 2, Used: 2, WindowMs: 86400000, AvailableAt: openAt, WaitMs: openAt - now}
+	if spent.Limit == nil || *spent.Limit != want {
+		t.Fatalf("a spent limit: %s, want %+v", res.raw, want)
+	}
+
+	// Refused for the limit: the refusal carries the same, and Retry-After.
+	rh.reports.failure = &db.ReportLimitReached{RetryAt: openAt, Quota: used}
+	refused := rh.report(tokA, map[string]any{"reportedUserId": bob["id"], "reason": "SPAM"})
+	expectError(t, refused, http.StatusTooManyRequests, CodeReportLimitReached)
+	var body struct {
+		Limit *ReportLimitView `json:"limit"`
+	}
+	decodeInto(t, refused.raw, &body)
+	if body.Limit == nil || *body.Limit != want {
+		t.Fatalf("the refusal's limit: %s", refused.raw)
+	}
+	if got, wantSecs := refused.header.Get("Retry-After"), strconv.FormatInt((openAt-now+999)/1000, 10); got != wantSecs {
+		t.Fatalf("Retry-After %q, want %q", got, wantSecs)
+	}
+
+	// A store that cannot say: the report is still filed, the answer only
+	// lacks its limit; the read itself is a 500.
+	rh.reports.failure = nil
+	rh.reports.quotaErr = errors.New("database gone")
+	rh.seatTogether(alice["id"].(string), bob["id"].(string), game.ReportContext{RoomID: "room-2", Game: game.GameTeenPatti, Category: game.CategorySeen, HandID: "hand-2"})
+	filed = rh.report(tokA, map[string]any{"reportedUserId": bob["id"], "reason": "SPAM"})
+	if filed.status != http.StatusCreated || strings.Contains(string(filed.raw), "limit") {
+		t.Fatalf("filed with no limit to tell: %d %s", filed.status, filed.raw)
+	}
+	expectError(t, rh.do(http.MethodGet, "/api/reports/limit", nil, bearer(tokA)...), http.StatusInternalServerError, CodeInternalError)
+}
+
+func decodeInto(t *testing.T, raw []byte, v any) {
+	t.Helper()
+	if err := json.Unmarshal(raw, v); err != nil {
+		t.Fatalf("decode %s: %v", raw, err)
 	}
 }

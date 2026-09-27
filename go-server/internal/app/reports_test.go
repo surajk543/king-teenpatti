@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/surajk543/king-teenpatti/go-server/internal/auth"
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db/dbtest"
@@ -27,7 +28,32 @@ import (
 // play — and a report changes nothing at the table: the hand plays on, the
 // seats stay, no wallet moves.
 
-const reportFiled = `{"success":true,"message":"Report submitted successfully."}`
+const reportFiled = `{"success":true,"message":"Report submitted successfully.",` +
+	`"limit":{"max":2,"used":1,"remaining":1,"windowMs":86400000,"availableAt":0,"waitMs":0}}`
+
+// reportLimitOf is the limit an answer carries: {limit:{…}}.
+func reportLimitOf(t *testing.T, label string, raw []byte) auth.ReportLimitView {
+	t.Helper()
+	var body struct {
+		Limit *auth.ReportLimitView `json:"limit"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil || body.Limit == nil {
+		t.Fatalf("%s: no limit in %s (%v)", label, raw, err)
+	}
+	return *body.Limit
+}
+
+// mustBeSpentForADay holds a limit to both reports used, the next opening a
+// whole window (24 h) after the first of them — at most, and no more than a
+// minute less, for the time the test itself takes.
+func mustBeSpentForADay(t *testing.T, label string, l auth.ReportLimitView) {
+	t.Helper()
+	day := (24 * time.Hour).Milliseconds()
+	if l.Max != 2 || l.Used != 2 || l.Remaining != 0 || l.WindowMs != day ||
+		l.WaitMs > day || l.WaitMs < day-time.Minute.Milliseconds() || l.AvailableAt == 0 {
+		t.Fatalf("%s: %+v, want both reports used for about 24 h", label, l)
+	}
+}
 
 // reportRow is one player_reports row as a moderator would read it.
 type reportRow struct {
@@ -311,7 +337,10 @@ func TestTheLimitAndTheTableSurviveARestartTheDeparturesDoNot(t *testing.T) {
 			filed++
 		case http.StatusTooManyRequests:
 			limited++
-			mustBody(t, "Alice's third report in 24 h", a.raw, `{"error":"report_limit_reached","message":"You have reached the report limit. Try again later."}`)
+			if !strings.HasPrefix(string(a.raw), `{"error":"report_limit_reached","message":"You have reached the report limit. Try again later.","limit":`) {
+				t.Fatalf("Alice's third report in 24 h: %s", a.raw)
+			}
+			mustBeSpentForADay(t, "Alice's third report in 24 h", reportLimitOf(t, "the refusal", a.raw))
 		default:
 			t.Fatalf("a racing report: %d %s", a.status, a.raw)
 		}
@@ -339,6 +368,13 @@ func TestTheLimitAndTheTableSurviveARestartTheDeparturesDoNot(t *testing.T) {
 
 	status, raw = report(ts2.URL, "Alice", "Devan", "CHEATING")
 	mustStatus(t, "Alice's third report after the restart", status, http.StatusTooManyRequests, raw)
+	// …and the app, asking the new process, is told the same wait.
+	status, raw = friendsCall(t, ts2.URL, tokens["Alice"], http.MethodGet, "/api/reports/limit", "")
+	mustStatus(t, "Alice's limit after the restart", status, http.StatusOK, raw)
+	mustBeSpentForADay(t, "Alice's limit after the restart", reportLimitOf(t, "the limit", raw))
+	status, raw = friendsCall(t, ts2.URL, tokens["Carla"], http.MethodGet, "/api/reports/limit", "")
+	mustStatus(t, "Carla's limit", status, http.StatusOK, raw)
+	mustBody(t, "Carla's limit", raw, `{"limit":{"max":2,"used":0,"remaining":2,"windowMs":86400000,"availableAt":0,"waitMs":0}}`)
 	status, raw = report(ts2.URL, "Bobby", "Devan", "COLLUSION")
 	mustStatus(t, "Bobby reports Devan, both still seated", status, http.StatusCreated, raw)
 	rows := reportsAbout(t, database, ids["Devan"])
