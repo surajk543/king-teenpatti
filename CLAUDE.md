@@ -913,7 +913,20 @@ and column below is in `V1.0.0__baseline.sql`'s CREATE TABLEs and every row in `
   the table popup too), a screen reader pressing each tab and Close, no badges at all, the ladder's heads, the table popup's two
   panes, and every tab
   at 592x360–1280x800 ×1.0/×1.25 in all five languages and both themes); pictures by hand, `test/level_shots.dart` (fixtures in
-  `test/level_fixtures.dart`). Lobby cards carry the rate pill; the table info
+  `test/level_fixtures.dart`). Lobby cards carry the rate pill; **the Seen, Blind and Variation cards carry the badge**
+  (owner, 27 Sep 2026: "On Lobby in top right of card show the badge with minimum tax user holding" — "show badge only on
+  seen, blind and variation card"; `widgets/lobby_card_badge.dart` `LobbyCardBadge`): at the right end of the card's name
+  line, its top-right corner, the badge that brings the player's rate lowest (`User.shownBadge` — Regular for everybody, a
+  Royal badge where one runs; the first on a tie) as its own Lottie (`BadgeArt`, 1.5 × the name's size) over its OWN rate
+  ("20%", "0%") on the tax pill's amber, the pill tucked into the foot of the art's canvas (`tuck` 0.2). Never on the private
+  card, an engine's card or a poker game's; nothing where the player holds no badge. The card watches GameState and hands
+  it a new widget every second, so it `select`s only its figures and hands back the SAME subtree while they, its size and
+  the brightness hold (a State that keeps what it built): the tick never rebuilds the art — `level_screen_test`'s "rebuilds
+  nothing" check, with the lobby behind the level screen, caught the first cut rebuilding its Lottie. It takes no taps (a tap is the card's), and a screen reader hears "Regular badge,
+  20% winning tax" (`cardBadgeSemantics`, all five languages). The name gives way (scales) before it does.
+  `test/lobby_card_badge_test.dart` (which cards, which badge, a purchase while open, the tap, the tick, and inside its
+  card's top-right quarter clear of the name at 592x360–1280x800 ×1.0/×1.25, every language, both themes); pictures by hand,
+  `test/lobby_card_badge_shots.dart` (`BADGES_DIR` for the owner's Lotties). The table info
   says "No tax on winnings under 50 Lakh."; the store's last shelf is **Badges** (`StoreTab.badges`): each listed badge's Lottie,
   name, "0% Winning Tax", validity, and its price on the key — the key opening Play for a Play badge, else the support popup
   (address to copy, a `mailto:` key). Every string in all five languages.

@@ -24,6 +24,7 @@ import '../widgets/drifting_chips.dart';
 import '../widgets/edge_fade.dart';
 import '../widgets/fireworks.dart';
 import '../widgets/glass_components.dart';
+import '../widgets/lobby_card_badge.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/own_record.dart';
 import '../widgets/picture_shelf.dart';
@@ -1839,6 +1840,11 @@ class _CategoryCard extends StatelessWidget {
       palette: _categoryPalette(Theme.of(context).colorScheme, category),
       tables: state.lobbyTablesIn(category, engine: engine),
       action: t.viewTables,
+      badge: const {
+        TableCategory.seen,
+        TableCategory.blind,
+        TableCategory.variation,
+      }.contains(category),
       onOpen: () =>
           context.read<GameState>().openLobbyCategory(category, engine: engine),
     );
@@ -1867,6 +1873,7 @@ class _GroupCard extends StatelessWidget {
     required this.action,
     required this.onOpen,
     this.shuffle = false,
+    this.badge = false,
   });
 
   /// The card's title, already in the player's language.
@@ -1889,6 +1896,11 @@ class _GroupCard extends StatelessWidget {
   /// on the front (owner, 23 Sep 2026) — rather than the settling pile a
   /// category's card keeps.
   final bool shuffle;
+
+  /// Whether the card carries, at the end of its name's line, the badge that
+  /// brings the player's winning tax lowest ([LobbyCardBadge]) — the Seen,
+  /// Blind and Variation cards (owner, 27 Sep 2026).
+  final bool badge;
 
   @override
   Widget build(BuildContext context) {
@@ -1989,6 +2001,14 @@ class _GroupCard extends StatelessWidget {
                                     ),
                                   ),
                                 ),
+                                // The top-right corner: the badge that
+                                // sets the lowest rate the player holds,
+                                // over that rate. The name gives way
+                                // (scales) before the badge does.
+                                if (badge) ...[
+                                  SizedBox(width: m.markGap / 2),
+                                  LobbyCardBadge(artSize: m.titleSize * 1.5),
+                                ],
                               ],
                             ),
                             if (blurb.isNotEmpty) ...[
