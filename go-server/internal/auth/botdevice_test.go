@@ -18,7 +18,7 @@ import (
 func verifierWithPrefix(t *testing.T, prefix string) *Verifier {
 	t.Helper()
 	cfg := config.Defaults()
-	cfg.BotDevicePrefix = prefix
+	cfg.BotDevicePrefixes = []string{prefix}
 	return NewVerifier(cfg)
 }
 
@@ -108,7 +108,7 @@ func TestOnlyGuestLoginsAreEverMarked(t *testing.T) {
 	// person carrying a device id that happens to match must not be marked,
 	// because for them it is not an identity at all.
 	cfg := config.Defaults()
-	cfg.BotDevicePrefix = "botplay-"
+	cfg.BotDevicePrefixes = []string{"botplay-"}
 	cfg.AllowFakeProviders = true
 	v := NewVerifier(cfg)
 
@@ -125,11 +125,47 @@ func TestOnlyGuestLoginsAreEverMarked(t *testing.T) {
 	}
 }
 
-func TestTheDefaultPrefixIsTheFleetsNamespace(t *testing.T) {
-	// bot-play/src/identities.js mints `botplay-v1-<index>`; if that namespace
-	// or this default ever moves without the other, the fleet silently stops
-	// being marked and nothing fails.
-	if got := config.Defaults().BotDevicePrefix; got != "botplay-" {
-		t.Errorf("BOT_DEVICE_PREFIX default = %q, want %q (bot-play's device id namespace)", got, "botplay-")
+func TestTheDefaultPrefixesAreEveryBotsNamespace(t *testing.T) {
+	// bot-play/src/identities.js mints `botplay-v1-<index>`, tools/bot.js
+	// `practice-bot-<slot>-<name>` and tools/ramptest.mjs
+	// `ramp-bot-<n>-device-id` (owner, 27 Sep 2026: "any bot who plays that
+	// should be marked is_bot true"); if a namespace or this default moves
+	// without the other, those bots silently stop being marked.
+	want := []string{"botplay-", "practice-bot-", "ramp-bot-"}
+	got := config.Defaults().BotDevicePrefixes
+	if len(got) != len(want) {
+		t.Fatalf("BOT_DEVICE_PREFIX default = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("BOT_DEVICE_PREFIX default = %q, want %q", got, want)
+		}
+	}
+}
+
+func TestEveryBotTheProjectRunsIsMarkedAndNobodyElse(t *testing.T) {
+	v := NewVerifier(config.Defaults())
+	for deviceID, bot := range map[string]bool{
+		// The resident fleet, a rotated bot, the practice bots and the ramp.
+		"botplay-v1-0":             true,
+		"botplay-v1-42-g3":         true,
+		"practice-bot-0-Ravi":      true,
+		"practice-bot-15-Dev":      true,
+		"ramp-bot-0-device-id":     true,
+		"ramp-bot-3999-device-id":  true,
+		"  practice-bot-4-Kavya  ": true,
+		// People: a phone's own id, and ids that only contain a namespace.
+		"3f2a9c1e-7b4d-4e8a-9c1f-2b3d4e5f6a7b": false,
+		"my-practice-bot-1":                    false,
+		"xramp-bot-1":                          false,
+		"botplay_1":                            false,
+	} {
+		profile, err := v.VerifyLogin(context.Background(), LoginRequest{Provider: db.ProviderGuest, DeviceID: deviceID})
+		if err != nil {
+			t.Fatalf("%q: %v", deviceID, err)
+		}
+		if profile.IsBot != bot {
+			t.Errorf("%q marked %v, want %v", deviceID, profile.IsBot, bot)
+		}
 	}
 }

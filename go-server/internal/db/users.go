@@ -206,7 +206,7 @@ type Profile struct {
 	AvatarURL      *string
 	// IsBot marks this login as one of the resident bots (bot-play/), set by
 	// the auth layer from the guest device id's namespace
-	// (config.BotDevicePrefix). It is written to users.is_bot (V1.0.0) and
+	// (config.BotDevicePrefixes). It is written to users.is_bot (V1.0.0) and
 	// is a LABEL for whoever queries the database — nothing in the game reads
 	// it, and it never reaches a client.
 	//

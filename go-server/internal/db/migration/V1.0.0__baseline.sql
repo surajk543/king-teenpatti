@@ -286,7 +286,7 @@ CREATE TABLE IF NOT EXISTS users (
   -- … by default keep this flag value false"), so a query about real players
   -- can leave the fleet out — its display names are deliberately
   -- indistinguishable from a person's. The server sets it at login from the
-  -- guest device id's namespace (config.BotDevicePrefix, `botplay-…`) and only
+  -- guest device id's namespace (config.BotDevicePrefixes, `botplay-…` and the practice and ramp bots') and only
   -- ever raises it. A LABEL, not a permission: nothing in the game reads it and
   -- it never reaches a client, since a seat that announced itself as a bot
   -- would tell a player exactly what the fleet exists not to tell them. The
