@@ -142,13 +142,14 @@ Future<void> mount(
   Size screen = const Size(640, 360),
   double scale = 1.0,
   bool dark = true,
+  FeedbackSettings? sound,
 }) async {
   tester.view.physicalSize = screen;
   tester.view.devicePixelRatio = 1;
   tester.platformDispatcher.textScaleFactorTestValue = scale;
   addTearDown(tester.view.reset);
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-  final feedback = await silentFeedback();
+  final feedback = sound ?? await silentFeedback();
   addTearDown(feedback.dispose);
   await tester.pumpWidget(app(state, feedback, home, dark));
   await tester.pump(const Duration(seconds: 1));
@@ -179,6 +180,18 @@ String textOf(WidgetTester tester, String key) => tester
     .data!;
 
 String titleOf(WidgetTester tester) => textOf(tester, 'xp-mission-title');
+
+/// Every clip the app asks the audio plugin for, past the Sound switch.
+class _Heard extends FeedbackSettings {
+  final heard = <String>[];
+
+  @override
+  Future<void> playClip(
+    String asset, {
+    required double volume,
+    required int voice,
+  }) async => heard.add(asset);
+}
 
 void main() {
   setUpAll(() async {
@@ -701,7 +714,7 @@ void main() {
   });
 
   group('the bar', () {
-    testWidgets('slides down with the mission and its XP, stays five '
+    testWidgets('slides down with the mission and its XP, stays fifteen '
         'seconds, and goes', (tester) async {
       final state = stateAt(lv(1, 23, resetsAt: windowA));
       await mount(tester, state);
@@ -735,8 +748,10 @@ void main() {
       );
       expect(live, findsOneWidget);
 
-      await tester.pump(const Duration(milliseconds: 4800));
-      expect(bar, findsOneWidget, reason: 'still inside its five seconds');
+      // Owner, 27 Sep 2026: "toast message should remain for 15 seconds".
+      expect(XpMissionHost.hold, const Duration(seconds: 15));
+      await tester.pump(const Duration(milliseconds: 14800));
+      expect(bar, findsOneWidget, reason: 'still inside its fifteen seconds');
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pump(
         XpMissionHost.slideOut + const Duration(milliseconds: 50),
@@ -763,6 +778,93 @@ void main() {
       await tester.pump(XpMissionHost.between);
       expect(state.xpMissions.queue, isEmpty);
       await unmount(tester, state);
+    });
+
+    // Owner, 27 Sep 2026: "give a cross button also in toast message which by
+    // click that user can remove notification".
+    testWidgets('its × sends it away — one tap, one bar: the next still '
+        'comes', (tester) async {
+      final state = stateAt(lv(1, 23, resetsAt: windowA));
+      await mount(tester, state);
+      state.handlePlayerLevel(
+        standing(
+          lv(
+            1,
+            26,
+            claimed: {'WIN_PAIR': 1, 'WIN_COLOR': 1},
+            resetsAt: windowA,
+          ),
+        ),
+      );
+      await arrive(tester);
+      final close = find.byKey(const ValueKey('xp-mission-close'));
+      expect(close, findsOneWidget);
+      // A full touch target, inside the bar, at its right end.
+      final key = tester.getRect(close);
+      final body = tester.getRect(bar);
+      expect(key.width, greaterThanOrEqualTo(44));
+      expect(key.height, greaterThanOrEqualTo(44 - 0.5));
+      expect(key.right, lessThanOrEqualTo(body.right + 0.5));
+      expect(key.left, greaterThan(body.center.dx));
+      final first = titleOf(tester);
+      await tester.tap(close);
+      await tester.pump();
+      await tester.pump(
+        XpMissionHost.slideOut + const Duration(milliseconds: 50),
+      );
+      await tester.pump(XpMissionHost.between);
+      await arrive(tester);
+      expect(bar, findsOneWidget, reason: 'the next mission still comes');
+      expect(titleOf(tester), isNot(first));
+      expect(state.xpMissions.queue, hasLength(1));
+      await tester.tap(close);
+      await tester.pump();
+      await tester.pump(
+        XpMissionHost.slideOut + const Duration(milliseconds: 50),
+      );
+      await tester.pump(XpMissionHost.between);
+      expect(bar, findsNothing);
+      expect(state.xpMissions.queue, isEmpty);
+      await unmount(tester, state);
+    });
+
+    // Owner, 27 Sep 2026: "play this sound when xp complete notification toast
+    // message comes".
+    testWidgets('each bar comes with the notification sound, once, and not '
+        'with the Sound switch off', (tester) async {
+      for (final on in [true, false]) {
+        SharedPreferences.setMockInitialValues({'soundOn': on});
+        final heard = _Heard();
+        await heard.load();
+        final state = stateAt(lv(1, 23, resetsAt: windowA));
+        await mount(tester, state, sound: heard);
+        expect(heard.heard, isEmpty, reason: 'nothing before a mission');
+        state.handlePlayerLevel(
+          standing(
+            lv(
+              1,
+              26,
+              claimed: {'WIN_PAIR': 1, 'WIN_COLOR': 1},
+              resetsAt: windowA,
+            ),
+          ),
+        );
+        await arrive(tester);
+        expect(heard.heard, on ? [FeedbackSettings.xpNotificationClip] : []);
+        // The same bar on screen is not heard again.
+        await tester.pump(const Duration(seconds: 5));
+        expect(heard.heard.length, on ? 1 : 0);
+        // The second mission's bar is heard as it comes down.
+        await tester.tap(find.byKey(const ValueKey('xp-mission-close')));
+        await tester.pump();
+        await tester.pump(
+          XpMissionHost.slideOut + const Duration(milliseconds: 50),
+        );
+        await tester.pump(XpMissionHost.between);
+        await arrive(tester);
+        expect(heard.heard.length, on ? 2 : 0);
+        await unmount(tester, state);
+      }
     });
 
     testWidgets('two completions queue: one bar at a time, never two', (
@@ -803,7 +905,7 @@ void main() {
         ),
       );
       final seen = <String>[titleOf(tester)];
-      for (var i = 0; i < 540; i++) {
+      for (var i = 0; i < 1400; i++) {
         await tester.pump(const Duration(milliseconds: 50));
         expect(bar.evaluate().length, lessThanOrEqualTo(1));
         if (bar.evaluate().isNotEmpty) {
