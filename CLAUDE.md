@@ -98,8 +98,8 @@ king-teenpatti/
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go,
 │   │   │                         poker.go (poker:action in, the poker:* events out — the Handler's poker.Listener); testclient/
-│   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — EXACTLY TWO since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = all DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL), luckydraw.go (the Lucky Draw: State, Spin — draw, grant and record in one transaction, §7.3); dbtest/
+│   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go, reports.go (Report Player's POST /api/reports, §7.2)
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — EXACTLY TWO since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = all DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL), luckydraw.go (the Lucky Draw: State, Spin — draw, grant and record in one transaction, §7.3), reports.go (player_reports: Submit — the limits and the insert in one transaction, §7.3); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js),
 │   │   │                         tableconfig.go (resolveTableCatalogue — the catalogue settled once, before anything is built from it; GET /api/tables; /health.tableConfig)
@@ -1257,6 +1257,39 @@ for every variant, the grace, a restart, a failing store), `internal/game/roomma
 suite on all three stores; the pushes in `internal/{auth,app}/friendpush_test.go` and `internal/socket/friends_test.go` (both
 events over real sockets, nothing on reject/remove/refusal or to an account with no socket, two players seated mid-hand
 befriending each other with no `seated` refusal, no wallet word, room id or code in a push).
+**Report Player** (owner's brief, 27 Sep 2026: "A player sitting at a gameplay table must be able to report another player
+currently at the same table … Go server is authoritative"; `auth/reports.go`, `db/reports.go`, `game/report.go`). ONE route,
+**`POST /api/reports {reportedUserId, reason, description?}`** → **201 `{"success":true,"message":"Report submitted
+successfully."}`** and nothing more (no report id, status, table or hand). REST, as Friends at the table is: a persistent
+account action made from the table's player drawer, allowed while seated, and never through the table's actor — **a report
+changes nothing in the game** (no pause, kick, fold or ban; `TestAReportFromTheTableIsFiledWithTheTableAndTheHandAndChangesNothing`).
+Signed in (`RequireAuth`), the `wallet(…)` per-IP limiter, and a per-ACCOUNT attempt limiter (`REPORT_ATTEMPT_*`, every
+request counted, refused or not). The body is read field by field and ONLY those three: `reporterUserId`, `tableId`, `handId`,
+`game`, `status`, `createdAt` … sent by a client are ignored. Reasons, matched exactly: `CHEATING, HARASSMENT, ABUSIVE_LANGUAGE,
+SPAM, INAPPROPRIATE_BEHAVIOR, SUSPICIOUS_GAMEPLAY, COLLUSION, EXPLOITING_BUG, OTHER` (`auth.ReportReasons`; OTHER needs a
+description). The description: CR LF → LF, other control and format characters → space, trimmed, at most
+`REPORT_DESCRIPTION_MAX` (500) CODE POINTS (the app counts the same way). Refusals in order: 401/403 (auth), 429 `rate_limited`,
+400 `invalid_json`, 400 `invalid_player_id`, 400 `self_report`, 400 `invalid_report_reason`, 400 `description_required`, 400
+`description_too_long`, 409 `player_not_at_table` (checked BEFORE existence, so a guessed id reveals nothing), 404
+`player_not_found` (deleted since), 409 `already_reported`, 429 `report_limit_reached` (+ `Retry-After`), 500 `internal_error`.
+**Where the two met is the server's** (`Deps.ReportContext` → `RoomManager.ReportContext`): both indexed at the same room now
+(`playerRooms`) → a posted read of the room, `Room.ReportContexts` (Teen Patti and poker alike): the room id, `game`
+(`teen_patti|poker`), category, variant (a Variation hand's chosen variation, the poker variant, else none) and hand — the one
+the REPORTED player is in, else the last one they were dealt into there (`Table.lastHand`, memory only, set in `setHand(nil)`),
+else none. Otherwise a **recent-departure memory** (`coPlayers`, own mutex, never held with `mu` or while a table is called):
+when a player leaves a room — leave, kick, lapsed grace, switch, consolidation move (`vacateFrom`, `movePlayer`) or the room
+closing on them (`destroyTable`, unless fenced) — the manager asks the room once where everybody stood and remembers each pair
+both ways for `REPORT_RECENT_MS` (10 min; ≤ 64 table-mates a player, swept lazily). **A restart forgets the departures** (a
+restored room still answers for everyone seated at it): a player who left before it is no longer reportable — accepted and
+tested (`TestAfterARestartSeatedPlayersStayReportableAndOnesWhoLeftBeforeDoNot`, `TestTheLimitAndTheTableSurviveARestartTheDeparturesDoNot`).
+The abuse guards live in PostgreSQL (`db.Reports.Submit`, one transaction under `pg_advisory_xact_lock(hashtext('king-teenpatti:
+player_report'), hashtext(reporter))` — per reporter, not a users row lock, so it never meets a wallet lock): one report per
+reporter → player per hand (and the partial UNIQUE index under it), one per pair per `REPORT_PAIR_WINDOW_MS` (24 h), and
+**`REPORT_MAX_PER_REPORTER` (2) per rolling `REPORT_WINDOW_MS` (24 h), counted from the reporter's own rows** (owner: "a player
+may submit at most 2 reports in any 24 hours") — so no restart, reconnect or second process resets it, and two reports racing
+for the last slot file exactly one (`TestConcurrentReportsWithOneSlotLeftFileExactlyOne`, proven to fail without the lock
+through the `SetReportCounted` seam). No moderation route exists (every other method on `/api/reports` is the JSON 404): the
+data model is ready for one (§7.3), none is built. Tests: `internal/{db,auth,app,game,config}/report*_test.go`.
 `GET /health` (since 23 Sep 2026 it ends with `tableConfig: {source, version, fallback}` — where the tables came
 from; `fallback:true` is a `TABLE_CONFIG_SOURCE=db` boot that could not use the database's catalogue and runs the env
 composition, the one state an operator must go and fix). Errors `{error: code, message}`. Guest id = `sha256('teenpatti:'+deviceId)`, deviceId
@@ -1315,7 +1348,7 @@ owns `users`.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly thirty-five, and none of them is game state** (Player stats v2's `player_variation_stats` and
+Tables — **there are exactly thirty-six, and none of them is game state** (Report Player's `player_reports` since 27 Sep 2026, moderation audit, in its own paragraph after the friends graph) (Player stats v2's `player_variation_stats` and
 `stats_flushes` since 27 Sep 2026, in the statistics paragraph below) (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph; `player_stats`, `friend_requests` and `friendships` since the same day, Friends V1, §7.2; and eight of levels, badges and the daily XP since 27 Sep 2026 — `player_levels`, `badges`, `user_badges`, `badge_purchases`, `xp_sources`, `xp_settings`, `player_xp`, `player_xp_claims`, §6.6): ten of accounts, money and the picture
 catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`, `user_table_choice` — the paragraph after the
 `users` trigger below; merged 23 Sep 2026) (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
@@ -1448,6 +1481,22 @@ the incoming and outgoing lists read) and **`friendships`** (`id`, `user_id`/`fr
 TABLE / INDEX IF NOT EXISTS in `V1.0.0` (nothing alters `users`), so an existing database gains them at its next boot, and
 under DEPLOY.md §7 they need only its REFERENCES and UPDATE grants (`handover_boot_test.go` re-creates them). No presence of
 any kind is stored in PostgreSQL.
+
+**Player reports** (owner, 27 Sep 2026; §7.2 "Report Player"): **`player_reports`** — `id` BIGSERIAL, `reporter_user_id` /
+`reported_user_id` → `users` CASCADE (users are never deleted; an account deletion keeps its reports, as it keeps its ledger),
+`reason` TEXT (an OPEN set the server checks — no CHECK, so a new reason is code, the Lucky Draw's `reward_type` rule),
+`description` TEXT (NULL for none), `game`, `category`, `variant` (NULL for none), `table_id` (the room id) and `hand_id` (NULL
+when none is known) — REFERENCES by value to the authoritative data, never a copy of the hand —, `status` PENDING | UNDER_REVIEW
+| ACTION_TAKEN | DISMISSED (a CLOSED set, a CHECK, as `friend_requests.status`; moderation's to set, never a player's),
+`created_at`/`updated_at` (epoch ms, server-stamped), `CHECK` not self. Indexes: `(reported_user_id, created_at)`,
+`(reporter_user_id, created_at)` (also what the per-reporter limit counts), `(status, created_at)`, and **UNIQUE
+`player_reports_one_per_hand (hand_id, reporter_user_id, reported_user_id) WHERE hand_id IS NOT NULL`** — the hand lookup and
+the one-report-per-hand guarantee in one. A plain CREATE TABLE / INDEX IF NOT EXISTS after `friendships` (nothing alters
+`users`; `handover_boot_test.go` re-creates it under §7), nothing in the seed. **`PurgeLedger` keeps every `chip_ledger` row of
+a hand a report names** (`NOT EXISTS … player_reports.hand_id`): the hand's rows are the one authoritative record of it
+PostgreSQL holds, so a moderator can still read the hand after `LEDGER_PURGE_AFTER_MS`; a report filed after its hand's rows
+were purged names a hand with no rows. A moderation system to come adds its own table naming `player_reports (id)` for the
+actions it records; a player's history filed and received is the two player indexes.
 
 Timestamps are epoch-ms BIGINT. Rewards: milestone 25,000 / 25 hands (`didChaal` only), timed bonus 10,000 / 4h (`POST /api/rewards/bonus`, `rewards.bonus*`), and beside it the Go-only daily bonus 1,00,000 chips + 1 hammer / 24h (owner, 14 Sep 2026; `POST /api/rewards/daily`, `rewards.daily*`, ledger reason `daily_bonus`) —
 constants in `users.js`. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} ]*$/u` —
@@ -1623,7 +1672,7 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | **`PG_POOL_MAX`** | 10 | |
 | `PG_STATEMENT_TIMEOUT_MS` | 15000 | **Go server only**: Postgres `statement_timeout` per pooled connection so a hung query fails one ledger write instead of freezing a table; 0 = no limit (Node behaviour) |
 | **`LEDGER_PURGE_INTERVAL_MS`** | 300000 (5 min) | **Go server only.** How often the in-process purge goroutine runs (`App.startLedgerPurge`, a `time.NewTicker`, first pass one interval *after* boot — a server restarted more often never purges). **0 is the only way to turn the job off.** |
-| **`LEDGER_PURGE_AFTER_MS`** | 600000 (10 min) | **Go server only.** A `chip_ledger` row is deleted once older than this — but **only** `hand_win`/`hand_loss`/`hand_packed`/`hand_left` (`db.purgeableReasons`, hardcoded in the query): `purchase`, `picture_purchase`, `milestone_reward`, `timed_bonus`, `welcome_bonus` are never purged, since their UNIQUE `action_id` is a standing double-credit guard. Deletion is allowed only inside `PurgeLedger`'s own transaction, which sets `app.ledger_purge`; the append-only trigger refuses every other DELETE and every UPDATE. **Trap: 0 does NOT disable it** — the cutoff becomes `now`, so the next pass takes every purgeable row. Now equal to `RESUME_OFFER_MS`, so a retry at the edge of the resume window can find its `action_id` already gone (was 24h for that margin). |
+| **`LEDGER_PURGE_AFTER_MS`** | 600000 (10 min) | **Go server only.** A `chip_ledger` row is deleted once older than this — but **only** `hand_win`/`hand_loss`/`hand_packed`/`hand_left` (`db.purgeableReasons`, hardcoded in the query): `purchase`, `picture_purchase`, `milestone_reward`, `timed_bonus`, `welcome_bonus` are never purged, since their UNIQUE `action_id` is a standing double-credit guard — nor, since 27 Sep 2026, any row of a hand a player report names (`player_reports.hand_id`, §7.3). Deletion is allowed only inside `PurgeLedger`'s own transaction, which sets `app.ledger_purge`; the append-only trigger refuses every other DELETE and every UPDATE. **Trap: 0 does NOT disable it** — the cutoff becomes `now`, so the next pass takes every purgeable row. Now equal to `RESUME_OFFER_MS`, so a retry at the edge of the resume window can find its `action_id` already gone (was 24h for that margin). |
 | `WELCOME_CHIPS` / `BOOT_AMOUNT` † | 1000000 / 200 | only `BOOT_AMOUNT` is a table key (db: `table_settings.default_boot_amount`). The 10 Lakh welcome (owner, 27 Sep 2026: "every new user will get 1 missile 20 Hammers and 10Lakh coin"; 3 lakh from 14 Sep 2026, 2 lakh before). **Production's `.env` sets `WELCOME_CHIPS` explicitly**, so a new default changes nothing there until that line does |
 | `TABLE_STAKES` † | `200,5000,50000,2000000` | empty = any (tests); db: `table_settings.stakes` (an empty array is any; a non-empty one gains the boot of every active public row it lacks, since a table's own boot is always an allowed stake, §7.3) |
 | **`LOBBY_TABLES`** † | `seen:200:tax=1,blind:200:tax=1,blind:5000:max=200000000:tax=1,blind:50000:max=2000000000:tax=1,blind:2000000:min=500000000:tax=1,variation:50000:max=2000000000:tax=1,variation:2000000:min=500000000:tax=1,seen:50000:pot=50000000:tax=1,three_card_poker:50000,five_card_draw:50000,texas_holdem:50000,omaha:50000` (27 Sep 2026: every Teen Patti table `tax=1`, §6.6; the top Blind and Variation tables at 20 Lakh, 10 Lakh before; Blind 5,000 open to 20 Cr, 5 Cr before; the 50,000 Blind and Variation tables to 200 Cr, 100 Cr before — what the prose below says of 10 Lakh, 5 Cr and 100 Cr is the earlier menu) | the menu; empty = any pair (tests). **`pot=N` is a table's OWN pot cap** (Go only; owner, 19 Sep 2026: a second seen table, boot 50,000, open to all, pot limit 5 Crore — `LobbyTable.MaxPot`, read by `TableRules` and `MenuMaxPot` through `menuPotFor(category, boot)`): it wins over the category's cap (`SEEN_MAX_POT` is 40 boots at 50,000, so every hand there would be dealt into the POT_LIMIT showdown), changes nothing else — the ladder and rounds stay the category's — and a private table never reads it. 5 Crore is 5,00,00,000 = `50000000`; `500000000` is 50 Crore. The new entry is LAST in the list like every later addition; the Flutter lobby files it under Seen by category. Categories are `seen`, `blind`, (Go only, 18 Sep 2026) **`variation`** and (Go only, 19 Sep 2026, §6.5) the four poker ones **`three_card_poker`, `five_card_draw`, `texas_holdem`, `omaha`** — anything else stops the boot. A poker entry's boot is its big blind (Hold'em, Omaha) or ante (3-Card Poker, 5-Card Draw); its `minChips` on the menu is raised to the table's `minBuyIn` (`POKER_MIN_BUYIN_BOOTS` × boot) and each `options.tables[]` entry carries `game`, `smallBlind`, `bigBlind`, `ante`, `minBuyIn`, `holeCards`, `maxDiscards` (omitted on Teen Patti entries). Poker keeps **one table per game, all four at 50,000** (owner, 19 Sep 2026: "in poker category only keep one table 50000 for each gameplay"; it was six entries at 200 and 5,000 earlier that day) — so blinds 25,000/50,000, an ante of 50,000, and a buy-in of **5,00,000** at every poker table, which is MORE than the 3,00,000 welcome: a brand-new account sees the whole Poker category shut until it has won 5 Lakh, and `POKER_MIN_BUYIN_BOOTS` (4 = 2 Lakh) is the one key that changes that without touching the stake. The four default poker entries are LAST; an older Go tag cannot boot on a `.env` that lists one, and an installed app older than the first poker-aware build draws each as a seen table — raise `MIN_CLIENT_BUILD` first. Variation keeps **two tables only, 50,000 and 10 Lakh** (owner, 18 Sep 2026), behind the bands blind's tables of those stakes have; its entries are LAST so the five before them keep their places, and clients are told of the category (`config.categories`) only when it is listed. **Rollout:** an installed app older than the build that knows the category draws that card as a seen table and never shows the picker, so every hand there is a server-chosen Muflis — raise `MIN_CLIENT_BUILD` first. **Production's `.env` sets `LOBBY_TABLES` explicitly**, so the new default changes nothing there until that line does; a Go tag older than this cannot boot on a `.env` that lists `variation:`. Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). **In db mode** the menu is the active public `table_configs` rows in `sort_order` (§7.3) and this key is ignored; the rollout rule becomes the row's: a table appended to the seed arrives inactive on an existing database, and goes live with `is_active = TRUE` after `MIN_CLIENT_BUILD` — never by a restart. A row with an unknown category is left out with a logged reason, not a stopped boot. |
@@ -1655,6 +1704,7 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | `LIVE_STATE_TTL_MS` | 86400000 | how long a table snapshot that stops updating survives in the live store |
 | `LIVE_INSTANCE_ID` | `hostname:pid` | presence / matchmaking owner tag (`Load()` only; `Defaults()`/`FromEnv()` carry `""`) |
 | `LIVE_RECONCILE_MS` | 30000 | how often the live store is pinged, refilled from memory after an outage, and swept for stray seat/summary keys; 0 disables |
+| **`REPORT_MAX_PER_REPORTER`** / **`REPORT_WINDOW_MS`** / **`REPORT_PAIR_WINDOW_MS`** / **`REPORT_DESCRIPTION_MAX`** / **`REPORT_RECENT_MS`** / **`REPORT_ATTEMPT_LIMIT`** / **`REPORT_ATTEMPT_WINDOW_MS`** | 2 / 86400000 / 86400000 / 500 / 600000 / 10 / 60000 | **Go-only (Report Player, 27 Sep 2026, §7.2).** At most 2 reports per player in any 24 h (owner; rolling, counted from `player_reports` in the filing transaction — 429 `report_limit_reached`; 0 = no limit, a zero window under a live limit stops the boot); one report per reporter → player per pair window (0 = only one per hand, which always holds; 409 `already_reported`); the longest description in code points (1..2000); how long a player who left stays reportable by those they sat with (in MEMORY: a restart forgets it; 0 = only players seated with the reporter now); and the per-ACCOUNT request limit before anything is read (429 `rate_limited`; 0 = off). |
 | **`STATS_FLUSH_MS`** / **`STATS_FLUSH_BATCH`** | 10000 / 500 | **Go-only (Player stats v2, 27 Sep 2026, §7.3).** How often the flusher moves the players' pending statistics from the live store into PostgreSQL, and the most players one flush transaction holds (a pass takes batch after batch until nobody waits). The interval is also how far a player's statistics and the hands-played milestone may trail play. **Trap: `STATS_FLUSH_MS=0` turns the flusher OFF** — nothing is flushed, not even at shutdown; the counters wait in the live store for a process that flushes. |
 | `LOG_LEVEL` | info | slog level (`util.ParseLogLevel`) |
 | `ROOT_REDIRECT` | empty | **Go-only.** Set (**production: `/dashboard/`**, the Grafana login) it hides the browser client: `GET /` → 302 to the value, every top-level file of `PUBLIC_DIR` (`index.html`, `client.js`, the stylesheets) and `/socket.io/socket.io(.min).js` → 404; subdirectories keep serving — `privacy/` (Play listing link), `profiles/` (Flutter avatars via `/api/profiles`). Empty = browser client at `/` (dev, parity). The rule is the directory layout, not a filename list (`static.go`). |
@@ -2187,6 +2237,28 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   out before an accept, reject or remove is dropped so it cannot undo it; the page closes itself if the app leaves the lobby.
   56 strings in five languages. Tests: `friends_{dtos,api,state,page,table}_test.dart` (204) on `friends_fixture.dart`, a fake
   server built from the contract; pictures by hand, `test/friends_shots.dart`.
+- **Report Player** (owner's brief, 27 Sep 2026; server side §7.2/§7.3; `widgets/report_player.dart`,
+  `state/player_reports.dart`, `models/report.dart`, `ApiClient.reportPlayer`). The table's **player drawer** is the player
+  menu: under the move the two players' standing offers sits a quiet line, `ReportPlayerRow` (`seat-report`: a flag and
+  "Report player" in the metadata ink, no fill, no gold, a 44dp target — never a key on the felt), on both felts, never on the
+  viewer's own pod. It turns the drawer — **a page of the drawer, never a route** — to `ReportPlayerPage` under the same head
+  (the player's picture and name): nine reasons as pills (`_ReasonChip`: the chosen one ticked and gold-edged, not colour alone;
+  a screen reader hears one choice among several), a description field (hint "optional", or "required" for OTHER; stopped at 500
+  CODE POINTS by `_CodePointLimit`, the server's measure, with a "n / 500" count), **Submit report** (the drawer's primary gold
+  `DrawerKey` — made public for it — dead until a reason, and a description for OTHER; while sending it spins, reads
+  "Submitting…", and neither it nor Cancel can be pressed: `PlayerReports.submit` does nothing while one is out) and Cancel.
+  Filed: "✓ Report submitted / Thank you for helping keep the game fair. / Our team will review the report." (a green tick,
+  the brief's words), Done back to the card, whose line then reads "✓ Reported", dead, for the session (`wasReported`; also
+  after `already_reported`). Every refusal is said in the page in the player's language (`reportRefusalText`:
+  already_reported, report_limit_reached and rate_limited alike, player_not_at_table, an invalid or gone player, the
+  description's two, no connection — a 12 s timeout —, anything else "something went wrong"), and the report can be sent again.
+  The client sends `{reportedUserId, reason, description?}` and nothing else. `PlayerReports` is GameState's own notifier
+  beside `FriendsState` (no one-second rebuilds), reset at sign-out; the drawer listens to both, drops the page when it shuts
+  or another seat opens, keeps a separate list (and scroll) per page, and rides above the keyboard with its head stepped aside
+  while typing, as the chat drawer does. 29 strings in all five languages. `test/report_player_test.dart` (34: both felts,
+  the quiet line, no route, the exact body, loading and no double send, the thank-you, OTHER, the 500 code points, every
+  refusal in every language, a closed page ignoring a late answer, the keyboard, and 640x360 ×1.25 in all five languages and
+  both themes with the Noto fonts).
 - **The XP mission bar** (owner, 27 Sep 2026: "whenever xp mission completed, show top notification bar for 5 seconds
   showing this is completed and xp increased"; app only — `state/xp_missions.dart`, `widgets/xp_mission_bar.dart`). **Detection**
   (`XpMissions.completions`, pure): only a `player:level` (`GameState.handlePlayerLevel`) can raise one, and only when the XP ROSE
@@ -3389,6 +3461,9 @@ PostgreSQL holding table CONFIG and never state.
 **The Lucky Draw** (owner's brief, 24 Sep 2026, and the owner's BEGINNER_LUCKY_DRAW seed the same day): a six-slot wheel in the lobby,
 spun, granted and recorded by the server (weighted `crypto/rand`, cooldown, idempotent `action_id`, one transaction), prizes in the
 existing wallets and picture catalogues, `reward_type` open for future kinds — §7.2, §7.3, §8.4.
+**Report Player** (owner's brief, 27 Sep 2026; §7.2, §7.3, §8.4): a player at a table reports another at it (or one who shared
+it within 10 minutes) from the player drawer; the server derives the table, game, category, variant and hand, enforces 2
+reports per 24 hours per reporter in PostgreSQL, and files a PENDING row that changes nothing in the game.
 **The winning tax, levels and badges** (owner, 26–27 Sep 2026; §6.6): the one winner of a hand at every public Seen, Blind
 and Variation table pays their rate — the lowest of their level's (20% at Level 1 to 6% at Level 50, by XP) and their badges'
 (Regular 20% for everyone; the Royal badges 0%, sold for rupees through support) — of their winnings of 50 Lakh or more; a
@@ -3682,7 +3757,7 @@ deploy runbook; `steps.txt` the six-line routine.
   unchanged. Every shipped client is websocket-only.
 - **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, exactly two since 23 Sep 2026 —
   `V1.0.0__baseline.sql` all DDL, `V1.0.1__seed.sql` all DML — applied in version order, idempotent, run at
-  every start: twenty-five tables — money, accounts, gameplay stats, the friends graph, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
+  every start: thirty-six tables (§7.3) — money, accounts, gameplay stats, the friends graph, the player reports, the levels and badges, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
   state — §7.3), `TableConfigs.Load`/`ExportTableConfigSQL` (the table catalogue), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table
@@ -3707,7 +3782,7 @@ deploy runbook; `steps.txt` the six-line routine.
   `gomaxprocs`. Grafana's former "Node.js" row is now "Runtime"; alerts
   `GameServerSchedulerLatencyHigh` / `GameServerGoroutinesHigh` / `GameServerMemoryHigh` replaced
   the three `nodejs_*` ones (§7.5 bundle at `go-server/ops/monitoring/`, `MONITORING.md`).
-- Small honest deviations: **the table pictures** (§7.2/§7.3; merged 23 Sep 2026) — three tables, three REST endpoints,
+- Small honest deviations: **Report Player** (§7.2/§7.3; 27 Sep 2026) — `POST /api/reports`, `player_reports`, `Room.ReportContexts`, the manager's recent-departure memory, and the ledger purge sparing a reported hand's rows (no wire, snapshot or ledger row of a table changed); **the table pictures** (§7.2/§7.3; merged 23 Sep 2026) — three tables, three REST endpoints,
   `user.tablePicture`, `room:state.tablePicture` on Teen Patti snapshots, `table_picture_purchase` ledger rows; **the Poker family** (§6.5) — four poker categories, `poker:action` in, the nine `poker:*` events
   out, `game`/`poker` on a poker room's `room:state`, `chip_ledger.game`/`variant`, `wrong_game`; a Teen Patti table's wire,
   snapshot and ledger rows are unchanged; **Variation Teen Patti** — the `variation` category, `game:selectVariation`, the two

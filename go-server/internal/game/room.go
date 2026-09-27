@@ -69,6 +69,13 @@ type Room interface {
 	Seats() ([]SeatInfo, error)
 	FindSeat(userID string) (*SeatInfo, error)
 	ChatHistory() ([]ChatMessage, error)
+	// ReportContexts is where each player seated at the room stands for a
+	// player report (report.go): the room, its game and category, and the
+	// relevant hand and variant — the hand they are in, else the last one
+	// they were dealt into here. Every player of also is answered too, seated
+	// or not: a player who has just left is still in the hand they walked out
+	// of, or the last one. A read; it changes nothing.
+	ReportContexts(also ...string) (map[string]ReportContext, error)
 
 	// ---- mutations ----
 	AddPlayer(p NewPlayer) (*SeatInfo, error)

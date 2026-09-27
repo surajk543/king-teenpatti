@@ -354,6 +354,10 @@ func New(opts Options) (*App, error) {
 		// under a seated player — and with no expiry at all when the
 		// reconciler is off (LIVE_RECONCILE_MS=0), cleared with the seat.
 		PlayingTTL: game.PlayingTTLFor(cfg.LiveReconcile),
+		// Report Player (owner, 27 Sep 2026): how long a player who has left a
+		// room stays reportable by the players they sat with there — kept in
+		// the manager's memory (REPORT_RECENT_MS).
+		ReportRecent: cfg.Reports.Recent,
 		Metrics: game.MetricsHooks{
 			ObserveCreation: func(d time.Duration) { metrics.Observe(a.metrics.CreationDuration, d) },
 			// game_hand_start_duration_seconds used to be timed around the
@@ -523,6 +527,13 @@ func New(opts Options) (*App, error) {
 		// lobby or table, once committed (friend:request, friend:accepted).
 		FriendRequestSent:     a.sockets.NotifyFriendRequest,
 		FriendRequestAccepted: a.sockets.NotifyFriendAccepted,
+		// Report Player (owner, 27 Sep 2026): a report is filed in PostgreSQL
+		// (player_reports), about a player the reporter shares a room with, or
+		// shared one with lately — which the RoomManager answers, reading the
+		// room (never changing it), with the room, game, category, variant and
+		// hand the report is about.
+		Reports:       db.NewReports(opts.DB, clock.Now),
+		ReportContext: a.rooms.ReportContext,
 	})
 	mux := http.NewServeMux()
 	if cfg.Metrics.Enabled {

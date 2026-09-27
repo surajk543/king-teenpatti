@@ -33,6 +33,14 @@ var purgeableReasons = []string{
 // reverts at COMMIT/ROLLBACK and never leaks onto a pooled connection handed
 // to a later, unrelated query.
 //
+// A hand that a player report names (player_reports.hand_id, Report Player,
+// 27 Sep 2026) keeps its rows: they are the one authoritative record of that
+// hand PostgreSQL holds — who was in it, what each put in and took out, how
+// it ended — and the report references them by hand_id rather than copying
+// them, so a moderator reading the report can still read the hand. Those
+// rows are few (a report is rare, and at most a hand's players each) and are
+// never purged; everything else is as before.
+//
 // Returns the number of rows removed. Safe to call on a schedule — an empty
 // result is not an error, just nothing old enough yet.
 func (d *DB) PurgeLedger(ctx context.Context, olderThanMs int64) (int64, error) {
@@ -44,7 +52,8 @@ func (d *DB) PurgeLedger(ctx context.Context, olderThanMs int64) (int64, error) 
 		tag, err := tx.Exec(ctx,
 			`DELETE FROM chip_ledger
 			  WHERE created_at < $1
-			    AND reason = ANY($2)`,
+			    AND reason = ANY($2)
+			    AND NOT EXISTS (SELECT 1 FROM player_reports r WHERE r.hand_id = chip_ledger.hand_id)`,
 			olderThanMs, purgeableReasons,
 		)
 		if err != nil {

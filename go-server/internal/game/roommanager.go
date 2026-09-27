@@ -323,6 +323,13 @@ type RoomManagerOptions struct {
 	// committed hand end and departure (Player stats v2). Production:
 	// stats.Recorder.Record. nil → nothing is counted.
 	Stats StatsRecorder
+
+	// ReportRecent is how long two players who shared a room stay reportable
+	// by each other once one of them has left it (REPORT_RECENT_MS; Report
+	// Player, report.go). The manager remembers each such pair, in memory,
+	// for this long. 0 → nothing is remembered: only players seated at the
+	// reporter's room right now can be reported.
+	ReportRecent time.Duration
 }
 
 // RoomManager owns every live table in this process (roomManager.js).
@@ -392,6 +399,9 @@ type RoomManager struct {
 	roomHooks *roomHooks
 	// stats is RoomManagerOptions.Stats, handed to every room (nil: none).
 	stats StatsRecorder
+	// coPlayers remembers who shared a room with whom, for
+	// RoomManagerOptions.ReportRecent (report.go). Its own lock.
+	coPlayers *coPlayers
 
 	// loadPlayer is RoomManagerOptions.LoadPlayer (nil → the caller's Player).
 	loadPlayer func(ctx context.Context, userID string) (Player, error)
@@ -571,6 +581,7 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 		published:   map[string]publishedSummary{},
 		factories:   opts.Factories,
 		stats:       opts.Stats,
+		coPlayers:   newCoPlayers(opts.ReportRecent),
 	}
 	rm.hooks = &tableHooks{rm: rm}
 	rm.roomHooks = &roomHooks{rm: rm}
@@ -1860,6 +1871,10 @@ func (rm *RoomManager) vacateFrom(userID, roomID, reason string) (Room, *SeatInf
 	if err != nil && !errors.Is(err, ErrTableDestroyed) {
 		return table, nil, err
 	}
+	if seat != nil {
+		// Who they sat with stays reportable for a while (Report Player).
+		rm.noteDeparture(table, userID)
+	}
 	return table, seat, nil
 }
 
@@ -2031,6 +2046,11 @@ func (rm *RoomManager) destroyTable(roomID string, onlyIfUnclaimed bool) error {
 			rm.liveClearSeated(userID)
 		}
 		rm.retireTable(table)
+		if len(unseated) > 1 {
+			// The room answers for its players one last time, so the ones
+			// it closes on stay reportable by each other (Report Player).
+			rm.noteTogether(table)
+		}
 	}
 	err := table.Destroy()
 	// Destroy settled the live hand on the actor before it returned: the write
@@ -2446,6 +2466,8 @@ func (rm *RoomManager) movePlayer(source, target Room, admit func(chips int64) b
 	// SwitchTable does.
 	if vacated != nil {
 		player.Chips = vacated.Chips
+		// Who they sat with stays reportable for a while (Report Player).
+		rm.noteDeparture(source, player.ID)
 	}
 
 	if err := rm.seatHeld(target, player, socketID); err != nil {

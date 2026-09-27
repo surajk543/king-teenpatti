@@ -498,12 +498,18 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 	// table is the live store's (kt:online, kt:playing:<userId>); no row here
 	// says so, and none names a room.
 	//
+	// player_reports (Report Player, 27 Sep 2026) is moderation audit: one row
+	// per report, written once when a player files it and never read to play
+	// a hand. It names the room and the hand the report is about by id —
+	// references for a moderator, not their state: nothing of the hand is
+	// copied into it, and the room is still the live store's alone.
+	//
 	// player_levels, xp_sources and xp_settings (26 Sep 2026) are the level
 	// ladder and the XP rules — configuration — and player_xp each player's XP,
 	// an account fact: the settle adds to it, and no table reads it to play a
 	// hand. The play TIME the 30- and 60-minute XP is earned by lives in the
 	// live store, never here.
-	want := []string{"badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "player_levels", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims", "profile_pictures", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users", "xp_settings", "xp_sources"}
+	want := []string{"badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "player_levels", "player_reports", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims", "profile_pictures", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users", "xp_settings", "xp_sources"}
 	if !slices.Equal(tables, want) {
 		t.Fatalf("schema tables = %v, want %v", tables, want)
 	}

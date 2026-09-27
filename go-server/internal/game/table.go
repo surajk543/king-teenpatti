@@ -460,6 +460,11 @@ type Table struct {
 	unfundedTimer    Timer
 	unfundedTimerGen uint64
 	view             *View // the single View handed to listeners
+	// lastHand is the hand this table last finished — its id, its players and
+	// its variation — kept until the next one finishes, for a player report
+	// filed in the pause between hands (table_report.go). Memory only: not in
+	// the snapshot, so a restored table has none until its next hand ends.
+	lastHand *RecentHand
 }
 
 // NewTable constructs the table and starts its actor goroutine. State is
@@ -1054,6 +1059,9 @@ func (t *Table) setState(s TableState) { t.state.Store(s) }
 
 // setHand swaps the live hand and keeps the HasHand atomic in step.
 func (t *Table) setHand(h *hand) {
+	if h == nil && t.hand != nil {
+		t.lastHand = t.hand.recent()
+	}
 	t.hand = h
 	t.hasHand.Store(h != nil)
 }

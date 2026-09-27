@@ -226,6 +226,9 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   // names a room. The counters are added AFTER a hand, by the stats flusher's
   // group commit from Redis; stats_flushes is its receipts, one row per batch
   // committed.
+  // player_reports (Report Player, 27 Sep 2026) is moderation audit: a row a
+  // player's report writes once, naming the room and the hand it is about by
+  // id — references, never their state — and nothing a table reads.
   // player_levels, badges, xp_sources and xp_settings (26–27 Sep 2026) are
   // configuration: the level ladder — each level's title, icon and the winning
   // tax it carries —, the badges a player may hold beside it with their rates
@@ -263,7 +266,7 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   assert.deepEqual(tables, [
     'badge_purchases', 'badges', 'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships',
     'hammer_purchases', 'hammer_spends', 'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends',
-    'player_levels', 'player_stats', 'player_variation_stats', 'player_xp', 'player_xp_claims', 'profile_pictures',
+    'player_levels', 'player_reports', 'player_stats', 'player_variation_stats', 'player_xp', 'player_xp_claims', 'profile_pictures',
     'stats_flushes', 'table_categories', 'table_configs', 'table_engines', 'table_pictures', 'table_settings',
     'user_badges', 'user_emojis', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures', 'user_table_choice',
     'user_table_pictures', 'users', 'xp_settings', 'xp_sources',

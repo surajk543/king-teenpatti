@@ -332,6 +332,48 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 			t.Errorf("%s seeds %s: the social graph is the players' to write", migrations[1].File, table)
 		}
 	}
+
+	// Report Player (owner, 27 Sep 2026): player_reports after the friends
+	// tables, declared whole — both players' foreign keys, status a CLOSED
+	// set (a CHECK, as friend_requests.status), reason an OPEN one the server
+	// checks (no CHECK names a reason), no self-report — the four indexes
+	// the brief asks for (the hand's the per-hand unique guarantee), and
+	// nothing in the seed.
+	if !inOrder(baseline, "CREATE TABLE IF NOT EXISTS friendships", "CREATE TABLE IF NOT EXISTS player_reports",
+		"CREATE TABLE IF NOT EXISTS player_levels", "CREATE TABLE IF NOT EXISTS table_engines") {
+		t.Error("the baseline must create player_reports after friendships and before the player levels")
+	}
+	reports := squash(createTableBody(t, baseline, "player_reports"))
+	for _, want := range []string{"id BIGSERIAL PRIMARY KEY",
+		"reporter_user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE",
+		"reported_user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE",
+		"reason TEXT NOT NULL,", "description TEXT,", "game TEXT NOT NULL,", "category TEXT NOT NULL,", "variant TEXT,",
+		"table_id TEXT NOT NULL,", "hand_id TEXT,",
+		"status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'UNDER_REVIEW', 'ACTION_TAKEN', 'DISMISSED'))",
+		"created_at BIGINT NOT NULL,", "updated_at BIGINT NOT NULL,", "CHECK (reporter_user_id <> reported_user_id)"} {
+		if !strings.Contains(reports, want) {
+			t.Errorf("CREATE TABLE player_reports must declare %q:\n%s", want, reports)
+		}
+	}
+	if strings.Contains(reports, "CHEATING") || strings.Contains(reports, "reason IN") {
+		t.Errorf("player_reports.reason is an open set the server checks, never a CHECK:\n%s", reports)
+	}
+	for _, want := range []string{
+		"CREATE INDEX IF NOT EXISTS player_reports_reported_idx ON player_reports (reported_user_id, created_at);",
+		"CREATE INDEX IF NOT EXISTS player_reports_reporter_idx ON player_reports (reporter_user_id, created_at);",
+		"CREATE INDEX IF NOT EXISTS player_reports_status_idx ON player_reports (status, created_at);",
+		"CREATE UNIQUE INDEX IF NOT EXISTS player_reports_one_per_hand ON player_reports (hand_id, reporter_user_id, reported_user_id) WHERE hand_id IS NOT NULL;",
+	} {
+		if !strings.Contains(squash(baseline), want) {
+			t.Errorf("the baseline lacks %q", want)
+		}
+	}
+	if strings.Contains(outside, "ALTER TABLE player_reports") || strings.Contains(baseline, "ALTER TABLE player_reports ") {
+		t.Error("player_reports must be declared in full, never altered")
+	}
+	if strings.Contains(seed, "INTO player_reports") {
+		t.Errorf("%s seeds player_reports: a report is a player's to file", migrations[1].File)
+	}
 	// The six counters live in player_stats ALONE (owner, 26 Sep 2026: "only
 	// store in player_stats table"): users declares none of them, and — this
 	// build going onto a fresh database — nothing copies old figures across.
@@ -576,7 +618,9 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	// 2026: player_variation_stats and the flusher's stats_flushes), and the
 	// player levels, badges and XP (26–27 Sep 2026: the ladder, the badges and
 	// who holds which, the XP sources and settings, each player's XP and what
-	// they have earned of the daily XP) — thirty-five, and no game state (the
+	// they have earned of the daily XP), and Report Player's player_reports
+	// (27 Sep 2026: moderation audit, which names a room and a hand by id and
+	// copies nothing of either) — thirty-six, and no game state (the
 	// baseline's header).
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
@@ -597,7 +641,7 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	}
 	want := []string{"badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends",
 		"lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends",
-		"player_levels", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims",
+		"player_levels", "player_reports", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims",
 		"profile_pictures", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
 		"user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users",
 		"xp_settings", "xp_sources"}

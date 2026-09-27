@@ -643,6 +643,45 @@ class ApiClient {
   static String _stringOr(Object? v, String fallback) =>
       v is String && v.isNotEmpty ? v : fallback;
 
+  // --------------------------------------------------------------- reports
+
+  /// Reports a player the viewer is at a table with (Report Player, owner 27
+  /// Sep 2026): `POST /api/reports {reportedUserId, reason, description}` →
+  /// 201 `{success: true, message}`. Only these three: who the report is
+  /// about, the reason's wire value ([ReportReason.wire]) and what happened
+  /// (sent only when there is any). The table, the hand, the time and the
+  /// reporter are the server's to say.
+  ///
+  /// Refusals, as an [ApiException] carrying the server's code: 400
+  /// `invalid_player_id`, `self_report`, `invalid_report_reason`,
+  /// `description_required`, `description_too_long`; 404 `player_not_found`;
+  /// 409 `player_not_at_table`, `already_reported`; 429
+  /// `report_limit_reached`, `rate_limited`; 401 for a session that is gone;
+  /// 500 `internal_error`.
+  Future<void> reportPlayer(
+    String token, {
+    required String reportedUserId,
+    required String reason,
+    String description = '',
+  }) async {
+    final r = await http.post(
+      _uri('/api/reports'),
+      headers: _headers(token),
+      body: jsonEncode({
+        'reportedUserId': reportedUserId,
+        'reason': reason,
+        if (description.isNotEmpty) 'description': description,
+      }),
+    );
+    final j = _decode(r);
+    if (j['success'] == false) {
+      throw ApiException(
+        '${j['message'] ?? 'Request failed'}',
+        status: r.statusCode,
+      );
+    }
+  }
+
   /// Requirement 29: renames the player. The server validates the name and
   /// refuses the change while they are seated at a table.
   Future<User> setDisplayName(String token, String name) async {

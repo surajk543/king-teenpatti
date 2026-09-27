@@ -161,7 +161,17 @@ type Deps struct {
 	// accept has committed and its answer is written, with the sender's id.
 	// Nil = nobody to tell.
 	FriendRequestAccepted func(senderID string, accepted FriendAccepted)
-	Logger                *slog.Logger
+	// Reports files player reports (Report Player, owner 27 Sep 2026;
+	// reports.go). Nil → POST /api/reports is not mounted (unknown /api paths
+	// answer the JSON 404).
+	Reports ReportStore
+	// ReportContext answers whether a reporter may report a player — the two
+	// seated at the same room now, or at one they shared within
+	// REPORT_RECENT_MS — and where they met: the room, its game, category and
+	// variant, and the hand (app: rooms.ReportContext; a read of the room,
+	// changing nothing). Nil → nobody may report anybody (player_not_at_table).
+	ReportContext func(reporterID, reportedID string) (game.ReportContext, bool)
+	Logger        *slog.Logger
 }
 
 // MissileStore is the slice of db.Missiles the missile store endpoint uses.
@@ -255,6 +265,10 @@ type BoughtBadge struct {
 // Their patterns are registered with the {wildcards}, so the metrics label a
 // request by the pattern (/api/players/{playerId}) and never by an id.
 //
+// and, when Deps.Reports is set, Report Player's one (reports.go; Go only):
+//
+//	POST   /api/reports                             → ReportPlayer        (RequireAuth, wallet limiter)
+//
 // Responses are JSON; errors are ErrorResponse. Body parsing (ReadJSONBody):
 // JSON only, UTF-8 only, 32 KiB limit (express.json({limit:'32kb'})); a
 // malformed body or a non-UTF-8 charset → 400 {error:"invalid_json"}, an
@@ -275,6 +289,10 @@ type Handler struct {
 	// move a wallet.
 	loginLimit  *ipLimiter
 	walletLimit *ipLimiter
+	// reportAttempts is Report Player's per-ACCOUNT request limit
+	// (REPORT_ATTEMPT_LIMIT per REPORT_ATTEMPT_WINDOW_MS), keyed by user id —
+	// the IP limiter's counter, counting every report request, refused or not.
+	reportAttempts *ipLimiter
 }
 
 // NewHandler builds the REST handler.
@@ -284,6 +302,8 @@ func NewHandler(deps Deps) *Handler {
 		rate := deps.Config.RESTRate
 		h.loginLimit = newIPLimiter(rate.Login, rate.Window, nil)
 		h.walletLimit = newIPLimiter(rate.Wallet, rate.Window, nil)
+		reports := deps.Config.Reports
+		h.reportAttempts = newIPLimiter(reports.AttemptLimit, reports.AttemptWindow, nil)
 	}
 	return h
 }
@@ -318,6 +338,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/levels", methods(http.MethodGet, http.HandlerFunc(h.Levels)))
 	if h.deps.Friends != nil {
 		h.registerFriends(mux, wallet)
+	}
+	if h.deps.Reports != nil {
+		mux.Handle("/api/reports", methods(http.MethodPost, wallet(h.ReportPlayer)))
 	}
 }
 

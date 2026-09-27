@@ -315,6 +315,45 @@ class Strings {
   String get friendRefuseRateLimited => _('friendRefuseRateLimited');
   String get friendActionFailed => _('friendActionFailed');
 
+  // --- Report Player (owner, 27 Sep 2026): the table's player drawer
+  String get reportPlayer => _('reportPlayer');
+  String get reportWhy => _('reportWhy');
+  String get reportReasonCheating => _('reportReasonCheating');
+  String get reportReasonHarassment => _('reportReasonHarassment');
+  String get reportReasonAbusiveLanguage => _('reportReasonAbusiveLanguage');
+  String get reportReasonSpam => _('reportReasonSpam');
+  String get reportReasonInappropriate => _('reportReasonInappropriate');
+  String get reportReasonSuspicious => _('reportReasonSuspicious');
+  String get reportReasonCollusion => _('reportReasonCollusion');
+  String get reportReasonExploit => _('reportReasonExploit');
+  String get reportReasonOther => _('reportReasonOther');
+  String get reportDetails => _('reportDetails');
+  String get reportDetailsHint => _('reportDetailsHint');
+  String get reportDetailsRequiredHint => _('reportDetailsRequiredHint');
+  String get reportSubmit => _('reportSubmit');
+  String get reportSubmitting => _('reportSubmitting');
+
+  /// The thank-you after a report is filed: "✓ Report submitted", then the
+  /// two lines the brief gives, word for word in English.
+  String get reportSubmitted => _('reportSubmitted');
+  String get reportThanks => _('reportThanks');
+  String get reportReview => _('reportReview');
+  String get reportDone => _('reportDone');
+
+  /// The drawer's quiet line for a player already reported this session.
+  String get reportedTag => _('reportedTag');
+
+  /// Every refusal the report route can answer, in words
+  /// (`reportRefusalText` picks by code).
+  String get reportAlready => _('reportAlready');
+  String get reportLimited => _('reportLimited');
+  String get reportNotAtTable => _('reportNotAtTable');
+  String get reportInvalidPlayer => _('reportInvalidPlayer');
+  String get reportDescriptionRequired => _('reportDescriptionRequired');
+  String get reportDescriptionTooLong => _('reportDescriptionTooLong');
+  String get reportNetworkError => _('reportNetworkError');
+  String get reportServerError => _('reportServerError');
+
   // --- buying chips, not open yet
   String get buyChips => _('buyChips');
 
@@ -2467,6 +2506,38 @@ class Strings {
       'friendActionFailed': 'That did not go through. Try again.',
       'addFriendHowTo':
           'Ask your friend for their Player ID — it is at the top of their Friends page.',
+      'reportPlayer': 'Report player',
+      'reportWhy': 'Why are you reporting this player?',
+      'reportReasonCheating': 'Cheating',
+      'reportReasonHarassment': 'Harassment',
+      'reportReasonAbusiveLanguage': 'Abusive language',
+      'reportReasonSpam': 'Spam',
+      'reportReasonInappropriate': 'Inappropriate behaviour',
+      'reportReasonSuspicious': 'Suspicious gameplay',
+      'reportReasonCollusion': 'Collusion',
+      'reportReasonExploit': 'Exploiting a bug',
+      'reportReasonOther': 'Other',
+      'reportDetails': 'Details',
+      'reportDetailsHint': 'What happened? (optional)',
+      'reportDetailsRequiredHint': 'Describe what happened (required)',
+      'reportSubmit': 'Submit report',
+      'reportSubmitting': 'Submitting…',
+      'reportSubmitted': 'Report submitted',
+      'reportThanks': 'Thank you for helping keep the game fair.',
+      'reportReview': 'Our team will review the report.',
+      'reportDone': 'Done',
+      'reportedTag': 'Reported',
+      'reportAlready': 'You have already reported this player.',
+      'reportLimited':
+          'You have sent too many reports. Please try again later.',
+      'reportNotAtTable': 'This player is no longer at your table.',
+      'reportInvalidPlayer': 'This player can’t be reported.',
+      'reportDescriptionRequired': 'Please describe what happened.',
+      'reportDescriptionTooLong': 'Keep the description shorter.',
+      'reportNetworkError':
+          'Could not send the report. Check your connection and try again.',
+      'reportServerError':
+          'Something went wrong. Please try again in a moment.',
     },
     'hi': {
       'signInSubtitle': 'खेलने के लिए साइन इन करें।',
@@ -3281,6 +3352,37 @@ class Strings {
       'friendActionFailed': 'यह नहीं हो सका। फिर कोशिश करें।',
       'addFriendHowTo':
           'अपने दोस्त से उनकी खिलाड़ी आईडी पूछें — यह उनके दोस्त पेज में सबसे ऊपर होती है।',
+      'reportPlayer': 'खिलाड़ी की रिपोर्ट करें',
+      'reportWhy': 'आप इस खिलाड़ी की रिपोर्ट क्यों कर रहे हैं?',
+      'reportReasonCheating': 'धोखाधड़ी',
+      'reportReasonHarassment': 'परेशान करना',
+      'reportReasonAbusiveLanguage': 'अभद्र भाषा',
+      'reportReasonSpam': 'स्पैम',
+      'reportReasonInappropriate': 'अनुचित व्यवहार',
+      'reportReasonSuspicious': 'संदिग्ध खेल',
+      'reportReasonCollusion': 'मिलीभगत',
+      'reportReasonExploit': 'बग का फ़ायदा उठाना',
+      'reportReasonOther': 'अन्य',
+      'reportDetails': 'विवरण',
+      'reportDetailsHint': 'क्या हुआ? (वैकल्पिक)',
+      'reportDetailsRequiredHint': 'बताएँ कि क्या हुआ (ज़रूरी)',
+      'reportSubmit': 'रिपोर्ट भेजें',
+      'reportSubmitting': 'भेजा जा रहा है…',
+      'reportSubmitted': 'रिपोर्ट भेज दी गई',
+      'reportThanks': 'खेल को निष्पक्ष रखने में मदद के लिए धन्यवाद।',
+      'reportReview': 'हमारी टीम इस रिपोर्ट की जाँच करेगी।',
+      'reportDone': 'ठीक है',
+      'reportedTag': 'रिपोर्ट की गई',
+      'reportAlready': 'आप इस खिलाड़ी की रिपोर्ट पहले ही कर चुके हैं।',
+      'reportLimited':
+          'आपने बहुत सारी रिपोर्ट भेजी हैं। कृपया बाद में फिर कोशिश करें।',
+      'reportNotAtTable': 'यह खिलाड़ी अब आपकी टेबल पर नहीं है।',
+      'reportInvalidPlayer': 'इस खिलाड़ी की रिपोर्ट नहीं की जा सकती।',
+      'reportDescriptionRequired': 'कृपया बताएँ कि क्या हुआ।',
+      'reportDescriptionTooLong': 'विवरण थोड़ा छोटा रखें।',
+      'reportNetworkError':
+          'रिपोर्ट नहीं भेजी जा सकी। अपना कनेक्शन जाँचें और फिर कोशिश करें।',
+      'reportServerError': 'कुछ गड़बड़ हो गई। थोड़ी देर में फिर कोशिश करें।',
     },
     'bn': {
       'signInSubtitle': 'খেলতে সাইন ইন করুন।',
@@ -4095,6 +4197,37 @@ class Strings {
       'friendActionFailed': 'এটি হয়নি। আবার চেষ্টা করুন।',
       'addFriendHowTo':
           'আপনার বন্ধুর কাছে তাঁর খেলোয়াড় আইডি চেয়ে নিন — এটি তাঁর বন্ধুরা পাতার একেবারে উপরে থাকে।',
+      'reportPlayer': 'খেলোয়াড়কে রিপোর্ট করুন',
+      'reportWhy': 'আপনি কেন এই খেলোয়াড়কে রিপোর্ট করছেন?',
+      'reportReasonCheating': 'প্রতারণা',
+      'reportReasonHarassment': 'হয়রানি',
+      'reportReasonAbusiveLanguage': 'অশালীন ভাষা',
+      'reportReasonSpam': 'স্প্যাম',
+      'reportReasonInappropriate': 'অনুচিত আচরণ',
+      'reportReasonSuspicious': 'সন্দেহজনক খেলা',
+      'reportReasonCollusion': 'যোগসাজশ',
+      'reportReasonExploit': 'বাগের সুযোগ নেওয়া',
+      'reportReasonOther': 'অন্যান্য',
+      'reportDetails': 'বিবরণ',
+      'reportDetailsHint': 'কী হয়েছিল? (ঐচ্ছিক)',
+      'reportDetailsRequiredHint': 'কী হয়েছিল লিখুন (আবশ্যক)',
+      'reportSubmit': 'রিপোর্ট পাঠান',
+      'reportSubmitting': 'পাঠানো হচ্ছে…',
+      'reportSubmitted': 'রিপোর্ট পাঠানো হয়েছে',
+      'reportThanks': 'খেলাটিকে ন্যায্য রাখতে সাহায্য করার জন্য ধন্যবাদ।',
+      'reportReview': 'আমাদের টিম রিপোর্টটি পর্যালোচনা করবে।',
+      'reportDone': 'ঠিক আছে',
+      'reportedTag': 'রিপোর্ট করা হয়েছে',
+      'reportAlready': 'আপনি এই খেলোয়াড়কে আগেই রিপোর্ট করেছেন।',
+      'reportLimited':
+          'আপনি অনেক বেশি রিপোর্ট পাঠিয়েছেন। পরে আবার চেষ্টা করুন।',
+      'reportNotAtTable': 'এই খেলোয়াড় আর আপনার টেবিলে নেই।',
+      'reportInvalidPlayer': 'এই খেলোয়াড়কে রিপোর্ট করা যাবে না।',
+      'reportDescriptionRequired': 'অনুগ্রহ করে লিখুন কী হয়েছিল।',
+      'reportDescriptionTooLong': 'বিবরণটি আরও ছোট রাখুন।',
+      'reportNetworkError':
+          'রিপোর্ট পাঠানো যায়নি। সংযোগ দেখে আবার চেষ্টা করুন।',
+      'reportServerError': 'কিছু একটা ভুল হয়েছে। একটু পরে আবার চেষ্টা করুন।',
     },
     'gu': {
       'signInSubtitle': 'રમવા માટે સાઇન ઇન કરો.',
@@ -4904,6 +5037,37 @@ class Strings {
       'friendActionFailed': 'આ થઈ શક્યું નથી. ફરી પ્રયાસ કરો.',
       'addFriendHowTo':
           'તમારા મિત્ર પાસેથી તેમની ખેલાડી આઈડી માંગો — તે તેમના મિત્રો પેજમાં સૌથી ઉપર હોય છે.',
+      'reportPlayer': 'ખેલાડીની જાણ કરો',
+      'reportWhy': 'તમે આ ખેલાડીની જાણ કેમ કરી રહ્યા છો?',
+      'reportReasonCheating': 'છેતરપિંડી',
+      'reportReasonHarassment': 'હેરાનગતિ',
+      'reportReasonAbusiveLanguage': 'અપમાનજનક ભાષા',
+      'reportReasonSpam': 'સ્પામ',
+      'reportReasonInappropriate': 'અયોગ્ય વર્તન',
+      'reportReasonSuspicious': 'શંકાસ્પદ રમત',
+      'reportReasonCollusion': 'મિલીભગત',
+      'reportReasonExploit': 'બગનો લાભ લેવો',
+      'reportReasonOther': 'અન્ય',
+      'reportDetails': 'વિગતો',
+      'reportDetailsHint': 'શું થયું? (વૈકલ્પિક)',
+      'reportDetailsRequiredHint': 'શું થયું તે જણાવો (જરૂરી)',
+      'reportSubmit': 'રિપોર્ટ મોકલો',
+      'reportSubmitting': 'મોકલાઈ રહ્યું છે…',
+      'reportSubmitted': 'રિપોર્ટ મોકલાઈ ગયો',
+      'reportThanks': 'રમતને ન્યાયી રાખવામાં મદદ કરવા બદલ આભાર.',
+      'reportReview': 'અમારી ટીમ આ રિપોર્ટની સમીક્ષા કરશે.',
+      'reportDone': 'બરાબર',
+      'reportedTag': 'જાણ કરી',
+      'reportAlready': 'તમે આ ખેલાડીની જાણ પહેલેથી કરી છે.',
+      'reportLimited':
+          'તમે ઘણા બધા રિપોર્ટ મોકલ્યા છે. કૃપા કરીને પછી ફરી પ્રયાસ કરો.',
+      'reportNotAtTable': 'આ ખેલાડી હવે તમારા ટેબલ પર નથી.',
+      'reportInvalidPlayer': 'આ ખેલાડીની જાણ કરી શકાતી નથી.',
+      'reportDescriptionRequired': 'કૃપા કરીને જણાવો કે શું થયું.',
+      'reportDescriptionTooLong': 'વિગતો થોડી ટૂંકી રાખો.',
+      'reportNetworkError':
+          'રિપોર્ટ મોકલી શકાયો નહીં. તમારું કનેક્શન તપાસીને ફરી પ્રયાસ કરો.',
+      'reportServerError': 'કંઈક ખોટું થયું. થોડી વારમાં ફરી પ્રયાસ કરો.',
     },
     'pa': {
       'signInSubtitle': 'ਖੇਡਣ ਲਈ ਸਾਈਨ ਇਨ ਕਰੋ।',
@@ -5723,6 +5887,37 @@ class Strings {
       'friendActionFailed': 'ਇਹ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
       'addFriendHowTo':
           'ਆਪਣੇ ਦੋਸਤ ਤੋਂ ਉਨ੍ਹਾਂ ਦੀ ਖਿਡਾਰੀ ਆਈਡੀ ਪੁੱਛੋ — ਇਹ ਉਨ੍ਹਾਂ ਦੇ ਦੋਸਤ ਪੰਨੇ ਦੇ ਸਭ ਤੋਂ ਉੱਪਰ ਹੁੰਦੀ ਹੈ।',
+      'reportPlayer': 'ਖਿਡਾਰੀ ਦੀ ਰਿਪੋਰਟ ਕਰੋ',
+      'reportWhy': 'ਤੁਸੀਂ ਇਸ ਖਿਡਾਰੀ ਦੀ ਰਿਪੋਰਟ ਕਿਉਂ ਕਰ ਰਹੇ ਹੋ?',
+      'reportReasonCheating': 'ਧੋਖਾਧੜੀ',
+      'reportReasonHarassment': 'ਪਰੇਸ਼ਾਨ ਕਰਨਾ',
+      'reportReasonAbusiveLanguage': 'ਅਪਮਾਨਜਨਕ ਭਾਸ਼ਾ',
+      'reportReasonSpam': 'ਸਪੈਮ',
+      'reportReasonInappropriate': 'ਅਣਉਚਿਤ ਵਿਵਹਾਰ',
+      'reportReasonSuspicious': 'ਸ਼ੱਕੀ ਖੇਡ',
+      'reportReasonCollusion': 'ਮਿਲੀਭੁਗਤ',
+      'reportReasonExploit': 'ਬੱਗ ਦਾ ਫ਼ਾਇਦਾ ਉਠਾਉਣਾ',
+      'reportReasonOther': 'ਹੋਰ',
+      'reportDetails': 'ਵੇਰਵਾ',
+      'reportDetailsHint': 'ਕੀ ਹੋਇਆ? (ਵਿਕਲਪਿਕ)',
+      'reportDetailsRequiredHint': 'ਦੱਸੋ ਕਿ ਕੀ ਹੋਇਆ (ਲਾਜ਼ਮੀ)',
+      'reportSubmit': 'ਰਿਪੋਰਟ ਭੇਜੋ',
+      'reportSubmitting': 'ਭੇਜੀ ਜਾ ਰਹੀ ਹੈ…',
+      'reportSubmitted': 'ਰਿਪੋਰਟ ਭੇਜ ਦਿੱਤੀ ਗਈ',
+      'reportThanks': 'ਖੇਡ ਨੂੰ ਨਿਰਪੱਖ ਰੱਖਣ ਵਿੱਚ ਮਦਦ ਲਈ ਧੰਨਵਾਦ।',
+      'reportReview': 'ਸਾਡੀ ਟੀਮ ਇਸ ਰਿਪੋਰਟ ਦੀ ਜਾਂਚ ਕਰੇਗੀ।',
+      'reportDone': 'ਠੀਕ ਹੈ',
+      'reportedTag': 'ਰਿਪੋਰਟ ਕੀਤੀ',
+      'reportAlready': 'ਤੁਸੀਂ ਇਸ ਖਿਡਾਰੀ ਦੀ ਰਿਪੋਰਟ ਪਹਿਲਾਂ ਹੀ ਕਰ ਚੁੱਕੇ ਹੋ।',
+      'reportLimited':
+          'ਤੁਸੀਂ ਬਹੁਤ ਸਾਰੀਆਂ ਰਿਪੋਰਟਾਂ ਭੇਜੀਆਂ ਹਨ। ਕਿਰਪਾ ਕਰਕੇ ਬਾਅਦ ਵਿੱਚ ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+      'reportNotAtTable': 'ਇਹ ਖਿਡਾਰੀ ਹੁਣ ਤੁਹਾਡੇ ਟੇਬਲ ਉੱਤੇ ਨਹੀਂ ਹੈ।',
+      'reportInvalidPlayer': 'ਇਸ ਖਿਡਾਰੀ ਦੀ ਰਿਪੋਰਟ ਨਹੀਂ ਕੀਤੀ ਜਾ ਸਕਦੀ।',
+      'reportDescriptionRequired': 'ਕਿਰਪਾ ਕਰਕੇ ਦੱਸੋ ਕਿ ਕੀ ਹੋਇਆ।',
+      'reportDescriptionTooLong': 'ਵੇਰਵਾ ਥੋੜ੍ਹਾ ਛੋਟਾ ਰੱਖੋ।',
+      'reportNetworkError':
+          'ਰਿਪੋਰਟ ਨਹੀਂ ਭੇਜੀ ਜਾ ਸਕੀ। ਆਪਣਾ ਕਨੈਕਸ਼ਨ ਜਾਂਚੋ ਅਤੇ ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+      'reportServerError': 'ਕੁਝ ਗਲਤ ਹੋ ਗਿਆ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
     },
   };
 }
