@@ -186,6 +186,8 @@ var catalogue = []struct {
 	{NameLiveStoreReconciles, "counter", "Reconciler passes that re-saved every live table into the live store, by outcome.", []string{"result"}},
 	{NameRestoredTables, "counter", "Tables rebuilt from the live store at startup since the process started (the live store is the only source: PostgreSQL holds no game state).", nil},
 	{NameRestoredSeats, "counter", "Seats held for the reconnect grace period after a restart since the process started.", nil},
+	{NameStatsFlushes, "counter", "Batches of player statistics flushed from the live store to PostgreSQL, by outcome (ok, duplicate: already committed, error: retried with the same id).", []string{"result"}},
+	{NameStatsFlushPlayers, "histogram", "Players whose statistics one committed batch added to PostgreSQL (one transaction each).", nil},
 	{NameHTTPRequestsTotal, "counter", "HTTP requests served, by method, route pattern and status code.", []string{"method", "route", "status_code"}},
 	{NameHTTPRequestDuration, "histogram", "HTTP request duration, by method, route pattern and status code.", []string{"method", "route", "status_code"}},
 }
@@ -220,6 +222,8 @@ func touch(m *Metrics) {
 	m.LiveStoreErrors.WithLabelValues(LiveOpPing).Inc()
 	m.LiveStoreReconciles.WithLabelValues(ResultOK).Inc()
 	m.RestoredTablesTotal.Inc()
+	m.StatsFlushes.WithLabelValues(StatsFlushOK).Inc()
+	m.StatsFlushPlayers.Observe(12)
 }
 
 // TestCatalogueCoversEveryGameFamily: every game_* family the registry
@@ -238,8 +242,8 @@ func TestCatalogueCoversEveryGameFamily(t *testing.T) {
 			t.Errorf("%s is exposed but not catalogued", name)
 		}
 	}
-	if len(catalogue) != 42 {
-		t.Errorf("catalogue has %d entries, want 42 (35 from Node + 6 live-state + the winning tax)", len(catalogue))
+	if len(catalogue) != 44 {
+		t.Errorf("catalogue has %d entries, want 44 (35 from Node + 6 live-state + the winning tax + 2 player-stats flush)", len(catalogue))
 	}
 }
 

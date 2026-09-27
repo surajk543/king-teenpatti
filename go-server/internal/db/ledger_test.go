@@ -54,8 +54,10 @@ func TestAPackCheckpointMovesTheWalletAndWritesOneRow(t *testing.T) {
 	f.reconcile()
 }
 
-// The leave/switch checkpoint resolves the player: hands_left_mid lands here,
-// because they will not be at the hand-end write.
+// The leave/switch checkpoint resolves the player: it is the entry their
+// departure is counted from (hands_left), because they will not be at the
+// hand-end write — counted by the game once it commits, and flushed; the
+// checkpoint itself writes money only (Player stats v2).
 func TestALeaveCheckpointCountsHandsLeftMid(t *testing.T) {
 	f := newFixture(t)
 	a := f.user("A")
@@ -64,6 +66,10 @@ func TestALeaveCheckpointCountsHandsLeftMid(t *testing.T) {
 	if _, err := f.left(room, hand, a, -25200, true); err != nil {
 		t.Fatal(err)
 	}
+	if n := f.statsRows(a.ID); n != 0 {
+		t.Fatalf("the leave checkpoint wrote %d statistics rows", n)
+	}
+	f.counted(game.StatsTeenPatti, leftEntry(hand, a.ID, -25200, true))
 	u := f.find(a.ID)
 	if u.HandsLeftMid != 1 || u.HandsPlayed != 1 || u.HandsLost != 0 || u.HandsWon != 0 {
 		t.Fatalf("counters %+v", u)
@@ -119,12 +125,14 @@ func TestAPackerIsWrittenTwiceAndChargedOnce(t *testing.T) {
 
 	// The hand ends: b wins the pot, a's outcome row moves nothing.
 	pot := staked * 2
-	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: []game.SettleEntry{
+	entries := []game.SettleEntry{
 		settleEntry(hand, a.ID, 0, false, true, 0),
 		settleEntry(hand, b.ID, pot-staked, true, true, pot),
-	}}); err != nil {
+	}
+	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: entries}); err != nil {
 		t.Fatal(err)
 	}
+	f.counted(game.StatsTeenPatti, entries...)
 
 	if got := f.chips(a.ID); got != afterPack {
 		t.Fatalf("the packer was charged again: %d → %d", afterPack, got)
@@ -186,7 +194,10 @@ func TestARewardBetweenCheckpointsSurvives(t *testing.T) {
 
 // ---------------------------------------------------------------- settle
 
-func TestSettleWritesARowPerPlayerAndMovesTheCounters(t *testing.T) {
+// The settle writes a row per player in wallet-lock order; the outcomes it
+// resolves are counted from its entries (game.StatsForEntry) once it has
+// committed, and reach the account by the flusher.
+func TestSettleWritesARowPerPlayerAndItsEntriesAreWhatIsCounted(t *testing.T) {
 	f := newFixture(t)
 	a, b, c := f.user("A"), f.user("B"), f.user("C")
 	room, hand := "room-settle", "hand-settle"
@@ -226,6 +237,7 @@ func TestSettleWritesARowPerPlayerAndMovesTheCounters(t *testing.T) {
 		t.Fatalf("rows out of wallet-lock order: %v", ids)
 	}
 
+	f.counted(game.StatsTeenPatti, entries...)
 	ua, ub, uc := f.find(a.ID), f.find(b.ID), f.find(c.ID)
 	if ua.HandsWon != 1 || ua.HandsPlayed != 1 || ua.TotalWinnings != pot || ua.BiggestPot != pot {
 		t.Fatalf("winner %+v", ua)
@@ -263,8 +275,8 @@ func TestSettleIsIdempotent(t *testing.T) {
 	if f.chips(a.ID) != chipsA || f.chips(b.ID) != chipsB {
 		t.Fatal("a retry moved the wallets again")
 	}
-	if f.find(a.ID).HandsWon != wonA {
-		t.Fatal("a retry counted the win twice")
+	if f.find(a.ID).HandsWon != wonA || f.statsRows(a.ID) != 0 {
+		t.Fatal("a retry counted something: the ledger writes money only")
 	}
 	if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE hand_id = $1`, hand); n != 2 {
 		t.Fatalf("%d rows after the retry", n)
@@ -582,11 +594,11 @@ func TestAPlayerWhoLeavesMidHandIsResolvedOnce(t *testing.T) {
 	}
 
 	// The hand settles with only the player still at the table.
-	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: []game.SettleEntry{
-		settleEntry(hand, b.ID, pot-bStaked, true, true, pot),
-	}}); err != nil {
+	entries := []game.SettleEntry{settleEntry(hand, b.ID, pot-bStaked, true, true, pot)}
+	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: entries}); err != nil {
 		t.Fatal(err)
 	}
+	f.counted(game.StatsTeenPatti, append(entries, leftEntry(hand, a.ID, -aStaked, true))...)
 
 	if got := f.chips(a.ID); got != walletAfterLeave {
 		t.Fatalf("the departed player was charged again: %d → %d", walletAfterLeave, got)

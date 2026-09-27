@@ -153,6 +153,9 @@ type RoomDeps struct {
 	// SettlementOwed is TableOptions.SettlementOwed: the manager's count of
 	// refused hand-end settlements still being retried, per player.
 	SettlementOwed func(req SettleRequest, owed bool)
+	// Stats is TableOptions.Stats: where the gameplay counters of every
+	// committed hand end and departure go (Player stats v2). nil: none.
+	Stats StatsRecorder
 	// Hooks is the manager's side of the room's events (RoomHooks). A room
 	// delivers each to its own game-family listener (the socket layer) AND to
 	// these, on its actor.

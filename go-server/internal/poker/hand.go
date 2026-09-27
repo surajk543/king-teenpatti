@@ -932,6 +932,20 @@ func (t *Table) endHandRefunded(reason WinReason) {
 	t.settle(reason, map[string]bool{}, nil, []PotResult{}, []Reveal{}, nil)
 }
 
+// handStats is what a poker hand end counts for each outcome entry
+// (game.StatsForEntry, in the POKER bucket): played, won, lost or left, and
+// the winnings. A money-only row (a departed player's refused stake riding
+// the settle) is not an outcome and counts nothing.
+func handStats(entries []game.SettleEntry) []game.HandStats {
+	out := make([]game.HandStats, 0, len(entries))
+	for _, entry := range entries {
+		if stats, ok := game.StatsForEntry(entry, game.StatsPoker); ok && !stats.Empty() {
+			out = append(out, stats)
+		}
+	}
+	return out
+}
+
 // settle is CHECKPOINT 3 of 3 — the hand end: one Settle for everyone who
 // put chips in, then the announcement and the next countdown.
 func (t *Table) settle(reason WinReason, winners map[string]bool, pushes map[string]bool, pots []PotResult, reveals []Reveal, dealer *DealerReveal) {
@@ -999,8 +1013,12 @@ func (t *Table) settle(reason WinReason, winners map[string]bool, pushes map[str
 	}
 	// PlayedMs: the hand's duration, the active play its players add to their
 	// XP window (game.SettleRequest). A poker room never taxes its winners, so
-	// the result's rates are not read.
-	req := game.SettleRequest{RoomID: t.id, HandID: h.id, Entries: entries, PlayedMs: max(0, t.clock.Now().Sub(h.startedAt).Milliseconds())}
+	// the result's rates are not read. The counters the write resolves ride
+	// with it (Player stats v2), and are recorded once it has committed — here,
+	// or by the retry that lands it. A poker hand counts in the POKER bucket,
+	// with no held hand: poker hands are not ranked on the Teen Patti ladder.
+	req := game.SettleRequest{RoomID: t.id, HandID: h.id, Entries: entries,
+		PlayedMs: max(0, t.clock.Now().Sub(h.startedAt).Milliseconds()), Stats: handStats(entries)}
 	if _, err := t.ledger.Settle(t.Context(), req); err != nil {
 		t.hooks.OnRoomPersistError(t, game.PersistErrorEvent{Reason: "settle", HandID: h.id, Err: err})
 		t.Settler.Owe(req, true)
@@ -1010,6 +1028,7 @@ func (t *Table) settle(reason WinReason, winners map[string]bool, pushes map[str
 		for _, entry := range h.contributions {
 			entry.chipsWritten = entry.chips
 		}
+		t.recordStats(req.Stats)
 	}
 
 	community := game.CardCodes(h.community)

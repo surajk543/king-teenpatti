@@ -250,27 +250,51 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 		t.Errorf("%s must add emojis ON CONFLICT (asset_url) DO NOTHING", migrations[1].File)
 	}
 
-	// Friends V1 (owner, 26 Sep 2026): three more tables in the baseline and
-	// nothing on users — player_stats, where the six gameplay counters live
-	// now, and the social graph, friend_requests and friendships, each with a
-	// foreign key to users (which needs only ops/DEPLOY.md §7's REFERENCES
-	// grant) — and one statement in the seed: the backfill that copies every
-	// account's retired counters into player_stats once, never over a row
-	// that is already there.
+	// Friends V1 (owner, 26 Sep 2026): the social graph, friend_requests and
+	// friendships, each with a foreign key to users (which needs only
+	// ops/DEPLOY.md §7's REFERENCES grant). Player stats v2 (owner, 27 Sep
+	// 2026): player_stats a row per player per bucket, player_variation_stats
+	// a row per player per variation, and stats_flushes the flusher's
+	// receipts — declared whole in their CREATE TABLEs (a fresh deployment:
+	// nothing altered, nothing copied), and nothing in the seed.
 	if !inOrder(baseline, "CREATE TABLE IF NOT EXISTS user_milestones", "CREATE TABLE IF NOT EXISTS player_stats",
+		"CREATE TABLE IF NOT EXISTS player_variation_stats", "CREATE TABLE IF NOT EXISTS stats_flushes",
 		"CREATE TABLE IF NOT EXISTS chip_ledger") {
-		t.Error("the baseline must create player_stats after user_milestones and before chip_ledger")
+		t.Error("the baseline must create player_stats, player_variation_stats and stats_flushes after user_milestones and before chip_ledger")
 	}
 	if !inOrder(baseline, "CREATE TABLE IF NOT EXISTS user_lucky_draws", "CREATE TABLE IF NOT EXISTS friend_requests",
 		"CREATE TABLE IF NOT EXISTS friendships", "CREATE TABLE IF NOT EXISTS table_engines") {
 		t.Error("the baseline must create friend_requests then friendships, after the Lucky Draw and before the table catalogue")
 	}
 	stats := squash(createTableBody(t, baseline, "player_stats"))
-	for _, want := range []string{"user_id TEXT PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE",
+	for _, want := range []string{"user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE", "category TEXT NOT NULL,",
 		"hands_played BIGINT NOT NULL DEFAULT 0", "hands_won BIGINT NOT NULL DEFAULT 0", "hands_lost BIGINT NOT NULL DEFAULT 0",
-		"hands_left BIGINT NOT NULL DEFAULT 0", "total_winnings BIGINT NOT NULL DEFAULT 0", "biggest_pot BIGINT NOT NULL DEFAULT 0"} {
+		"hands_left BIGINT NOT NULL DEFAULT 0", "total_winnings BIGINT NOT NULL DEFAULT 0", "biggest_pot BIGINT NOT NULL DEFAULT 0",
+		"trail BIGINT NOT NULL DEFAULT 0", "pure_sequence BIGINT NOT NULL DEFAULT 0", "sequence BIGINT NOT NULL DEFAULT 0",
+		"color BIGINT NOT NULL DEFAULT 0", "pair BIGINT NOT NULL DEFAULT 0", "high_card BIGINT NOT NULL DEFAULT 0",
+		"PRIMARY KEY (user_id, category)"} {
 		if !strings.Contains(stats, want) {
 			t.Errorf("CREATE TABLE player_stats must declare %q:\n%s", want, stats)
+		}
+	}
+	variations := squash(createTableBody(t, baseline, "player_variation_stats"))
+	for _, want := range []string{"user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE", "variation TEXT NOT NULL,",
+		"hands_played BIGINT NOT NULL DEFAULT 0", "hands_won BIGINT NOT NULL DEFAULT 0", "PRIMARY KEY (user_id, variation)"} {
+		if !strings.Contains(variations, want) {
+			t.Errorf("CREATE TABLE player_variation_stats must declare %q:\n%s", want, variations)
+		}
+	}
+	// The buckets and the variations are OPEN sets: a new one is a value,
+	// never a constraint an existing database would have to change.
+	for name, body := range map[string]string{"player_stats": stats, "player_variation_stats": variations} {
+		if strings.Contains(body, "CHECK") {
+			t.Errorf("CREATE TABLE %s constrains its category with a CHECK:\n%s", name, body)
+		}
+	}
+	flushes := squash(createTableBody(t, baseline, "stats_flushes"))
+	for _, want := range []string{"batch_id TEXT PRIMARY KEY", "players INTEGER NOT NULL", "flushed_at BIGINT NOT NULL"} {
+		if !strings.Contains(flushes, want) {
+			t.Errorf("CREATE TABLE stats_flushes must declare %q:\n%s", want, flushes)
 		}
 	}
 	requests := squash(createTableBody(t, baseline, "friend_requests"))
@@ -298,8 +322,8 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 			t.Errorf("CREATE TABLE friendships must declare %q:\n%s", want, friendships)
 		}
 	}
-	for _, table := range []string{"player_stats", "friend_requests", "friendships"} {
-		if strings.Contains(outside, "ALTER TABLE "+table) {
+	for _, table := range []string{"player_stats", "player_variation_stats", "stats_flushes", "friend_requests", "friendships"} {
+		if strings.Contains(outside, "ALTER TABLE "+table) || strings.Contains(baseline, "ALTER TABLE "+table+" ") {
 			t.Errorf("%s must be declared in full, never altered", table)
 		}
 	}
@@ -317,8 +341,10 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 			t.Errorf("CREATE TABLE users still declares %s: the counters live in player_stats alone", column)
 		}
 	}
-	if strings.Contains(seed, "player_stats") {
-		t.Errorf("%s writes player_stats: a player's statistics are the ledger's to write", migrations[1].File)
+	for _, table := range []string{"player_stats", "player_variation_stats", "stats_flushes"} {
+		if strings.Contains(seed, table) {
+			t.Errorf("%s writes %s: a player's statistics are the stats flusher's to write", migrations[1].File, table)
+		}
 	}
 
 	// The missile column and tables are the baseline's too (folded in from
@@ -546,10 +572,12 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	// owns which (26 Sep 2026), the Lucky Draw's three, the four
 	// configuration tables, Friends V1's three (26 Sep 2026: the gameplay
 	// counters moved off users into player_stats, and the social graph,
-	// friend_requests and friendships), and the player levels, badges and XP
-	// (26–27 Sep 2026: the ladder, the badges and who holds which, the XP
-	// sources and settings, each player's XP and what they have earned of the
-	// daily XP) — thirty-two, and no game state (the baseline's header).
+	// friend_requests and friendships), Player stats v2's two more (27 Sep
+	// 2026: player_variation_stats and the flusher's stats_flushes), and the
+	// player levels, badges and XP (26–27 Sep 2026: the ladder, the badges and
+	// who holds which, the XP sources and settings, each player's XP and what
+	// they have earned of the daily XP) — thirty-five, and no game state (the
+	// baseline's header).
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
 	if err != nil {
@@ -569,8 +597,8 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	}
 	want := []string{"badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends",
 		"lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends",
-		"player_levels", "player_stats", "player_xp", "player_xp_claims",
-		"profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
+		"player_levels", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims",
+		"profile_pictures", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
 		"user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users",
 		"xp_settings", "xp_sources"}
 	if strings.Join(tables, ",") != strings.Join(want, ",") {

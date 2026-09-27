@@ -50,6 +50,9 @@ type Table struct {
 	createdAt time.Time
 
 	onHandStart func(d time.Duration)
+	// record is RoomDeps.Stats: the counters of every committed hand end and
+	// departure, all in the POKER bucket (Player stats v2). nil: none.
+	record game.StatsRecorder
 
 	*game.Actor
 	*game.LiveState
@@ -234,6 +237,7 @@ func newTableCore(opts TableOptions) *Table {
 		hooks:       hooks,
 		createdAt:   clock.Now(),
 		onHandStart: deps.ObserveHandStart,
+		record:      deps.Stats,
 		seats:       make([]*seat, cfg.MaxPlayers),
 		button:      -1,
 		chat:        game.NewRoomChat(chatHistory, chatLength, clock),
@@ -246,7 +250,7 @@ func newTableCore(opts TableOptions) *Table {
 			t.hooks.OnRoomPersistError(t, game.PersistErrorEvent{Reason: reason, Err: err})
 		},
 	})
-	t.Settler = game.NewSettler(ledger, clock, t.Actor, cfg.NextHandDelay, &t.version, deps.SettlementOwed, game.SettlerHooks{
+	t.Settler = game.NewSettler(ledger, clock, t.Actor, cfg.NextHandDelay, &t.version, deps.SettlementOwed, deps.Stats, game.SettlerHooks{
 		Landed:      t.onSettleLanded,
 		RetryFailed: t.onSettleRetryFailed,
 		Abandoned:   t.onSettleAbandoned,
@@ -835,7 +839,8 @@ func (t *Table) checkpoint(entry *contribution, reason, actionID string, outcome
 			Variant:     t.cfg.Category,
 		},
 	}
-	if _, err := t.ledger.Checkpoint(t.Context(), req); err != nil {
+	_, err := t.ledger.Checkpoint(t.Context(), req)
+	if err != nil {
 		// duplicate_action is the UNIQUE action_id refusing a write that
 		// already landed and whose acknowledgement was lost (CLAUDE.md §5.1):
 		// the money moved exactly once, so the seat IS written through and
@@ -847,6 +852,21 @@ func (t *Table) checkpoint(entry *contribution, reason, actionID string, outcome
 	}
 	t.version.Add(1)
 	entry.chipsWritten = entry.chips
+	// A departure is counted once its own write has committed — not on a
+	// replay (duplicate_action), whose counters were never this call's to
+	// count. A fold is not an outcome and counts nothing here.
+	if err == nil {
+		if stats, ok := game.StatsForEntry(req.Entry, game.StatsPoker); ok && !stats.Empty() {
+			t.recordStats([]game.HandStats{stats})
+		}
+	}
+}
+
+// recordStats hands committed counters to the room's StatsRecorder.
+func (t *Table) recordStats(stats []game.HandStats) {
+	if t.record != nil && len(stats) > 0 {
+		t.record(stats)
+	}
 }
 
 // ------------------------------------------------------------- lifecycle

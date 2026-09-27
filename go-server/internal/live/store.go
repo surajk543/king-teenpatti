@@ -251,6 +251,34 @@ type Store interface {
 	// ListSeats exists. Never nil.
 	ListSummaries(ctx context.Context) ([]TableSummary, error)
 
+	// ---- player statistics (Player stats v2, stats.go) ---------------------
+	// RecordStats folds each delta into its player's PENDING counters
+	// (kt:stats:<userId>: an Add field summed, a Max field kept at the larger)
+	// and marks the player dirty (kt:stats:dirty) — every delta of the call in
+	// ONE atomic round trip, whatever the number of players. A delta with
+	// nothing in it is skipped; the same player may appear more than once.
+	RecordStats(ctx context.Context, deltas []StatsDelta) error
+	// TakeStatsBatch moves up to max dirty players' pending counters, whole,
+	// into an in-flight batch named batchID, atomically: each player leaves the
+	// dirty set and their pending hash becomes the batch's, so a delta recorded
+	// the moment after lands in a fresh pending hash (and marks them dirty
+	// again) and is never part of this batch. It returns the batch with the
+	// counters it took; Players is empty when nothing was dirty, and then no
+	// batch is registered. ErrStatsBatchExists when batchID names an open batch.
+	TakeStatsBatch(ctx context.Context, batchID string, max int) (StatsBatch, error)
+	// StatsBatches lists every batch taken and not finished, with its
+	// counters, oldest first: what a flusher retries — at boot, and after a
+	// flush that failed or whose commit went unacknowledged — under the SAME
+	// id. Never nil.
+	StatsBatches(ctx context.Context) ([]StatsBatch, error)
+	// FinishStatsBatch forgets a batch PostgreSQL has committed: its counters
+	// and its entry in the index. Idempotent.
+	FinishStatsBatch(ctx context.Context, batchID string) error
+	// DropStats forgets a player's pending counters and dirty mark (the
+	// account was deleted). Batches already taken keep theirs: a flush skips a
+	// deleted account.
+	DropStats(ctx context.Context, userID string) error
+
 	// ---- lifecycle ---------------------------------------------------------
 	Ping(ctx context.Context) error
 	Close() error

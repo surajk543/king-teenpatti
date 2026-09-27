@@ -195,6 +195,41 @@ func (h *hooked) Candidates(ctx context.Context, category string, bootAmount int
 	return out, err
 }
 
+func (h *hooked) RecordStats(ctx context.Context, deltas []StatsDelta) (err error) {
+	start := time.Now()
+	defer func() { h.observe("record_stats", err, time.Since(start)) }()
+	err = h.Store.RecordStats(ctx, deltas)
+	return err
+}
+
+func (h *hooked) TakeStatsBatch(ctx context.Context, batchID string, max int) (batch StatsBatch, err error) {
+	start := time.Now()
+	defer func() { h.observe("take_stats_batch", err, time.Since(start)) }()
+	batch, err = h.Store.TakeStatsBatch(ctx, batchID, max)
+	return batch, err
+}
+
+func (h *hooked) StatsBatches(ctx context.Context) (batches []StatsBatch, err error) {
+	start := time.Now()
+	defer func() { h.observe("stats_batches", err, time.Since(start)) }()
+	batches, err = h.Store.StatsBatches(ctx)
+	return batches, err
+}
+
+func (h *hooked) FinishStatsBatch(ctx context.Context, batchID string) (err error) {
+	start := time.Now()
+	defer func() { h.observe("finish_stats_batch", err, time.Since(start)) }()
+	err = h.Store.FinishStatsBatch(ctx, batchID)
+	return err
+}
+
+func (h *hooked) DropStats(ctx context.Context, userID string) (err error) {
+	start := time.Now()
+	defer func() { h.observe("drop_stats", err, time.Since(start)) }()
+	err = h.Store.DropStats(ctx, userID)
+	return err
+}
+
 func (h *hooked) Ping(ctx context.Context) (err error) {
 	start := time.Now()
 	defer func() { h.observe("ping", err, time.Since(start)) }()

@@ -768,6 +768,9 @@ func runConformance(t *testing.T, newHarness func(t *testing.T) *harness) {
 		}
 	})
 
+	// The players' statistics (Player stats v2): stats_conformance_test.go.
+	runStatsConformance(t, newHarness)
+
 	t.Run("Closed", func(t *testing.T) {
 		h := newHarness(t)
 		must(t, h.store.SaveTable(ctx, "r1", 1, []byte("x"), h.ttl))

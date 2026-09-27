@@ -85,6 +85,9 @@ func TestDefaultsMatchNode(t *testing.T) {
 		"Chat.MaxHistory": 100, "Chat.MaxLength": 140, "Chat.RateLimit": 5, "Chat.RateWindow": 5 * time.Second,
 		"LogLevel": "info", "PublicDir": "./public", "RedisURL": "",
 		"LiveStateTTL": 24 * time.Hour, "LiveInstanceID": "", "LiveReconcile": 30 * time.Second,
+		// Player stats v2: a flush of the players' statistics every 10 s, up to
+		// 500 players a transaction.
+		"Stats.FlushInterval": 10 * time.Second, "Stats.FlushBatch": 500,
 	}
 	for path, expected := range want {
 		if got := field(t, cfg, path); !reflect.DeepEqual(got, expected) {
@@ -225,6 +228,10 @@ func TestEveryKey(t *testing.T) {
 		// purgeable row on the next pass.
 		{"LEDGER_PURGE_INTERVAL_MS", "0", "DB.LedgerPurgeInterval", time.Duration(0)},
 		{"LEDGER_PURGE_AFTER_MS", "0", "DB.LedgerPurgeAfter", time.Duration(0)},
+		{"STATS_FLUSH_MS", "2500", "Stats.FlushInterval", 2500 * time.Millisecond},
+		{"STATS_FLUSH_MS", "0", "Stats.FlushInterval", time.Duration(0)}, // the flusher off
+		{"STATS_FLUSH_BATCH", "50", "Stats.FlushBatch", 50},
+		{"STATS_FLUSH_BATCH", "1", "Stats.FlushBatch", 1},
 	}
 	for _, row := range rows {
 		t.Run(row.key+"="+row.value, func(t *testing.T) {
@@ -275,6 +282,13 @@ func TestMalformedIntegersFailStartup(t *testing.T) {
 		{"JWT_EXPIRES_IN": ""},
 		{"JWT_EXPIRES_IN": "0"},
 		{"JWT_EXPIRES_IN": "-5d"},
+		// The stats flusher: a negative interval is not "off" (0 is), and a
+		// batch holds at least one player.
+		{"STATS_FLUSH_MS": "-1"},
+		{"STATS_FLUSH_MS": "10s"},
+		{"STATS_FLUSH_BATCH": "0"},
+		{"STATS_FLUSH_BATCH": "-5"},
+		{"STATS_FLUSH_BATCH": "many"},
 	} {
 		if _, err := FromEnv(env(bad)); err == nil {
 			t.Errorf("FromEnv(%v) must fail", bad)

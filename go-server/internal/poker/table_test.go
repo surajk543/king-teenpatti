@@ -131,6 +131,30 @@ type harness struct {
 	rec   *recorder
 	books *books
 	cfg   Config
+	stats *statsLog
+}
+
+// statsLog keeps every committed hand's counters the room recorded
+// (RoomDeps.Stats; Player stats v2).
+type statsLog struct {
+	mu    sync.Mutex
+	calls [][]game.HandStats
+}
+
+func (l *statsLog) record(stats []game.HandStats) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.calls = append(l.calls, append([]game.HandStats(nil), stats...))
+}
+
+func (l *statsLog) all() []game.HandStats {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []game.HandStats
+	for _, c := range l.calls {
+		out = append(out, c...)
+	}
+	return out
 }
 
 type harnessOptions struct {
@@ -157,12 +181,13 @@ func newHarness(t *testing.T, variant Variant) *harness {
 		MinBuyIn:       400,
 		MaxDiscards:    3,
 	}
+	stats := &statsLog{}
 	table := NewTable(TableOptions{
 		ID: "room-1", Code: "ROOM0001", Config: cfg, Listener: rec,
-		Deps: game.RoomDeps{Clock: clock, Ledger: b.ledger()},
+		Deps: game.RoomDeps{Clock: clock, Ledger: b.ledger(), Stats: stats.record},
 	})
 	t.Cleanup(func() { _ = table.Destroy() })
-	return &harness{t: t, table: table, clock: clock, rec: rec, books: b, cfg: cfg}
+	return &harness{t: t, table: table, clock: clock, rec: rec, books: b, cfg: cfg, stats: stats}
 }
 
 func (h *harness) seat(id string, chips int64) {

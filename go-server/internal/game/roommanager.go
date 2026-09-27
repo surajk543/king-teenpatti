@@ -317,6 +317,12 @@ type RoomManagerOptions struct {
 	// factory behind it is logged at construction and its tables are folded
 	// to seen, which is what an unknown category has always become.
 	Factories map[Game]RoomFactory
+
+	// Stats is handed to every room, Teen Patti and poker alike
+	// (TableOptions.Stats, RoomDeps.Stats): the gameplay counters of every
+	// committed hand end and departure (Player stats v2). Production:
+	// stats.Recorder.Record. nil → nothing is counted.
+	Stats StatsRecorder
 }
 
 // RoomManager owns every live table in this process (roomManager.js).
@@ -384,6 +390,8 @@ type RoomManager struct {
 	// factory-built room reports to (the family-neutral half of tableHooks).
 	factories map[Game]RoomFactory
 	roomHooks *roomHooks
+	// stats is RoomManagerOptions.Stats, handed to every room (nil: none).
+	stats StatsRecorder
 
 	// loadPlayer is RoomManagerOptions.LoadPlayer (nil → the caller's Player).
 	loadPlayer func(ctx context.Context, userID string) (Player, error)
@@ -562,6 +570,7 @@ func NewRoomManager(opts RoomManagerOptions) *RoomManager {
 		playingTTL:  opts.PlayingTTL,
 		published:   map[string]publishedSummary{},
 		factories:   opts.Factories,
+		stats:       opts.Stats,
 	}
 	rm.hooks = &tableHooks{rm: rm}
 	rm.roomHooks = &roomHooks{rm: rm}
@@ -597,6 +606,7 @@ func (rm *RoomManager) roomDeps() RoomDeps {
 		LiveErrors:       rm.liveErrorHook,
 		ObserveHandStart: rm.mx.ObserveHandStart,
 		SettlementOwed:   rm.settlementOwed,
+		Stats:            rm.stats,
 		Hooks:            rm.roomHooks,
 	}
 }
@@ -873,6 +883,7 @@ func (rm *RoomManager) tableOptions(opts TableOptions) TableOptions {
 	opts.ObserveHandStart = rm.mx.ObserveHandStart
 	opts.ObserveTableTax = rm.mx.ObserveTableTax
 	opts.SettlementOwed = rm.settlementOwed
+	opts.Stats = rm.stats
 	return opts
 }
 

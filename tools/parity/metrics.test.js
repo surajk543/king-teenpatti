@@ -526,7 +526,11 @@ test('cardinality: no label carries an identifier, address or raw path', async (
   const LIVE_OPS = ['save_table', 'load_table', 'delete_table', 'list_tables', 'count_tables', 'list_summaries', 'list_seats', 'append_chat', 'load_chat',
     'delete_chat', 'set_seated', 'clear_seated', 'seat_of', 'set_online', 'set_offline', 'online_count',
     'put_resume_offer', 'take_resume_offer', 'delete_resume_offer', 'publish_table', 'retire_table',
-    'candidates', 'ping', 'close', 'other'];
+    'candidates', 'ping', 'close', 'other',
+    // The players' statistics (Player stats v2, 27 Sep 2026): recorded after
+    // every committed hand, taken, listed and finished by the stats flusher,
+    // dropped when an account is deleted.
+    'record_stats', 'take_stats_batch', 'stats_batches', 'finish_stats_batch', 'drop_stats'];
   for (const op of gameValues('op')) assert.ok([...DB_OPS, ...LIVE_OPS].includes(op), `op "${op}" is outside the fixed vocabulary`);
   for (const kind of gameValues('kind')) assert.ok(['seat_held', 'offer'].includes(kind), `kind "${kind}"`);
   for (const reason of gameValues('reason')) assert.match(reason, /^[a-z][a-z _]*$/, `reason "${reason}"`);

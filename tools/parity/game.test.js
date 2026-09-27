@@ -560,8 +560,15 @@ test('turn timeouts pack the idler; three misses in a row lose the seat with roo
   assert.equal(again.ok, true, JSON.stringify(again));
   assert.equal(idler.client.last('room:joined').you.missedTurns, 0, 'a fresh seat, a clean slate');
   assert.equal(await wallet(idler.user.id), profile.welcomeChips - t.bootAmount * 3, 'three boots lost');
-  assert.equal((await me(idler.account.token)).handsLost, 3);
-  assert.equal((await me(idler.account.token)).handsPlayed, 0, 'never bet beyond the boot');
+  // The counters reach PostgreSQL by the stats flusher's group commit, one
+  // STATS_FLUSH_MS after the hand (Player stats v2, 27 Sep 2026) — the money
+  // above is the ledger's, at once.
+  await eventually(async () => {
+    const counted = await me(idler.account.token);
+    assert.equal(counted.handsLost, 3);
+    assert.equal(counted.handsPlayed, 0, 'never bet beyond the boot');
+    assert.equal(counted.stats.teenPatti.handsLost, 3, 'three Teen Patti hands');
+  });
   await closeAll(...t.clients);
 });
 

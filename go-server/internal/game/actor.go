@@ -358,7 +358,12 @@ type Settler struct {
 	// version rises by one per landed write (Room.Version).
 	version *atomic.Int64
 	// owed is TableOptions.SettlementOwed (nil → nobody to tell).
-	owed  func(req SettleRequest, owed bool)
+	owed func(req SettleRequest, owed bool)
+	// stats is TableOptions.Stats: a retry that COMMITS (not one refused
+	// duplicate_action, a replay of a write that already landed unheard)
+	// records the hand's counters (SettleRequest.Stats) here — on the actor,
+	// or off it for a chain that outlived its room. nil → none.
+	stats StatsRecorder
 	hooks SettlerHooks
 
 	// retryTimers are the armed settle back-offs (timer + the write it owes),
@@ -391,14 +396,27 @@ type settleRetry struct {
 }
 
 // NewSettler builds the chain for a room. baseDelay is NextHandDelay (the
-// back-off base); version the room's write counter; owed the manager's hook.
-func NewSettler(ledger Ledger, clock Clock, actor *Actor, baseDelay time.Duration, version *atomic.Int64, owed func(req SettleRequest, owed bool), hooks SettlerHooks) *Settler {
+// back-off base); version the room's write counter; owed the manager's hook;
+// stats where a retried settlement's counters go once it commits (nil: none).
+func NewSettler(ledger Ledger, clock Clock, actor *Actor, baseDelay time.Duration, version *atomic.Int64, owed func(req SettleRequest, owed bool), stats StatsRecorder, hooks SettlerHooks) *Settler {
 	s := &Settler{
-		ledger: ledger, clock: clock, actor: actor, baseDelay: baseDelay, version: version, owed: owed, hooks: hooks,
+		ledger: ledger, clock: clock, actor: actor, baseDelay: baseDelay, version: version, owed: owed, stats: stats, hooks: hooks,
 		retryTimers: map[uint64]*settleRetry{},
 	}
 	s.detachedDone = sync.NewCond(&s.detachedMu)
 	return s
+}
+
+// recordSettled hands a retried settlement's counters to the room's
+// StatsRecorder (Player stats v2) once a retry has COMMITTED — the room's
+// first attempt records its own. Never for duplicate_action: that is a
+// replay of a write that landed unheard, whose counters were never recorded
+// (its acknowledgement was lost) and are not recorded now, so a hand is
+// counted at most once. Safe from any goroutine.
+func (s *Settler) recordSettled(req SettleRequest) {
+	if s.stats != nil && len(req.Stats) > 0 {
+		s.stats(req.Stats)
+	}
 }
 
 // Owe reports a refused settlement to the manager: owed as its retries begin
@@ -461,6 +479,10 @@ func (s *Settler) Retry(req SettleRequest, attempt int) {
 			}
 			s.Owe(req, false) // landed: first, so nothing below can skip it
 			s.version.Add(1)
+			if err == nil {
+				// This attempt committed: the hand is counted now, once.
+				s.recordSettled(req)
+			}
 			if s.hooks.Landed != nil {
 				s.hooks.Landed(req, result)
 			}
@@ -544,6 +566,10 @@ func (s *Settler) settleDetachedFrom(req SettleRequest, attempt int) {
 			return
 		}
 		s.version.Add(1)
+		if err == nil {
+			// Committed here, after the room: the hand still happened.
+			s.recordSettled(req)
+		}
 		s.finishDetached(req, true)
 	})
 }

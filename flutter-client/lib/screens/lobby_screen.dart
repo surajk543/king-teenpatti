@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -25,6 +26,7 @@ import '../widgets/fireworks.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/picture_shelf.dart';
+import '../widgets/player_profile.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/rules_sheet.dart';
@@ -166,6 +168,12 @@ class _LobbyScreenState extends State<LobbyScreen> {
 
   void _open(BuildContext context, _EndPanel panel) {
     setState(() => _panel = panel);
+    // The record is read fresh as it opens: a finished hand's counters reach
+    // the server's database up to STATS_FLUSH_MS after the hand (Player stats
+    // v2), later than the read the lobby made when the table closed.
+    if (panel == _EndPanel.stats) {
+      unawaited(context.read<GameState>().refreshUser());
+    }
     Scaffold.of(context).openEndDrawer();
   }
 
@@ -4470,64 +4478,6 @@ class _DrawerRule extends StatelessWidget {
   );
 }
 
-/// One figure in the record: what it counts on the left, the number on the
-/// right, tabular so six of them line up.
-class _StatRow extends StatelessWidget {
-  const _StatRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final text = theme.textTheme;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: Space.lg,
-        vertical: Space.sm,
-      ),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: 18,
-            color: scheme.onSurface.withValues(alpha: AppTheme.inkLow),
-          ),
-          const SizedBox(width: Space.md),
-          Expanded(
-            child: Text(
-              label,
-              // Two lines rather than one cut short: at text x1.25 on a 640dp
-              // phone "Total winnings" read "Total winn…" beside its figure.
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: text.bodyMedium?.copyWith(
-                color: scheme.onSurface.withValues(alpha: AppTheme.inkMed),
-              ),
-            ),
-          ),
-          const SizedBox(width: Space.md),
-          Text(
-            value,
-            style: AppTheme.money(
-              text.labelLarge!,
-              colour: _goldInk(theme.brightness),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// The player's level at the head of their record: "Level 10 · 🌟 Rising
 /// Star · 4,180 XP"; under it, while the day has an XP window, "Today 23 / 50
 /// XP · resets in 5h 12m 3s"; and the badges they hold beside the level (owner,
@@ -4695,6 +4645,12 @@ class _DrawerAction extends StatelessWidget {
 /// The player's record, opened from the top rail. It is a drawer rather than a
 /// card on the rail because it is something you look up, not something you
 /// choose between.
+///
+/// Game by game since player stats v2 (owner, 27 Sep 2026): the one record
+/// widget every profile is drawn with ([PlayerStatsGrid.own]) — All · Teen
+/// Patti · Variation · Poker, each view's figures with the player's own two
+/// chip figures, the hands held at Teen Patti and Variation, and the
+/// variations played.
 class _StatsDrawer extends StatelessWidget {
   const _StatsDrawer();
 
@@ -4704,27 +4660,6 @@ class _StatsDrawer extends StatelessWidget {
     final user = state.user;
     final t = state.t;
     final theme = Theme.of(context);
-
-    final rows = <(IconData, String, String)>[
-      (
-        Icons.style_outlined,
-        t.handsPlayed,
-        formatChips(user?.handsPlayed ?? 0),
-      ),
-      (Icons.emoji_events_outlined, t.won, formatChips(user?.handsWon ?? 0)),
-      (Icons.trending_down, t.lost, formatChips(user?.handsLost ?? 0)),
-      (Icons.exit_to_app, t.leftMidHand, formatChips(user?.handsLeftMid ?? 0)),
-      (
-        Icons.savings_outlined,
-        t.totalWinnings,
-        formatChips(user?.totalWinnings ?? 0),
-      ),
-      (
-        Icons.local_fire_department_outlined,
-        t.biggestPot,
-        formatChips(user?.biggestPot ?? 0),
-      ),
-    ];
 
     return _LobbyDrawer(
       head: _DrawerHead(
@@ -4746,20 +4681,22 @@ class _StatsDrawer extends StatelessWidget {
           _LevelRow(level: level, badges: user!.badges),
           const _DrawerRule(),
         ],
-        for (var i = 0; i < rows.length; i++) ...[
-          // The four counts of hands are one group; the two money figures are
-          // another, and the rule between them is the only one in the list.
-          if (i == 4) const _DrawerRule(),
-          _Entrance(
-            index: i,
-            axis: Axis.vertical,
-            child: _StatRow(
-              icon: rows[i].$1,
-              label: rows[i].$2,
-              value: rows[i].$3,
+        const SizedBox(height: Space.sm),
+        _Entrance(
+          index: 0,
+          axis: Axis.vertical,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Space.lg),
+            child: PlayerStatsGrid.own(
+              key: const ValueKey('own-record'),
+              t: t,
+              user: user,
+              // Sunk into the drawer as its fields are: the warm stone by
+              // day, where the theme's cool slate reads grey-blue on pearl.
+              well: _DrawerBody.well(GlassColors.of(context)),
             ),
           ),
-        ],
+        ),
         const _DrawerRule(),
         Padding(
           padding: const EdgeInsets.fromLTRB(Space.lg, 0, Space.lg, Space.md),

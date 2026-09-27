@@ -10,6 +10,8 @@
 /// hammer, missile …") and nothing here would read one.
 library;
 
+import 'player_stats.dart';
+
 int _int(dynamic v) => v is num && v.isFinite ? v.toInt() : 0;
 int? _intOrNull(dynamic v) => v is num && v.isFinite ? v.toInt() : null;
 String _str(dynamic v) => v is String ? v : '';
@@ -325,7 +327,9 @@ class PlayerLookup {
 }
 
 /// A player's gameplay record, as their profile shows it: counts of hands
-/// and a win rate. Deliberately no chip figure (no winnings, no biggest pot).
+/// and a win rate, in all and game by game (player stats v2, owner,
+/// 27 Sep 2026). Deliberately no chip figure (no winnings, no biggest pot) —
+/// not in the totals, and not in any game's, whatever the server sent.
 class PlayerStats {
   const PlayerStats({
     this.handsPlayed = 0,
@@ -333,6 +337,7 @@ class PlayerStats {
     this.handsLost = 0,
     this.handsLeft = 0,
     this.winRate = 0,
+    this.categories = const StatsByCategory(),
   });
 
   final int handsPlayed;
@@ -345,6 +350,20 @@ class PlayerStats {
   /// Per cent of the hands played that they won, 0 to 100, to two places.
   final double winRate;
 
+  /// The record in each of the three games (`stats.categories`): the same
+  /// counts and win rate, Teen Patti's and Variation's hands held, and the
+  /// variations played — read with no chip figure at all.
+  final StatsByCategory categories;
+
+  /// The five figures above as one record: every game together.
+  CategoryStats get totals => CategoryStats(
+    handsPlayed: handsPlayed,
+    handsWon: handsWon,
+    handsLost: handsLost,
+    handsLeft: handsLeft,
+    winRate: winRate,
+  );
+
   factory PlayerStats.fromJson(Map<String, dynamic> j) {
     final rate = j['winRate'];
     return PlayerStats(
@@ -355,6 +374,7 @@ class PlayerStats {
       winRate: rate is num && rate.isFinite
           ? rate.toDouble().clamp(0.0, 100.0)
           : 0,
+      categories: StatsByCategory.fromJson(_map(j['categories']), chips: false),
     );
   }
 }

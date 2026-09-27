@@ -107,6 +107,11 @@ type Metrics struct {
 	RestoredTablesTotal prometheus.Counter
 	RestoredSeatsTotal  prometheus.Counter
 
+	// Player statistics (Player stats v2): the stats flusher's batches, by
+	// outcome, and the players each committed one held.
+	StatsFlushes      *prometheus.CounterVec // result
+	StatsFlushPlayers prometheus.Histogram
+
 	// HTTP
 	HTTPRequestsTotal   *prometheus.CounterVec   // method, route, status_code
 	HTTPRequestDuration *prometheus.HistogramVec // method, route, status_code
@@ -391,6 +396,21 @@ func New(opts Options) *Metrics {
 	})
 	svc.MustRegister(m.LiveStoreOperations, m.LiveStoreDuration, m.LiveStoreErrors, m.LiveStoreReconciles,
 		m.RestoredTablesTotal, m.RestoredSeatsTotal)
+
+	// --------------------------------------------------------- player stats
+	// Every batch of pending statistics the flusher moved from the live store
+	// into PostgreSQL (Player stats v2), by outcome, and how many players a
+	// committed one held — the size of the group commit.
+	m.StatsFlushes = m.counterVec(prometheus.CounterOpts{
+		Name: NameStatsFlushes,
+		Help: "Batches of player statistics flushed from the live store to PostgreSQL, by outcome (ok, duplicate: already committed, error: retried with the same id).",
+	}, []string{"result"})
+	m.StatsFlushPlayers = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    NameStatsFlushPlayers,
+		Help:    "Players whose statistics one committed batch added to PostgreSQL (one transaction each).",
+		Buckets: StatsFlushPlayersBuckets,
+	})
+	svc.MustRegister(m.StatsFlushes, m.StatsFlushPlayers)
 
 	// -------------------------------------------------------------------- HTTP
 	m.HTTPRequestsTotal = m.counterVec(prometheus.CounterOpts{

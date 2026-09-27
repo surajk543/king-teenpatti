@@ -27,6 +27,7 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/purchase"
 	"github.com/surajk543/king-teenpatti/go-server/internal/sio"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket"
+	"github.com/surajk543/king-teenpatti/go-server/internal/stats"
 	"github.com/surajk543/king-teenpatti/go-server/internal/xp"
 )
 
@@ -86,13 +87,19 @@ type App struct {
 	// (LEDGER_PURGE_INTERVAL_MS); Shutdown stops it.
 	ledgerPurgeStop chan struct{}
 	ledgerPurgeDone chan struct{}
-	mux             *http.ServeMux
-	http            *http.Server
-	started         time.Time
-	clock           game.Clock
-	vitals          *vitals
-	version         string
-	handler         http.Handler
+	// statsRecorder takes every committed hand's counters off the tables'
+	// actors into the live store, and statsFlusher moves them into
+	// PostgreSQL by group commit (Player stats v2); Shutdown drains the one
+	// and runs the other's last pass.
+	statsRecorder *stats.Recorder
+	statsFlusher  *stats.Flusher
+	mux           *http.ServeMux
+	http          *http.Server
+	started       time.Time
+	clock         game.Clock
+	vitals        *vitals
+	version       string
+	handler       http.Handler
 
 	mu       sync.Mutex
 	addr     string
@@ -171,8 +178,12 @@ const (
 //     holds go back to their contributors; a failure is logged, the next
 //     start retries) → sockets.RestoreSeats(rooms.RestoredSeats()) (every
 //     restored seat held for RECONNECT_GRACE_MS) → one summary log line
-//     `live state restored`; then rooms.StartSweeper(). The listener opens in
-//     Start, after all of this.
+//     `live state restored`; then rooms.StartSweeper(), the reconciler, the
+//     ledger purge and the stats flusher (Player stats v2: every room hands
+//     its committed hands' counters to a stats.Recorder, which queues them
+//     for the live store; the flusher's first pass retries any batch a
+//     previous process left, then one runs every STATS_FLUSH_MS). The
+//     listener opens in Start, after all of this.
 //  8. mux routes (Go 1.22 patterns):
 //     GET  {metricsPath}     → m.Handler(Guard{Token, AllowIPs})
 //     GET  /health           → Health
@@ -298,10 +309,26 @@ func New(opts Options) (*App, error) {
 		Clock:  clock.Now,
 	})
 	ledger.OnSettled(a.xp.Settled)
+	// The players' statistics (Player stats v2): every room hands the
+	// counters of each committed hand end and departure to the recorder,
+	// which queues them for the live store off the room's actor; the flusher
+	// moves them into PostgreSQL every STATS_FLUSH_MS, a batch per
+	// transaction. It starts after the restart sequence, below.
+	a.statsRecorder = stats.NewRecorder(a.live, logger)
+	var statsDB stats.FlushStore
+	if opts.DB != nil {
+		statsDB = db.NewStatsStore(opts.DB, clock.Now)
+	}
+	a.statsFlusher = stats.NewFlusher(stats.FlusherOptions{
+		Live: a.live, DB: statsDB,
+		Interval: cfg.Stats.FlushInterval, Batch: cfg.Stats.FlushBatch,
+		Now: clock.Now, Logger: logger, Metrics: a.metrics,
+	})
 	roomOpts := game.RoomManagerOptions{
 		Game:   cfg.Game,
 		Chat:   cfg.Chat,
 		Ledger: ledger,
+		Stats:  a.statsRecorder.Record,
 		// Every table charges a Force Sideshow's hammer here, on its actor,
 		// before it resolves (game.HammerWallet).
 		Hammers: hammers,
@@ -386,6 +413,9 @@ func New(opts Options) (*App, error) {
 
 	// 7. the restart sequence, then the sweeper and the reconciler.
 	if err := a.restoreLiveState(); err != nil {
+		closing, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = a.statsRecorder.Close(closing)
+		cancel()
 		if a.ownsLive {
 			_ = a.live.Close()
 		}
@@ -394,6 +424,9 @@ func New(opts Options) (*App, error) {
 	a.rooms.StartSweeper()
 	a.startReconciler()
 	a.startLedgerPurge()
+	// Its first pass runs now: a batch a previous process took and never
+	// finished is retried under its own id before anything new is taken.
+	a.statsFlusher.Start()
 
 	// 8. routes.
 	//
@@ -478,8 +511,13 @@ func New(opts Options) (*App, error) {
 		// Rewards and chip-priced pictures run under the player's seat lock,
 		// the lock every lobby seat reads the wallet under (LoadPlayer above).
 		WhileUnseated: a.rooms.WhileUnseated,
-		// A deleted account's sockets are ended at once (24 Sep 2026).
-		AccountDeleted: a.sockets.EndSession,
+		// A deleted account's sockets are ended at once (24 Sep 2026), and its
+		// statistics still waiting in the live store are dropped (Player stats
+		// v2; best effort — a flush of any left finds the account deleted).
+		AccountDeleted: func(userID string) {
+			a.sockets.EndSession(userID)
+			a.statsRecorder.Forget(userID)
+		},
 		// Friends at the table (owner, 26 Sep 2026): a request made and a
 		// request accepted are pushed to the other player's live socket,
 		// lobby or table, once committed (friend:request, friend:accepted).
@@ -727,6 +765,17 @@ func (a *App) Live() live.Store { return a.live }
 // Restore is what rooms.Restore did at startup.
 func (a *App) Restore() game.RestoreReport { return a.restore }
 
+// FlushStats puts every statistic recorded so far into PostgreSQL now
+// (tests, tooling): the recorder's queue written to the live store first,
+// then one pass of the stats flusher — every batch left taken retried, then
+// everything waiting moved. It works with STATS_FLUSH_MS=0 too.
+func (a *App) FlushStats(ctx context.Context) (stats.PassReport, error) {
+	if err := a.statsRecorder.Sync(ctx); err != nil && !errors.Is(err, stats.ErrRecorderClosed) {
+		return stats.PassReport{}, err
+	}
+	return a.statsFlusher.Pass(ctx)
+}
+
 // Start listens on cfg.Host:cfg.Port and serves until Shutdown. It logs
 // `king-teenpatti server listening {url, env, welcomeChips, boot}` and
 // returns http.ErrServerClosed after a clean Shutdown. PORT=0 is allowed —
@@ -784,8 +833,10 @@ func (a *App) Addr() string {
 // HANDS ARE SETTLED, pots paid out — the pre-Redis behaviour, and the
 // rollback path when REDIS_URL is unset); http Shutdown(ctx); sio.Shutdown
 // (socket goroutines); sockets.Close() (presence heartbeat); the reconciler
-// stops; and the store, when New opened it, is closed LAST, after every user
-// of it.
+// stops; the players' statistics — the recorder's queue drained into the live
+// store, then the stats flusher's last pass into PostgreSQL (Player stats v2),
+// both inside ctx; and the store, when New opened it, is closed LAST, after
+// every user of it.
 // cmd/gameplay bounds the whole thing with 8 s, as Node's
 // setTimeout(process.exit(1), 8000). A second call is a no-op returning nil.
 func (a *App) Shutdown(ctx context.Context) error {
@@ -821,16 +872,23 @@ func (a *App) Shutdown(ctx context.Context) error {
 	if err := a.xp.Wait(ctx); err != nil {
 		a.log.Warn("shutdown: play-time XP still being awarded", "error", err.Error())
 	}
-	// 6. Stop the presence heartbeat and the reconciler, then close the store
-	// (when it is ours) — nothing above touches it any more.
+	// 6. Stop the presence heartbeat and the reconciler.
 	a.sockets.Close()
 	a.stopReconciler()
 	a.stopLedgerPurge()
+	// 6. The statistics: every committed hand's counters still queued are
+	// written to the live store (the hands the tables settled on the way down
+	// among them), then the flusher's last pass moves them into PostgreSQL —
+	// both bounded by the shutdown's budget. What does not make it waits in a
+	// durable store for the next process; the in-process one loses it.
+	statsErr := a.statsRecorder.Close(ctx)
+	flushErr := a.statsFlusher.Stop(ctx)
+	// 7. Close the store (when it is ours) — nothing above touches it any more.
 	var liveErr error
 	if a.ownsLive {
 		liveErr = a.live.Close()
 	}
-	return errors.Join(roomsErr, httpErr, sioErr, liveErr)
+	return errors.Join(roomsErr, httpErr, sioErr, statsErr, flushErr, liveErr)
 }
 
 // setSecurityHeaders is on every HTTP answer but the Socket.IO endpoint (24

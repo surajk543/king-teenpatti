@@ -147,6 +147,15 @@ type TableOptions struct {
 	// clock's goroutine for a retry that outlived Destroy or Suspend; must not
 	// block or call back into the table.
 	SettlementOwed func(req SettleRequest, owed bool)
+	// Stats, if set, receives the gameplay counters of every write that
+	// COMMITTED (Player stats v2): a hand end's, once its Settle — the first
+	// attempt or a retry — returned without error, and a departure's, once
+	// its leave checkpoint did. Never a replay's (duplicate_action) and never
+	// a pack's (the hand-end write resolves the packer). Production:
+	// stats.Recorder.Record, which queues them for the live store. Called on
+	// the actor, or on the clock's goroutine for a retry that outlived the
+	// table; must not block or call back into the table.
+	Stats StatsRecorder
 }
 
 // PersistReasonFlush is PersistErrorEvent.Reason when a departing player's
@@ -387,6 +396,8 @@ type Table struct {
 
 	onHandStart func(d time.Duration)
 	onTableTax  func(category Category, chips int64)
+	// record is TableOptions.Stats (nil: nothing is counted).
+	record StatsRecorder
 
 	// The family-neutral shell (actor.go), shared with every other room kind:
 	// the mailbox (ctx, posts, destroyed, fenced), the live-state side (live
@@ -506,6 +517,7 @@ func newTableCore(opts TableOptions) *Table {
 		createdAt:   clock.Now(),
 		onHandStart: opts.ObserveHandStart,
 		onTableTax:  opts.ObserveTableTax,
+		record:      opts.Stats,
 		seats:       make([]*seat, cfg.MaxPlayers),
 		dealerSeat:  -1,
 		chat:        NewRoomChat(chatHistory, chatLength, clock),
@@ -522,7 +534,7 @@ func newTableCore(opts TableOptions) *Table {
 			t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: reason, Err: err})
 		},
 	})
-	t.Settler = NewSettler(ledger, clock, t.Actor, cfg.NextHandDelay, &t.version, opts.SettlementOwed, SettlerHooks{
+	t.Settler = NewSettler(ledger, clock, t.Actor, cfg.NextHandDelay, &t.version, opts.SettlementOwed, opts.Stats, SettlerHooks{
 		Landed:      t.onSettleLanded,
 		RetryFailed: t.onSettleRetryFailed,
 		Abandoned:   t.onSettleAbandoned,
@@ -1237,9 +1249,9 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 		// CHECKPOINT 1 of 3 — A LEAVE OR SWITCH. They are gone, so their
 		// wallet must be right NOW: they may sit down elsewhere or read their
 		// balance at once. Their stake stays in the pot (leaving mid-hand is
-		// a pack), and this is the row that resolves the hand for them —
-		// player_stats.hands_left lands here, because they will not be at
-		// the hand-end write.
+		// a pack), and this is the row that resolves the hand for them — their
+		// departure (hands_left) is counted once it commits, because they
+		// will not be at the hand-end write.
 		if entry := t.hand.contributions[userID]; entry != nil {
 			entry.chips = s.chips
 			t.checkpoint(entry, LedgerReasonHandLeft, LeftActionID(t.hand.id, userID), true)
@@ -2142,6 +2154,20 @@ func (t *Table) checkpoint(entry *contribution, reason string, actionID string, 
 	}
 	t.version.Add(1)
 	entry.chipsWritten = entry.chips
+	// A departure is counted now that its write has committed (hands_left,
+	// and hands_played if they had bet); a pack is not an outcome and counts
+	// nothing here — the hand-end write resolves the packer. No held hand and
+	// no variation: they did not finish the hand.
+	if stats, ok := StatsForEntry(req.Entry, StatsBucketOf(t.cfg.Category)); ok && !stats.Empty() {
+		t.recordStats([]HandStats{stats})
+	}
+}
+
+// recordStats hands committed counters to the table's StatsRecorder.
+func (t *Table) recordStats(stats []HandStats) {
+	if t.record != nil && len(stats) > 0 {
+		t.record(stats)
+	}
 }
 
 // refusal (_refusal) maps a Ledger error onto the GameError the player is
@@ -3052,8 +3078,12 @@ func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showReques
 //
 //	delta   = contribution.chips − contribution.chipsWritten
 //	reason  = hand_win for the winner, hand_loss for everyone else
-//	Outcome = true: this is the row that carries hands_played / hands_won /
-//	          hands_lost / total_winnings / biggest_pot (player_stats)
+//	Outcome = true: this is the row the hand's counters are computed from
+//	          (hands_played / hands_won / hands_lost / total_winnings /
+//	          biggest_pot — StatsForEntry), with the hand each player held
+//	          and the variation (handStats); they ride the request
+//	          (SettleRequest.Stats) and reach the StatsRecorder once it has
+//	          committed — the ledger writes money only (Player stats v2)
 //
 // A packer's delta is zero here (their pack checkpoint already moved it), so
 // the money moves once and the row records only the outcome — exactly what a
@@ -3203,10 +3233,13 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 
 	// The hand is over whatever the database says next: the pot is already at
 	// the winner's seat and every stack is final. The write only makes the
-	// wallets agree.
-	// PlayedMs is the hand's duration, deal to end: the active play its players
-	// add to their XP window (SettleRequest).
-	settleReq := SettleRequest{RoomID: t.id, HandID: h.id, Entries: entries, PlayedMs: max(0, h.endedAt.Sub(h.startedAt).Milliseconds())}
+	// wallets agree. PlayedMs is the hand's duration, deal to end: the active
+	// play its players add to their XP window (SettleRequest). The counters it
+	// resolves ride with it, worked out now while the cards and the rules are
+	// still here, and are recorded once it has committed — here, or by the
+	// retry that lands it.
+	settleReq := SettleRequest{RoomID: t.id, HandID: h.id, Entries: entries,
+		PlayedMs: max(0, h.endedAt.Sub(h.startedAt).Milliseconds()), Stats: t.handStats(entries)}
 	settled, err := t.ledger.Settle(t.Context(), settleReq)
 	if err != nil {
 		t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: "settle", HandID: h.id, Err: err})
@@ -3230,6 +3263,7 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		// The XP this settle awarded may have raised a level: every seat it
 		// names deals its next hand at the rate its level carries now.
 		t.adoptTaxRates(settled.TaxBps)
+		t.recordStats(settleReq.Stats)
 	}
 
 	var winnerName *string

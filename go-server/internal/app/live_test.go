@@ -490,18 +490,20 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 	// nothing here records one.
 	//
 	// player_stats, friend_requests and friendships (Friends V1, 26 Sep 2026)
-	// are account facts: the career counters a checkpoint adds to — the six
-	// that sat on users — and who asked whom and who is friends with whom.
-	// Whether a friend is online or at a table is the live store's
-	// (kt:online, kt:playing:<userId>); no row here says so, and none names a
-	// room.
+	// are account facts: the career counters — per bucket since Player stats
+	// v2 (27 Sep 2026), beside player_variation_stats per variation — and who
+	// asked whom and who is friends with whom. The counters are added by the
+	// stats flusher from the live store (stats_flushes is its receipts) after
+	// a hand has ended, never in play. Whether a friend is online or at a
+	// table is the live store's (kt:online, kt:playing:<userId>); no row here
+	// says so, and none names a room.
 	//
 	// player_levels, xp_sources and xp_settings (26 Sep 2026) are the level
 	// ladder and the XP rules — configuration — and player_xp each player's XP,
 	// an account fact: the settle adds to it, and no table reads it to play a
 	// hand. The play TIME the 30- and 60-minute XP is earned by lives in the
 	// live store, never here.
-	want := []string{"badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "player_levels", "player_stats", "player_xp", "player_xp_claims", "profile_pictures", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users", "xp_settings", "xp_sources"}
+	want := []string{"badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "player_levels", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims", "profile_pictures", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users", "xp_settings", "xp_sources"}
 	if !slices.Equal(tables, want) {
 		t.Fatalf("schema tables = %v, want %v", tables, want)
 	}

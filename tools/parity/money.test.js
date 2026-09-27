@@ -210,10 +210,13 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   // which — a catalogue and receipts, the profile pictures' shape again; a
   // sent emoji is a chat line, and chat lives with the room in Redis.
   // player_stats, friend_requests and friendships (Friends V1, 26 Sep 2026)
-  // are account facts: the career counters a checkpoint adds to (the six that
-  // sat on users), and who asked whom and who is friends with whom — whether
-  // a friend is online or at a table is Redis's (kt:online,
-  // kt:playing:<userId>) and no row here names a room.
+  // are account facts: the career counters (a row per bucket since Player
+  // stats v2, 27 Sep 2026, beside player_variation_stats per variation), and
+  // who asked whom and who is friends with whom — whether a friend is online
+  // or at a table is Redis's (kt:online, kt:playing:<userId>) and no row here
+  // names a room. The counters are added AFTER a hand, by the stats flusher's
+  // group commit from Redis; stats_flushes is its receipts, one row per batch
+  // committed.
   // player_levels, badges, xp_sources and xp_settings (26–27 Sep 2026) are
   // configuration: the level ladder — each level's title, icon and the winning
   // tax it carries —, the badges a player may hold beside it with their rates
@@ -249,12 +252,12 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
     assert.ok(!tables.includes(retired), `${retired} is game state and must not exist`);
   }
   assert.deepEqual(tables, [
-    'badge_purchases', 'badges', 'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships', 'hammer_purchases',
-    'hammer_spends', 'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends', 'player_levels',
-    'player_stats', 'player_xp', 'player_xp_claims', 'profile_pictures', 'table_categories', 'table_configs',
-    'table_engines', 'table_pictures', 'table_settings', 'user_badges', 'user_emojis', 'user_lucky_draws',
-    'user_milestones', 'user_profile_pictures', 'user_table_choice', 'user_table_pictures', 'users', 'xp_settings',
-    'xp_sources',
+    'badge_purchases', 'badges', 'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships',
+    'hammer_purchases', 'hammer_spends', 'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends',
+    'player_levels', 'player_stats', 'player_variation_stats', 'player_xp', 'player_xp_claims', 'profile_pictures',
+    'stats_flushes', 'table_categories', 'table_configs', 'table_engines', 'table_pictures', 'table_settings',
+    'user_badges', 'user_emojis', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures', 'user_table_choice',
+    'user_table_pictures', 'users', 'xp_settings', 'xp_sources',
   ], `the schema must hold money, audit, accounts, the picture catalogues and table configuration only, got ${tables.join(', ')}`);
   // Configuration, by construction: no column of the four — nor of the level
   // ladder, the badges and the XP rules — refers to a room, a hand, a seat or a
@@ -284,14 +287,36 @@ test('the chip ledger is append-only', async () => {
   await assert.rejects(query('DELETE FROM chip_ledger WHERE id = $1', [rows[0].id]), /append-only/);
 });
 
+// retryUntil re-runs an audit until it passes or `timeoutMs` elapses; the last
+// failure is the one reported.
+const retryUntil = async (audit, timeoutMs, intervalMs = 250) => {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      return await audit();
+    } catch (error) {
+      if (Date.now() >= deadline) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+};
+
 test('counters: handsWon follows the hand_win rows, and the winnings counters agree with them', async () => {
-  // The counters live in player_stats since Friends V1 (26 Sep 2026); the
-  // users columns of the same names are retired and read 0 for ever.
+  // The counters live in player_stats, a row per player per bucket (Player
+  // stats v2, 27 Sep 2026): the career is their sum, the biggest pot the
+  // largest. They reach PostgreSQL by the stats flusher's group commit, one
+  // STATS_FLUSH_MS after the hand (250 ms in the harness; 10 s on a server
+  // attached with --url), so the audit waits for the last hands to land.
+  await retryUntil(auditCounters, 20000);
+});
+
+const auditCounters = async () => {
   const { rows: users } = await query(
-    `SELECT u.id, COALESCE(s.hands_played, 0) AS hands_played, COALESCE(s.hands_won, 0) AS hands_won,
-            COALESCE(s.hands_lost, 0) AS hands_lost, COALESCE(s.hands_left, 0) AS hands_left,
-            COALESCE(s.total_winnings, 0) AS total_winnings, COALESCE(s.biggest_pot, 0) AS biggest_pot
-       FROM users u LEFT JOIN player_stats s ON s.user_id = u.id`);
+    `SELECT u.id, COALESCE(SUM(s.hands_played), 0) AS hands_played, COALESCE(SUM(s.hands_won), 0) AS hands_won,
+            COALESCE(SUM(s.hands_lost), 0) AS hands_lost, COALESCE(SUM(s.hands_left), 0) AS hands_left,
+            COALESCE(SUM(s.total_winnings), 0) AS total_winnings, COALESCE(MAX(s.biggest_pot), 0) AS biggest_pot
+       FROM users u LEFT JOIN player_stats s ON s.user_id = u.id
+      GROUP BY u.id`);
   // There is no `hands` table to read a pot from any more, and a winner's own
   // stake is folded into their single hand_win row (delta = pot - own stake),
   // so the exact pot is not derivable from the ledger. What IS checkable:
@@ -324,4 +349,35 @@ test('counters: handsWon follows the hand_win rows, and the winnings counters ag
     `SELECT hand_id, user_id FROM chip_ledger WHERE reason IN ('hand_loss','hand_left')
       GROUP BY hand_id, user_id HAVING COUNT(*) > 1`);
   assert.deepEqual(both, [], 'a player was both lost and left in one hand');
+};
+
+test('statistics: the buckets are the three, the hands held add up, and every flush receipt names its players', async () => {
+  await retryUntil(async () => {
+    const { rows: buckets } = await query(`SELECT DISTINCT category FROM player_stats ORDER BY category`);
+    for (const { category } of buckets) {
+      assert.ok(['POKER', 'TEEN_PATTI', 'VARIATION'].includes(category), `bucket ${category}`);
+    }
+    // The hand held is counted for every hand a Teen Patti or Variation
+    // hand end resolved — never more than the hands finished (won + lost),
+    // and never at poker.
+    const { rows } = await query(
+      `SELECT user_id, category, hands_won + hands_lost AS finished,
+              trail + pure_sequence + sequence + color + pair + high_card AS held
+         FROM player_stats`);
+    for (const row of rows) {
+      if (row.category === 'POKER') assert.equal(row.held, 0, `a poker row counts hands held (${row.user_id})`);
+      else assert.ok(row.held <= row.finished, `${row.user_id} ${row.category}: ${row.held} hands held of ${row.finished} finished`);
+    }
+    const { rows: tallies } = await query(
+      `SELECT v.user_id, SUM(v.hands_played) AS played, COALESCE(MAX(s.hands_won + s.hands_lost + s.hands_left), 0) AS finished
+         FROM player_variation_stats v LEFT JOIN player_stats s ON s.user_id = v.user_id AND s.category = 'VARIATION'
+        GROUP BY v.user_id`);
+    for (const t of tallies) {
+      // Every hand tallied under a variation was a Variation hand the player
+      // finished (won, lost, or left as its winner).
+      assert.ok(t.played <= t.finished, `${t.user_id}: ${t.played} variation hands of ${t.finished} finished`);
+    }
+    const { rows: receipts } = await query('SELECT batch_id, players FROM stats_flushes');
+    for (const r of receipts) assert.ok(r.players >= 1, `receipt ${r.batch_id} names ${r.players} players`);
+  }, 20000);
 });
