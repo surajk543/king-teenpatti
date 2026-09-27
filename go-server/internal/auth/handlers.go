@@ -87,7 +87,8 @@ func ReadJSONBody(r *http.Request, v any) error {
 }
 
 // Login is POST /api/auth/login (routes.js 61-80; requirements 1, 2, 5, 7):
-// VerifyLogin → UpsertFromProfile → log `account created` or `login`
+// VerifyLogin → UpsertFromProfile (which starts a new session, replacing any
+// device signed in before) → Deps.SignedIn → log `account created` or `login`
 // {userId, provider} → 200 {token, user, isNew, welcomeChips} with
 // welcomeChips = config.Game.WelcomeChips when isNew, else 0.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +141,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.writeError(w, r, err)
 		return
+	}
+	// One signed-in device per account (owner, 28 Sep 2026): the login has
+	// replaced every earlier session (UpsertFromProfile counted this one), so
+	// a device still connected on one of them is told and let go now. Before
+	// the answer is written, so this login's own socket cannot yet exist.
+	if h.deps.SignedIn != nil {
+		h.deps.SignedIn(user.ID, user.SessionVersion)
 	}
 	if h.deps.Logger != nil {
 		msg := "login"

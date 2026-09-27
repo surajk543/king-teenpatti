@@ -642,6 +642,24 @@ CREATE TABLE IF NOT EXISTS user_milestones (
   PRIMARY KEY (user_id, milestone)
 );
 
+-- One signed-in device per account (owner, 28 Sep 2026: "when someone is
+-- already logged in … and some other guy tries to login with same google
+-- account in diff device, the first one will be auto logout"). version counts
+-- the account's sign-ins: every login adds one and carries the new figure in
+-- its token (the JWT's `sv`), and a token carrying any other figure is
+-- refused session_replaced — at every signed-in request and at the socket's
+-- handshake — so the device signed in before is out the moment the next one
+-- signs in, and stays out. A player with no row has never signed in since
+-- this table existed: version 0, which is what a token without `sv` carries,
+-- so every session from before it stays good until that account's next login.
+-- A side table, as user_table_choice is, because a users column would be an
+-- ALTER TABLE users and a DEPLOY.md §7 one-off on every deploy that carries it.
+CREATE TABLE IF NOT EXISTS user_sessions (
+  user_id    TEXT   PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+  version    BIGINT NOT NULL DEFAULT 0 CHECK (version >= 0),
+  updated_at BIGINT NOT NULL
+);
+
 -- Each player's gameplay statistics — Player stats v2 (owner, 27 Sep 2026:
 -- "maintain stats acc to only three category: teenpatti variation and poker …
 -- also store … how many times he got trail, pair, highcard, pure sequence,

@@ -46,6 +46,7 @@ const (
 	CodeUnknownProvider      = "unknown_provider"      // 400
 	CodeUnknownUser          = "unknown_user"          // token valid, row gone
 	CodeAccountDisabled      = "account_disabled"      // 403: users.is_active is FALSE (owner, 26 Sep 2026)
+	CodeSessionReplaced      = "session_replaced"      // 401: the account has signed in on another device since this token (owner, 28 Sep 2026)
 	CodeUnauthorized         = "unauthorized"          // socket middleware fallback for a non-AuthError
 )
 

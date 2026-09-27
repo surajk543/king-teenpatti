@@ -211,6 +211,12 @@ class _Root extends StatelessWidget {
 /// store rebuilt itself as the lobby's under the player's finger, and a tap
 /// aimed at an animated picture opened the unlock for a chip-priced one.
 /// Nothing opened at a table means anything once the player is not at it.
+///
+/// The same holds for everything opened over the lobby or a table once the
+/// player is signed out from under it — the account signed in on another
+/// device (session_replaced) or was disabled: the picture sheet stood over
+/// the sign-in screen, emptied to "Your picture" and nought diamonds, with
+/// the popup that says why on top of it (28 Sep 2026).
 class _TableRoutes extends StatefulWidget {
   const _TableRoutes({required this.screen, required this.child});
 
@@ -225,7 +231,12 @@ class _TableRoutesState extends State<_TableRoutes> {
   @override
   void didUpdateWidget(covariant _TableRoutes oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.screen == Screen.table && widget.screen != Screen.table) {
+    final leftTable =
+        oldWidget.screen == Screen.table && widget.screen != Screen.table;
+    final signedOut =
+        widget.screen == Screen.login &&
+        (oldWidget.screen == Screen.lobby || oldWidget.screen == Screen.table);
+    if (leftTable || signedOut) {
       // After the frame: this runs while the tree is building, and popping a
       // route then would change the Navigator in the middle of its own build.
       WidgetsBinding.instance.addPostFrameCallback((_) {

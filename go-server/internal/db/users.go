@@ -154,6 +154,13 @@ type User struct {
 	// refused account_disabled before any user object is sent
 	// (auth.RequireAuth, the socket handshake, every way into a seat).
 	Disabled bool `json:"-"`
+	// SessionVersion is user_sessions.version: how many times this account has
+	// signed in since that table existed (0 with no row). Login adds one and
+	// signs the new figure into the token it issues; a token carrying any
+	// other figure belongs to a device another sign-in has replaced, and is
+	// refused session_replaced (owner, 28 Sep 2026: one signed-in device per
+	// account). Never on the wire.
+	SessionVersion int64 `json:"-"`
 }
 
 // ErrAccountDisabled is a login for an account whose users.is_active is
@@ -357,6 +364,7 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
        ` + statsColumns + `,
        COALESCE(mh.claimed_up_to, 0), COALESCE(mt.next_claim_at, 0), COALESCE(mb.next_claim_at, 0),
        u.active_picture_id, u.created_at, u.updated_at, u.last_login_at, u.is_active,
+       COALESCE(us.version, 0),
        ap.asset_url,
        tp.id, tp.day_asset_url, tp.night_asset_url, tp.asset_format, tp.currency, tp.cost,
        ` + playerLevelColumns
@@ -364,7 +372,8 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
 // userFromAt is the FROM clause of every account read: it joins the picture
 // the player is wearing so publicUser can resolve avatarUrl without a second
 // round trip, the table picture they have laid for the same reason, the
-// player's three rows of user_milestones for the rewards. LEFT, because most
+// player's three rows of user_milestones for the rewards, and their
+// user_sessions row, the sign-in a valid token must carry. LEFT, because most
 // players wear nothing and a new one has collected nothing, and every one of
 // them must still come back from these queries. (Their statistics are
 // statsColumns' subqueries, not a join: a player has a row per bucket.)
@@ -386,6 +395,7 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
 // playerLevelJoins (levels.go), the one statement of the rule (owner,
 // 26–27 Sep 2026), at the same instant (%[1]d) as the table picture's join.
 const userFromAt = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.active_picture_id
+  LEFT JOIN user_sessions us ON us.user_id = u.id
   LEFT JOIN user_table_choice tc ON tc.user_id = u.id
   LEFT JOIN table_pictures tp ON tp.id = tc.table_picture_id
    AND (tp.type = 'FREE' OR EXISTS (
@@ -435,6 +445,8 @@ type userRow struct {
 	createdAt, updatedAt, lastLoginAt int64
 	// active is users.is_active: FALSE disables the account.
 	active bool
+	// sessionVersion is user_sessions.version, 0 with no row.
+	sessionVersion int64
 	// level is the player's level, XP, window and badges (playerLevelJoins).
 	level levelRow
 }
@@ -446,6 +458,7 @@ func scanUser(row pgx.Row) (*userRow, error) {
 	targets := []any{&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond, &r.hammer, &r.missile,
 		&buckets, &variations,
 		&r.milestoneClaimed, &r.nextBonusAt, &r.nextDailyAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt, &r.active,
+		&r.sessionVersion,
 		&r.pictureAssetURL,
 		&r.tablePictureID, &r.tableDayURL, &r.tableNightURL, &r.tableAssetFormat, &r.tableCurrency, &r.tableCost}
 	err := row.Scan(append(targets, r.level.targets()...)...)
@@ -553,6 +566,9 @@ func (u *Users) publicUser(r *userRow) *User {
 		LastLoginAt: r.lastLoginAt,
 		Standing:    r.level.standing(now(u.clock)),
 		Disabled:    !r.active,
+		// A User built anywhere but from a row carries 0, which is also what a
+		// token from before sessions were counted carries.
+		SessionVersion: r.sessionVersion,
 	}
 }
 
@@ -606,6 +622,10 @@ const upsertAttempts = 5
 // "Guest8D049" whenever the login screen's name field was left empty. Once the
 // account exists the name is the player's: POST /api/profile/name is the one
 // way to change it. Email and the provider photo still refresh.
+//
+// Every login, new account or not, starts a new session (startSession): the
+// returned user's SessionVersion is the one its token must carry, and any
+// device signed in before it is signed out (owner, 28 Sep 2026).
 func (u *Users) UpsertFromProfile(ctx context.Context, p Profile) (user *User, isNew bool, err error) {
 	// Captured before BEGIN, as Node does (`const timestamp = now()`).
 	timestamp := now(u.clock)
@@ -655,6 +675,9 @@ func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (use
 				p.Email, p.AvatarURL, p.IsBot, timestamp, existing.id); err != nil {
 				return err
 			}
+			if err := startSession(ctx, tx, existing.id, timestamp); err != nil {
+				return err
+			}
 			row, err := selectUser(ctx, tx, u.userFrom(), existing.id)
 			if err != nil {
 				return err
@@ -679,6 +702,9 @@ func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (use
 		if err := appendLedger(ctx, tx, id, "", "", chips, chips, game.LedgerReasonWelcomeBonus, timestamp); err != nil {
 			return err
 		}
+		if err := startSession(ctx, tx, id, timestamp); err != nil {
+			return err
+		}
 
 		row, err := selectUser(ctx, tx, u.userFrom(), id)
 		if err != nil {
@@ -691,6 +717,19 @@ func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (use
 		return nil, false, err
 	}
 	return user, isNew, nil
+}
+
+// startSession counts one more sign-in for the account (user_sessions; owner,
+// 28 Sep 2026: one signed-in device per account), inside the login's
+// transaction and under its row lock, so two logins at once number themselves
+// one after the other. The read that follows carries the new figure, which
+// the login signs into its token; every token signed before it is refused
+// session_replaced from this commit on.
+func startSession(ctx context.Context, tx pgx.Tx, userID string, timestamp int64) error {
+	_, err := tx.Exec(ctx, `INSERT INTO user_sessions (user_id, version, updated_at) VALUES ($1, 1, $2)
+	    ON CONFLICT (user_id) DO UPDATE SET version = user_sessions.version + 1, updated_at = $2`,
+		userID, timestamp)
+	return err
 }
 
 // ApplyChipDelta adjusts a wallet with a matching ledger row, row locked,

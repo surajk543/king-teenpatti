@@ -620,8 +620,9 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	// who holds which, the XP sources and settings, each player's XP and what
 	// they have earned of the daily XP), and Report Player's player_reports
 	// (27 Sep 2026: moderation audit, which names a room and a hand by id and
-	// copies nothing of either) — thirty-six, and no game state (the
-	// baseline's header).
+	// copies nothing of either), and user_sessions (28 Sep 2026: the sign-in a
+	// token must carry, one signed-in device per account) — thirty-seven, and
+	// no game state (the baseline's header).
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
 	if err != nil {
@@ -643,7 +644,7 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 		"lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends",
 		"player_levels", "player_reports", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims",
 		"profile_pictures", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
-		"user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_table_choice", "user_table_pictures", "users",
+		"user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_sessions", "user_table_choice", "user_table_pictures", "users",
 		"xp_settings", "xp_sources"}
 	if strings.Join(tables, ",") != strings.Join(want, ",") {
 		t.Fatalf("schema %s has tables\n %v\nwant\n %v", f.d.Schema, tables, want)

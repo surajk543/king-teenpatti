@@ -6,7 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import '../models/dtos.dart';
 import '../models/friends.dart';
-import 'api_client.dart' show accountDisabledCode;
+import 'api_client.dart' show accountDisabledCode, sessionReplacedCode;
 
 /// A hand's reveal or its end, as `game:showdown` and `game:handEnded` carry
 /// them. `reason` is the server's (`missile` for a hand a missile ended);
@@ -308,6 +308,12 @@ class GameConnection {
         _errors.add((code: accountDisabledCode, message: accountDisabledCode));
         return;
       }
+      // The account has signed in on another device since this token was
+      // issued: this device is signed out, and says why.
+      if (e is Map && e['message'] == sessionReplacedCode) {
+        _errors.add((code: sessionReplacedCode, message: sessionReplacedCode));
+        return;
+      }
       _errors.add((code: null, message: 'Could not reach the table: $e'));
     });
 
@@ -467,13 +473,15 @@ class GameConnection {
       final j = _map(data);
       _errors.add((code: _code(j), message: '${j['message']}'));
     });
-    socket.on(
-      'session:replaced',
-      (data) => _errors.add((
-        code: null,
-        message: '${_map(data)['message'] ?? 'Signed in elsewhere'}',
-      )),
-    );
+    // The account has just signed in on another device (owner, 28 Sep 2026:
+    // "the first one will be auto logout and showing message someone has
+    // logged in your account"): the server ends this connection, and the app
+    // signs out rather than reconnect and take the seat back. Only the
+    // current session's socket speaks, as with a handshake refusal.
+    socket.on('session:replaced', (_) {
+      if (!identical(_socket, socket)) return;
+      _errors.add((code: sessionReplacedCode, message: sessionReplacedCode));
+    });
   }
 
   /// What a payload says of the hand's variation, or null when it names none

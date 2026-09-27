@@ -1681,6 +1681,13 @@ class Strings {
   /// at sign-in, on a restored session, and when a table refuses it.
   String get accountDisabledTitle => _('accountDisabledTitle');
   String get accountDisabledBody => _('accountDisabledBody');
+  String get sessionReplacedTitle => _('sessionReplacedTitle');
+
+  /// The name under the player's own sign-in photo on the picture shelf:
+  /// "Google photo" for a Google account, "Your photo" for any other.
+  String providerPhoto(String provider) =>
+      _(provider == 'google' ? 'googlePhoto' : 'ownPhoto');
+  String get sessionReplacedBody => _('sessionReplacedBody');
 
   // --- a newer build is waiting on Play
   String get updateTitle => _('updateTitle');
@@ -2350,6 +2357,11 @@ class Strings {
       'accountDisabledTitle': 'Account disabled',
       'accountDisabledBody':
           'Your account is disabled. Please contact support.',
+      'googlePhoto': 'Google photo',
+      'ownPhoto': 'Your photo',
+      'sessionReplacedTitle': 'Signed in on another device',
+      'sessionReplacedBody':
+          'Someone has signed in to your account on another device, so you have been signed out here. Sign in again to play on this phone — the other device will then be signed out.',
       'changeName': 'Change name',
       'save': 'Save',
       'nameSaved': 'Name updated.',
@@ -3216,6 +3228,11 @@ class Strings {
       'accountDisabledTitle': 'खाता निष्क्रिय है',
       'accountDisabledBody':
           'आपका खाता निष्क्रिय कर दिया गया है। कृपया सपोर्ट से संपर्क करें।',
+      'googlePhoto': 'Google फ़ोटो',
+      'ownPhoto': 'आपकी फ़ोटो',
+      'sessionReplacedTitle': 'दूसरे डिवाइस पर साइन इन हुआ',
+      'sessionReplacedBody':
+          'किसी ने दूसरे डिवाइस पर आपके खाते में साइन इन किया है, इसलिए आपको यहाँ से साइन आउट कर दिया गया है। इस फ़ोन पर खेलने के लिए फिर से साइन इन करें — तब दूसरा डिवाइस साइन आउट हो जाएगा।',
       'changeName': 'नाम बदलें',
       'save': 'सहेजें',
       'nameSaved': 'नाम बदल गया।',
@@ -4076,6 +4093,11 @@ class Strings {
       'accountDisabledTitle': 'অ্যাকাউন্ট নিষ্ক্রিয়',
       'accountDisabledBody':
           'আপনার অ্যাকাউন্ট নিষ্ক্রিয় করা হয়েছে। অনুগ্রহ করে সাপোর্টের সঙ্গে যোগাযোগ করুন।',
+      'googlePhoto': 'Google ছবি',
+      'ownPhoto': 'আপনার ছবি',
+      'sessionReplacedTitle': 'অন্য ডিভাইসে সাইন ইন হয়েছে',
+      'sessionReplacedBody':
+          'কেউ অন্য একটি ডিভাইসে আপনার অ্যাকাউন্টে সাইন ইন করেছেন, তাই এখানে আপনাকে সাইন আউট করা হয়েছে। এই ফোনে খেলতে আবার সাইন ইন করুন — তখন অন্য ডিভাইসটি সাইন আউট হয়ে যাবে।',
       'changeName': 'নাম বদলান',
       'save': 'সেভ করুন',
       'nameSaved': 'নাম বদলে গেছে।',
@@ -4931,6 +4953,11 @@ class Strings {
       'accountDisabledTitle': 'ખાતું નિષ્ક્રિય છે',
       'accountDisabledBody':
           'તમારું ખાતું નિષ્ક્રિય કરવામાં આવ્યું છે. કૃપા કરીને સપોર્ટનો સંપર્ક કરો.',
+      'googlePhoto': 'Google ફોટો',
+      'ownPhoto': 'તમારો ફોટો',
+      'sessionReplacedTitle': 'બીજા ઉપકરણ પર સાઇન ઇન થયું',
+      'sessionReplacedBody':
+          'કોઈએ બીજા ઉપકરણ પર તમારા ખાતામાં સાઇન ઇન કર્યું છે, તેથી તમને અહીંથી સાઇન આઉટ કરવામાં આવ્યા છે. આ ફોન પર રમવા માટે ફરીથી સાઇન ઇન કરો — ત્યારે બીજું ઉપકરણ સાઇન આઉટ થઈ જશે.',
       'changeName': 'નામ બદલો',
       'save': 'સાચવો',
       'nameSaved': 'નામ બદલાઈ ગયું.',
@@ -5792,6 +5819,11 @@ class Strings {
       'accountDisabledTitle': 'ਖਾਤਾ ਬੰਦ ਹੈ',
       'accountDisabledBody':
           'ਤੁਹਾਡਾ ਖਾਤਾ ਬੰਦ ਕਰ ਦਿੱਤਾ ਗਿਆ ਹੈ। ਕਿਰਪਾ ਕਰਕੇ ਸਪੋਰਟ ਨਾਲ ਸੰਪਰਕ ਕਰੋ।',
+      'googlePhoto': 'Google ਫ਼ੋਟੋ',
+      'ownPhoto': 'ਤੁਹਾਡੀ ਫ਼ੋਟੋ',
+      'sessionReplacedTitle': "ਕਿਸੇ ਹੋਰ ਡਿਵਾਈਸ 'ਤੇ ਸਾਈਨ ਇਨ ਹੋਇਆ",
+      'sessionReplacedBody':
+          "ਕਿਸੇ ਨੇ ਹੋਰ ਡਿਵਾਈਸ 'ਤੇ ਤੁਹਾਡੇ ਖਾਤੇ ਵਿੱਚ ਸਾਈਨ ਇਨ ਕੀਤਾ ਹੈ, ਇਸ ਲਈ ਤੁਹਾਨੂੰ ਇੱਥੋਂ ਸਾਈਨ ਆਊਟ ਕਰ ਦਿੱਤਾ ਗਿਆ ਹੈ। ਇਸ ਫ਼ੋਨ 'ਤੇ ਖੇਡਣ ਲਈ ਦੁਬਾਰਾ ਸਾਈਨ ਇਨ ਕਰੋ — ਫਿਰ ਦੂਜੀ ਡਿਵਾਈਸ ਸਾਈਨ ਆਊਟ ਹੋ ਜਾਵੇਗੀ।",
       'changeName': 'ਨਾਮ ਬਦਲੋ',
       'save': 'ਸੰਭਾਲੋ',
       'nameSaved': 'ਨਾਮ ਬਦਲ ਗਿਆ।',

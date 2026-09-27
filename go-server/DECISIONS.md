@@ -93,6 +93,7 @@ server behaves differently from Node on purpose.
 | Topic | Decision |
 |---|---|
 | JWT | HS256 only for both signing and verification (**deviation**: Node also accepted HS384/HS512 with the same secret). Claims `sub`, `provider`, `name`, `iat`, `exp`. Tokens minted by Node must verify in Go and vice versa. |
+| One signed-in device per account (owner, 28 Sep 2026) | **Deviation.** Node let any number of devices hold a valid token and only kept one live SOCKET (`session:replaced`). Go counts every login in `user_sessions.version` and signs the figure into the token as the claim `sv` (absent at 0, so a token from Node or from before the change verifies as it did and reads 0 — the figure of an account with no row). A token whose `sv` is not the account's current figure is refused `session_replaced`: 401 at `RequireAuth`, `connect_error` at the handshake, and a join from a live socket of a replaced session (`freshUser`), after which the guard ends that socket. A login ends a live socket of an earlier session with `session:replaced` before it answers (`Deps.SignedIn`). |
 | `JWT_EXPIRES_IN` | Parsed with `ms` grammar: a bare number string is **milliseconds**; `s m h d w y` units supported; `30d` default. |
 | Body parse failures | **Deviation.** HTTP 400 `{"error":"invalid_json","message":...}`; bodies over 32 kB → 413 with the same envelope. Missing or empty body → `{}`. |
 | Unknown `/api/*` path or method | **Deviation.** JSON 404 `{"error":"not_found","message":"Cannot GET /path"}`. Static 404s are plain text. |

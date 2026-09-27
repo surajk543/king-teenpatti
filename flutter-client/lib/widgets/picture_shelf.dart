@@ -125,8 +125,11 @@ Widget pictureShelf({
     sort,
   );
   final user = state.user;
+  // The player's own sign-in photo leads the All shelf (owner, 28 Sep 2026).
+  final own = filter == PictureFilter.all ? providerPictureOf(state) : null;
+  final lead = own == null ? 0 : 1;
 
-  if (pictures.isEmpty) {
+  if (pictures.isEmpty && own == null) {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: Space.xl),
@@ -148,7 +151,7 @@ Widget pictureShelf({
     // once, its ring's switcher — when the shelf is sorted, a purchase
     // re-reads the catalogue, or the clock ticks.
     key: ValueKey(p.id),
-    index: i,
+    index: i + lead,
     child: PictureChoice(
       picture: p,
       radius: radius,
@@ -177,12 +180,34 @@ Widget pictureShelf({
   // second row out of sight, and with it the only sign the shelf scrolls.
   final groups = shelfGroups(pictures);
   final tileWidth = PictureChoice.widthFor(radius);
+  // The Google photo: the first tile, whichever way the prices run, so the
+  // way back to it is always where the eye starts. Worn when no catalogue
+  // picture is — the server's avatar then IS this photo — and a tap takes
+  // the catalogue picture off (POST /api/profile/avatar {avatar: null}).
+  final ownTile = own == null
+      ? null
+      : ShelfTileEntrance(
+          key: const ValueKey(providerPictureKey),
+          index: 0,
+          child: PictureChoice(
+            picture: own,
+            radius: radius,
+            selected: user?.activePictureId == null,
+            busy: false,
+            onTap: () {
+              if (user?.activePictureId != null) state.chooseAvatar(null);
+            },
+          ),
+        );
   return Padding(
     padding: const EdgeInsets.only(bottom: Space.md),
     child: groups.length < 2
         ? ShelfGrid(
             tileWidth: tileWidth,
-            children: [for (final (i, p) in pictures.indexed) tile(i, p)],
+            children: [
+              ?ownTile,
+              for (final (i, p) in pictures.indexed) tile(i, p),
+            ],
           )
         : ShelfGrid.sections(
             tileWidth: tileWidth,
@@ -194,6 +219,7 @@ Widget pictureShelf({
                       ? null
                       : ShelfSectionHeader(kind: g.kind, count: g.count),
                   children: [
+                    if (n == 0) ?ownTile,
                     for (var i = g.start; i < g.start + g.count; i++)
                       tile(i, pictures[i]),
                   ],
@@ -202,6 +228,38 @@ Widget pictureShelf({
           ),
   );
 }
+
+/// The key of the shelf's tile for the player's own sign-in photo
+/// ([providerPictureOf]).
+const providerPictureKey = 'provider-photo';
+
+/// The player's own sign-in photo — the one Google gave the account — as a
+/// picture of the shelf (owner, 28 Sep 2026: "in profile picture selection
+/// show his google profile image also, which he can select again after
+/// selecting different profile picture"): free and theirs, never in the
+/// catalogue (id -1), named "Google photo". Null for a guest, who has none, and
+/// for an account whose provider sent no photo.
+ProfilePicture? providerPictureOf(GameState state) {
+  final user = state.user;
+  final url = user?.providerAvatarUrl ?? '';
+  if (user == null || url.isEmpty || user.provider == 'guest') return null;
+  return ProfilePicture(
+    id: -1,
+    name: state.t.providerPhoto(user.provider),
+    url: url,
+    type: 'FREE',
+    cost: 0,
+    durationDays: 0,
+    owned: true,
+    expiresAt: 0,
+  );
+}
+
+/// How many tiles [filter]'s shelf holds, for its menu: its catalogue
+/// pictures, and on All the Google photo that leads it.
+int shelfCount(GameState state, PictureFilter filter) =>
+    state.pictures.where(filter.holds).length +
+    (filter == PictureFilter.all && providerPictureOf(state) != null ? 1 : 0);
 
 /// The kinds a picture shelf is split into when it holds more than one:
 /// free, then each wallet.

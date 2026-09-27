@@ -4160,43 +4160,9 @@ Future<void> openPicturePicker(BuildContext context) async {
                             diamonds: user?.diamond ?? 0,
                             hammers: user?.hammer ?? 0,
                           ),
-                          const SizedBox(width: Space.md),
-                          // "Use my own photo", as an icon in the header rather
-                          // than a labelled button under the grid: the sheet is
-                          // short in landscape and every fixed row above or below
-                          // the pictures comes straight out of the scrolling
-                          // area. The words survive as the tooltip, which is also
-                          // where a guest finds out WHY it is greyed out —
-                          // without that, a disabled icon says nothing at all.
-                          Builder(
-                            builder: (context) {
-                              final hasPhoto =
-                                  (user?.providerAvatarUrl ?? '').isNotEmpty;
-                              final guest =
-                                  (user?.provider ?? 'guest') == 'guest';
-                              final enabled = hasPhoto && !guest;
-
-                              return Tooltip(
-                                message: enabled
-                                    ? state.t.useSocialPicture
-                                    : state.t.guestNoSocial,
-                                child: IconButton(
-                                  onPressed: enabled
-                                      ? () => state.chooseAvatar(null)
-                                      : null,
-                                  iconSize: 22,
-                                  visualDensity: VisualDensity.compact,
-                                  tooltip: null,
-                                  icon: const Icon(
-                                    Icons.account_circle_outlined,
-                                  ),
-                                  color: theme.colorScheme.onSurface.withValues(
-                                    alpha: AppTheme.inkMed,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
+                          // The way back to the Google photo is its own tile,
+                          // first on the All shelf (owner, 28 Sep 2026), where it
+                          // is seen; an unlabelled icon here was not.
                         ],
                       ),
                       const SizedBox(height: Space.md),
@@ -4214,7 +4180,7 @@ Future<void> openPicturePicker(BuildContext context) async {
                               value: current,
                               counts: {
                                 for (final f in PictureFilter.menu)
-                                  f: state.pictures.where(f.holds).length,
+                                  f: shelfCount(state, f),
                               },
                               onChanged: (f) {
                                 shelf.value = f;
