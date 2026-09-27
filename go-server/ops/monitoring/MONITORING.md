@@ -30,7 +30,7 @@ ops/monitoring/
 ```
 
 Contents: [What the server exposes](#what-the-server-exposes) · [Running the stack](#running-the-stack-locally) ·
-[Production](#pointing-prometheus-at-production) · [Securing /metrics](#securing-metrics) ·
+[Production](#pointing-prometheus-at-production) · [Install on the host](#installing-on-the-game-host-opsinstall-monitoringsh) · [Securing /metrics](#securing-metrics) ·
 [Percentiles](#percentiles-p50--p90--p95--p99) · [Exporters](#exporters) · [Label rule](#the-label-cardinality-rule) ·
 [Dashboard](#the-grafana-dashboard) · [Alerts](#alerts) · [Requirements checklist](#requirements-checklist) ·
 [Troubleshooting](#troubleshooting)
@@ -221,6 +221,47 @@ For the `postgres`/`nginx`/`node` jobs in production, either run the whole compo
 `prometheus-postgres-exporter`, `prometheus-nginx-exporter` on Debian/Ubuntu) and change the
 targets to their addresses. The `nodename` label on the `node` job is free text — set it to the
 machine's name so alert annotations read well.
+
+---
+
+## Installing on the game host (`ops/install-monitoring.sh`)
+
+Production (`prod.sungamestudio.com`, 27 Sep 2026) runs the stack as system packages rather than
+compose, installed and re-applied by one idempotent script:
+
+```bash
+sudo bash go-server/ops/install-monitoring.sh                  # the dashboards and rules of the checkout it runs from
+sudo env MON_DIR=/path/to/monitoring bash install-monitoring.sh # another copy of this directory (a fix not yet pulled)
+```
+
+| Service | Listens | From |
+|---|---|---|
+| `prometheus` | 127.0.0.1:9090 | Ubuntu package; scrapes the game server's `/metrics` with `METRICS_TOKEN` and the exporters; `alerts.yml` as `/etc/prometheus/king-teenpatti-alerts.yml` |
+| `prometheus-{node,postgres,nginx,redis}-exporter` | 127.0.0.1:9100 / 9187 / 9113 / 9121 | Ubuntu packages; postgres as the role `prometheus` (`pg_monitor`, peer auth); nginx through `stub_status` on 127.0.0.1:8080 |
+| `grafana-server` | 127.0.0.1:3001 | apt.grafana.com (a pinned `.deb` when the repository is down); served at `https://<domain>/dashboard/` by an nginx snippet; sign-up and anonymous access off; both datasources and every dashboard here provisioned |
+| `loki` | 127.0.0.1:3100 (gRPC 9096) | apt.grafana.com, or the pinned GitHub `.deb`; its own config and unit override, never the package's |
+| `alloy` | 127.0.0.1:12345 | the same; ships `journalctl -u gameplay` to Loki as `{service_name="gameplay"}` |
+
+Nothing is reachable from outside but Grafana, and `/metrics` answers 404 to the internet.
+
+**Disk.** Prometheus and Grafana together stay under 1 GB: metrics keep the newest 640 MiB
+(`--storage.tsdb.retention.size`, WAL included; `--storage.tsdb.retention.time=365d` only if it ever
+bites first) — about 10–15 days at the ~380 samples a second the host takes — Grafana's own files are
+about 175 MB, and its log goes to `/var/log/grafana` alone, rotated daily and at 16 MiB and deleted
+after 7 days. Loki stays under 3 GB: everything it writes lives on a volume of its own,
+`/var/lib/loki.img` (2,861 MiB, ext4) loop-mounted at `/var/lib/loki`, so it cannot take a byte more.
+Loki deletes by age only, so `loki-disk-guard.timer` (hourly) watches the volume: at 80% full it cuts
+the retention in `/etc/loki/runtime.yml` to three quarters (never under 24 h) and the compactor drops
+the oldest days; under 50% it grows back a day a run towards 180 days. The game server writes about
+0.5 MB of log a day, so in practice logs are kept 180 days. Loki logs at warn (at info it writes a
+journal line per query); nothing logs at debug, and Alloy drops the game server's DEBUG lines
+whatever its `LOG_LEVEL`.
+
+**The admin password** is set to a random one, printed once and kept in
+`/root/grafana-admin-password`, only when the script installs Grafana. A Grafana that already exists
+keeps whatever password it has; a re-run only warns while it is still `admin/admin`. The first run on
+production crashed in `grafana cli` (run from a directory the `grafana` user cannot read), which is
+why the script sets it through the HTTP API.
 
 ---
 
@@ -532,7 +573,9 @@ through the "King Teen Patti dashboards" drop-down (a `dashboards`-type link on 
 `king-teenpatti`). Added 10 Sep 2026.
 
 **Where the lines come from.** Production runs `loki.service` (Loki 3.7, `127.0.0.1:3100`, not
-reachable from outside) and `alloy.service` (`/etc/alloy/config.alloy`), which reads
+reachable from outside; on `prod.sungamestudio.com` installed by `ops/install-monitoring.sh`, config
+`/etc/loki/king-teenpatti.yml`, on its own 3 GB volume — see "Installing on the game host") and
+`alloy.service` (`/etc/alloy/config.alloy`, `/etc/alloy/king-teenpatti.alloy` there), which reads
 `journalctl -u gameplay` and ships every line as the stream `{service_name="gameplay"}` with labels
 `host`, `job=loki.source.journal.gameplay`, `service`, `service_name` and Loki's `detected_level`.
 Each line is the server's slog JSON exactly as `journalctl -u gameplay` shows it, so every query

@@ -106,7 +106,7 @@ king-teenpatti/
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
 │   ├── public/                   browser client (index.html, client.js, style.css, theme.css) + profiles/ (15 Noto Emoji animal SVGs, Apache 2.0) + tables/ (16 generated SVG table pictures, §7.3; served in production like profiles/)
 │   ├── .env.example              every env key the server reads, with defaults (+ Go-only PG_STATEMENT_TIMEOUT_MS)
-│   ├── ops/                      build.sh, release.sh, prod-version.sh, gameplay-go.service, install-go-server.sh, lib.sh, DEPLOY.md
+│   ├── ops/                      build.sh, release.sh, prod-version.sh, gameplay-go.service, install-go-server.sh, install-monitoring.sh, lib.sh, DEPLOY.md
 │   │   └── monitoring/           Prometheus + Grafana + alerts + nginx bundle, MONITORING.md (formerly server/ops/monitoring)
 │   ├── PORT_PLAN.md / DECISIONS.md / PORT_NOTES/   architecture + Node→Go file map + concurrency rules; every settled ambiguity; per-package port notes + specs/ (cite the removed Node source)
 │   ├── POKER_PLAN.md             the Poker family's design report (10 sections: what is reused, what was generalised, the events, the state, the risks, the phases)
@@ -1822,6 +1822,17 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   default capped production at ~1,500 players on 2026‑09‑08), and `MONITORING.md` (runbook + requirement 35/36 checklist). Postgres
   internals come from postgres_exporter, not the game server. Production's Prometheus/Grafana were pointed at the old path once;
   DEPLOY.md §6 has the re-import and `rule_files` steps.
+- **`go-server/ops/install-monitoring.sh`** (owner, 27 Sep 2026: "install grafana and prometheus on prod", then Loki) is how
+  `prod.sungamestudio.com` runs it: system packages, not compose — Prometheus and the four exporters (Ubuntu), Grafana, Loki and
+  Alloy (apt.grafana.com, pinned `.deb` fallbacks checked by sha256), every listener on 127.0.0.1, Grafana served at
+  `https://<domain>/dashboard/` by an nginx snippet that also answers `/metrics` 404 to the internet. Idempotent; `sudo bash
+  go-server/ops/install-monitoring.sh`, or `sudo env MON_DIR=<dir> bash …` for another copy of `ops/monitoring`. **Disk**:
+  Prometheus + Grafana under 1 GB (TSDB `retention.size` 640 MiB ≈ 10–15 days at today's rate; Grafana logs to its file only,
+  daily/16 MiB, 7 days); Loki under 3 GB on its own loop-mounted volume (`/var/lib/loki.img` → `/var/lib/loki`), kept off the
+  ceiling by `loki-disk-guard.timer`, which shortens `/etc/loki/runtime.yml`'s retention (180 days at most) when the volume
+  passes 80%. No debug logging anywhere (owner): Loki at warn, Alloy drops the game server's DEBUG lines. The Grafana admin
+  password is set (random, `/root/grafana-admin-password`) only on a Grafana the script installs; an existing one's is never
+  touched. `MONITORING.md` "Installing on the game host" is the reference.
 
 ### 7.6 Tests & tools
 - **Go test suites** (`cd go-server && go test -race ./...`; names are sentences, `TestASideshowNeedsThreePlayersInTheHand`):
