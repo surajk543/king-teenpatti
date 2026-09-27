@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Installs the resident bot fleet as a systemd unit.
+# Installs the bot fleet as a systemd unit, running bin/bot-play.
 #
-#   sudo bash ops/install.sh              # install, enable, start
-#   sudo bash ops/install.sh uninstall    # stop and remove
+#   bash ops/build.sh                    # as deploy: build bin/bot-play
+#   sudo bash ops/install.sh             # install, enable, start
+#   sudo bash ops/install.sh uninstall   # stop and remove
 #
 # The fleet talks to the game server over loopback, so this belongs on the
 # game host itself — see README.md.
@@ -25,13 +26,8 @@ if [ "${1:-}" = uninstall ]; then
   exit 0
 fi
 
-[ -d "$DIR" ] || { echo "not found: $DIR — pull the repo first"; exit 1; }
-command -v node >/dev/null || { echo "node is not installed"; exit 1; }
-
-log "Node $(node --version)"
-
-log "Installing dependencies"
-sudo -u deploy bash -lc "cd '$DIR' && npm install --omit=dev"
+[ -x "$DIR/bin/bot-play" ] || { echo "not built: run 'bash ops/build.sh' as deploy first"; exit 1; }
+log "$("$DIR/bin/bot-play" -version)"
 
 log "Installing $UNIT"
 install -m 0644 "$DIR/ops/bot-play.service" "$UNIT"
@@ -43,7 +39,7 @@ log "Started"
 sleep 5
 systemctl status bot-play --no-pager | head -12 || true
 note ""
-note "Watch it:      journalctl -u bot-play -f"
-note "Fleet size:    edit PER_CATEGORY in $UNIT, then systemctl restart bot-play"
-note "Stop it:       sudo systemctl stop bot-play    (seats released cleanly)"
-note "Chips minted:  journalctl -u bot-play | grep rotated"
+note "Watch it:   journalctl -u bot-play -f"
+note "Fleet size: edit BOT_COUNT in $UNIT (or configs/bot.yaml), then systemctl restart bot-play"
+note "Debug:      curl -s 127.0.0.1:9102/debug/bots | head     (metrics: curl -s 127.0.0.1:9101/metrics)"
+note "Stop it:    sudo systemctl stop bot-play    (every bot finishes its hand and leaves)"

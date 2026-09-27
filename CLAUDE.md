@@ -38,7 +38,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
 | Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation and `tools/lottie/bake_loop_expressions.py` writes its `loopOut()` expressions out as keyframes, both for the phone players (§12.3). `tools/tables/make_table_pictures.py` (Python 3, stdlib) draws the 16 SVG table pictures in `go-server/public/tables/` — eight designs, a day and a night file each (§7.3); `tools/tables/make_background_pattern.py` re-encodes the owner's Background Pattern Lottie (`background-pattern.json`, 122 KB) into the two 31 KB Drive files beside it, day and night (§7.3); `tools/tables/make_thank_you_day.py` recolours the owner's Thank You Lottie into its day file, deep gold for the light ground (§7.3). |
-| **Bot fleet** | `bot-play/` | The resident bots that keep production's lobby populated (`bot-play.service` on the game host, loopback to `:3000`): 198 guest identities, 75–95% online at once in sittings that come and go. They judge their cards with a port of `handrank.go` (verified on all 22,100 hands), raise up the server's ladder with strong hands, bluff by persona, and chat under a per-table budget. `npm test`; `bot-play/README.md` is the reference. Separate from `tools/bot.js`, the practice bots for manual testing. |
+| **Bot fleet** | `bot-play/` | The resident bots that keep production's lobby populated (`bot-play.service` on the game host, loopback to `:3000`). **Go since 27 Sep 2026** (module `github.com/surajk543/king-teenpatti/bot-play`, one static binary; the Node fleet it replaced is in git history, tagged `bot-play/v1.0.0`): `BOT_COUNT` bots (60 in the unit), guest devices `botplay-<6 digits>` the server marks `is_bot`, each on its own goroutine, event loop and websocket-only Socket.IO connection, in sessions of play with rests between. Six personality families (CAUTIOUS … BEGINNER) stable per identity, blind/seen play, raises up the server's ladder, hand strength from a copy of `handrank.go` pinned by a fingerprint of all 22,100 hands (variation hands read from the server's `you.hand`), log-normal reaction times ending 3 s inside the turn clock, tables from `GET /api/tables`, chat under a per-table budget, a lost ack resent with the same `actionId`. `go run ./cmd/bot-play` (`BOT_MODE=simulation BOT_SEED=12345` runs an in-process stand-in server), `go test -race ./...`; `bot-play/README.md` is the reference. Separate from `tools/bot.js`, the practice bots for manual testing. |
 | Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
 | Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
 | Brief | `Requirements.txt` | 34 numbered requirements at lines 6–88 (**there is no #11**). Code comments cite these ("Requirement 22"). |
@@ -116,11 +116,35 @@ king-teenpatti/
 │   ├── package.json              scripts: bot / ramp / parity / parity:diff; deps socket.io-client, ws, pg, jsonwebtoken
 │   └── parity/                   black-box suites (game, money, lobby, stakes, rest, protocol, resume, invalid, metrics, variation, poker) + lib/ (harness, launch, raw client,
 │                                 csharpJsonPort.js, poker5.mjs — an independent five-card and three-card evaluator, the poker suite's oracle)
-├── bot-play/                     the resident bot fleet (Node, socket.io-client) — README.md is its reference
-│   ├── src/                      index (start + heartbeat), fleet (who is online), bot (one player), brain (decisions),
-│   │                             handrank (port of handrank.go), persona, chat, config, identities, profiles, random
-│   ├── test/                     node:test — brain, handrank, persona + chat (`npm test`)
-│   └── ops/                      bot-play.service, install.sh
+├── bot-play/                     the resident bot fleet — Go since 27 Sep 2026, module github.com/surajk543/king-teenpatti/bot-play (the Node
+│   │                             fleet is in git history, tag bot-play/v1.0.0); README.md is its reference
+│   ├── cmd/bot-play/main.go      -config (default configs/bot.yaml) / -version; server or simulation mode; waits for GET /api/tables;
+│   │                             builds the shared bot.Deps; SIGINT/SIGTERM → every bot finishes its hand and leaves (60 s, then hard)
+│   ├── configs/bot.yaml          every key at its default, its env override named beside it
+│   ├── internal/
+│   │   ├── config/               config.go (Default, Load: defaults → YAML → env → Validate), yaml.go (strict walk: unknown key / wrong
+│   │   │                         type / two spellings stop the boot naming the line), env.go (EnvKeys), validate.go (device prefix must
+│   │   │                         start botplay-, debug addr loopback only, dev_replenish simulation only)
+│   │   ├── protocol/             wire.go (events, payloads, codes), transport.go (API / Dialer / Session — the server and the simulator both implement them)
+│   │   ├── bot/                  identity.go (botplay-<%06d>, name, FNV seed → personality), bot.go (Bot, Deps), lifecycle.go (Run: sessions,
+│   │   │   │                     sign-in, reconnect), play.go (the event loop's handlers: turn, resend with the same actionId, sideshow,
+│   │   │   │                     variation, 5-Card pick, hand end, leave/search/join/switch, chat), manager.go (staggered start, graceful
+│   │   │   │                     Stop), fleet.go (the process's registry of its own bots' user ids and seats), scheduler.go (one timer a bot)
+│   │   │   ├── state/            state.go (the lifecycle state machine, Session, Snapshot), opponents.go (per-opponent reads)
+│   │   │   ├── strategy/         personality.go (six families, DefaultProfiles, ApplyTuning), teen_patti.go (Decide, Legal, imperfections,
+│   │   │   │                     SideshowAnswer), blind.go, seen.go, variation.go (ChooseVariation, ChoosePlayedCards)
+│   │   │   ├── decision/         hand_strength.go (the classic ranking; TestRankingIsTheServers = a SHA-256 of all 22,100 hands' server
+│   │   │   │                     scores), evaluator.go (variation hands from you.hand), variation_tables.go, betting.go (rungs, RaiseAmount), risk.go
+│   │   │   ├── table/            finder.go (the menu: GET /api/tables, refreshed by session:ready's tableConfigVersion), selector.go, switcher.go (AfterHand reasons)
+│   │   │   ├── timing/           human_delay.go (DefaultRanges, For: log-normal, safety margin before every deadline), reaction.go
+│   │   │   ├── interaction/      chat.go (moments, probabilities, cooldown, TableBudget), messages.go, emote.go (NoEmotes: chat:emoji needs owned emojis)
+│   │   │   └── connection/       websocket.go (Engine.IO v4 / Socket.IO v5, websocket only, slow-consumer policy), rest.go, reconnect.go (Backoff)
+│   │   ├── sim/                  BOT_MODE=simulation: an in-process stand-in server (simplified rules, chips conserved; never decides a real hand)
+│   │   ├── metrics/              bot_* Prometheus series (label vocabularies, no ids), serve.go (/metrics, /healthz, /debug/bots[/{bot}])
+│   │   └── clock/, rng/          Real/Fake clock; seeded streams (rng.Derive(seed, bot number))
+│   ├── ops/                      build.sh (static, stamps `git describe --match 'bot-play/v*'` → bin/bot-play), install.sh, bot-play.service
+│   ├── Dockerfile                distroless static image (docker build -t bot-play bot-play/)
+│   └── go.mod, go.sum            go 1.27; gorilla/websocket, prometheus client_golang, yaml.v3
 └── flutter-client/
     ├── pubspec.yaml              package name `teenpatti` (imports are package:teenpatti/...), sdk ^3.12.2
     ├── lib/
@@ -176,9 +200,9 @@ king-teenpatti/
                                   NO Podfile (Flutter writes one on the Mac); never built here — docs/ios-setup.md
 ```
 
-There is no CI, Dockerfile, ESLint or Prettier anywhere. `cd go-server && go test -race ./...`
-(+ `go vet`, `gofmt -l`), the parity harness (`cd tools && npm run parity`, §7.6/§14) and
-`cd flutter-client && flutter analyze && flutter test` are the whole verification story.
+There is no CI, ESLint or Prettier anywhere, and one Dockerfile (`bot-play/Dockerfile`, the bot fleet's). `cd go-server && go test -race ./...`
+(+ `go vet`, `gofmt -l`), the parity harness (`cd tools && npm run parity`, §7.6/§14),
+`cd bot-play && go test -race ./...` and `cd flutter-client && flutter analyze && flutter test` are the whole verification story.
 
 ---
 
@@ -186,8 +210,8 @@ There is no CI, Dockerfile, ESLint or Prettier anywhere. `cd go-server && go tes
 
 | Tool | Version in use | Notes |
 |---|---|---|
-| **Go** | 1.27.1 at `~/.local/go` | **Not on PATH** — `export PATH=$HOME/.local/go/bin:$PATH`. `go-server/ops/build.sh` installs exactly this version there when missing (sha256 checked against go.dev). `go.mod` says `go 1.27`. |
-| Node.js | v22.22.1 (`>=20`) | Still needed for `tools/` (bots, ramp, parity — ESM, `node:test`), for two Go interop tests that borrow `tools/node_modules`, and by the Flutter toolchain. **Not** needed to run the server. |
+| **Go** | 1.27.1 at `~/.local/go` | **Not on PATH** — `export PATH=$HOME/.local/go/bin:$PATH`. `go-server/ops/build.sh` installs exactly this version there when missing (sha256 checked against go.dev); `bot-play/ops/build.sh` uses the same toolchain (running that script when it is missing). Both `go.mod`s say `go 1.27`. |
+| Node.js | v22.22.1 (`>=20`) | Still needed for `tools/` (bots, ramp, parity — ESM, `node:test`), for two Go interop tests that borrow `tools/node_modules`, and by the Flutter toolchain. **Not** needed to run the server or the bot fleet (`bot-play/` is Go since 27 Sep 2026). |
 | npm | 9.2.0 | `cd tools && npm install` once. |
 | **PostgreSQL** | 18.6, local, port 5432 | DB `gameplay`, user/password `postgres`/`postgres`. Default `DATABASE_URL` in config points here. `psql` and `pg_isready` are installed. Go tests skip (not fail) when it is unreachable. |
 | Flutter | 3.44.7 stable (`/snap/bin/flutter`) | Dart 3.12.2 — this is the **minimum** `pubspec.lock` accepts. Code uses records, switch expressions, `'k': ?v` null-aware map entries, `DropdownButtonFormField(initialValue:)`. |
@@ -1324,7 +1348,7 @@ catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`,
 Draw** — `lucky_draws`, `lucky_draw_slots`, `user_lucky_draws` (the paragraph before the ledger reasons). `users` (wallet = `chips BIGINT
 CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 9 CHECK ≥ 0`** — the premium currency, nine per new account (owner, 14 Sep 2026; two, and one before that, earlier the same day), never
 ledgered —, **`hammer INTEGER NOT NULL DEFAULT 20 CHECK ≥ 0`** — what a Force Sideshow costs, 20 per account, never ledgered —, **`missile INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — what a missile costs, one per new account, never ledgered —,
-counters, `active_picture_id`, `deleted_at`, and since 22 Sep 2026 **`is_bot BOOLEAN NOT NULL DEFAULT FALSE`** (in the baseline's `CREATE TABLE users` and its guarded block since 23 Sep 2026) — true for every bot the project runs (owner, 27 Sep 2026: "any bot who plays that should be marked is_bot true"; the `bot-play/` fleet alone until then), set at login from the guest DEVICE ID's namespace (`config.BotDevicePrefixes`, env `BOT_DEVICE_PREFIX`, a comma-separated list, default `botplay-,practice-bot-,ramp-bot-`: the fleet's `botplay-v1-<n>` and a rotated bot's `botplay-v1-<n>-g<gen>`, `tools/bot.js`'s practice bots `practice-bot-<slot>-<name>` and the ramp test's `ramp-bot-<n>-device-id`; each entry trimmed, an empty one dropped). A **label, never a permission**: nothing in the game reads it, it is absent from every wire struct (`TestMarkingABotDoesNotLeakToTheClient` — a seat that announced itself as a bot would tell a player exactly what the fleet exists not to tell them), and the login **ORs** rather than assigns so a mark is never cleared. Empty prefix marks nobody, never everybody), and since 26 Sep 2026 **`is_active BOOLEAN NOT NULL DEFAULT TRUE`** (column and guarded block, as `is_bot`; §7.2 "A disabled account"),
+counters, `active_picture_id`, `deleted_at`, and since 22 Sep 2026 **`is_bot BOOLEAN NOT NULL DEFAULT FALSE`** (in the baseline's `CREATE TABLE users` and its guarded block since 23 Sep 2026) — true for every bot the project runs (owner, 27 Sep 2026: "any bot who plays that should be marked is_bot true"; the `bot-play/` fleet alone until then), set at login from the guest DEVICE ID's namespace (`config.BotDevicePrefixes`, env `BOT_DEVICE_PREFIX`, a comma-separated list, default `botplay-,practice-bot-,ramp-bot-`: the Go fleet's `botplay-<6 digits>` (and the Node fleet's before it, `botplay-v1-<n>`, `botplay-v1-<n>-g<gen>` when rotated), `tools/bot.js`'s practice bots `practice-bot-<slot>-<name>` and the ramp test's `ramp-bot-<n>-device-id`; each entry trimmed, an empty one dropped). A **label, never a permission**: nothing in the game reads it, it is absent from every wire struct (`TestMarkingABotDoesNotLeakToTheClient` — a seat that announced itself as a bot would tell a player exactly what the fleet exists not to tell them), and the login **ORs** rather than assigns so a mark is never cleared. Empty prefix marks nobody, never everybody), and since 26 Sep 2026 **`is_active BOOLEAN NOT NULL DEFAULT TRUE`** (column and guarded block, as `is_bot`; §7.2 "A disabled account"),
 **`user_milestones`** (owner, 14 Sep 2026: the rewards each player has collected, moved off `users`, where they were `milestone_claimed` and `next_bonus_at` — `user_id`, `milestone` HANDS_PLAYED|TIMED_BONUS|DAILY_BONUS (TIMED_BONUS in the baseline's CHECK since `V1.0.2__timed_bonus_milestone.sql` was folded into it; production's table, built by go-server/v1.1.0, keeps the two-value CHECK — and refuses every four-hour bonus claim — until a fresh start or the hand ALTER in the baseline's header), PK on the pair, `claimed_up_to`, `next_claim_at`, `times_claimed`, `last_claimed_at`; one row per player per milestone, inserted on the first claim and updated in place after (`db.collectMilestone`), read through two LEFT JOINs in `userFrom`, so no row reads as nothing collected and both bonuses ready),
 **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`, and since 19 Sep 2026 `game`/`variant` — `'poker'` + the poker category on a poker row, NULL on every Teen Patti row, §6.5; append-only trigger),
 and the picture catalogue added 12 Sep 2026 (owner): **`profile_pictures`** (`name`, `asset_url`
@@ -1805,10 +1829,13 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   (default `random`, which picks from the `options` the SERVER sent, so FIVE_CARD is chosen only where it is offered): the
   chooser's pick, made once per table-and-hand from `room:state`; `none` never answers, which is how to watch the server's
   timeout choose Muflis. Bots never read their cards, so 5-Card needed nothing else. `variation.test.js` uses
-  `bot-play/src/handrank.js` as an INDEPENDENT oracle that a FIVE_CARD `best` really is the best of the ten
-  combinations, and deep-scans every frame a client received for card codes that are not that player's own — keep both. The resident fleet (`bot-play/`) joins a hard-coded list of four
-  tables (`seen:200`, `blind:200`, `blind:5000`, and since 22 Sep 2026 `variation:50000`; `bot-play/README.md`) — it does not
-  read `GET /api/tables`, so retiring one of those four rows leaves its bots refused `table_not_offered`.
+  `tools/parity/lib/handrank.js` (the Node fleet's `bot-play/src/handrank.js` until bot-play went Go, 27 Sep 2026) as an
+  INDEPENDENT oracle that a FIVE_CARD `best` really is the best of the ten
+  combinations, and deep-scans every frame a client received for card codes that are not that player's own — keep both. The resident fleet (`bot-play/`, Go)
+  reads `GET /api/tables` at start — the public `teen_patti` tables of `table.categories`, with their stack bands, no table
+  hard-coded — and follows `session:ready.config.tableConfigVersion`: the first bot to meet a version it does not hold hands
+  the fleet that session's menu and refreshes it once; a table refused `table_not_offered` is retired until the next read
+  (`bot-play/internal/bot/table/finder.go`, `bot-play/README.md`).
 - **`tools/bot.js`** also plays the poker rooms: `--category three_card_poker|five_card_draw|texas_holdem|omaha` answers
   `poker:yourTurn` from its `options` alone (`decidePoker`: check when free, call small bets, fold to a bet over a third of the stack half the time,
   open or min-raise now and then, play against the dealer three times in four, stand pat or exchange one or two) — bots never read
@@ -3638,9 +3665,10 @@ console, never a second. **A card** is a `PlayingCard` at a height and nothing e
   default changed in `config` must be carried into the seed by hand; `TestTheSeededTableCatalogueIsTheDefaults` fails
   and names the drifting table until it is. (The seed's picture prose still says "against a 2,00,000 welcome"; the
   welcome has been 3 lakh since 14 Sep 2026.)
-- **The resident fleet and the browser client do not read the catalogue**: `bot-play/` joins its four hard-coded tables
-  and `go-server/public/client.js` draws `session:ready`'s `config.tables`. A table retired in the database leaves the
-  browser client right (session:ready follows the rows) and the fleet's bots for that table refused `table_not_offered`.
+- **The browser client does not read the catalogue**: `go-server/public/client.js` draws `session:ready`'s `config.tables`
+  (it never calls `GET /api/tables`), which follows the rows, so a table retired in the database leaves it right. The
+  resident fleet does read it since the Go rebuild (27 Sep 2026; `GET /api/tables` + `tableConfigVersion`, §7.6); the Node
+  fleet joined four hard-coded tables.
 - The Grafana dashboard JSON links to `go-server/ops/monitoring/MONITORING.md` on `master`; production's
   imported copy still carries the old `server/ops/monitoring` link until re-imported (DEPLOY.md §6).
 - Local demo video: `~/Downloads/king-teenpatti-walkthrough.mp4`.
@@ -3762,6 +3790,8 @@ reaches no server and was never the Play build; **`1.2.2+9`** is the same app po
 which answers 404, and a Google sign-in its signature was refused ended in silence, so **`1.2.3+10`** follows the same day:
 the policy at `https://sungamestudio.com/privacy/` (`PRIVACY_URL`, §3) and a refused sign-in said on screen (§12.3); the test
 holds the build number past 9. **`MIN_CLIENT_BUILD` is raised to a build number that exists in the store, never to one that is only tagged here** — the floor holds every older client on the update screen, so a floor above what Play is serving takes the game down for everyone with no way for a player to get past it.
+
+The bot fleet is tagged **`bot-play/vX.Y.Z`**, by hand (there is no `release.sh` for it): `bot-play/ops/build.sh` stamps `git describe --tags --match 'bot-play/v*'` (the `bot-play/` prefix dropped) into `main.version`, which `bin/bot-play -version` and the `bot-play starting` log line print. `bot-play/v1.0.0` is the Node fleet's; until the Go fleet's first tag is cut its build reads `v1.0.0-<n>-g<sha>`.
 
 `ops/release.sh patch|minor|major|vX.Y.Z` cuts an annotated tag. It refuses a dirty tree and refuses a
 commit that already carries one — a tag has to name a commit someone else can rebuild byte for byte,

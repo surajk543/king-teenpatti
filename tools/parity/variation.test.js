@@ -31,10 +31,10 @@ import {
   THREE_CARD_VARIATIONS, YOU_HAND_KEYS, YOU_HAND_PICKING_KEYS, YOU_HAND_PICKED_KEYS, OPTIONS_KEYS,
 } from './lib/harness.mjs';
 import { closeDb } from './lib/db.mjs';
-// An independent oracle for the three-card ranking: bot-play's port of
-// handrank.go, verified there against all 22,100 hands. Used only to check that
+// An independent oracle for the three-card ranking: a JavaScript port of
+// handrank.go (once the Node bot fleet's), checked against all 22,100 hands. Used only to check that
 // the three cards the server says it counted really are the best of the five.
-import { evaluate, compare } from '../../bot-play/src/handrank.js';
+import { evaluate, compare } from './lib/handrank.js';
 
 test.after(async () => {
   await closeOpenClients();
