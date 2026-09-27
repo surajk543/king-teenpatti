@@ -16,6 +16,8 @@
 // toast; the Stats drawer's level and today's XP; and every one of those at
 // 640x360 with text x1.25 in all five languages, in both themes, with nothing
 // cut and nothing overflowing.
+import 'dart:async';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -732,6 +734,11 @@ final Uint8List _badgeLottie = Uint8List.fromList(
   ),
 );
 
+/// The two-pane popup the pill opened until 27 Sep 2026 ([showWinningTaxInfo]),
+/// kept and opened here directly: the pill opens the level screen now.
+void _openTwoPanes(WidgetTester tester) =>
+    unawaited(showWinningTaxInfo(tester.element(find.byType(WinningTaxTag))));
+
 void main() {
   setUpAll(() async {
     await _loadFonts();
@@ -1161,8 +1168,10 @@ void main() {
       );
       expect(
         t.winningTaxRule('20%', from: '50 Lakh'),
-        endsWith('A badge can lower it further. No tax on winnings under 50 '
-            'Lakh.'),
+        endsWith(
+          'A badge can lower it further. No tax on winnings under 50 '
+          'Lakh.',
+        ),
       );
       final today = level.today!;
       final line = xpTodayOf(t, today, DateTime.now());
@@ -1452,9 +1461,7 @@ void main() {
         taxBps: 0,
       );
       await _pumpTable(tester, royal);
-      final royalTag = tester.widget<WinningTaxTag>(
-        find.byType(WinningTaxTag),
-      );
+      final royalTag = tester.widget<WinningTaxTag>(find.byType(WinningTaxTag));
       expect(royalTag.badge, 'Royal King');
       expect(royalTag.badgeArt?.code, 'ROYAL_KING');
       expect(royalTag.tax, '0% TAX');
@@ -1533,11 +1540,11 @@ void main() {
       }
     }
 
-    testWidgets('a tap opens the popup: the rate and what sets it, the '
-        'level, XP, today, the next level, the badges, how XP is earned — and '
-        "every level, the viewer's lit and in view, then every badge", (
-      tester,
-    ) async {
+    // Owner, 27 Sep 2026: "when i click the text on my level in gametable, it
+    // should pop the same UI which it shows in Lobby about player level, daily
+    // xp and levels".
+    testWidgets('a tap on the pill opens the lobby\'s level screen: its three '
+        'tabs, the rate the seat pays, and Close', (tester) async {
       final state = _tableState();
       final t = state.t;
       await _pumpTable(tester, state);
@@ -1545,121 +1552,167 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pump(const Duration(milliseconds: 100));
       expect(tester.takeException(), isNull);
-      expect(find.byType(WinningTaxInfo), findsOneWidget);
-      final standing = find.byKey(const ValueKey('winning-tax-standing'));
-      final ladderPane = find.byKey(const ValueKey('winning-tax-ladder'));
-      Finder inStanding(String text) => find.descendant(
-        of: standing,
-        matching: find.text(text, skipOffstage: false),
-      );
-      for (final text in [
-        t.winningTaxOnlyWinner,
-        t.winningTaxFalls,
-        t.winningTaxLowest,
-        t.rateSetByLevel,
-        'Level 10 · 🌟 Rising Star',
-        '${t.levelTaxLabel} 17.43%',
-        '4,180',
-        '23 / 50 XP',
-        'Level 11 · 🏅 Pro Player',
-        '5,200 XP · 17.14%',
-        t.winningTaxFrom('50 Lakh'),
-        t.yourBadgesTitle,
-        'Regular',
-        t.badgeLifetime,
-        t.xpDailyTitle,
-        'Play 15 active minutes',
-        'Play 60 active minutes',
-        'Play 120 active minutes',
-        'Win by Pair',
-        'Win by Color',
-        'Win by Sequence',
-        'Win by Pure Sequence',
-        'Win by Trail',
-        '+50 XP',
-        t.xpListResets(24),
-        t.xpNeverExpires,
-      ]) {
-        expect(inStanding(text), findsOneWidget, reason: text);
+      expect(find.byType(LevelScreen), findsOneWidget);
+      expect(find.byType(WinningTaxInfo), findsNothing);
+      for (final tab in LevelInfoTab.values) {
+        expect(find.byKey(ValueKey('level-tab-${tab.name}')), findsOneWidget);
       }
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('winning-tax-rate')),
-          matching: find.text('17.43%'),
-        ),
-        findsOneWidget,
-      );
-      expect(inStanding(t.topLevelNote), findsNothing);
-      // 4,180 of the 4,000 → 5,200 between Level 10 and 11.
-      expect(
-        find.byKey(const ValueKey('winning-tax-progress')),
-        findsOneWidget,
-      );
-
-      // The ladder: fifty rungs, the viewer's alone lit and brought into
-      // view, then the four badges.
-      final rows = tester
-          .widgetList(_private('_LadderRow'))
-          .map((w) => w as dynamic)
-          .toList();
-      expect(rows.length, 50);
-      expect(
-        [for (final r in rows) (r.level as LadderLevel).level],
-        [for (var l = 1; l <= 50; l++) l],
-      );
-      final mine = [
-        for (final r in rows)
-          if (r.you == true) r,
-      ];
-      expect(mine.length, 1);
-      expect((mine.single.level as LadderLevel).level, 10);
-      // "You" beside the rung's name; the line under it is the rung's XP.
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('ladder-you'), skipOffstage: false),
-          matching: find.text(t.levelYou, skipOffstage: false),
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('4,000 XP', skipOffstage: false), findsOneWidget);
-      final mineRect = tester.getRect(
-        find.byWidget(mine.single as Widget, skipOffstage: false),
-      );
-      final paneRect = tester.getRect(ladderPane);
-      expect(
-        paneRect.contains(mineRect.topCenter) &&
-            paneRect.contains(mineRect.bottomCenter),
-        isTrue,
-        reason: 'the viewer\'s row $mineRect is in view in $paneRect',
-      );
-      for (final code in ['REGULAR', 'GOLD', 'ROYAL_ACE', 'ROYAL_KING_OF_KINGS']) {
-        expect(
-          find.byKey(ValueKey('ladder-badge-$code'), skipOffstage: false),
-          findsOneWidget,
-        );
-      }
-      expect(
-        find.descendant(
-          of: ladderPane,
-          matching: find.text(t.badgeLasts(1825), skipOffstage: false),
-        ),
-        findsOneWidget,
-      );
-
-      await tester.tap(find.byKey(const ValueKey('winning-tax-close')));
+      expect(find.text(t.levelTabMine), findsOneWidget);
+      // My level: the hero's rate is the one the seat pays.
+      expect(find.text('17.43%'), findsWidgets);
+      // Daily XP and All levels, as in the lobby.
+      await tester.tap(find.byKey(const ValueKey('level-tab-daily')));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Win by Trail', skipOffstage: false), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('level-tab-ladder')));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.takeException(), isNull);
+      // Its round close key puts the table back.
+      await tester.tap(find.byType(LevelCloseKey));
       for (var i = 0; i < 6; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
-      expect(find.byType(WinningTaxInfo), findsNothing);
+      expect(find.byType(LevelScreen), findsNothing);
+      expect(find.byType(WinningTaxTag), findsOneWidget);
       await _unmount(tester, state);
     });
+
+    testWidgets(
+      'the two-pane popup (kept; opened by nothing on the felt '
+      'since the pill opens the level screen): the rate and what sets it, the '
+      'level, XP, today, the next level, the badges, how XP is earned — and '
+      "every level, the viewer's lit and in view, then every badge",
+      (tester) async {
+        final state = _tableState();
+        final t = state.t;
+        await _pumpTable(tester, state);
+        unawaited(
+          showWinningTaxInfo(tester.element(find.byType(WinningTaxTag))),
+        );
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(tester.takeException(), isNull);
+        expect(find.byType(WinningTaxInfo), findsOneWidget);
+        final standing = find.byKey(const ValueKey('winning-tax-standing'));
+        final ladderPane = find.byKey(const ValueKey('winning-tax-ladder'));
+        Finder inStanding(String text) => find.descendant(
+          of: standing,
+          matching: find.text(text, skipOffstage: false),
+        );
+        for (final text in [
+          t.winningTaxOnlyWinner,
+          t.winningTaxFalls,
+          t.winningTaxLowest,
+          t.rateSetByLevel,
+          'Level 10 · 🌟 Rising Star',
+          '${t.levelTaxLabel} 17.43%',
+          '4,180',
+          '23 / 50 XP',
+          'Level 11 · 🏅 Pro Player',
+          '5,200 XP · 17.14%',
+          t.winningTaxFrom('50 Lakh'),
+          t.yourBadgesTitle,
+          'Regular',
+          t.badgeLifetime,
+          t.xpDailyTitle,
+          'Play 15 active minutes',
+          'Play 60 active minutes',
+          'Play 120 active minutes',
+          'Win by Pair',
+          'Win by Color',
+          'Win by Sequence',
+          'Win by Pure Sequence',
+          'Win by Trail',
+          '+50 XP',
+          t.xpListResets(24),
+          t.xpNeverExpires,
+        ]) {
+          expect(inStanding(text), findsOneWidget, reason: text);
+        }
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('winning-tax-rate')),
+            matching: find.text('17.43%'),
+          ),
+          findsOneWidget,
+        );
+        expect(inStanding(t.topLevelNote), findsNothing);
+        // 4,180 of the 4,000 → 5,200 between Level 10 and 11.
+        expect(
+          find.byKey(const ValueKey('winning-tax-progress')),
+          findsOneWidget,
+        );
+
+        // The ladder: fifty rungs, the viewer's alone lit and brought into
+        // view, then the four badges.
+        final rows = tester
+            .widgetList(_private('_LadderRow'))
+            .map((w) => w as dynamic)
+            .toList();
+        expect(rows.length, 50);
+        expect(
+          [for (final r in rows) (r.level as LadderLevel).level],
+          [for (var l = 1; l <= 50; l++) l],
+        );
+        final mine = [
+          for (final r in rows)
+            if (r.you == true) r,
+        ];
+        expect(mine.length, 1);
+        expect((mine.single.level as LadderLevel).level, 10);
+        // "You" beside the rung's name; the line under it is the rung's XP.
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('ladder-you'), skipOffstage: false),
+            matching: find.text(t.levelYou, skipOffstage: false),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('4,000 XP', skipOffstage: false), findsOneWidget);
+        final mineRect = tester.getRect(
+          find.byWidget(mine.single as Widget, skipOffstage: false),
+        );
+        final paneRect = tester.getRect(ladderPane);
+        expect(
+          paneRect.contains(mineRect.topCenter) &&
+              paneRect.contains(mineRect.bottomCenter),
+          isTrue,
+          reason: 'the viewer\'s row $mineRect is in view in $paneRect',
+        );
+        for (final code in [
+          'REGULAR',
+          'GOLD',
+          'ROYAL_ACE',
+          'ROYAL_KING_OF_KINGS',
+        ]) {
+          expect(
+            find.byKey(ValueKey('ladder-badge-$code'), skipOffstage: false),
+            findsOneWidget,
+          );
+        }
+        expect(
+          find.descendant(
+            of: ladderPane,
+            matching: find.text(t.badgeLasts(1825), skipOffstage: false),
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.byKey(const ValueKey('winning-tax-close')));
+        for (var i = 0; i < 6; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        expect(find.byType(WinningTaxInfo), findsNothing);
+        await _unmount(tester, state);
+      },
+    );
 
     testWidgets('a badge holder is told the badge sets the rate, with their '
         'level, their XP and their badges beside it', (tester) async {
       final state = _goldTable();
       final t = state.t;
       await _pumpTable(tester, state);
-      await tester.tap(find.byType(WinningTaxTag));
+      _openTwoPanes(tester);
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pump(const Duration(milliseconds: 100));
       final rate = find.byKey(const ValueKey('winning-tax-rate'));
@@ -1717,7 +1770,7 @@ void main() {
       final state = _tableState(room: _taxRoom(taxBps: 600), level: _top());
       final t = state.t;
       await _pumpTable(tester, state);
-      await tester.tap(find.byType(WinningTaxTag));
+      _openTwoPanes(tester);
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('Level 50 · 👑👑 King of Kings'), findsOneWidget);
       expect(
@@ -1730,7 +1783,10 @@ void main() {
       expect(find.text(t.topLevelNote), findsOneWidget);
       expect(find.text(t.nextLevelLabel), findsNothing);
       expect(find.byKey(const ValueKey('winning-tax-progress')), findsNothing);
-      expect(find.text(t.xpListResets(24), skipOffstage: false), findsOneWidget);
+      expect(
+        find.text(t.xpListResets(24), skipOffstage: false),
+        findsOneWidget,
+      );
       expect(
         find.text(t.xpDailyCap(50, 24), skipOffstage: false),
         findsNothing,
@@ -1742,7 +1798,7 @@ void main() {
       final capped = _tableState(room: _taxRoom(taxBps: 600), level: _top())
         ..levelLadder = LevelLadder.maybe({..._ladderJson(), 'dailyCap': 50});
       await _pumpTable(tester, capped);
-      await tester.tap(find.byType(WinningTaxTag));
+      _openTwoPanes(tester);
       await tester.pump(const Duration(milliseconds: 500));
       expect(
         find.text(t.xpDailyCap(50, 24), skipOffstage: false),
@@ -1756,7 +1812,7 @@ void main() {
       final state = _tableState();
       final t = state.t;
       await _pumpTable(tester, state);
-      await tester.tap(find.byType(WinningTaxTag));
+      _openTwoPanes(tester);
       await tester.pump(const Duration(milliseconds: 500));
       // Earned in this window (owner, 27 Sep 2026: "1 time … After 24 hours
       // this will be reset"): the first fifteen minutes and a pair; the rest
@@ -1816,7 +1872,7 @@ void main() {
       final state = _tableState(ladder: false);
       final t = state.t;
       await _pumpTable(tester, state);
-      await tester.tap(find.byType(WinningTaxTag));
+      _openTwoPanes(tester);
       for (var i = 0; i < 10; i++) {
         await tester.pump(const Duration(milliseconds: 100));
       }
@@ -2021,8 +2077,9 @@ void main() {
 
   // The lobby's level key (owner, 27 Sep 2026: "Add one icon in lobby so that
   // user can see his level, and in that pop up add one tab also for daily xp,
-  // one tab for ladder … for all levels with tax rate"); the table's popup
-  // keeps its two panes ("restore that UI, only change was in Lobby").
+  // one tab for ladder … for all levels with tax rate"); since 27 Sep 2026
+  // the table's pill opens the same screen ("it should pop the same UI which
+  // it shows in Lobby").
   group('the lobby level key', () {
     testWidgets('wears the level and opens it in three tabs: my level, the '
         'daily XP, and every level with its rate', (tester) async {
@@ -2109,21 +2166,52 @@ void main() {
       await _unmount(tester, state);
     });
 
-    testWidgets('the table\'s pill keeps its two panes, no tabs', (
-      tester,
-    ) async {
+    testWidgets('the table\'s pill opens the same three tabs, not the two '
+        'panes', (tester) async {
       final state = _tableState();
       await _pumpTable(tester, state);
       await tester.tap(find.byType(WinningTaxTag));
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.byKey(const ValueKey('level-tab-mine')), findsNothing);
-      expect(
-        find.byKey(const ValueKey('winning-tax-standing')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const ValueKey('winning-tax-ladder')), findsOneWidget);
+      expect(find.byType(LevelScreen), findsOneWidget);
+      // Not the two panes, which stand both at once: the level screen holds
+      // one tab's body at a time.
+      expect(find.byType(WinningTaxInfo), findsNothing);
+      for (final tab in LevelInfoTab.values) {
+        expect(find.byKey(ValueKey('level-tab-${tab.name}')), findsOneWidget);
+      }
       await _unmount(tester, state);
     });
+
+    for (final lang in AppLang.values) {
+      for (final dark in [true, false]) {
+        testWidgets('from the table\'s pill, every tab fits a 640x360 phone at '
+            'text x1.25 in ${lang.name}, ${dark ? 'dark' : 'light'}', (
+          tester,
+        ) async {
+          final state = _tableState(lang: lang);
+          await _pumpTable(
+            tester,
+            state,
+            screen: const Size(640, 360),
+            scale: 1.25,
+            dark: dark,
+          );
+          await tester.tap(find.byType(WinningTaxTag));
+          await tester.pump(const Duration(milliseconds: 500));
+          expect(find.byType(LevelScreen), findsOneWidget);
+          for (final tab in ['mine', 'daily', 'ladder']) {
+            await tester.tap(find.byKey(ValueKey('level-tab-$tab')));
+            await tester.pump(const Duration(milliseconds: 300));
+            expect(
+              tester.takeException(),
+              isNull,
+              reason: '$tab in ${lang.name}',
+            );
+          }
+          await _unmount(tester, state);
+        });
+      }
+    }
 
     for (final lang in AppLang.values) {
       testWidgets('the key and every tab fit a 640x360 phone at text x1.25 '
@@ -2231,7 +2319,7 @@ void main() {
           );
           expect(tester.takeException(), isNull);
           expect(_cut(find.byType(WinningTaxTag)), isEmpty);
-          await tester.tap(find.byType(WinningTaxTag));
+          _openTwoPanes(tester);
           await tester.pump(const Duration(milliseconds: 500));
           await tester.pump(const Duration(milliseconds: 100));
           expect(tester.takeException(), isNull);
@@ -2265,7 +2353,7 @@ void main() {
           final pill = _feltPill(tester);
           expect(pill.top, greaterThanOrEqualTo(_tagPlate(tester).bottom));
 
-          await tester.tap(find.byType(WinningTaxTag));
+          _openTwoPanes(tester);
           await tester.pump(const Duration(milliseconds: 500));
           expect(tester.takeException(), isNull);
           expect(_cut(find.byType(WinningTaxInfo)), isEmpty, reason: label);
