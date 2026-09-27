@@ -34,6 +34,19 @@ type fakeReports struct {
 	quota    db.ReportQuota
 	quotaErr error
 	asked    []string // Quota's reporters, in order
+
+	filedList []db.FiledReport
+	filedErr  error
+	listed    []string // Filed's reporters, in order
+	listLimit int
+}
+
+func (f *fakeReports) Filed(_ context.Context, reporterID string, limit int) ([]db.FiledReport, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listed = append(f.listed, reporterID)
+	f.listLimit = limit
+	return f.filedList, f.filedErr
 }
 
 func (f *fakeReports) Quota(_ context.Context, reporterID string, limits db.ReportLimits) (db.ReportQuota, error) {
@@ -277,9 +290,10 @@ func TestRapidReportRequestsAreRefusedPerAccount(t *testing.T) {
 	}
 }
 
-// There is one report route, POST: no report is listed, read, changed or
-// deleted through the API, so no player sets a status or touches another's.
-func TestNoRouteReadsOrChangesAReport(t *testing.T) {
+// A report is filed by POST and listed only to its reporter (GET
+// /api/reports/mine): none is read by id, changed or deleted through the API,
+// so no player sets a status or touches another's.
+func TestNoRouteReadsOrChangesAnotherPlayersReport(t *testing.T) {
 	rh := newReportHarness(t, nil)
 	tokA, _ := rh.login("report-device-alice", "Alice")
 	for _, c := range []struct{ method, path string }{
@@ -290,6 +304,9 @@ func TestNoRouteReadsOrChangesAReport(t *testing.T) {
 		{http.MethodGet, "/api/reports/1"},
 		{http.MethodPatch, "/api/reports/1"},
 		{http.MethodPost, "/api/reports/1/status"},
+		{http.MethodPost, "/api/reports/mine"},
+		{http.MethodDelete, "/api/reports/mine"},
+		{http.MethodPatch, "/api/reports/mine"},
 	} {
 		expectError(t, rh.do(c.method, c.path, map[string]any{"status": "DISMISSED"}, bearer(tokA)...), http.StatusNotFound, CodeNotFound)
 	}
@@ -417,4 +434,63 @@ func decodeInto(t *testing.T, raw []byte, v any) {
 	if err := json.Unmarshal(raw, v); err != nil {
 		t.Fatalf("decode %s: %v", raw, err)
 	}
+}
+
+// The reporter's own list (owner, 27 Sep 2026: "all the players he reported
+// in detail status, description, time he reported but don't show the
+// reported user id"): signed in, the caller's own, in the store's order, and
+// never a user id, a report id, a table or a hand.
+func TestTheReporterListsTheirOwnReportsAndNoIDOfAnybody(t *testing.T) {
+	rh := newReportHarness(t, nil)
+	tokA, alice := rh.login("report-device-alice", "Alice")
+
+	expectError(t, rh.do(http.MethodGet, "/api/reports/mine", nil), http.StatusUnauthorized, CodeMissingToken)
+
+	// Nothing filed: an empty list, never null.
+	res := rh.do(http.MethodGet, "/api/reports/mine", nil, bearer(tokA)...)
+	if res.status != http.StatusOK || string(res.raw) != `{"reports":[]}` {
+		t.Fatalf("nothing filed: %d %s", res.status, res.raw)
+	}
+	if rh.reports.listed[0] != alice["id"] || rh.reports.listLimit != db.MaxFiledReportsListed {
+		t.Fatalf("listed for %v, limit %d", rh.reports.listed, rh.reports.listLimit)
+	}
+
+	picture, url := int64(7), "https://example.test/cat.json"
+	rh.reports.filedList = []db.FiledReport{
+		{Reported: db.FriendPlayer{UserID: "0b9f0c7e-dev", DisplayName: ""}, ReportedGone: true, Reason: "SPAM",
+			Game: "teen_patti", Category: "blind", Status: db.ReportPending, CreatedAt: 3000, UpdatedAt: 3000},
+		{Reported: db.FriendPlayer{UserID: "5c1d2e3f-carla", DisplayName: "Carla", PictureID: &picture, PictureURL: &url},
+			Reason: "OTHER", Description: "Kept saying rude things", Game: "teen_patti", Category: "variation",
+			Variant: "AK47", Status: db.ReportUnderReview, CreatedAt: 2000, UpdatedAt: 2500},
+	}
+	res = rh.do(http.MethodGet, "/api/reports/mine", nil, bearer(tokA)...)
+	var answer MyReportsAnswer
+	decodeInto(t, res.raw, &answer)
+	want := []FiledReportView{
+		{Player: ReportedPlayer{Gone: true}, Reason: "SPAM", Game: "teen_patti", Category: "blind",
+			Status: "PENDING", CreatedAt: 3000, UpdatedAt: 3000},
+		{Player: ReportedPlayer{DisplayName: "Carla", ProfilePicture: PlayerPicture{ID: &picture, URL: &url}},
+			Reason: "OTHER", Description: "Kept saying rude things", Game: "teen_patti", Category: "variation",
+			Variant: "AK47", Status: "UNDER_REVIEW", CreatedAt: 2000, UpdatedAt: 2500},
+	}
+	if res.status != http.StatusOK || len(answer.Reports) != 2 {
+		t.Fatalf("the list: %d %s", res.status, res.raw)
+	}
+	for i := range want {
+		got := answer.Reports[i]
+		if got.Player.DisplayName != want[i].Player.DisplayName || got.Player.Gone != want[i].Player.Gone ||
+			got.Reason != want[i].Reason || got.Description != want[i].Description || got.Status != want[i].Status ||
+			got.Variant != want[i].Variant || got.CreatedAt != want[i].CreatedAt || got.UpdatedAt != want[i].UpdatedAt {
+			t.Fatalf("report %d: %+v, want %+v", i, got, want[i])
+		}
+	}
+	lower := strings.ToLower(string(res.raw))
+	for _, word := range []string{"userid", "reporteduserid", "reporter", "0b9f0c7e", "5c1d2e3f", "\"id\":{", "room", "table", "hand", "reportid"} {
+		if strings.Contains(lower, word) {
+			t.Errorf("the list carries %q: %s", word, res.raw)
+		}
+	}
+
+	rh.reports.filedErr = errors.New("database gone")
+	expectError(t, rh.do(http.MethodGet, "/api/reports/mine", nil, bearer(tokA)...), http.StatusInternalServerError, CodeInternalError)
 }

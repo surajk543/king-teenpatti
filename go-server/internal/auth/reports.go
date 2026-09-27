@@ -37,7 +37,13 @@ import (
 //
 //	GET  /api/reports/limit → ReportLimit (200 {limit})
 //
-// read when the app opens a player's drawer, and carried on every answer that
+// and the reporter's own reports (owner, 27 Sep 2026: "add one more tab,
+// where user can see all the players he reported in detail status,
+// description, time he reported but don't show the reported user id"):
+//
+//	GET  /api/reports/mine  → MyReports   (200 {reports})
+//
+// The limit is read when the app opens a player's drawer, and carried on every answer that
 // changes it — a report filed (201) and one refused for the limit (429) — so
 // the drawer switches its Report line off, and counts down to the moment it
 // opens again, from the server's own count. It names nothing but the caller's
@@ -88,6 +94,7 @@ const (
 type ReportStore interface {
 	Submit(ctx context.Context, report db.PlayerReport, limits db.ReportLimits) (int64, error)
 	Quota(ctx context.Context, reporterID string, limits db.ReportLimits) (db.ReportQuota, error)
+	Filed(ctx context.Context, reporterID string, limit int) ([]db.FiledReport, error)
 }
 
 // ReportPlayerBody ← POST /api/reports {reportedUserId, reason, description}:
@@ -372,4 +379,66 @@ func retryAfterSeconds(wait time.Duration) string {
 // refuseReport writes a report refusal: {error, message}.
 func refuseReport(w http.ResponseWriter, status int, code, message string) {
 	WriteJSON(w, status, ErrorResponse{Error: code, Message: message})
+}
+
+// ReportedPlayer is who a listed report is about, as the reporter sees them:
+// a PlayerCard without its userId (the owner: "don't show the reported user
+// id"). Gone is true for an account deleted since — no name, no picture.
+type ReportedPlayer struct {
+	DisplayName    string        `json:"displayName"`
+	ProfilePicture PlayerPicture `json:"profilePicture"`
+	Gone           bool          `json:"gone"`
+}
+
+// FiledReportView is one report of GET /api/reports/mine: who, why, what the
+// reporter wrote ("" for nothing), where the two met (the engine, the
+// category, the variant or ""), the status moderation has it at (PENDING,
+// UNDER_REVIEW, ACTION_TAKEN, DISMISSED), and when it was filed and last
+// changed (epoch ms). Never a user id, a report id, a table or a hand.
+type FiledReportView struct {
+	Player      ReportedPlayer `json:"player"`
+	Reason      string         `json:"reason"`
+	Description string         `json:"description"`
+	Game        string         `json:"game"`
+	Category    string         `json:"category"`
+	Variant     string         `json:"variant"`
+	Status      string         `json:"status"`
+	CreatedAt   int64          `json:"createdAt"`
+	UpdatedAt   int64          `json:"updatedAt"`
+}
+
+// MyReportsAnswer ← GET /api/reports/mine.
+type MyReportsAnswer struct {
+	Reports []FiledReportView `json:"reports"`
+}
+
+// MyReports is GET /api/reports/mine: the caller's own reports, newest first,
+// the newest db.MaxFiledReportsListed of them. Signed in; it reads the
+// caller's own rows and nothing else. 500 internal_error when the database
+// fails.
+func (h *Handler) MyReports(w http.ResponseWriter, r *http.Request, user *db.User) {
+	filed, err := h.deps.Reports.Filed(r.Context(), user.ID, db.MaxFiledReportsListed)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	out := MyReportsAnswer{Reports: make([]FiledReportView, 0, len(filed))}
+	for _, f := range filed {
+		out.Reports = append(out.Reports, FiledReportView{
+			Player: ReportedPlayer{
+				DisplayName:    f.Reported.DisplayName,
+				ProfilePicture: PlayerPicture{ID: f.Reported.PictureID, URL: f.Reported.PictureURL},
+				Gone:           f.ReportedGone,
+			},
+			Reason:      f.Reason,
+			Description: f.Description,
+			Game:        f.Game,
+			Category:    f.Category,
+			Variant:     f.Variant,
+			Status:      f.Status,
+			CreatedAt:   f.CreatedAt,
+			UpdatedAt:   f.UpdatedAt,
+		})
+	}
+	WriteJSON(w, http.StatusOK, out)
 }

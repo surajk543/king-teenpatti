@@ -152,6 +152,24 @@ func TestAReportFromTheTableIsFiledWithTheTableAndTheHandAndChangesNothing(t *te
 	if len(rows) != 1 {
 		t.Fatalf("%d reports about Bob", len(rows))
 	}
+	// Alice's own list names Bobby — by name, never by id — and nothing of
+	// the table or the hand.
+	status, raw = friendsCall(t, ts.URL, tokA, http.MethodGet, "/api/reports/mine", "")
+	mustStatus(t, "Alice's reports", status, http.StatusOK, raw)
+	var mine auth.MyReportsAnswer
+	if err := json.Unmarshal(raw, &mine); err != nil || len(mine.Reports) != 1 {
+		t.Fatalf("Alice's reports: %s (%v)", raw, err)
+	}
+	if r := mine.Reports[0]; r.Player.DisplayName != "Bobby" || r.Reason != "SUSPICIOUS_GAMEPLAY" ||
+		r.Description != "Raises blind every hand" || r.Status != "PENDING" || r.Game != "teen_patti" ||
+		r.Category != "seen" || r.CreatedAt == 0 {
+		t.Fatalf("Alice's report: %+v", r)
+	}
+	for _, secret := range []string{idB, roomID, code, handID} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("Alice's list names %s: %s", secret, raw)
+		}
+	}
 	r := rows[0]
 	if r.Reporter != idA || r.Reason != "SUSPICIOUS_GAMEPLAY" || r.Game != "teen_patti" || r.Category != "seen" ||
 		r.TableID != roomID || r.HandID == nil || *r.HandID != handID || r.Variant != nil || r.Status != "PENDING" ||

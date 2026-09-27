@@ -323,3 +323,71 @@ func lockReportAccounts(ctx context.Context, tx pgx.Tx, a, b string) (map[string
 	}
 	return live, rows.Err()
 }
+
+// FiledReport is one report as the player who filed it lists it (owner,
+// 27 Sep 2026: "add one more tab, where user can see all the players he
+// reported in detail status, description, time he reported but don't show
+// the reported user id"): who it is about as a card (the name and picture,
+// resolved as Friends resolves them — Reported.UserID is for the store's own
+// use and never reaches the wire), why, what they wrote, where they met, how
+// moderation has it, and when. Table and hand ids are not read at all.
+type FiledReport struct {
+	Reported FriendPlayer
+	// ReportedGone is true when the reported account has been deleted since
+	// (pseudonymised: no name, no picture).
+	ReportedGone bool
+	Reason       string
+	Description  string
+	Game         string
+	Category     string
+	Variant      string
+	Status       string
+	CreatedAt    int64
+	UpdatedAt    int64
+}
+
+// MaxFiledReportsListed is the most reports Filed lists: the newest. At two a
+// day (REPORT_MAX_PER_REPORTER) that is more than a month and a half of them.
+const MaxFiledReportsListed = 100
+
+// Filed is reporterID's own reports, newest first (created_at, then id, both
+// descending), at most limit of them (≤ 0 or over MaxFiledReportsListed:
+// MaxFiledReportsListed). A read of the reporter's own rows, off the
+// (reporter_user_id, created_at) index; a report about an account deleted
+// since is listed with ReportedGone set.
+func (r *Reports) Filed(ctx context.Context, reporterID string, limit int) ([]FiledReport, error) {
+	if limit <= 0 || limit > MaxFiledReportsListed {
+		limit = MaxFiledReportsListed
+	}
+	rows, err := r.db.Pool.Query(ctx,
+		`SELECT `+friendPlayerColumns+`, u.deleted_at <> 0,
+		        pr.reason, COALESCE(pr.description, ''), pr.game, pr.category,
+		        COALESCE(pr.variant, ''), pr.status, pr.created_at, pr.updated_at
+		   FROM player_reports pr
+		   JOIN users u ON u.id = pr.reported_user_id`+friendPictureJoin+`
+		  WHERE pr.reporter_user_id = $1
+		  ORDER BY pr.created_at DESC, pr.id DESC
+		  LIMIT $2`,
+		reporterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []FiledReport{}
+	for rows.Next() {
+		var f FiledReport
+		p, err := scanFriendPlayer(rows, &f.ReportedGone, &f.Reason, &f.Description, &f.Game,
+			&f.Category, &f.Variant, &f.Status, &f.CreatedAt, &f.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
+		f.Reported = p
+		if f.ReportedGone {
+			f.Reported.DisplayName = ""
+			f.Reported.PictureID = nil
+			f.Reported.PictureURL = nil
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}

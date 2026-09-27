@@ -96,3 +96,102 @@ class ReportLimit {
     );
   }
 }
+
+/// A report's status as moderation has it (`player_reports.status`). The
+/// player only reads it; moderation sets it.
+abstract final class ReportStatus {
+  static const pending = 'PENDING';
+  static const underReview = 'UNDER_REVIEW';
+  static const actionTaken = 'ACTION_TAKEN';
+  static const dismissed = 'DISMISSED';
+}
+
+/// One report the signed-in player filed, as `GET /api/reports/mine` lists it
+/// (owner, 27 Sep 2026: "all the players he reported in detail status,
+/// description, time he reported but don't show the reported user id"): who
+/// it is about by name and picture only — the wire carries no user id, and
+/// neither does this — why, what they wrote, where the two met, its status,
+/// and when.
+class FiledReport {
+  const FiledReport({
+    required this.displayName,
+    required this.pictureUrl,
+    required this.gone,
+    required this.reason,
+    required this.description,
+    required this.game,
+    required this.category,
+    required this.variant,
+    required this.status,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String displayName;
+  final String? pictureUrl;
+
+  /// The reported account has been deleted since: no name, no picture.
+  final bool gone;
+
+  /// The reason's wire value ([ReportReason.wire]); [reasonKind] names it.
+  final String reason;
+  final String description;
+
+  /// Where the two met: the engine (`teen_patti`, `poker`), the category
+  /// (`seen` …), the variant or "".
+  final String game;
+  final String category;
+  final String variant;
+
+  /// One of [ReportStatus].
+  final String status;
+
+  /// Filed and last changed, epoch ms (the server's clock).
+  final int createdAt;
+  final int updatedAt;
+
+  /// The reason this build knows, or null for one it has never heard of.
+  ReportReason? get reasonKind {
+    for (final r in ReportReason.values) {
+      if (r.wire == reason) return r;
+    }
+    return null;
+  }
+
+  /// One report off the wire; null for anything that is not one.
+  static FiledReport? fromJson(Object? json) {
+    if (json is! Map) return null;
+    String s(Object? v) => v is String ? v : '';
+    int n(Object? v) => v is num && v.isFinite ? v.toInt() : 0;
+    final player = json['player'] is Map ? json['player'] as Map : const {};
+    final picture = player['profilePicture'] is Map
+        ? player['profilePicture'] as Map
+        : const {};
+    final url = picture['url'];
+    return FiledReport(
+      displayName: s(player['displayName']),
+      pictureUrl: url is String && url.isNotEmpty ? url : null,
+      gone: player['gone'] == true,
+      reason: s(json['reason']),
+      description: s(json['description']),
+      game: s(json['game']),
+      category: s(json['category']),
+      variant: s(json['variant']),
+      status: s(json['status']),
+      createdAt: n(json['createdAt']),
+      updatedAt: n(json['updatedAt']),
+    );
+  }
+
+  /// [reports] newest first — by when each was filed; the order the server
+  /// sends, kept stable for two filed in the same millisecond.
+  static List<FiledReport> newestFirst(Iterable<FiledReport> reports) {
+    final list = reports.toList();
+    final order = {for (final (i, r) in list.indexed) r: i};
+    list.sort((a, b) {
+      final by = b.createdAt.compareTo(a.createdAt);
+      return by != 0 ? by : order[a]!.compareTo(order[b]!);
+    });
+    return list;
+  }
+}

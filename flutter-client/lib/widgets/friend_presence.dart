@@ -43,6 +43,29 @@ String? presenceGameLine(
   return parts.isEmpty ? null : parts.join(' • ');
 }
 
+/// "Teen Patti • Seen" for a game and a category as the wire codes them
+/// (`teen_patti`, `seen`) — where a filed report was made (the Friends
+/// page's Reported tab), in the same words a playing friend's game is
+/// written in. Null when neither is known.
+String? tableKindLine(
+  Strings t,
+  String game,
+  String category, {
+  String? Function(String engine)? engineName,
+  String? Function(String category)? categoryName,
+}) {
+  final parts = <String>[
+    if (game.isNotEmpty)
+      switch (game.toUpperCase()) {
+        PresenceGame.teenPatti => friendlyName(t.teenPatti),
+        PresenceGame.poker => friendlyName(t.poker),
+        _ => engineName?.call(game.toLowerCase()) ?? _tidy(game),
+      },
+    if (category.isNotEmpty) _variantName(t, category, categoryName),
+  ];
+  return parts.isEmpty ? null : parts.join(' • ');
+}
+
 String _variantName(
   Strings t,
   String variant,

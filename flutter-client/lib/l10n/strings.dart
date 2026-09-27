@@ -365,6 +365,20 @@ class Strings {
   String reportAgainIn(String time) =>
       _('reportAgainIn').replaceFirst('{time}', time);
 
+  /// The Friends page's Reported tab (owner, 27 Sep 2026): the players this
+  /// player reported, with each report's status and when it was filed.
+  String get reportedTab => _('reportedTab');
+  String get myReportsTitle => _('myReportsTitle');
+  String get noReportsYet => _('noReportsYet');
+  String get reportsLoadFailed => _('reportsLoadFailed');
+  String get reportedPlayerGone => _('reportedPlayerGone');
+  String get reportStatusPending => _('reportStatusPending');
+  String get reportStatusUnderReview => _('reportStatusUnderReview');
+  String get reportStatusActionTaken => _('reportStatusActionTaken');
+  String get reportStatusDismissed => _('reportStatusDismissed');
+  String reportedOn(String when) =>
+      _('reportedOn').replaceFirst('{when}', when);
+
   // --- buying chips, not open yet
   String get buyChips => _('buyChips');
 
@@ -2544,6 +2558,16 @@ class Strings {
       'reportLimitTitle': 'Report limit reached',
       'reportLimitUsed': '{used} of {max} reports used',
       'reportAgainIn': 'You can report again in {time}',
+      'reportedTab': 'Reported',
+      'myReportsTitle': 'Players you reported',
+      'noReportsYet': 'You have not reported anyone.',
+      'reportsLoadFailed': 'Couldn’t load your reports.',
+      'reportedPlayerGone': 'Deleted player',
+      'reportStatusPending': 'Pending',
+      'reportStatusUnderReview': 'Under review',
+      'reportStatusActionTaken': 'Action taken',
+      'reportStatusDismissed': 'Dismissed',
+      'reportedOn': 'Reported {when}',
       'reportNotAtTable': 'This player is no longer at your table.',
       'reportInvalidPlayer': 'This player can’t be reported.',
       'reportDescriptionRequired': 'Please describe what happened.',
@@ -3394,6 +3418,16 @@ class Strings {
       'reportLimitTitle': 'रिपोर्ट की सीमा पूरी',
       'reportLimitUsed': '{max} में से {used} रिपोर्ट इस्तेमाल',
       'reportAgainIn': '{time} बाद फिर रिपोर्ट कर सकेंगे',
+      'reportedTab': 'रिपोर्ट किए',
+      'myReportsTitle': 'आपने जिनकी रिपोर्ट की',
+      'noReportsYet': 'आपने अभी तक किसी की रिपोर्ट नहीं की है।',
+      'reportsLoadFailed': 'आपकी रिपोर्ट लोड नहीं हो सकीं।',
+      'reportedPlayerGone': 'हटाया गया खिलाड़ी',
+      'reportStatusPending': 'लंबित',
+      'reportStatusUnderReview': 'समीक्षा में',
+      'reportStatusActionTaken': 'कार्रवाई की गई',
+      'reportStatusDismissed': 'खारिज',
+      'reportedOn': '{when} को रिपोर्ट किया',
       'reportNotAtTable': 'यह खिलाड़ी अब आपकी टेबल पर नहीं है।',
       'reportInvalidPlayer': 'इस खिलाड़ी की रिपोर्ट नहीं की जा सकती।',
       'reportDescriptionRequired': 'कृपया बताएँ कि क्या हुआ।',
@@ -4242,6 +4276,16 @@ class Strings {
       'reportLimitTitle': 'রিপোর্টের সীমা পূর্ণ',
       'reportLimitUsed': '{max}টির মধ্যে {used}টি রিপোর্ট ব্যবহৃত',
       'reportAgainIn': '{time} পরে আবার রিপোর্ট করতে পারবেন',
+      'reportedTab': 'রিপোর্ট করা',
+      'myReportsTitle': 'আপনি যাদের রিপোর্ট করেছেন',
+      'noReportsYet': 'আপনি এখনও কাউকে রিপোর্ট করেননি।',
+      'reportsLoadFailed': 'আপনার রিপোর্ট লোড করা যায়নি।',
+      'reportedPlayerGone': 'মুছে ফেলা খেলোয়াড়',
+      'reportStatusPending': 'অপেক্ষমাণ',
+      'reportStatusUnderReview': 'পর্যালোচনায়',
+      'reportStatusActionTaken': 'ব্যবস্থা নেওয়া হয়েছে',
+      'reportStatusDismissed': 'খারিজ',
+      'reportedOn': '{when} রিপোর্ট করা হয়েছে',
       'reportNotAtTable': 'এই খেলোয়াড় আর আপনার টেবিলে নেই।',
       'reportInvalidPlayer': 'এই খেলোয়াড়কে রিপোর্ট করা যাবে না।',
       'reportDescriptionRequired': 'অনুগ্রহ করে লিখুন কী হয়েছিল।',
@@ -5085,6 +5129,16 @@ class Strings {
       'reportLimitTitle': 'રિપોર્ટની મર્યાદા પૂરી',
       'reportLimitUsed': '{max} માંથી {used} રિપોર્ટ વપરાયા',
       'reportAgainIn': '{time} પછી ફરી રિપોર્ટ કરી શકશો',
+      'reportedTab': 'જાણ કરેલા',
+      'myReportsTitle': 'તમે જેમની જાણ કરી',
+      'noReportsYet': 'તમે હજી સુધી કોઈની જાણ કરી નથી.',
+      'reportsLoadFailed': 'તમારા રિપોર્ટ લોડ થઈ શક્યા નહીં.',
+      'reportedPlayerGone': 'કાઢી નાખેલો ખેલાડી',
+      'reportStatusPending': 'બાકી',
+      'reportStatusUnderReview': 'સમીક્ષામાં',
+      'reportStatusActionTaken': 'પગલાં લેવાયાં',
+      'reportStatusDismissed': 'રદ',
+      'reportedOn': '{when}એ જાણ કરી',
       'reportNotAtTable': 'આ ખેલાડી હવે તમારા ટેબલ પર નથી.',
       'reportInvalidPlayer': 'આ ખેલાડીની જાણ કરી શકાતી નથી.',
       'reportDescriptionRequired': 'કૃપા કરીને જણાવો કે શું થયું.',
@@ -5938,6 +5992,16 @@ class Strings {
       'reportLimitTitle': 'ਰਿਪੋਰਟ ਦੀ ਸੀਮਾ ਪੂਰੀ',
       'reportLimitUsed': '{max} ਵਿੱਚੋਂ {used} ਰਿਪੋਰਟਾਂ ਵਰਤੀਆਂ',
       'reportAgainIn': '{time} ਬਾਅਦ ਮੁੜ ਰਿਪੋਰਟ ਕਰ ਸਕੋਗੇ',
+      'reportedTab': 'ਰਿਪੋਰਟ ਕੀਤੇ',
+      'myReportsTitle': 'ਤੁਸੀਂ ਜਿਨ੍ਹਾਂ ਦੀ ਰਿਪੋਰਟ ਕੀਤੀ',
+      'noReportsYet': 'ਤੁਸੀਂ ਹਾਲੇ ਤੱਕ ਕਿਸੇ ਦੀ ਰਿਪੋਰਟ ਨਹੀਂ ਕੀਤੀ।',
+      'reportsLoadFailed': 'ਤੁਹਾਡੀਆਂ ਰਿਪੋਰਟਾਂ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕੀਆਂ।',
+      'reportedPlayerGone': 'ਹਟਾਇਆ ਗਿਆ ਖਿਡਾਰੀ',
+      'reportStatusPending': 'ਬਕਾਇਆ',
+      'reportStatusUnderReview': 'ਸਮੀਖਿਆ ਅਧੀਨ',
+      'reportStatusActionTaken': 'ਕਾਰਵਾਈ ਕੀਤੀ ਗਈ',
+      'reportStatusDismissed': 'ਖਾਰਜ',
+      'reportedOn': '{when} ਨੂੰ ਰਿਪੋਰਟ ਕੀਤੀ',
       'reportNotAtTable': 'ਇਹ ਖਿਡਾਰੀ ਹੁਣ ਤੁਹਾਡੇ ਟੇਬਲ ਉੱਤੇ ਨਹੀਂ ਹੈ।',
       'reportInvalidPlayer': 'ਇਸ ਖਿਡਾਰੀ ਦੀ ਰਿਪੋਰਟ ਨਹੀਂ ਕੀਤੀ ਜਾ ਸਕਦੀ।',
       'reportDescriptionRequired': 'ਕਿਰਪਾ ਕਰਕੇ ਦੱਸੋ ਕਿ ਕੀ ਹੋਇਆ।',

@@ -1258,7 +1258,7 @@ suite on all three stores; the pushes in `internal/{auth,app}/friendpush_test.go
 events over real sockets, nothing on reject/remove/refusal or to an account with no socket, two players seated mid-hand
 befriending each other with no `seated` refusal, no wallet word, room id or code in a push).
 **Report Player** (owner's brief, 27 Sep 2026: "A player sitting at a gameplay table must be able to report another player
-currently at the same table … Go server is authoritative"; `auth/reports.go`, `db/reports.go`, `game/report.go`). TWO routes,
+currently at the same table … Go server is authoritative"; `auth/reports.go`, `db/reports.go`, `game/report.go`). THREE routes,
 **`POST /api/reports {reportedUserId, reason, description?}`** → **201 `{"success":true,"message":"Report submitted
 successfully.","limit":{…}}`** and nothing more (no report id, status, table or hand), and **`GET /api/reports/limit`** →
 `{limit:{max, used, remaining, windowMs, availableAt, waitMs}}` — the caller's OWN standing against the limit (owner, 27 Sep
@@ -1267,7 +1267,13 @@ he report again"; `db.Reports.Quota`, the same count `Submit` makes — `reportQ
 enough counted reports leave the window, the server's clock, and `waitMs` how long that is from the answer, so a phone with a
 wrong clock still counts to the server's moment; both 0 while a report is open; signed in, not counted against the attempt
 limiter). The same `limit` rides on the 201 (absent if the read failed — the report is filed anyway) and on the 429
-`report_limit_reached` (`db.ReportLimitReached.Quota`). REST, as Friends at the table is: a persistent
+`report_limit_reached` (`db.ReportLimitReached.Quota`). And **`GET /api/reports/mine`** (owner, 27 Sep 2026: "see all the
+players he reported in detail status, description, time he reported but don't show the reported user id, by default it will
+sorted in latest reported user") → `{reports:[{player:{displayName, profilePicture:{id, url}, gone}, reason, description, game,
+category, variant, status, createdAt, updatedAt}]}` — the caller's own reports, newest first (`created_at DESC, id DESC`, off
+the reporter index), the newest `db.MaxFiledReportsListed` (100); `db.Reports.Filed` resolves the name and picture as Friends
+does and blanks both for an account deleted since (`gone`); NO user id, report id, table or hand
+(`TestTheReporterListsTheirOwnReportsAndNoIDOfAnybody`); signed in, a read of the caller's rows alone. REST, as Friends at the table is: a persistent
 account action made from the table's player drawer, allowed while seated, and never through the table's actor — **a report
 changes nothing in the game** (no pause, kick, fold or ban; `TestAReportFromTheTableIsFiledWithTheTableAndTheHandAndChangesNothing`).
 Signed in (`RequireAuth`), the `wallet(…)` per-IP limiter, and a per-ACCOUNT attempt limiter (`REPORT_ATTEMPT_*`, every
@@ -2279,6 +2285,23 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   it (`reset`). `PlayerReports.clock` is the tests' seam. Three strings in all five languages (`reportLimitTitle`,
   `reportLimitUsed`, `reportAgainIn`). Played on TP_Small against the local server: an account with two reports filed opened a
   third player's drawer to the dead line counting down from 23h 34m 46s, and a tap did nothing.
+  **The Reported tab** (owner, 27 Sep 2026: "There is friends button in lobby, when user clicked it, then add one more tab,
+  where user can see all the players he reported in detail status, description, time he reported but don't show the reported
+  user id, by default it will sorted in latest reported user"): the Friends page's list head is two tabs, **Friends** and
+  **Reported** (`_PageTabs` in `friends_screen.dart` — the level screen's look for two: a glyph and a word each, gold for the one
+  showing, a sliding gold underline, each a 44dp target at most 190dp wide, the word set smaller rather than cut), beside Add
+  Friend and Close; the page's mark gave its place to them. The Player ID heads the Friends tab alone. Reported reads
+  `GET /api/reports/mine` as it opens (`PlayerReports.loadMine`/`mine`, `FiledReport` in `models/report.dart`, sorted newest
+  first again on the phone — `FiledReport.newestFirst`, stable) and lists each report on the page's own pane: the picture and
+  name ("Deleted player" in italics, a crossed-out person, for an account gone since), the status at the row's right end
+  (`ReportStatusTag`: an icon and a word on a wash of its ink — Pending amber, Under review blue, Action taken the friends'
+  green, Dismissed quiet, an unknown one by the server's word), the reason and where the two met ("Cheating · Teen Patti •
+  Seen", `tableKindLine` in `friend_presence.dart`), the description whole, and "Reported 27/09/2026 · 7:44 PM"
+  (`reportedWhen`: the day as numbers, the time by the phone's 12/24-hour setting). Pull to refresh; "You have not reported
+  anyone."; a failed read offers Retry; a server without the route (404) is an empty list. Sign-out forgets it. Ten strings in
+  all five languages. `test/reported_tab_test.dart` (20: the wire and the order, both tabs, every row's words, no id even one
+  a server wrongly sent, empty, failure and retry, an older server, sign-out, and 640x360 ×1.25 in all five languages and
+  592x360 in English and Hindi, both themes). Played on TP_Small against the local server.
   The client sends `{reportedUserId, reason, description?}` and nothing else. `PlayerReports` is GameState's own notifier
   beside `FriendsState` (no one-second rebuilds), reset at sign-out; the drawer listens to both, drops the page when it shuts
   or another seat opens, keeps a separate list (and scroll) per page, and rides above the keyboard with its head stepped aside

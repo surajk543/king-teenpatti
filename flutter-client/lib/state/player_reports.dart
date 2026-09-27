@@ -102,6 +102,53 @@ class PlayerReports extends ChangeNotifier {
   int _seq = 0;
   bool _disposed = false;
 
+  /// The player's own reports, newest first, as `GET /api/reports/mine` last
+  /// listed them (the Friends page's Reported tab); null before the first
+  /// read, and from a server that predates the list.
+  List<FiledReport>? get mine => _mine;
+  List<FiledReport>? _mine;
+
+  /// True while the list is being read.
+  bool get mineLoading => _mineLoading;
+  bool _mineLoading = false;
+
+  /// True when the last read of the list failed (and none has since
+  /// succeeded); what was listed before stays on screen.
+  bool get mineFailed => _mineFailed;
+  bool _mineFailed = false;
+
+  /// True once a read has answered, a server that predates the list
+  /// included.
+  bool get mineRead => _mineRead;
+  bool _mineRead = false;
+  int _mineSeq = 0;
+
+  /// Reads the player's own reports (the Reported tab opening, a pull, a
+  /// retry). One read at a time; an answer for an account signed out since is
+  /// dropped.
+  Future<void> loadMine() async {
+    final token = _token();
+    if (token == null || _mineLoading) return;
+    final seq = _mineSeq;
+    _mineLoading = true;
+    _notify();
+    try {
+      final list = await _api.myReports(token).timeout(timeout);
+      if (seq != _mineSeq || _disposed) return;
+      _mine = list == null ? null : FiledReport.newestFirst(list);
+      _mineFailed = false;
+      _mineRead = true;
+    } catch (_) {
+      if (seq != _mineSeq || _disposed) return;
+      _mineFailed = true;
+    } finally {
+      if (seq == _mineSeq) {
+        _mineLoading = false;
+        _notify();
+      }
+    }
+  }
+
   /// The player's standing against the report limit, as the server last said
   /// it; null before it has (or from a server that does not say).
   ReportLimit? get limit => _limit;
@@ -303,6 +350,11 @@ class PlayerReports extends ChangeNotifier {
     _limitReadAt = null;
     _limitTimer?.cancel();
     _limitTimer = null;
+    _mineSeq++;
+    _mine = null;
+    _mineLoading = false;
+    _mineFailed = false;
+    _mineRead = false;
     close();
   }
 

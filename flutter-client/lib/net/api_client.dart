@@ -712,6 +712,22 @@ class ApiClient {
     return ReportLimit.fromJson(j['limit'], receivedAt: receivedAt);
   }
 
+  /// The player's own reports, newest first: `GET /api/reports/mine` →
+  /// `{reports: [{player: {displayName, profilePicture, gone}, reason,
+  /// description, game, category, variant, status, createdAt, updatedAt}]}` —
+  /// never a user id. Null from a server that predates the list (404).
+  Future<List<FiledReport>?> myReports(String token) async {
+    final r = await http.get(
+      _uri('/api/reports/mine'),
+      headers: _headers(token),
+    );
+    if (r.statusCode == 404) return null;
+    final j = _decode(r);
+    final list = j['reports'];
+    if (list is! List) return const [];
+    return [for (final item in list) ?FiledReport.fromJson(item)];
+  }
+
   /// The player's standing against the report limit: `GET
   /// /api/reports/limit` → `{limit: {max, used, remaining, windowMs,
   /// availableAt, waitMs}}` — read as the player drawer opens, so a player who

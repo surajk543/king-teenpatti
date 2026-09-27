@@ -464,3 +464,80 @@ func TestTheQuotaSaysWhatSubmitWillDecideAndWhenTheNextReportOpens(t *testing.T)
 		t.Fatalf("another reporter: %+v %v", q, err)
 	}
 }
+
+// The reporter's own list (owner, 27 Sep 2026: "all the players he reported
+// in detail status, description, time he reported … by default it will
+// sorted in latest reported"): newest first, theirs alone, everything the tab
+// shows, a status moderation changed read as it now stands, and an account
+// deleted since listed with no name or picture.
+func TestTheReporterListsTheirOwnReportsNewestFirst(t *testing.T) {
+	f := newFixture(t)
+	clock := newReportClock()
+	reports := db.NewReports(f.d, clock.Now)
+	alice, bob, carla, dev := f.user("Alice"), f.user("Bob"), f.user("Carla"), f.user("Dev")
+	noLimit := db.ReportLimits{}
+
+	if list, err := reports.Filed(f.ctx, alice.ID, 0); err != nil || list == nil || len(list) != 0 {
+		t.Fatalf("nothing filed: %v %v", list, err)
+	}
+	first := clock.Now()
+	if _, err := reports.Submit(f.ctx, db.PlayerReport{ReporterID: alice.ID, ReportedID: bob.ID, Reason: "CHEATING",
+		Game: "teen_patti", Category: "seen", TableID: "room-1", HandID: "hand-1"}, noLimit); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(time.Hour)
+	if _, err := reports.Submit(f.ctx, db.PlayerReport{ReporterID: alice.ID, ReportedID: carla.ID, Reason: "OTHER",
+		Description: "Kept saying rude things", Game: "teen_patti", Category: "variation", Variant: "AK47",
+		TableID: "room-2", HandID: "hand-2"}, noLimit); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(time.Hour)
+	if _, err := reports.Submit(f.ctx, db.PlayerReport{ReporterID: alice.ID, ReportedID: dev.ID, Reason: "SPAM",
+		Game: "teen_patti", Category: "blind", TableID: "room-3"}, noLimit); err != nil {
+		t.Fatal(err)
+	}
+	// Somebody else's report is not Alice's.
+	if _, err := reports.Submit(f.ctx, db.PlayerReport{ReporterID: bob.ID, ReportedID: alice.ID, Reason: "SPAM",
+		Game: "teen_patti", Category: "seen", TableID: "room-1"}, noLimit); err != nil {
+		t.Fatal(err)
+	}
+	// Moderation looked at the first; Dev deleted his account.
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE player_reports SET status = 'UNDER_REVIEW', updated_at = updated_at + 5
+	                                    WHERE reporter_user_id = $1 AND reported_user_id = $2`, alice.ID, bob.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.users.DeleteAccount(f.ctx, dev.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := reports.Filed(f.ctx, alice.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 3 {
+		t.Fatalf("%d reports listed, want Alice's 3", len(list))
+	}
+	newest, middle, oldest := list[0], list[1], list[2]
+	if !newest.ReportedGone || newest.Reported.DisplayName != "" || newest.Reported.PictureURL != nil ||
+		newest.Reason != "SPAM" || newest.Category != "blind" || newest.Status != db.ReportPending {
+		t.Fatalf("newest (Dev, deleted since): %+v", newest)
+	}
+	if middle.Reported.DisplayName != "Carla" || middle.ReportedGone || middle.Reason != "OTHER" ||
+		middle.Description != "Kept saying rude things" || middle.Variant != "AK47" ||
+		middle.CreatedAt != first.Add(time.Hour).UnixMilli() {
+		t.Fatalf("middle (Carla): %+v", middle)
+	}
+	if oldest.Reported.DisplayName != "Bob" || oldest.Status != db.ReportUnderReview || oldest.Description != "" ||
+		oldest.Variant != "" || oldest.CreatedAt != first.UnixMilli() || oldest.UpdatedAt != first.UnixMilli()+5 {
+		t.Fatalf("oldest (Bob, under review): %+v", oldest)
+	}
+	// The limit keeps the newest.
+	if two, err := reports.Filed(f.ctx, alice.ID, 2); err != nil || len(two) != 2 || two[0].Reason != "SPAM" ||
+		two[1].Reason != "OTHER" {
+		t.Fatalf("the newest two: %+v %v", two, err)
+	}
+	if theirs, err := reports.Filed(f.ctx, bob.ID, 0); err != nil || len(theirs) != 1 ||
+		theirs[0].Reported.DisplayName != "Alice" {
+		t.Fatalf("Bob's own: %+v %v", theirs, err)
+	}
+}

@@ -7,9 +7,11 @@ import 'package:provider/provider.dart';
 
 import '../l10n/strings.dart';
 import '../models/friends.dart';
+import '../models/report.dart';
 import '../settings/feedback_settings.dart';
 import '../state/friends_state.dart';
 import '../state/game_state.dart';
+import '../state/player_reports.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
 import '../widgets/avatar.dart';
@@ -19,6 +21,7 @@ import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/player_profile.dart';
 import '../widgets/premium_surface.dart';
+import '../widgets/report_player.dart' show reportReasonLabel;
 
 export '../widgets/friend_presence.dart' show presenceGameLine;
 
@@ -227,6 +230,12 @@ class _Mark extends StatelessWidget {
 
 enum _View { list, add, profile }
 
+/// The list page's two tabs (owner, 27 Sep 2026: "There is friends button in
+/// lobby, when user clicked it, then add one more tab, where user can see all
+/// the players he reported"): the friends and their requests, and the
+/// players this player reported.
+enum _Tab { friends, reported }
+
 /// The Friends page (owner, 26 Sep 2026), as [showFriends] opens it: who the
 /// player is to others (their Player ID, to copy), the requests waiting for
 /// them, and their friends — playing first, then online, then offline. Two
@@ -263,6 +272,10 @@ class _FriendsScreenState extends State<FriendsScreen> {
   late final FriendsState _friends;
 
   _View _view = _View.list;
+
+  /// The list page's tab. Kept while Add Friend or a profile is open, so
+  /// Back returns to it.
+  _Tab _tab = _Tab.friends;
 
   /// Whose profile is open, drawn at once from what the list or the search
   /// already knew while the profile itself is read.
@@ -305,6 +318,11 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
   void _openAdd() {
     setState(() => _view = _View.add);
+  }
+
+  void _openTab(_Tab tab) {
+    if (tab == _tab) return;
+    setState(() => _tab = tab);
   }
 
   void _openProfile(PlayerCard who, {required _View from}) {
@@ -459,6 +477,10 @@ class _FriendsScreenState extends State<FriendsScreen> {
         ),
       ),
       child: switch (_view) {
+        _View.list when _tab == _Tab.reported => _ReportedList(
+          key: const ValueKey('friends-view-reported'),
+          t: t,
+        ),
         _View.list => _FriendsList(
           key: const ValueKey('friends-view-list'),
           t: t,
@@ -535,7 +557,10 @@ class _FriendsScreenState extends State<FriendsScreen> {
                           children: [
                             if (!bare) ...[
                               _header(t, typing: keyboard > 0),
-                              if (_view == _View.list) ...[
+                              // The Player ID is what a player hands a
+                              // friend: it heads the Friends tab alone.
+                              if (_view == _View.list &&
+                                  _tab == _Tab.friends) ...[
                                 const SizedBox(height: Space.sm),
                                 _PlayerIdStrip(
                                   t: t,
@@ -582,22 +607,47 @@ class _FriendsScreenState extends State<FriendsScreen> {
       _View.profile => (t.playerProfile, null),
     };
 
+    // The list page's head is its two tabs, where the other pages' is a back
+    // key and a title: the tabs name the page, and a line of their own under
+    // the head would take a landscape phone's list a row.
+    if (_view == _View.list) {
+      return ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: Dim.minTouch),
+        child: Row(
+          children: [
+            Expanded(
+              child: _PageTabs(t: t, value: _tab, onChanged: _openTab),
+            ),
+            const SizedBox(width: Space.sm),
+            GlassButton(
+              key: const ValueKey('friends-add'),
+              style: GlassButtonStyle.primary,
+              icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+              label: t.addFriend,
+              onPressed: _openAdd,
+            ),
+            const SizedBox(width: Space.sm),
+            _RoundKey(
+              key: const ValueKey('friends-close'),
+              icon: Icons.close_rounded,
+              tooltip: t.close,
+              onTap: _close,
+            ),
+          ],
+        ),
+      );
+    }
+
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: Dim.minTouch),
       child: Row(
         children: [
-          if (_view == _View.list)
-            const _Mark(
-              lit: true,
-              child: _MarkGlyph(icon: Icons.people_alt_rounded),
-            )
-          else
-            _RoundKey(
-              key: const ValueKey('friends-back'),
-              icon: Icons.arrow_back_rounded,
-              tooltip: t.back,
-              onTap: _back,
-            ),
+          _RoundKey(
+            key: const ValueKey('friends-back'),
+            icon: Icons.arrow_back_rounded,
+            tooltip: t.back,
+            onTap: _back,
+          ),
           const SizedBox(width: Space.md),
           Expanded(
             child: Column(
@@ -623,16 +673,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
               ],
             ),
           ),
-          if (_view == _View.list) ...[
-            const SizedBox(width: Space.sm),
-            GlassButton(
-              key: const ValueKey('friends-add'),
-              style: GlassButtonStyle.primary,
-              icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
-              label: t.addFriend,
-              onPressed: _openAdd,
-            ),
-          ],
           const SizedBox(width: Space.sm),
           _RoundKey(
             key: const ValueKey('friends-close'),
@@ -646,18 +686,167 @@ class _FriendsScreenState extends State<FriendsScreen> {
   }
 }
 
-/// The glyph in the page's own mark: gold, as the Settings drawer's is.
-class _MarkGlyph extends StatelessWidget {
-  const _MarkGlyph({required this.icon});
+/// The list page's two tabs, Friends and Reported: a glyph and a word each,
+/// the one showing in gold and the other quiet, over a hairline, with a gold
+/// underline that slides to the tab tapped — the level screen's tabs
+/// (`LevelTabs`), here for two. Each is a full [Dim.minTouch] target at most
+/// [maxTab] wide; a word runs smaller rather than being cut where a language
+/// runs long.
+class _PageTabs extends StatelessWidget {
+  const _PageTabs({
+    required this.t,
+    required this.value,
+    required this.onChanged,
+  });
 
-  final IconData icon;
+  final Strings t;
+  final _Tab value;
+  final ValueChanged<_Tab> onChanged;
+
+  /// The widest a tab stands: on a tablet the two keep together at the head
+  /// rather than spreading across it.
+  static const double maxTab = 190;
+
+  /// The underline's thickness.
+  static const double line = 2.5;
+
+  static const Map<_Tab, IconData> icons = {
+    _Tab.friends: Icons.people_alt_rounded,
+    _Tab.reported: Icons.outlined_flag_rounded,
+  };
 
   @override
-  Widget build(BuildContext context) => Icon(
-    icon,
-    size: 16,
-    color: AppTheme.goldInk(Theme.of(context).brightness),
-  );
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final gold = AppTheme.goldInk(theme.brightness);
+    final quiet = scheme.onSurface.withValues(alpha: AppTheme.inkMed);
+    final labels = {_Tab.friends: t.friends, _Tab.reported: t.reportedTab};
+    return LayoutBuilder(
+      builder: (context, box) {
+        final w = math.min(box.maxWidth / _Tab.values.length, maxTab);
+        final inset = math.min(Space.lg, w * 0.14);
+        return SizedBox(
+          height: Dim.minTouch,
+          child: Stack(
+            children: [
+              Positioned(
+                left: 0,
+                width: w * _Tab.values.length,
+                bottom: 0,
+                height: Dim.hairline,
+                child: ColoredBox(
+                  color: scheme.onSurface.withValues(alpha: 0.10),
+                ),
+              ),
+              AnimatedPositioned(
+                key: const ValueKey('friends-tab-indicator'),
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                left: value.index * w + inset,
+                width: w - 2 * inset,
+                bottom: 0,
+                height: line,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: gold,
+                    borderRadius: BorderRadius.circular(line),
+                    boxShadow: [
+                      BoxShadow(
+                        color: gold.withValues(alpha: 0.45),
+                        blurRadius: 6,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Row(
+                children: [
+                  for (final tab in _Tab.values)
+                    SizedBox(
+                      width: w,
+                      height: Dim.minTouch,
+                      child: _PageTab(
+                        key: ValueKey('friends-tab-${tab.name}'),
+                        icon: icons[tab]!,
+                        label: labels[tab]!,
+                        selected: tab == value,
+                        colour: tab == value ? gold : quiet,
+                        onTap: () => onChanged(tab),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// One of [_PageTabs]: a glyph and a word, read to a screen reader as a tab
+/// that is selected or not.
+class _PageTab extends StatelessWidget {
+  const _PageTab({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.colour,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final Color colour;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      excludeSemantics: true,
+      onTap: onTap,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Radii.sm),
+        enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
+        onTap: () {
+          if (selected) return;
+          tapHaptic(context);
+          onTap();
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Space.sm),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 18, color: colour),
+              const SizedBox(width: Space.xs),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 220),
+                    style: AppTheme.label(
+                      text.titleSmall!,
+                      colour: colour,
+                      weight: selected ? FontWeight.w700 : FontWeight.w600,
+                    ),
+                    child: Text(label, maxLines: 1),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// A round 44dp key with one glyph: Back and Close.
@@ -902,6 +1091,349 @@ class _FriendsList extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+// ------------------------------------------------------------ reported
+
+/// The Reported tab (owner, 27 Sep 2026: "see all the players he reported in
+/// detail status, description, time he reported but don't show the reported
+/// user id, by default it will sorted in latest reported user"): every report
+/// this player filed, newest first ([PlayerReports.mine], `GET
+/// /api/reports/mine`), one row each — the player's name and picture, the
+/// reason and where the two met, what they wrote, the status moderation has
+/// it at, and when it was filed. Nobody's id: the wire carries none.
+///
+/// Read as the tab opens and on a pull; what was read stays on screen while a
+/// new read is out.
+class _ReportedList extends StatefulWidget {
+  const _ReportedList({super.key, required this.t});
+
+  final Strings t;
+
+  @override
+  State<_ReportedList> createState() => _ReportedListState();
+}
+
+class _ReportedListState extends State<_ReportedList> {
+  late final PlayerReports _reports = context.read<GameState>().reports;
+
+  @override
+  void initState() {
+    super.initState();
+    // After the frame: the read says at once that it has begun, and a
+    // notifier may not be told so while this tab is being built.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_reports.loadMine());
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = widget.t;
+    return ListenableBuilder(
+      listenable: _reports,
+      builder: (context, _) {
+        final list = _reports.mine;
+        if (!_reports.mineRead && list == null) {
+          if (_reports.mineFailed && !_reports.mineLoading) {
+            return _Trouble(
+              key: const ValueKey('reported-failed'),
+              message: t.reportsLoadFailed,
+              retry: t.friendsRetry,
+              onRetry: _reports.loadMine,
+            );
+          }
+          return const _Waiting(key: ValueKey('reported-loading'));
+        }
+        final reports = list ?? const <FiledReport>[];
+        return _Scroll(
+          listKey: const ValueKey('reported-list'),
+          onRefresh: _reports.loadMine,
+          children: [
+            _SectionHead(
+              label: t.myReportsTitle,
+              count: reports.length,
+              english: t.lang == AppLang.english,
+            ),
+            if (reports.isEmpty)
+              _Pane(
+                child: _QuietLine(
+                  key: const ValueKey('reported-none'),
+                  icon: Icons.outlined_flag_rounded,
+                  text: t.noReportsYet,
+                ),
+              )
+            else
+              _Pane(
+                children: [
+                  for (final (i, report) in reports.indexed)
+                    _ReportRow(
+                      key: ValueKey('reported-$i'),
+                      t: t,
+                      index: i,
+                      report: report,
+                    ),
+                ],
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// When a report was filed, as the tab writes it: the day as numbers
+/// (DD/MM/YYYY, the rental shelf's way — a date no language has to translate)
+/// and the time as the phone keeps it, 12- or 24-hour.
+String reportedWhen(BuildContext context, int at) {
+  final local = DateTime.fromMillisecondsSinceEpoch(at);
+  String two(int n) => n.toString().padLeft(2, '0');
+  final day = '${two(local.day)}/${two(local.month)}/${local.year}';
+  final time = MaterialLocalizations.of(context).formatTimeOfDay(
+    TimeOfDay.fromDateTime(local),
+    alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+  );
+  return '$day · $time';
+}
+
+/// One report: the picture, the name and the status on the first line; the
+/// reason and where the two met; what the player wrote, whole; when.
+class _ReportRow extends StatelessWidget {
+  const _ReportRow({
+    super.key,
+    required this.t,
+    required this.index,
+    required this.report,
+  });
+
+  final Strings t;
+  final int index;
+  final FiledReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+    final glass = GlassColors.of(context);
+    final state = context.read<GameState>();
+    final gone = report.gone || report.displayName.isEmpty;
+    final reason = switch (report.reasonKind) {
+      final ReportReason r => reportReasonLabel(t, r),
+      null => report.reason,
+    };
+    final where = tableKindLine(
+      t,
+      report.game,
+      report.category,
+      engineName: state.lobbyEngineServerName,
+      categoryName: state.lobbyServerName,
+    );
+    final muted = text.bodySmall?.copyWith(color: glass.cardMuted);
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.md,
+        vertical: Space.sm,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (gone)
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: glass.wellFill,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.person_off_outlined,
+                size: 18,
+                color: glass.cardMuted,
+              ),
+            )
+          else
+            Avatar(
+              url: state.absoluteUrl(report.pictureUrl),
+              fallback: report.displayName,
+              radius: 18,
+              animate: true,
+            ),
+          const SizedBox(width: Space.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // The status stands at the row's right end, given at most
+                // half the line; the name takes the rest.
+                LayoutBuilder(
+                  builder: (context, box) => Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          gone ? t.reportedPlayerGone : report.displayName,
+                          key: ValueKey('reported-$index-name'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: gone
+                              ? AppTheme.label(
+                                  text.titleSmall!,
+                                  colour: glass.cardMuted,
+                                ).copyWith(fontStyle: FontStyle.italic)
+                              : AppTheme.label(text.titleSmall!),
+                        ),
+                      ),
+                      const SizedBox(width: Space.sm),
+                      ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: box.maxWidth / 2),
+                        child: ReportStatusTag(
+                          key: ValueKey('reported-$index-status'),
+                          t: t,
+                          status: report.status,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: Space.xxs),
+                Text(
+                  [reason, ?where].join(' · '),
+                  key: ValueKey('reported-$index-reason'),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTheme.label(
+                    text.bodySmall!,
+                    colour: theme.colorScheme.onSurface.withValues(
+                      alpha: AppTheme.inkMed,
+                    ),
+                    weight: FontWeight.w600,
+                  ),
+                ),
+                if (report.description.isNotEmpty) ...[
+                  const SizedBox(height: Space.xs),
+                  Text(
+                    report.description,
+                    key: ValueKey('reported-$index-description'),
+                    style: text.bodyMedium?.copyWith(color: glass.textBody),
+                  ),
+                ],
+                const SizedBox(height: Space.xs),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.schedule_rounded,
+                      size: 14,
+                      color: glass.cardMuted,
+                    ),
+                    const SizedBox(width: Space.xs),
+                    Expanded(
+                      child: Text(
+                        t.reportedOn(reportedWhen(context, report.createdAt)),
+                        key: ValueKey('reported-$index-when'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: muted?.copyWith(
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A report's status as a small tag: an icon and a word in the status's own
+/// ink on a wash of it — never the colour alone. Pending in amber, under
+/// review in blue, action taken in the friends' green, dismissed quiet; a
+/// status this build has never heard of goes by the server's word, quiet.
+class ReportStatusTag extends StatelessWidget {
+  const ReportStatusTag({super.key, required this.t, required this.status});
+
+  final Strings t;
+  final String status;
+
+  /// The status's ink, word and icon at [b].
+  static (Color, String, IconData) look(
+    Strings t,
+    String status,
+    Brightness b,
+    Color quiet,
+  ) {
+    final day = b == Brightness.light;
+    return switch (status) {
+      ReportStatus.pending => (
+        day ? const Color(0xFF8A5A00) : const Color(0xFFFFC46B),
+        t.reportStatusPending,
+        Icons.hourglass_top_rounded,
+      ),
+      ReportStatus.underReview => (
+        day ? const Color(0xFF1F5FA8) : const Color(0xFF8CC2FF),
+        t.reportStatusUnderReview,
+        Icons.visibility_rounded,
+      ),
+      ReportStatus.actionTaken => (
+        friendsGreen(b),
+        t.reportStatusActionTaken,
+        Icons.verified_rounded,
+      ),
+      ReportStatus.dismissed => (
+        quiet,
+        t.reportStatusDismissed,
+        Icons.do_not_disturb_on_outlined,
+      ),
+      _ => (
+        quiet,
+        friendlyName(status.replaceAll('_', ' ').toLowerCase()),
+        Icons.info_outline_rounded,
+      ),
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final glass = GlassColors.of(context);
+    final (ink, word, icon) = look(
+      t,
+      status,
+      theme.brightness,
+      glass.cardMuted,
+    );
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerRight,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: Space.sm, vertical: 2),
+        decoration: BoxDecoration(
+          color: ink.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(Radii.pill),
+          border: Border.all(color: ink.withValues(alpha: 0.40), width: 1),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: ink),
+            const SizedBox(width: Space.xxs),
+            Text(
+              word,
+              maxLines: 1,
+              style: AppTheme.label(
+                theme.textTheme.labelSmall!,
+                colour: ink,
+                weight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
