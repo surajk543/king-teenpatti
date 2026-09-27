@@ -4,10 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../config/features.dart';
 import '../l10n/strings.dart';
-import '../models/dtos.dart';
 import '../models/friends.dart';
 import '../models/player_stats.dart';
-import '../state/game_state.dart' show formatChips;
 import '../theme/app_theme.dart';
 import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
@@ -16,10 +14,10 @@ import 'premium_surface.dart';
 
 // What a player's profile shows wherever it is shown (owner, 26 Sep 2026):
 // the lobby's Friends page and the table's player drawer draw the same record
-// from the same widget, and mark a friendship in the same green — and since
-// player stats v2 (owner, 27 Sep 2026) the lobby's Stats drawer draws the
-// player's own record with it too, game by game. Counts only on another
-// player's record: nothing there is, or names, a wallet.
+// from the same widget, and mark a friendship in the same green. Counts only
+// on another player's record: nothing there is, or names, a wallet. (The
+// lobby's Stats drawer lays the player's own record out on its own terms,
+// [OwnRecord], from the same model and helpers.)
 
 /// The green a friendship is marked in — the ✓ Friends tag, and on the lobby's
 /// Friends page the dot beside a friend who is online: the dark scheme's mint
@@ -28,8 +26,9 @@ Color friendsGreen(Brightness b) =>
     b == Brightness.dark ? AppTheme.mintOnInk : const Color(0xFF1E8E57);
 
 /// A count as the app writes one: grouped by thousands, never abbreviated —
-/// hands are not money.
-String _count(int n) {
+/// hands are not money. Public for the lobby's Stats drawer ([OwnRecord]),
+/// which writes the same counts in a presentation of its own.
+String countText(int n) {
   final s = n.abs().toString();
   final b = StringBuffer(n < 0 ? '-' : '');
   for (var i = 0; i < s.length; i++) {
@@ -54,8 +53,7 @@ double _cellWidth(double width, int columns, double gap) =>
     math.max(0, (width - gap * (columns - 1)) / columns - 0.001);
 
 /// Where a record stands, which decides its type and how many tiles share a
-/// row: the lobby — the Friends page's profile, the player's own Stats drawer
-/// — or a table's player drawer, whose words take the table's own roles
+/// row: the lobby — the Friends page's profile — or a table's player drawer, whose words take the table's own roles
 /// ([TableType]), as everything at a table does.
 enum RecordSurface { lobby, table }
 
@@ -70,20 +68,20 @@ String statsCategoryName(Strings t, StatsCategory category) =>
       StatsCategory.poker => friendlyName(t.poker),
     };
 
-/// A player's record — the ONE widget every place that shows one draws it
-/// with: the lobby's Friends page and a table's player drawer (another
-/// player's), and the lobby's Stats drawer (the player's own).
+/// Another player's record — the ONE widget both places that show one draw it
+/// with: the lobby's Friends page and a table's player drawer. The lobby's
+/// Stats drawer, the player's own, is laid out on its own terms since
+/// 27 Sep 2026 ([OwnRecord]: no switch, no Poker) from the same model and the
+/// same helpers ([countText], [EvenGrid]).
 ///
 /// Player stats v2 (owner, 27 Sep 2026: "Show the stats acc to each
 /// category"): a switch over the record — All · Teen Patti · Variation ·
 /// Poker — and under the view chosen, its figures: hands played, won, lost and
-/// left mid-hand, then the win rate on another player's record or, on the
-/// player's own, their total winnings and biggest pot, as their Stats drawer
-/// always showed them. Teen Patti and Variation add the hands held, Trail down
-/// to High Card; Variation also the variations its hands were played under,
+/// left mid-hand, then the win rate. Teen Patti and Variation add the hands
+/// held, Trail down to High Card; Variation also the variations its hands were played under,
 /// with the hands won under each. All is the totals, the record as it read
-/// before it was kept game by game. Another player's record has no chip figure
-/// in any view — not drawn, and not even read ([PlayerStats.categories]).
+/// before it was kept game by game. The record has no chip figure in any view
+/// — not drawn, and not even read ([PlayerStats.categories]).
 class PlayerStatsGrid extends StatefulWidget {
   /// Another player's record, from their profile.
   PlayerStatsGrid({
@@ -91,23 +89,8 @@ class PlayerStatsGrid extends StatefulWidget {
     required this.t,
     required PlayerStats stats,
     this.surface = RecordSurface.lobby,
-    this.well,
   }) : totals = stats.totals,
-       games = stats.categories,
-       own = false;
-
-  /// The player's own record, from their account ([User.totals] and
-  /// [User.stats]): the same views, with the two chip figures in place of the
-  /// win rate. Zeros while there is no account.
-  PlayerStatsGrid.own({
-    super.key,
-    required this.t,
-    required User? user,
-    this.surface = RecordSurface.lobby,
-    this.well,
-  }) : totals = user?.totals ?? CategoryStats.empty,
-       games = user?.stats ?? const StatsByCategory(),
-       own = true;
+       games = stats.categories;
 
   final Strings t;
 
@@ -117,20 +100,11 @@ class PlayerStatsGrid extends StatefulWidget {
   /// Each game on its own.
   final StatsByCategory games;
 
-  /// The player's own record: the only one that shows chip figures.
-  final bool own;
   final RecordSurface surface;
 
-  /// The fill of what is sunk into the record — the switch's track, the hands
-  /// held, the variations — where the panel it stands on sinks its wells in a
-  /// colour of its own (the lobby drawers' warm stone by day); the theme's
-  /// well ([GlassColors.wellFill]) otherwise.
-  final Color? well;
-
   /// How many figure tiles share a row [width] wide, of [tiles] in all: all
-  /// five of another player's on a wide page; otherwise three, or two where
-  /// three would stand under 100dp each — a table's drawer, the lobby's Stats
-  /// drawer — since there "Left mid-hand" in Bengali at text x1.25 takes more
+  /// five on a wide page; otherwise three, or two where three would stand
+  /// under 100dp each — a table's drawer — since there "Left mid-hand" in Bengali at text x1.25 takes more
   /// than its two lines.
   static int figureColumns(RecordSurface surface, double width, int tiles) {
     if (surface == RecordSurface.lobby && tiles <= 5 && width >= 560) {
@@ -157,7 +131,9 @@ class _PlayerStatsGridState extends State<PlayerStatsGrid> {
   Widget build(BuildContext context) {
     final w = widget;
     final view = _view;
-    final well = w.well ?? GlassColors.of(context).wellFill;
+    // The fill of what is sunk into the record — the switch's track, the
+    // hands held, the variations: the theme's own well.
+    final well = GlassColors.of(context).wellFill;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -191,7 +167,6 @@ class _PlayerStatsGridState extends State<PlayerStatsGrid> {
               t: w.t,
               view: view,
               stats: view == StatsCategory.all ? w.totals : w.games.of(view),
-              own: w.own,
               surface: w.surface,
               well: well,
             ),
@@ -435,7 +410,6 @@ class _RecordView extends StatelessWidget {
     required this.t,
     required this.view,
     required this.stats,
-    required this.own,
     required this.surface,
     required this.well,
   });
@@ -443,7 +417,6 @@ class _RecordView extends StatelessWidget {
   final Strings t;
   final StatsCategory view;
   final CategoryStats stats;
-  final bool own;
   final RecordSurface surface;
   final Color well;
 
@@ -453,7 +426,7 @@ class _RecordView extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        _Figures(t: t, stats: stats, own: own, surface: surface),
+        _Figures(t: t, stats: stats, surface: surface),
         if (view.countsHands) ...[
           const SizedBox(height: Space.lg),
           _SectionTitle(
@@ -485,48 +458,22 @@ class _RecordView extends StatelessWidget {
 }
 
 /// The view's figures, a tile each: hands played, won, lost, left mid-hand,
-/// then the win rate — or, on the player's own record, their total winnings
-/// and biggest pot.
+/// then the win rate.
 class _Figures extends StatelessWidget {
-  const _Figures({
-    required this.t,
-    required this.stats,
-    required this.own,
-    required this.surface,
-  });
+  const _Figures({required this.t, required this.stats, required this.surface});
 
   final Strings t;
   final CategoryStats stats;
-  final bool own;
   final RecordSurface surface;
 
   @override
   Widget build(BuildContext context) {
-    final tiles = <(IconData, String, String, bool)>[
-      (Icons.style_outlined, t.handsPlayed, _count(stats.handsPlayed), false),
-      (Icons.emoji_events_outlined, t.won, _count(stats.handsWon), false),
-      (Icons.trending_down_rounded, t.lost, _count(stats.handsLost), false),
-      (
-        Icons.exit_to_app_rounded,
-        t.leftMidHand,
-        _count(stats.handsLeft),
-        false,
-      ),
-      if (own) ...[
-        (
-          Icons.savings_outlined,
-          t.totalWinnings,
-          formatChips(stats.totalWinnings),
-          true,
-        ),
-        (
-          Icons.local_fire_department_outlined,
-          t.biggestPot,
-          formatChips(stats.biggestPot),
-          true,
-        ),
-      ] else
-        (Icons.percent_rounded, t.winRate, _rate(stats.winRate), false),
+    final tiles = <(IconData, String, String)>[
+      (Icons.style_outlined, t.handsPlayed, countText(stats.handsPlayed)),
+      (Icons.emoji_events_outlined, t.won, countText(stats.handsWon)),
+      (Icons.trending_down_rounded, t.lost, countText(stats.handsLost)),
+      (Icons.exit_to_app_rounded, t.leftMidHand, countText(stats.handsLeft)),
+      (Icons.percent_rounded, t.winRate, _rate(stats.winRate)),
     ];
     const gap = PlayerStatsGrid._gap;
     return LayoutBuilder(
@@ -536,7 +483,7 @@ class _Figures extends StatelessWidget {
           box.maxWidth,
           tiles.length,
         );
-        return _EvenGrid(
+        return EvenGrid(
           key: const ValueKey('friend-stats'),
           columns: columns,
           gap: gap,
@@ -547,7 +494,6 @@ class _Figures extends StatelessWidget {
                 icon: tile.$1,
                 label: tile.$2,
                 value: tile.$3,
-                money: tile.$4,
                 surface: surface,
               ),
           ],
@@ -561,9 +507,10 @@ class _Figures extends StatelessWidget {
 /// every cell of a row as tall as the tallest in it — so a caption that takes
 /// two lines in one language ("Pure Sequence", "Left mid-hand") does not leave
 /// its neighbours standing short beside it. A last row that is not full keeps
-/// the others' widths.
-class _EvenGrid extends StatelessWidget {
-  const _EvenGrid({
+/// the others' widths. Public for the lobby's Stats drawer, whose tiles stand
+/// in the same even rows.
+class EvenGrid extends StatelessWidget {
+  const EvenGrid({
     super.key,
     required this.columns,
     required this.gap,
@@ -613,17 +560,12 @@ class _StatTile extends StatelessWidget {
     required this.label,
     required this.value,
     required this.surface,
-    this.money = false,
   });
 
   final IconData icon;
   final String label;
   final String value;
   final RecordSurface surface;
-
-  /// A chip figure — the player's own winnings or biggest pot — written in
-  /// the gold the lobby writes money in.
-  final bool money;
 
   @override
   Widget build(BuildContext context) {
@@ -633,7 +575,7 @@ class _StatTile extends StatelessWidget {
     final table = surface == RecordSurface.table;
     // The display ink for a count, not the lobby's gold: gold is how the
     // lobby writes money, and a count of hands is not money.
-    final ink = money ? AppTheme.goldInk(theme.brightness) : glass.textDisplay;
+    final ink = glass.textDisplay;
     final figure = table
         ? TableType.chips(theme, colour: ink)
         : AppTheme.money(text.titleMedium!, colour: ink);
@@ -759,7 +701,7 @@ class _HandsHeld extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, box) {
         final columns = box.maxWidth >= 3 * _minCell + 2 * gap ? 3 : 2;
-        return _EvenGrid(
+        return EvenGrid(
           key: const ValueKey('stats-hands'),
           columns: columns,
           gap: gap,
@@ -782,7 +724,7 @@ class _HandsHeld extends StatelessWidget {
                     FittedBox(
                       fit: BoxFit.scaleDown,
                       child: Text(
-                        _count(counts[i]),
+                        countText(counts[i]),
                         maxLines: 1,
                         style: figure,
                       ),
@@ -881,7 +823,7 @@ class _VariationsPlayed extends StatelessWidget {
     Widget figureOf(int n, String key) => Padding(
       padding: figureCell,
       child: Text(
-        _count(n),
+        countText(n),
         key: ValueKey(key),
         maxLines: 1,
         textAlign: TextAlign.end,

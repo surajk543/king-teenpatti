@@ -1,6 +1,7 @@
 // Pictures of a player's record game by game (player stats v2, owner,
-// 27 Sep 2026): the lobby's Stats drawer (the player's own), the Friends
-// page's profile and the table's player drawer (another player's), each in
+// 27 Sep 2026): the Friends page's profile and the table's player drawer
+// (another player's — the lobby's Stats drawer has its own presentation since
+// the owner's brief of 27 Sep 2026, pictured by stats_drawer_shots.dart), each in
 // its four views — All, Teen Patti, Variation, Poker — and Variation again
 // scrolled to its end, where the variations played are; in both themes, at
 // text x1.0 and x1.25, on the tightest phone the app is checked on, a larger
@@ -29,7 +30,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/player_stats.dart';
 import 'package:teenpatti/screens/friends_screen.dart';
-import 'package:teenpatti/screens/lobby_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/widgets/hammer_flight.dart';
@@ -46,9 +46,6 @@ const _only = String.fromEnvironment('SHOTS_ONLY');
 
 /// Where the record is shown.
 enum _Place {
-  /// The lobby's Stats drawer: the player's own.
-  stats,
-
   /// The lobby's Friends page, on a friend's profile.
   profile,
 
@@ -144,7 +141,7 @@ List<_Shot> _shots() => [
     1.0,
   ),
   _Shot(
-    _Place.stats,
+    _Place.drawer,
     StatsCategory.variation,
     const Size(1280, 800),
     Brightness.light,
@@ -209,30 +206,10 @@ Future<void> _shoot(
   final server = switch (shot.place) {
     _Place.profile => statsProfileServer(),
     _Place.drawer => statsTableServer(),
-    _Place.stats => FakeFriendsServer(),
   };
   await http.runWithClient(() async {
     late final GameState state;
     switch (shot.place) {
-      case _Place.stats:
-        state = statsLobbyState(lang: shot.lang);
-        final feedback = FeedbackSettings();
-        addTearDown(feedback.dispose);
-        await tester.pumpWidget(
-          RepaintBoundary(
-            key: key,
-            child: statsApp(
-              state,
-              feedback,
-              const LobbyScreen(),
-              brightness: shot.brightness,
-            ),
-          ),
-        );
-        await _settle(tester, 900);
-        await tester.tap(find.byIcon(Icons.insights_outlined).first);
-        await _settle(tester, 900);
-        await _settle(tester, 600);
       case _Place.profile:
         state = signedInState(lang: shot.lang);
         final feedback = FeedbackSettings();
@@ -298,7 +275,6 @@ Future<void> _shoot(
     await tester.tap(segment);
     await _settle(tester, 500);
     final root = switch (shot.place) {
-      _Place.stats => find.byType(Drawer),
       _Place.profile => find.byType(FriendsScreen),
       _Place.drawer => find.byType(PlayerDrawer),
     };

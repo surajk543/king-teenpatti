@@ -153,7 +153,7 @@ king-teenpatti/
     │   │                         CardFacePainter/CardStockPainter (the printed face; the stock's gold edge, faces and backs), cardRankFit, CardPips/SuitMark/paintPip
     │   ├── widgets/hand_fan.dart  HandFan (25 Sep 2026): the viewer's own fan as pure geometry — places, lean, which card is on top — for `_OwnHand` and SeatRing
     │   ├── widgets/              premium_surface, game_card (the lobby's one card shell, and CardColumn/CardGap/CardRule/CardSpace — its words, §8.4), seat_pod, poker_chip, liquid_fill,
-    │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet,
+    │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet, own_record (the lobby's Stats drawer, §8.4),
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
     │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4)
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
@@ -2032,11 +2032,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `friendsSince` via `FriendsState.friendsSinceOf`, the same moment for both, in the largest whole unit — minutes, hours,
   days, months of 30 days, years — or "Friends since just now", counted again every 30 s; `Strings.friendsFor`, which
   added months and years to the time units) — and the record through the ONE `PlayerStatsGrid`
-  (`widgets/player_profile.dart`, `RecordSurface.lobby|table`, shared with the lobby profile and, as `PlayerStatsGrid.own`,
-  the lobby's Stats drawer under its level row): since Player stats v2 (27 Sep 2026) a game switch — All · Teen Patti ·
+  (`widgets/player_profile.dart`, `RecordSurface.lobby|table`, shared with the lobby profile; the lobby's Stats drawer drew
+  it too, as `PlayerStatsGrid.own` — removed with its chip tiles — until its own presentation of 27 Sep 2026, "The Stats drawer" below): since Player stats v2 (27 Sep 2026) a game switch — All · Teen Patti ·
   Variation · Poker (`StatsCategory`, `models/player_stats.dart`) — over the counts, and for Teen Patti and Variation the hands
-  held (Trail down to High Card) and the variations played; counts in thousands grouping, a chip figure only on the player's
-  own record. No presence, no wallet, no
+  held (Trail down to High Card) and the variations played; counts in thousands grouping, and no chip figure. No presence, no wallet, no
   table id. Its own state slot (`FriendsState.seatPlayer/seatProfile/openSeat/closeSeat`), apart from the page's. A seat
   whose player has asked the viewer wears **`SeatRequestBadge`** (a gold person-add disc on the lower-LEFT corner of their
   picture — on the pod's top corner it covered a long name's first letter), and a seat whose player is the viewer's
@@ -2760,11 +2759,53 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`versionEnvironmentTag`). The switches are gold when on (`FeedbackSwitchStyle`: `AppTheme.goldFace`'s middle by night under a
   charcoal thumb, its foot by day under a white one; off keeps 3:1) — in the table's menu drawer too, whose row geometry is
   unchanged — and `GlassThemeSwitcher` is a sunk well (`track:`, optional) with the chosen segment in the store's gold wash and
-  champagne edge and the other two in the body ink, not white38 — on the login screen and the table drawer alike. The Stats
-  drawer's figure names may take two lines ("Total winn…" at ×1.25). `test/settings_drawer_test.dart` (640x360 ×1.25 in all five
+  champagne edge and the other two in the body ink, not white38 — on the login screen and the table drawer alike. `test/settings_drawer_test.dart` (640x360 ×1.25 in all five
   languages: nothing cut short, the head in place at the list's end; the number format row; the switches; the appearance
   control; Sign out and Delete still asking; the keyboard; the ring; the environment tag); pictures by hand,
   `test/settings_shots.dart` (run like table_shots).
+- **The Stats drawer** (owner's brief, 27 Sep 2026: "Do NOT use tabs … The drawer should feel like ONE continuous player
+  profile … Poker must NOT appear anywhere in this drawer"; presentation only — models, DTOs, GameState and the server
+  untouched; `widgets/own_record.dart`). `_StatsDrawer` keeps the shared shell (`_LobbyDrawer`, `_DrawerBody`) but is wider
+  than Settings (`_StatsDrawer.widthFor`: 46% of the screen held to 300–420dp — 300 at 592 and 640, 410 at 891, 420 on a
+  tablet; `Dim.drawerW`'s 260 left a card too narrow three across at ×1.25), and it `select`s the account and the language
+  rather than watching GameState, so the one-second tick rebuilds only today's-XP line where the server keeps one. The head
+  is its own (`PlayerStatsHeader`, `_DrawerHead` untouched for Settings): the picture in a thin gold ring, the name in
+  titleMedium w700 (ellipsised), "Level 1 · 🌱 Newbie · 23 XP" at 12.5 in a quieter ink (set a touch smaller before it takes
+  a second line, `_FitLine`), the badges held after it in a quieter ink on the same line where both fit whole, else on a line
+  of their own (`_LevelAndBadges`, `stats-badges`), a small 28dp close disc; "Your record"
+  is gone from it (the rail key keeps the words). Then, one list: PERFORMANCE with the scope menu at its right
+  (`StatsScopeSelector`: the scope's name and a gold chevron on a quiet capsule, a whole 44dp target; an `OverlayPortal` menu
+  anchored under its right edge — a small glass card on the drawer's blur budget (`GlassMode.auto`: the drawer holds the one
+  lease, so over the drifting chips it is its near-opaque body, not a second per-frame blur), thin border, small shadow, All Games · Teen Patti · Variations
+  with the chosen one in gold with a check (by day `AppTheme.goldDeep`, 4.6:1 on its wash where the money gold read 4.27),
+  fading and rising in over 160ms (one `CurvedAnimation`, made and disposed with the controller); a tap outside puts it away; no route, no tabs);
+  Played · Won · Lost three across (`PerformanceStatCard`: glyph, the figure at 19, the label at 10.5 — "Played",
+  `statsPlayed`, not "Hands played", which took two lines at ×1.25 in a 300dp drawer); Total winnings and
+  Biggest pot two across, the only gold in the record (figure and glyph, on a card with a breath of gold); "Left mid-hand:
+  75" as one quiet line; HAND RESULTS ("Hands held" renamed, `HandResultGrid`: two across, name at the start, count at the
+  end — given only the room the name's longest word leaves, a third of the cell at least, and set smaller in it, so "Pure
+  Sequence" beside "18,182" is never cut; measured round the grid, whose rows ask intrinsic heights a cell's builder cannot
+  answer); VARIATIONS PLAYED (`VariationStatsList`: a hairline-parted list, PLAYED/WON columns right-aligned). Section names at
+  11 in tracked capitals in English only. A scope changes only what is under the menu, in a 200ms fade and 6dp rise; the
+  scope survives a scroll (`AutomaticKeepAliveClientMixin` — a jump to the list's end once dropped it back to All Games).
+  **What each scope shows is the model's own**: All Games is `User.totals` (which, being the server's career totals, include
+  poker hands — no figure is re-added), and the model counts hands only for Teen Patti and Variation and variations only for
+  Variation (`StatsCategory.countsHands/listsVariations`), so where a scope has no such part the section stays with one quiet
+  line saying which scope has it; an empty part says "No hand results yet" / "No variation games played yet". Per-variation
+  "played" counts every hand dealt under it while Hands played counts hands with a move in them (requirement 16), so the
+  variations may sum past it — left as the data says. By night: charcoal body, cards a breath of white with a barely-there
+  hairline and no shadow, muted ink white at 0.58; by day: warm pearl body, whiter cards edged in a warm stone (#E8E1D5) with a
+  soft diffused shadow, warm charcoal (#1D1B18) and warm grey (#6E685E) inks — the footnote under the record too
+  (`StatsFootnote`; the theme's quiet ink it had read 3:1 by day). The two sets are BLENDED by `GlassColors.dayShare` (how far
+  the theme has come from obsidian to ice, read off the lerping ground — what `_DrawerBody.dayOf` reads too), not chosen by
+  brightness, so a theme change with the drawer open cross-fades them with the body instead of snapping them at its middle. The Friends page and the table's player drawer
+  still draw `PlayerStatsGrid` with its four-game switch, unchanged. `test/stats_drawer_test.dart` (no tab/segmented control,
+  exactly three scopes and no Poker anywhere, each scope's figures, the head, the quiet left-mid-hand line, gold only on money,
+  10.5 Crore fitting, empty states, the menu's semantics and anchoring, the other two places unchanged, and every scope, its end
+  and the open menu at 592x360, 640x360, 844x390, 915x412 and 1280x800, ×1.0 and ×1.25, all five languages, both themes; the
+  footnote's and the chosen scope's contrast by day, the badges' line, no rebuild on GameState's notifies, the cross-fade, and
+  hand results in four to six figures with all seven variations at 592, 640 and 891 ×1.25 — `bigCountsJson`);
+  fixture `test/stats_drawer_fixture.dart`; pictures by hand, `test/stats_drawer_shots.dart` (run like table_shots).
 - **Theme** ("Glassmorphic Premium", 11 Sep 2026): FlexColorScheme with explicit palettes (the "one seed"
   comment is stale) plus a `GlassColors` ThemeExtension (`theme/theme_colors.dart`) holding the glass
   tokens per brightness — **Obsidian** dark (ground `#0D0E12`→`#08080A`, fill white 0.04/0.08, border

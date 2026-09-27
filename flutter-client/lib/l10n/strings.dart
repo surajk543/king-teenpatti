@@ -134,6 +134,29 @@ class Strings {
 
   /// Where no Variation hand has been played yet.
   String get statsNoVariations => _('statsNoVariations');
+
+  // --- the lobby's Stats drawer (owner, 27 Sep 2026: "one continuous player
+  // profile" — no tabs, and no Poker in it): the scope is a small menu over
+  // the record, and the record's parts go by these names. The section names
+  // are set in tracked capitals in English only, as the Settings drawer's are.
+  String get statsPerformance => _('statsPerformance');
+
+  /// The menu's three scopes: every game together, then the two games the
+  /// drawer shows on their own (Teen Patti by [teenPatti]'s own name).
+  String get statsAllGames => _('statsAllGames');
+  String get statsVariations => _('statsVariations');
+
+  /// What the menu chooses, said to a screen reader before its value.
+  String get statsScopeLabel => _('statsScopeLabel');
+
+  /// Over the six hands a player finished with — "Hands held" renamed.
+  String get statsHandResults => _('statsHandResults');
+  String get statsNoHandResults => _('statsNoHandResults');
+  String get statsNoVariationGames => _('statsNoVariationGames');
+
+  /// Where the scope on show does not count a part: which scopes do.
+  String get statsHandResultsHint => _('statsHandResultsHint');
+  String get statsVariationsHint => _('statsVariationsHint');
   String get fourHourBonus => _('fourHourBonus');
   String get dailyBonus => _('dailyBonus');
   String get milestone => _('milestone');
@@ -1609,6 +1632,15 @@ class Strings {
       'statsPlayed': 'Played',
       'statsWon': 'Won',
       'statsNoVariations': 'No variation hands yet',
+      'statsPerformance': 'Performance',
+      'statsAllGames': 'All Games',
+      'statsVariations': 'Variations',
+      'statsScopeLabel': 'Statistics for',
+      'statsHandResults': 'Hand results',
+      'statsNoHandResults': 'No hand results yet',
+      'statsNoVariationGames': 'No variation games played yet',
+      'statsHandResultsHint': 'Choose Teen Patti or Variations to see these',
+      'statsVariationsHint': 'Choose Variations to see these',
       'fourHourBonus': '4-HOUR BONUS',
       'dailyBonus': 'DAILY BONUS',
       'luckyDrawChip': 'LUCKY DRAW',
@@ -2420,6 +2452,15 @@ class Strings {
       'statsPlayed': 'खेले',
       'statsWon': 'जीते',
       'statsNoVariations': 'अभी कोई वेरिएशन हाथ नहीं',
+      'statsPerformance': 'प्रदर्शन',
+      'statsAllGames': 'सभी गेम',
+      'statsVariations': 'वेरिएशन गेम',
+      'statsScopeLabel': 'आँकड़े',
+      'statsHandResults': 'हाथों के नतीजे',
+      'statsNoHandResults': 'अभी कोई हाथ का नतीजा नहीं',
+      'statsNoVariationGames': 'अभी तक कोई वेरिएशन गेम नहीं खेला',
+      'statsHandResultsHint': 'इन्हें देखने के लिए तीन पत्ती या वेरिएशन गेम चुनें',
+      'statsVariationsHint': 'इन्हें देखने के लिए वेरिएशन गेम चुनें',
       'fourHourBonus': '4-घंटे का बोनस',
       'dailyBonus': 'दैनिक बोनस',
       'luckyDrawChip': 'लकी ड्रॉ',
@@ -3215,6 +3256,15 @@ class Strings {
       'statsPlayed': 'খেলা',
       'statsWon': 'জেতা',
       'statsNoVariations': 'এখনও কোনো ভেরিয়েশন হাত নেই',
+      'statsPerformance': 'পারফরম্যান্স',
+      'statsAllGames': 'সব গেম',
+      'statsVariations': 'ভেরিয়েশন গেম',
+      'statsScopeLabel': 'পরিসংখ্যান',
+      'statsHandResults': 'হাতের ফলাফল',
+      'statsNoHandResults': 'এখনও কোনো হাতের ফলাফল নেই',
+      'statsNoVariationGames': 'এখনও কোনো ভেরিয়েশন গেম খেলা হয়নি',
+      'statsHandResultsHint': 'দেখতে তিন পাত্তি বা ভেরিয়েশন গেম বেছে নিন',
+      'statsVariationsHint': 'দেখতে ভেরিয়েশন গেম বেছে নিন',
       'fourHourBonus': '4-ঘণ্টার বোনাস',
       'dailyBonus': 'দৈনিক বোনাস',
       'luckyDrawChip': 'লাকি ড্র',
@@ -4010,6 +4060,15 @@ class Strings {
       'statsPlayed': 'રમ્યા',
       'statsWon': 'જીત્યા',
       'statsNoVariations': 'હજી કોઈ વેરિએશન હાથ નથી',
+      'statsPerformance': 'પ્રદર્શન',
+      'statsAllGames': 'બધી ગેમ',
+      'statsVariations': 'વેરિએશન ગેમ',
+      'statsScopeLabel': 'આંકડા',
+      'statsHandResults': 'હાથના પરિણામ',
+      'statsNoHandResults': 'હજી કોઈ હાથનું પરિણામ નથી',
+      'statsNoVariationGames': 'હજી સુધી કોઈ વેરિએશન ગેમ રમી નથી',
+      'statsHandResultsHint': 'જોવા માટે તીન પત્તી અથવા વેરિએશન ગેમ પસંદ કરો',
+      'statsVariationsHint': 'જોવા માટે વેરિએશન ગેમ પસંદ કરો',
       'fourHourBonus': '4-કલાકનું બોનસ',
       'dailyBonus': 'દૈનિક બોનસ',
       'luckyDrawChip': 'લકી ડ્રો',
@@ -4800,6 +4859,15 @@ class Strings {
       'statsPlayed': 'ਖੇਡੇ',
       'statsWon': 'ਜਿੱਤੇ',
       'statsNoVariations': 'ਅਜੇ ਕੋਈ ਵੇਰੀਏਸ਼ਨ ਹੱਥ ਨਹੀਂ',
+      'statsPerformance': 'ਪ੍ਰਦਰਸ਼ਨ',
+      'statsAllGames': 'ਸਾਰੀਆਂ ਗੇਮਾਂ',
+      'statsVariations': 'ਵੇਰੀਏਸ਼ਨ ਗੇਮਾਂ',
+      'statsScopeLabel': 'ਅੰਕੜੇ',
+      'statsHandResults': 'ਹੱਥਾਂ ਦੇ ਨਤੀਜੇ',
+      'statsNoHandResults': 'ਅਜੇ ਕੋਈ ਹੱਥ ਦਾ ਨਤੀਜਾ ਨਹੀਂ',
+      'statsNoVariationGames': 'ਅਜੇ ਤੱਕ ਕੋਈ ਵੇਰੀਏਸ਼ਨ ਗੇਮ ਨਹੀਂ ਖੇਡੀ',
+      'statsHandResultsHint': 'ਦੇਖਣ ਲਈ ਤੀਨ ਪੱਤੀ ਜਾਂ ਵੇਰੀਏਸ਼ਨ ਗੇਮਾਂ ਚੁਣੋ',
+      'statsVariationsHint': 'ਦੇਖਣ ਲਈ ਵੇਰੀਏਸ਼ਨ ਗੇਮਾਂ ਚੁਣੋ',
       'fourHourBonus': '4-ਘੰਟੇ ਦਾ ਬੋਨਸ',
       'dailyBonus': 'ਰੋਜ਼ਾਨਾ ਬੋਨਸ',
       'luckyDrawChip': 'ਲੱਕੀ ਡਰਾਅ',

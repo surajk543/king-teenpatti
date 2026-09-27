@@ -1,14 +1,16 @@
 // Player stats v2 on screen (owner, 27 Sep 2026: "Show the stats acc to each
 // category"). The three games' records read off the wire — tolerant, zeros
 // wherever nothing was sent, and no chip figure ever read from another
-// player's profile — and the ONE record widget in its three places: the
-// lobby's Stats drawer (the player's own, with its chip figures), the lobby's
-// Friends page profile and the table's player drawer (another player's, never
-// a chip figure). Each gains All · Teen Patti · Variation · Poker; Teen Patti
-// and Variation count the hands held, Trail down to High Card, in the server's
-// English; Variation lists the variations played and won, in the picker's
-// names; and every view fits a 640x360 phone at text x1.25 in all five
-// languages, by day and by night, with the Noto fonts a phone falls back to.
+// player's profile — and another player's record, ONE widget in both its
+// places: the lobby's Friends page profile and the table's player drawer
+// (never a chip figure). Each gains All · Teen Patti · Variation · Poker; Teen
+// Patti and Variation count the hands held, Trail down to High Card, in the
+// server's English; Variation lists the variations played and won, in the
+// picker's names; and every view fits a 640x360 phone at text x1.25 in all
+// five languages, by day and by night, with the Noto fonts a phone falls back
+// to. The lobby's Stats drawer — the player's own record — has drawn it with a
+// presentation of its own since the owner's brief of 27 Sep 2026 (no tabs, no
+// Poker); its figures are checked here, and the rest in stats_drawer_test.dart.
 import 'dart:convert';
 import 'dart:io';
 
@@ -29,6 +31,7 @@ import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/widgets/hammer_flight.dart';
+import 'package:teenpatti/widgets/own_record.dart';
 import 'package:teenpatti/widgets/player_drawer.dart';
 import 'package:teenpatti/widgets/player_profile.dart';
 import 'package:teenpatti/widgets/poker_chip.dart';
@@ -212,14 +215,13 @@ Future<void> _choose(WidgetTester tester, StatsCategory view) async {
 }
 
 /// The view on show: its figures, and the hands held and the variations
-/// played exactly where that view has them. [own] says which figures a tile
-/// row carries: the player's own chip figures, or another player's win rate.
+/// played exactly where that view has them; the figures end on another
+/// player's win rate.
 void _expectView(
   WidgetTester tester,
   Strings t,
   StatsCategory view,
   Map<String, dynamic> game, {
-  required bool own,
   required String where,
 }) {
   expect(_key('stats-view-${view.name}'), findsOneWidget, reason: where);
@@ -232,11 +234,7 @@ void _expectView(
     (t.won, _grouped(game['handsWon'] as int)),
     (t.lost, _grouped(game['handsLost'] as int)),
     (t.leftMidHand, _grouped(left as int)),
-    if (own) ...[
-      (t.totalWinnings, formatChips(game['totalWinnings'] as int)),
-      (t.biggestPot, formatChips(game['biggestPot'] as int)),
-    ] else
-      (t.winRate, '${game['winRate']}%'),
+    (t.winRate, '${game['winRate']}%'),
   ];
   for (final (i, (label, value)) in figures.indexed) {
     expect(_textIn('friend-stat-$i', label), findsOneWidget, reason: where);
@@ -441,8 +439,11 @@ void main() {
       final client = MockClient((r) async {
         if (r.url.path == '/api/auth/me') {
           reads++;
-          return http.Response(jsonEncode({'user': meWithStatsJson()}), 200,
-              headers: {'content-type': 'application/json'});
+          return http.Response(
+            jsonEncode({'user': meWithStatsJson()}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
         }
         return http.Response('{}', 404);
       });
@@ -451,11 +452,16 @@ void main() {
         state.handleBackToLobby();
         await tester.pump();
         expect(reads, 1, reason: 'the lobby reads the account at once');
-        await tester.pump(GameState.statsCatchUpAfter - const Duration(seconds: 1));
+        await tester.pump(
+          GameState.statsCatchUpAfter - const Duration(seconds: 1),
+        );
         expect(reads, 1, reason: 'nothing more before the flush');
         await tester.pump(const Duration(seconds: 1));
-        expect(reads, 2,
-            reason: 'one more read just after the server moves the counters');
+        expect(
+          reads,
+          2,
+          reason: 'one more read just after the server moves the counters',
+        );
         await tester.pump(const Duration(minutes: 1));
         expect(reads, 2, reason: 'and only one');
 
@@ -469,35 +475,40 @@ void main() {
       }, () => client);
     });
 
-    test('every copy of the account keeps the games: a player:level push, a '
-        'fired missile and a hammer count leave the per-game record as it was',
-        () {
-      final user = User.fromJson(meWithStatsJson());
-      final standing = Standing.maybe({
-        'playerLevel': {
-          'level': 10,
-          'title': 'Rising Star',
-          'icon': '🌟',
-          'xp': 4180,
+    test(
+      'every copy of the account keeps the games: a player:level push, a '
+      'fired missile and a hammer count leave the per-game record as it was',
+      () {
+        final user = User.fromJson(meWithStatsJson());
+        final standing = Standing.maybe({
+          'playerLevel': {
+            'level': 10,
+            'title': 'Rising Star',
+            'icon': '🌟',
+            'xp': 4180,
+            'taxBps': 1743,
+          },
+          'badges': const <Object>[],
           'taxBps': 1743,
-        },
-        'badges': const <Object>[],
-        'taxBps': 1743,
-      })!;
-      // The merge of Player stats v2 onto the player levels once dropped
-      // `stats:` from withStanding, so every level-up zeroed the three games.
-      for (final copy in [
-        user.withStanding(standing),
-        user.withMissile(0),
-        user.withHammer(3),
-      ]) {
-        expect(copy.stats.teenPatti.handsPlayed, 912);
-        expect(copy.stats.variation.handsPlayed, 380);
-        expect(copy.stats.teenPatti.hands.counts, user.stats.teenPatti.hands.counts);
-        expect(copy.handsPlayed, user.handsPlayed);
-      }
-      expect(user.withStanding(standing).playerLevel!.level, 10);
-    });
+        })!;
+        // The merge of Player stats v2 onto the player levels once dropped
+        // `stats:` from withStanding, so every level-up zeroed the three games.
+        for (final copy in [
+          user.withStanding(standing),
+          user.withMissile(0),
+          user.withHammer(3),
+        ]) {
+          expect(copy.stats.teenPatti.handsPlayed, 912);
+          expect(copy.stats.variation.handsPlayed, 380);
+          expect(
+            copy.stats.teenPatti.hands.counts,
+            user.stats.teenPatti.hands.counts,
+          );
+          expect(copy.handsPlayed, user.handsPlayed);
+        }
+        expect(user.withStanding(standing).playerLevel!.level, 10);
+      },
+    );
 
     test('the player\'s own account reads each game: its figures, both chip '
         'figures, its win rate, the hands held and the variations played', () {
@@ -776,6 +787,80 @@ void main() {
     });
   });
 
+  // The lobby's Stats drawer no longer draws this widget (the owner's brief,
+  // 27 Sep 2026: one continuous profile, no tabs, no Poker): it draws the
+  // player's own record with OwnRecord, and stats_drawer_test.dart holds it —
+  // the scope menu, its semantics, the empty states and every size. What this
+  // suite held of the drawer's figures still holds, scope by scope, here.
+  group('the lobby\'s Stats drawer: the player\'s own record', () {
+    testWidgets('draws the account\'s own figures — the six totals in All '
+        'Games, chip figures in gold, then each game — with no switch and no '
+        'Poker', (tester) async {
+      _setView(tester);
+      final state = await _openStats(tester);
+      final t = state.t;
+      final me = meWithStatsJson();
+      final drawer = find.byType(Drawer);
+      expect(
+        find.descendant(of: drawer, matching: find.byType(PlayerStatsGrid)),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: drawer, matching: find.byType(OwnRecord)),
+        findsOneWidget,
+      );
+      expect(_key('stats-categories'), findsNothing);
+      void figures(Map<String, dynamic> game, String where) {
+        for (final (key, value) in [
+          ('stats-played', _grouped(game['handsPlayed'] as int)),
+          ('stats-won', _grouped(game['handsWon'] as int)),
+          ('stats-lost', _grouped(game['handsLost'] as int)),
+          ('stats-total-winnings', formatChips(game['totalWinnings'] as int)),
+          ('stats-biggest-pot', formatChips(game['biggestPot'] as int)),
+        ]) {
+          expect(_textIn(key, value), findsOneWidget, reason: '$where $key');
+        }
+      }
+
+      figures(me, 'all');
+      // Money in the lobby's gold; counts in the display ink.
+      final winnings = tester.widget<Text>(
+        _textIn('stats-total-winnings', formatChips(9876500)),
+      );
+      expect(winnings.style?.color, AppTheme.goldInk(Brightness.dark));
+      final played = tester.widget<Text>(_textIn('stats-played', '1,498'));
+      expect(played.style?.color, isNot(AppTheme.goldInk(Brightness.dark)));
+
+      final games = me['stats'] as Map<String, dynamic>;
+      for (final (scope, key) in [
+        (StatsScope.teenPatti, 'teenPatti'),
+        (StatsScope.variations, 'variation'),
+        (StatsScope.allGames, null),
+      ]) {
+        await tester.tap(_key('stats-scope'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(_key('stats-scope-option-poker'), findsNothing);
+        expect(
+          find.descendant(
+            of: _key('stats-scope-menu'),
+            matching: find.text(statsCategoryName(t, StatsCategory.poker)),
+          ),
+          findsNothing,
+        );
+        await tester.tap(_key('stats-scope-option-${scope.name}'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        figures(
+          key == null ? me : games[key] as Map<String, dynamic>,
+          scope.name,
+        );
+        expect(tester.takeException(), isNull);
+      }
+      await _closeApp(tester);
+    });
+  });
+
   // Each place is checked in both builds: the default one, whose switch is
   // All · Teen Patti · Variation (owner, 27 Sep 2026: "remove poker
   // category"), and one built with SHOW_POKER, whose switch has Poker too.
@@ -796,157 +881,6 @@ void main() {
         },
       );
 
-      group('the lobby\'s Stats drawer: the player\'s own record', () {
-        testWidgets('opens on All — the six totals, chip figures in gold — and '
-            'the switch shows every game in turn', (tester) async {
-          _setView(tester);
-          final state = await _openStats(tester);
-          final t = state.t;
-          final me = meWithStatsJson();
-          final drawer = find.byType(Drawer);
-          expect(
-            find.descendant(of: drawer, matching: find.byType(PlayerStatsGrid)),
-            findsOneWidget,
-          );
-          _expectSwitch(tester, 'drawer', across: false);
-          for (final view in statsViews()) {
-            expect(
-              find.descendant(of: _segment(view), matching: find.byType(Text)),
-              findsOneWidget,
-            );
-            expect(
-              _textIn(
-                'stats-category-${view.name}',
-                statsCategoryName(t, view),
-              ),
-              findsOneWidget,
-            );
-          }
-
-          _expectView(
-            tester,
-            t,
-            StatsCategory.all,
-            me,
-            own: true,
-            where: 'all',
-          );
-          // Money in the lobby's gold; counts in the display ink.
-          final winnings = tester.widget<Text>(
-            _textIn('friend-stat-4', formatChips(9876500)),
-          );
-          expect(winnings.style?.color, AppTheme.goldInk(Brightness.dark));
-          final played = tester.widget<Text>(_textIn('friend-stat-0', '1,498'));
-          expect(played.style?.color, isNot(AppTheme.goldInk(Brightness.dark)));
-
-          final games = me['stats'] as Map<String, dynamic>;
-          for (final (view, key) in [
-            (StatsCategory.teenPatti, 'teenPatti'),
-            (StatsCategory.variation, 'variation'),
-            if (poker) (StatsCategory.poker, 'poker'),
-            (StatsCategory.teenPatti, 'teenPatti'),
-          ]) {
-            await _choose(tester, view);
-            _expectView(
-              tester,
-              t,
-              view,
-              games[key] as Map<String, dynamic>,
-              own: true,
-              where: view.name,
-            );
-            expect(tester.takeException(), isNull);
-          }
-          await _choose(tester, StatsCategory.all);
-          _expectView(
-            tester,
-            t,
-            StatsCategory.all,
-            me,
-            own: true,
-            where: 'back',
-          );
-          await _closeApp(tester);
-        });
-
-        testWidgets(
-          'the chosen view is the selected one of a group, to a screen '
-          'reader too',
-          (tester) async {
-            _setView(tester);
-            final handle = tester.ensureSemantics();
-            await _openStats(tester);
-            expect(
-              tester.getSemantics(_segment(StatsCategory.all)),
-              isSemantics(
-                isButton: true,
-                isSelected: true,
-                isInMutuallyExclusiveGroup: true,
-                hasTapAction: true,
-                label: 'All',
-              ),
-            );
-            // The last key: Poker where the build shows it, else Variation.
-            final last = statsViews().last;
-            expect(
-              tester.getSemantics(_segment(last)),
-              isSemantics(
-                isButton: true,
-                isSelected: false,
-                isInMutuallyExclusiveGroup: true,
-                hasTapAction: true,
-                label: poker ? 'Poker' : 'Variation',
-              ),
-            );
-            await _choose(tester, last);
-            expect(
-              tester.getSemantics(_segment(last)),
-              isSemantics(isSelected: true, isButton: true),
-            );
-            expect(
-              tester.getSemantics(_segment(StatsCategory.all)),
-              isSemantics(isSelected: false, isButton: true),
-            );
-            handle.dispose();
-            await _closeApp(tester);
-          },
-        );
-
-        testWidgets(
-          'a player with no record yet reads zeros in every view, and '
-          'Variation says no variation hand has been played',
-          (tester) async {
-            _setView(tester);
-            final state = await _openStats(
-              tester,
-              me: {'id': myId, 'provider': 'guest', 'displayName': 'Ravi'},
-            );
-            final t = state.t;
-            for (final view in statsViews()) {
-              await _choose(tester, view);
-              expect(
-                _textIn('friend-stat-0', '0'),
-                findsOneWidget,
-                reason: '$view',
-              );
-              if (view.countsHands) {
-                expect(_textIn('stats-hand-trail', '0'), findsOneWidget);
-              }
-            }
-            // Off Variation (the loop ends on it where Poker is hidden) the
-            // note is gone.
-            await _choose(tester, StatsCategory.all);
-            expect(find.text(t.statsNoVariations), findsNothing);
-            await _choose(tester, StatsCategory.variation);
-            expect(_key('stats-variations-none'), findsOneWidget);
-            expect(find.text(t.statsNoVariations), findsOneWidget);
-            expect(_key('stats-variations'), findsNothing);
-            expect(tester.takeException(), isNull);
-            await _closeApp(tester);
-          },
-        );
-      });
-
       group('the Friends page profile: another player\'s record', () {
         testWidgets('the switch shows every game, and no chip figure in any of '
             'them', (tester) async {
@@ -962,14 +896,7 @@ void main() {
             );
             _expectSwitch(tester, 'profile');
             final stats = theirStatsJson();
-            _expectView(
-              tester,
-              t,
-              StatsCategory.all,
-              stats,
-              own: false,
-              where: 'all',
-            );
+            _expectView(tester, t, StatsCategory.all, stats, where: 'all');
             _expectNoChipFigure(tester, page, t, 'all');
             final games = stats['categories'] as Map<String, dynamic>;
             for (final (view, key) in [
@@ -983,7 +910,6 @@ void main() {
                 t,
                 view,
                 games[key] as Map<String, dynamic>,
-                own: false,
                 where: view.name,
               );
               _expectNoChipFigure(tester, page, t, view.name);
@@ -1019,14 +945,7 @@ void main() {
             expect(_inDrawer(find.byType(PlayerStatsGrid)), findsOneWidget);
             _expectSwitch(tester, 'drawer', across: false);
             final stats = theirStatsJson();
-            _expectView(
-              tester,
-              t,
-              StatsCategory.all,
-              stats,
-              own: false,
-              where: 'all',
-            );
+            _expectView(tester, t, StatsCategory.all, stats, where: 'all');
             _expectNoChipFigure(tester, drawer, t, 'all');
             final games = stats['categories'] as Map<String, dynamic>;
             for (final (view, key) in [
@@ -1040,7 +959,6 @@ void main() {
                 t,
                 view,
                 games[key] as Map<String, dynamic>,
-                own: false,
                 where: view.name,
               );
               _expectNoChipFigure(tester, drawer, t, view.name);
@@ -1086,32 +1004,8 @@ void main() {
           for (final lang in AppLang.values) {
             final where = '${lang.name} (${brightness.name})';
 
-            testWidgets('the Stats drawer in $where', (tester) async {
-              _setView(tester);
-              final state = await _openStats(
-                tester,
-                lang: lang,
-                brightness: brightness,
-              );
-              final drawer = find.byType(Drawer);
-              final panel = tester.getRect(drawer);
-              for (final view in statsViews()) {
-                await _choose(tester, view);
-                _expectFits(
-                  tester,
-                  find.descendant(
-                    of: drawer,
-                    matching: find.byType(PlayerStatsGrid),
-                  ),
-                  panel,
-                  'stats ${view.name} $where',
-                );
-                _expectSwitch(tester, 'stats ${view.name} $where');
-              }
-              expect(state.t.lang, lang);
-              await _closeApp(tester);
-            });
-
+            // The Stats drawer's own record is held to every size, both text
+            // sizes, every language and both themes in stats_drawer_test.dart.
             testWidgets('the Friends page profile in $where', (tester) async {
               _setView(tester);
               final server = statsProfileServer();
@@ -1195,14 +1089,23 @@ void main() {
     });
   }
 
-  test('the record is ONE widget in all three places, and the Stats drawer '
-      'keeps no rows of its own', () {
+  // Since the owner's brief of 27 Sep 2026 the lobby's Stats drawer lays the
+  // player's own record out in a presentation of its own (OwnRecord), while
+  // the Friends page and a table's player drawer keep this one widget. The
+  // screens still keep no rows of their own, and OwnRecord writes its counts
+  // and lays its tiles out with this file's own helpers, not copies of them.
+  test('another player\'s record is ONE widget in both its places, and no '
+      'screen keeps rows of its own', () {
     final lobby = File('lib/screens/lobby_screen.dart').readAsStringSync();
     final page = File('lib/screens/friends_screen.dart').readAsStringSync();
     final drawer = File('lib/widgets/player_drawer.dart').readAsStringSync();
-    expect(lobby, contains('PlayerStatsGrid.own('));
+    final own = File('lib/widgets/own_record.dart').readAsStringSync();
+    expect(lobby, contains('OwnRecord('));
     expect(page, contains('PlayerStatsGrid('));
     expect(drawer, contains('PlayerStatsGrid('));
+    expect(own, contains("show EvenGrid, countText"));
+    expect(own, isNot(contains('String _count(')));
+    expect(own, isNot(contains('class _EvenGrid')));
     for (final source in [lobby, page, drawer]) {
       expect(source, isNot(contains('class _StatRow')));
       expect(source, isNot(contains('class _StatTile')));
