@@ -27,6 +27,7 @@ import 'missile_strike.dart';
 import 'quick_message_order.dart';
 import 'table_config_cache.dart';
 import 'theme_preference.dart';
+import 'xp_missions.dart';
 
 enum Screen { splash, update, login, lobby, table }
 
@@ -180,6 +181,55 @@ class GameState extends ChangeNotifier {
     strings: () => t,
     say: say,
   );
+
+  /// The daily XP missions just completed (owner, 27 Sep 2026: "whenever xp
+  /// mission completed, show top notification bar for 5 seconds showing this
+  /// is completed and xp increased"), queued for the bar at the top of every
+  /// screen (XpMissionHost). A notifier of its own, so the bar never rebuilds
+  /// with this one's one-second tick.
+  final XpMissions xpMissions = XpMissions();
+
+  /// The standing the last `player:level` left — or the one a session began
+  /// with (a sign-in, a cold start's `me()`, `session:ready`) — keyed by the
+  /// account. What an award is compared against to find the missions it
+  /// completed: NOT the account's own, which a `/api/auth/me` refresh (after
+  /// every showdown) may already have moved to the award's figures before
+  /// the push that announces them arrives.
+  ({String userId, PlayerLevel? level})? _xpSeen;
+
+  /// Set by [dispose], for the one answer that can arrive after it
+  /// ([loadLevelLadder], asked by an award).
+  bool _disposed = false;
+
+  /// Awards that completed a mission while the level ladder was not on the
+  /// phone, in the order they came, waiting for it: the ladder names each
+  /// mission, says what it gave and orders an award's bars, and an award
+  /// queued without it could only guess at them (two sources sharing one
+  /// award). Queued when the read ends — with the ladder, or as best they can
+  /// when it failed. Cleared at a sign-out.
+  final List<({PlayerLevel? before, PlayerLevel after, int? taxBps})>
+  _awardsAwaitingLadder = [];
+
+  void _queueAwardsAwaitingLadder() {
+    if (_disposed || _awardsAwaitingLadder.isEmpty) return;
+    final waiting = List.of(_awardsAwaitingLadder);
+    _awardsAwaitingLadder.clear();
+    for (final a in waiting) {
+      xpMissions.award(a.before, a.after, levelLadder, levelUpTaxBps: a.taxBps);
+    }
+  }
+
+  /// A session has begun: the standing it brought is what the next award is
+  /// compared against, so nothing earned before it is announced.
+  void _seeStanding() {
+    final u = user;
+    _xpSeen = u == null ? null : (userId: u.id, level: u.playerLevel);
+  }
+
+  /// What `session:ready` (and every sign-in) does with the standing it
+  /// brings, for the tests.
+  @visibleForTesting
+  void seeSessionStanding() => _seeStanding();
 
   /// Google Play. Subscribed at startup, not when the store opens: Play
   /// delivers a purchase whenever it can — days later, on a new device, after
@@ -401,9 +451,14 @@ class GameState extends ChangeNotifier {
 
   /// Reads the ladder afresh, so an owner's edit shows the next time it is
   /// looked at. What is on screen stays while it is asked, and when the
-  /// asking fails; one read at a time.
-  Future<void> loadLevelLadder() async {
-    if (levelLadderLoading) return;
+  /// asking fails; one read at a time — a second call while one is out
+  /// answers when that one does.
+  Future<void> loadLevelLadder() =>
+      _ladderRead ??= _readLevelLadder().whenComplete(() => _ladderRead = null);
+
+  Future<void>? _ladderRead;
+
+  Future<void> _readLevelLadder() async {
     levelLadderLoading = true;
     notifyListeners();
     try {
@@ -414,7 +469,10 @@ class GameState extends ChangeNotifier {
       levelLadderFailed = levelLadder == null;
     } finally {
       levelLadderLoading = false;
-      notifyListeners();
+      // A mission bar may ask for the ladder moments before the state goes
+      // (a sign-out in a test, the app closing): the answer then has nobody
+      // to tell.
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -1131,6 +1189,7 @@ class GameState extends ChangeNotifier {
       _token = saved;
       try {
         user = await _api.me(saved);
+        _seeStanding();
         unawaited(_loadPictures());
         // Every sign-in asks for the table catalogue again — a restored
         // session is a sign-in too — and a 304 makes that cheap.
@@ -1206,6 +1265,7 @@ class GameState extends ChangeNotifier {
     _subs.addAll([
       _conn.onSession.listen((s) {
         user = s.user;
+        _seeStanding();
         final refetch = handleSessionMenu(s.config);
         _snapshotSinceSession = false;
         // The server's own floor, checked the moment it tells us what it is.
@@ -1471,22 +1531,58 @@ class GameState extends ChangeNotifier {
   /// NUMBER rises (XP climbing the ladder; a badge is never reached by XP) the
   /// player is told — with the winning tax they pay now when the level changed
   /// it, and without when a badge keeps it lower than either level's.
+  ///
+  /// Every daily XP mission the award completed is queued for the bar at the
+  /// top of the screen ([xpMissions], 27 Sep 2026) — once the level ladder is
+  /// on the phone, which names them; a level up that came with one is said on
+  /// that bar's last lines instead of a toast, with the winning tax it
+  /// changed.
   @visibleForTesting
   void handlePlayerLevel(Standing standing) {
     final account = user;
     if (account == null) return;
     final before = account.playerLevel;
     final paidBefore = account.paysTaxBps;
+    final seen = _xpSeen;
+    final mine = seen != null && seen.userId == account.id;
+    final baseline = mine ? seen.level : before;
     user = account.withStanding(standing);
     final level = standing.playerLevel;
-    if (before != null && level.level > before.level) {
+    // Only ever forward: lifetime XP never falls, so a standing with less XP
+    // than the one held is an older award heard late (the play-time tracker
+    // pushes from its own goroutine, a hand's settle from the table's) —
+    // compared against, it would announce again what was already shown.
+    if (!mine || seen.level == null || level.xp >= seen.level!.xp) {
+      _xpSeen = (userId: account.id, level: level);
+    }
+    final paid = user!.paysTaxBps;
+    final taxNow = paid != null && paid != paidBefore ? paid : null;
+    // Which missions it completed is known now (the rule needs no ladder);
+    // how they read waits for the ladder when it is not on the phone.
+    final missions = XpMissions.completions(baseline, level, levelLadder);
+    if (missions.isNotEmpty) {
+      if (levelLadder == null) {
+        _awardsAwaitingLadder.add((
+          before: baseline,
+          after: level,
+          taxBps: taxNow,
+        ));
+        unawaited(loadLevelLadder().whenComplete(_queueAwardsAwaitingLadder));
+      } else {
+        // Any award still waiting on the read that has just brought the
+        // ladder goes first: the bars keep the order the awards came in.
+        _queueAwardsAwaitingLadder();
+        xpMissions.award(baseline, level, levelLadder, levelUpTaxBps: taxNow);
+      }
+    }
+    final barSaysLevelUp = missions.any((m) => m.levelUp != null);
+    if (!barSaysLevelUp && before != null && level.level > before.level) {
       final name = [
         if (level.icon.isNotEmpty) level.icon,
         t.levelName(level.level, level.title),
       ].join(' ');
-      final paid = user!.paysTaxBps;
-      notice = paid != null && paid != paidBefore
-          ? t.levelUp(name, formatTaxRate(paid))
+      notice = taxNow != null
+          ? t.levelUp(name, formatTaxRate(taxNow))
           : t.levelUpOnly(name);
     }
     notifyListeners();
@@ -2238,6 +2334,7 @@ class GameState extends ChangeNotifier {
       );
       _token = r.token;
       user = r.user;
+      _seeStanding();
       // Re-read the catalogue now there is a token: ownership is resolved per
       // viewer, and the startup call was anonymous.
       unawaited(_loadPictures());
@@ -2298,6 +2395,7 @@ class GameState extends ChangeNotifier {
       );
       _token = r.token;
       user = r.user;
+      _seeStanding();
       // Re-read the catalogue now there is a token: ownership is resolved per
       // viewer, and the startup call was anonymous.
       unawaited(_loadPictures());
@@ -2379,6 +2477,9 @@ class GameState extends ChangeNotifier {
     consentPending = false;
     // The next player on this phone never sees this one's friends.
     friends.reset();
+    xpMissions.clear();
+    _awardsAwaitingLadder.clear();
+    _xpSeen = null;
     // The next account starts at the front, not where this one stood.
     _lobbyEngine = null;
     _lobbyCategory = null;
@@ -2834,6 +2935,9 @@ class GameState extends ChangeNotifier {
     luckyDraw = null;
     luckyDrawFailed = false;
     friends.reset();
+    xpMissions.clear();
+    _awardsAwaitingLadder.clear();
+    _xpSeen = null;
     screen = Screen.login;
     notifyListeners();
     return null;
@@ -4472,8 +4576,10 @@ class GameState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     unawaited(purchases.dispose());
     friends.dispose();
+    xpMissions.dispose();
     _rentalWatch?.cancel();
     _statsCatchUp?.cancel();
     _clearSideshow();

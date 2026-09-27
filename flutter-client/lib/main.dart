@@ -19,6 +19,7 @@ import 'widgets/glass_components.dart';
 import 'widgets/glass_panels.dart';
 import 'widgets/poker_chip.dart';
 import 'widgets/premium_surface.dart';
+import 'widgets/xp_mission_bar.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -108,10 +109,20 @@ class KingTeenPattiApp extends StatelessWidget {
           // screen under it — the table included, which opts out of exactly
           // that. NoticeToast.snackBar lifts the toast clear of the keyboard
           // itself.
-          child: Scaffold(
-            backgroundColor: Colors.transparent,
-            resizeToAvoidBottomInset: false,
-            body: child ?? const SizedBox.shrink(),
+          //
+          // Beside it, above everything the Navigator shows, the bar that says
+          // a daily XP mission is done (owner, 27 Sep 2026): at the top edge,
+          // on the lobby and both felts, over any sheet or dialog.
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Scaffold(
+                backgroundColor: Colors.transparent,
+                resizeToAvoidBottomInset: false,
+                body: child ?? const SizedBox.shrink(),
+              ),
+              const XpMissionHost(),
+            ],
           ),
         ),
       ),

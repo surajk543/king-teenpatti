@@ -916,7 +916,9 @@ and column below is in `V1.0.0__baseline.sql`'s CREATE TABLEs and every row in `
   `test/level_fixtures.dart`). Lobby cards carry the rate pill; the table info
   says "No tax on winnings under 50 Lakh."; the store's last shelf is **Badges** (`StoreTab.badges`): each listed badge's Lottie,
   name, "0% Winning Tax", validity, and its price on the key — the key opening Play for a Play badge, else the support popup
-  (address to copy, a `mailto:` key). Every string in all five languages.
+  (address to copy, a `mailto:` key). Every string in all five languages. A mission a `player:level` shows completed is
+  announced on a bar at the top of every screen for 5 s (§8.4 "The XP mission bar"); a level up that came with one is said on
+  that bar, with the winning tax it changed ("Winning tax now 19.71%"), not in the toast.
 - **Also on this branch** (owner, 27 Sep 2026): a new account starts with **10 Lakh chips**, 20 hammers and 1 missile
   (`WELCOME_CHIPS` 1000000); **Blind 200 is open up to 20 Lakh** (`ENTRY_CAP_MAX_CHIPS` 2000000), **Blind 5,000 up to 20 Crore**
   (`max=200000000`; "for 5000 keep entry upto 20 Crore"), **Blind and Variation 50,000 up to 200 Crore** (`max=2000000000`; "for
@@ -2122,6 +2124,41 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   out before an accept, reject or remove is dropped so it cannot undo it; the page closes itself if the app leaves the lobby.
   56 strings in five languages. Tests: `friends_{dtos,api,state,page,table}_test.dart` (204) on `friends_fixture.dart`, a fake
   server built from the contract; pictures by hand, `test/friends_shots.dart`.
+- **The XP mission bar** (owner, 27 Sep 2026: "whenever xp mission completed, show top notification bar for 5 seconds
+  showing this is completed and xp increased"; app only — `state/xp_missions.dart`, `widgets/xp_mission_bar.dart`). **Detection**
+  (`XpMissions.completions`, pure): only a `player:level` (`GameState.handlePlayerLevel`) can raise one, and only when the XP ROSE
+  and the new standing carries a daily window; within one window (the same `resetsAt`, give or take a minute) a source is completed when its claim count
+  went up; when the window changed — rolled over, or opened by this very award (a window opens at the player's first completed
+  hand, which may be a win) — the counts are read from nothing, so the reset counts are never a completion and a count that fell
+  never is one. It compares against `GameState._xpSeen` — the standing the last push, or the session's start (a sign-in, a cold
+  start's `me()`, `session:ready`: `_seeStanding`), left — NOT the account, because the `/api/auth/me` refresh every showdown
+  starts can land the award's figures before the push that announces them; a login, `me()` or `session:ready` therefore never
+  raises a bar. `_xpSeen` only moves FORWARD (lifetime XP never falls): the play-time tracker pushes from its own goroutine and a
+  hand's settle from the table's, so an older standing can be heard after a newer one, and compared against it would announce a
+  mission again. **One bar per mission, queued** (not one bar listing them): each is its own achievement, one line fits the slim
+  bar, and a screen reader hears one at a time; several in one award come in the ladder's order with running totals, and a level
+  up rides on the award's last bar ("Level up! 🔰 Level 2 · Rookie", and "Winning tax now 19.71%" under it when the level
+  changed the rate — `XpMissionNews.levelUpTaxBps`; none when a badge keeps it lower) and replaces the level-up toast. Names,
+  XP and order come from the level ladder (`xpSourceName`), which is usually NOT on the phone (it is read when the level popup,
+  the level screen or the Badges shelf opens): an award that completes a mission without it waits in
+  `_awardsAwaitingLadder` while the award reads it, and is queued, in the order the awards came, when the read ends — as best it
+  can when the read fails ("Daily XP mission"; an XP only for a lone mission, none for two sharing one award). **The bar** (`XpMissionHost`, in main.dart's builder in a Stack beside the toasts' Scaffold — above the
+  Navigator, so over the lobby, both felts, drawers, sheets and dialogs): slides down from the top edge inside the safe area
+  (`topGap` 4dp), stays `hold` 5 s with a gold line draining along its foot, slides away; a tap sends it early; the next waits
+  `between` 180 ms — never two at once. As wide as its words, centred, up to `maxWidthFor(w)`: at a table 0.6 of the safe width
+  (260..440dp), clear of the Shop key and the wallet, the keys and the viewer's cards at 592x360–915x412 ×1.0/×1.25 on both felts
+  (it covers the top seats' heads for the 5 s); in the lobby half (260..420dp), clear of the bonus chip and the drawer keys — the
+  top bar has no gap in its middle, so there it lies over the name and the wallet pill, and below about 700dp the Shop key. The
+  mission's emoji in a gold-ringed disc with a green tick, the mission in the display ink, "+1 XP" on a gold wash, "24 / 100 XP"
+  quiet. The mission and the level up are never set smaller or cut: a long one takes a second line (two at most), so the tallest
+  bar — a Bengali Pure Sequence and "Level 44 · Supreme Overlord" with its tax at 592x360 ×1.25 — is six lines, 147dp, still
+  clear of every key. The lobby cards' opaque body under the glass, gold live hairline, both themes. A `Semantics(liveRegion)`
+  reads its lines. Four strings in all five languages; the Indic titles put the mission after "Mission complete:" ("मिशन पूरा:
+  Pair से जीतें"), since the mission's name is an imperative there. `test/xp_mission_toast_test.dart` (the rule, the queue, the 5 s, the tap, the level up, what
+  shows nothing, the forward-only baseline, the wait for the ladder, the tax on the bar, `session:ready` and `player:level` through
+  `GameState.start()`'s own wiring on a fed connection, the bar in `KingTeenPattiApp` itself, over a dialog and the table drawer,
+  both felts and the lobby's corners, every language and size); pictures by hand, `test/xp_mission_shots.dart` (run like
+  table_shots; `longLevel` is the tallest bar).
 - **Emojis** (owner, 26 Sep 2026; server side §7.1/§7.2/§7.3; `widgets/emoji_shelf.dart`, `widgets/emoji_art.dart`).
   `EmojiItem`/`ChatEmoji` DTOs, `ApiClient.emojis`/`buyEmoji`, `GameConnection.sendEmoji` (`chat:emoji`), `GameState.emojis`
   (loaded with the pictures, warmed into `PictureCache`), `buyEmoji` → `bought | notEnough | refused`, `sendEmoji` sharing
