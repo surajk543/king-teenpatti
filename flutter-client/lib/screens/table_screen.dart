@@ -1693,7 +1693,10 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                           ?state.user?.shownBadge?.title,
                           taxPillLabel(state.t, bps: state.myTaxBps),
                         ].join(', '),
-                        onTap: () => showWinningTaxInfo(context),
+                        // The lobby's level screen, its three tabs (owner,
+                        // 27 Sep 2026: "it should pop the same UI which it
+                        // shows in Lobby").
+                        onTap: () => showTableLevelInfo(context),
                       ),
                     ),
                   ),

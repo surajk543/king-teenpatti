@@ -866,10 +866,14 @@ and column below is in `V1.0.0__baseline.sql`'s CREATE TABLEs and every row in `
   player holds that brings their rate lowest (`User.shownBadge`) and the rate: "🌱 Newbie" over "Regular · 20% TAX", with that
   badge's Lottie as the pill's EMBLEM at its left, from the plate's top edge to its bottom (`WinningTaxTag.emblemSize`: both lines
   and their padding — the felt reserves exactly that, so it moves nothing; owner, 27 Sep 2026: "increase the badge icon size which
-  is shown in game table"; a line tall before), scaled with the words where the slot is narrow; tapped, the **two-pane** popup (standing, rate, level, XP, next level, badges and the daily
-  list on the left; all 50 levels with their rates, the viewer's lit, then the badges on the right — the owner: "restore that
-  UI, only change was in Lobby"; since 27 Sep 2026 it only takes the level screen's round close key, its countdowns, its badges'
-  time left and its daily ticks following the clock by themselves (`LevelClock`), and "Winning Tax" capitalised). The lobby's **level key** (`LevelKey`, beside Friends, the level number on it) opens
+  is shown in game table"; a line tall before), scaled with the words where the slot is narrow; tapped, **the lobby's level screen** — its three tabs, below — since 27 Sep 2026 (owner: "when i click the
+  text on my level in gametable, it should pop the same UI which it shows in Lobby about player level, daily xp and levels";
+  `showTableLevelInfo`, the `LevelScreen` behind the table's own scrim, `showTableDialog`). Until then it opened the
+  **two-pane** popup (standing, rate, level, XP, next level, badges and the daily list on the left; all 50 levels with their
+  rates, the viewer's lit, then the badges on the right — the owner had it restored once: "restore that UI, only change was in
+  Lobby"), which is KEPT, with its tests (`table_tax_test` opens it directly, `_openTwoPanes`), but opened by nothing on the
+  felt: going back is the pill's one line (`showWinningTaxInfo`). It takes the level screen's round close key, its countdowns,
+  its badges' time left and its daily ticks following the clock by themselves (`LevelClock`), and "Winning Tax" capitalised. The lobby's **level key** (`LevelKey`, beside Friends, the level number on it) opens
   the **level screen** (`widgets/level_screen.dart` `LevelScreen`, polished 27 Sep 2026 — UI only; `showLevelInfo` →
   `WinningTaxInfo(fromLobby: true)` → `LevelScreen`) in **three tabs**, `LevelTabs`: a glyph and a word each, the active one gold,
   the others muted, over a hairline with a gold underline that SLIDES to the tab tapped (`levelTabSlide` 220 ms, ease-out, no

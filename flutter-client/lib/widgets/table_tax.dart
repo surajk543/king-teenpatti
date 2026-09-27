@@ -599,14 +599,33 @@ enum LevelInfoTab { mine, daily, ladder }
 /// viewer's own row lit and scrolled to, then every badge with its rate,
 /// validity and price. A badge is never shown as an XP goal (owner, 26 Sep
 /// 2026: "VIP Tag is not granted by XP"). The lobby's level key opens the same
-/// content in three tabs ([showLevelInfo]); the table's keeps its two panes
-/// (owner, 27 Sep 2026: "restore that UI, only change was in Lobby").
+/// content in three tabs ([showLevelInfo]).
+///
+/// Nothing on the felt opens this two-pane popup any more: since 27 Sep 2026
+/// the pill opens the lobby's level screen ([showTableLevelInfo]; owner: "when
+/// i click the text on my level in gametable, it should pop the same UI which
+/// it shows in Lobby"). It is kept, with its tests, because the owner had it
+/// restored once ("restore that UI, only change was in Lobby"): going back is
+/// the pill's one line.
 Future<void> showWinningTaxInfo(
   BuildContext context, {
   LevelInfoTab tab = LevelInfoTab.mine,
 }) => showTableDialog<void>(
   context: context,
   builder: (context) => WinningTaxInfo(initialTab: tab),
+);
+
+/// The level screen over the table — the pill's tap ([WinningTaxTag]; owner,
+/// 27 Sep 2026: "when i click the text on my level in gametable, it should
+/// pop the same UI which it shows in Lobby about player level, daily xp and
+/// levels"): the lobby's [LevelScreen], its three tabs and everything on
+/// them, behind the table's own dialog scrim ([showTableDialog]).
+Future<void> showTableLevelInfo(
+  BuildContext context, {
+  LevelInfoTab tab = LevelInfoTab.mine,
+}) => showTableDialog<void>(
+  context: context,
+  builder: (context) => LevelScreen(initialTab: tab),
 );
 
 /// The same content from the lobby's level key ([LevelKey]; owner, 27 Sep

@@ -27,9 +27,10 @@ import 'table_tax.dart';
 // and the daily sources from `GET /api/levels`, what today's window has
 // earned from its claims. Nothing here decides a level, a rate or an award.
 //
-// The table's tax pill opens the same content in two panes
-// ([showWinningTaxInfo], table_tax.dart), which stays as the owner restored it
-// ("only change was in Lobby").
+// The table's tax pill opens this screen too, since 27 Sep 2026
+// ([showTableLevelInfo], table_tax.dart; owner: "it should pop the same UI
+// which it shows in Lobby"); the two-pane popup it opened before
+// ([showWinningTaxInfo]) is kept but opened by nothing on the felt.
 
 /// How long the tabs' underline takes to slide to the tab tapped, and the
 /// content to change under it.
