@@ -28,6 +28,27 @@ enum AppLang {
   );
 }
 
+/// The lobby's name for a Teen Patti or poker game, as a name: the app's own
+/// words, written in capitals on the lobby's badges ("TEEN PATTI", "SEEN"),
+/// set in title case where the script has case ("Teen Patti", "Seen"). A
+/// script without case — Devanagari, Bengali, Gujarati, Gurmukhi — and a name
+/// already in mixed case ("Texas Hold'em") are left exactly as they are.
+///
+/// Where a game is named in a sentence or on a key rather than a badge: a
+/// playing friend's line on the Friends page, and the games a player's record
+/// is kept in.
+String friendlyName(String name) {
+  if (name != name.toUpperCase() || name == name.toLowerCase()) return name;
+  return name
+      .split(' ')
+      .map(
+        (word) => word.isEmpty
+            ? word
+            : '${word.substring(0, 1)}${word.substring(1).toLowerCase()}',
+      )
+      .join(' ');
+}
+
 /// Every string the interface shows.
 ///
 /// A plain map rather than generated ARB files: there is no build step to keep
@@ -92,6 +113,27 @@ class Strings {
   String get totalWinnings => _('totalWinnings');
   String get biggestPot => _('biggestPot');
   String get playedNote => _('playedNote');
+
+  // --- player stats v2 (owner, 27 Sep 2026): a record kept game by game —
+  // All, then Teen Patti, Variation and Poker by the lobby's own names for
+  // them ([friendlyName] of [teenPatti], [variation] and [poker]).
+  String get statsAll => _('statsAll');
+
+  /// Over the six hands a player held at Teen Patti or Variation tables, each
+  /// named as the table names it — in the server's English.
+  String get handsHeld => _('handsHeld');
+
+  /// Over the variations a player's Variation hands were played under, each
+  /// by the picker's name for it ([variationName]).
+  String get variationsPlayed => _('variationsPlayed');
+
+  /// The headings over each variation's hands played and hands won: short,
+  /// since they set the width of the two columns of figures under them.
+  String get statsPlayed => _('statsPlayed');
+  String get statsWon => _('statsWon');
+
+  /// Where no Variation hand has been played yet.
+  String get statsNoVariations => _('statsNoVariations');
   String get fourHourBonus => _('fourHourBonus');
   String get dailyBonus => _('dailyBonus');
   String get milestone => _('milestone');
@@ -1475,6 +1517,12 @@ class Strings {
       'totalWinnings': 'Total winnings',
       'biggestPot': 'Biggest pot',
       'playedNote': 'A hand counts as played once you have made a move in it.',
+      'statsAll': 'All',
+      'handsHeld': 'Hands held',
+      'variationsPlayed': 'Variations played',
+      'statsPlayed': 'Played',
+      'statsWon': 'Won',
+      'statsNoVariations': 'No variation hands yet',
       'fourHourBonus': '4-HOUR BONUS',
       'dailyBonus': 'DAILY BONUS',
       'luckyDrawChip': 'LUCKY DRAW',
@@ -2238,6 +2286,12 @@ class Strings {
       'totalWinnings': 'कुल जीत',
       'biggestPot': 'सबसे बड़ा पॉट',
       'playedNote': 'हाथ तभी गिना जाता है जब आपने उसमें कोई चाल चली हो।',
+      'statsAll': 'सभी',
+      'handsHeld': 'मिले हुए हाथ',
+      'variationsPlayed': 'खेले गए वेरिएशन',
+      'statsPlayed': 'खेले',
+      'statsWon': 'जीते',
+      'statsNoVariations': 'अभी कोई वेरिएशन हाथ नहीं',
       'fourHourBonus': '4-घंटे का बोनस',
       'dailyBonus': 'दैनिक बोनस',
       'luckyDrawChip': 'लकी ड्रॉ',
@@ -2983,6 +3037,12 @@ class Strings {
       'totalWinnings': 'মোট জেতা',
       'biggestPot': 'সবচেয়ে বড় পট',
       'playedNote': 'কোনো চাল দিলে তবেই হাতটি গোনা হয়।',
+      'statsAll': 'সব',
+      'handsHeld': 'পাওয়া হাত',
+      'variationsPlayed': 'খেলা ভেরিয়েশন',
+      'statsPlayed': 'খেলা',
+      'statsWon': 'জেতা',
+      'statsNoVariations': 'এখনও কোনো ভেরিয়েশন হাত নেই',
       'fourHourBonus': '4-ঘণ্টার বোনাস',
       'dailyBonus': 'দৈনিক বোনাস',
       'luckyDrawChip': 'লাকি ড্র',
@@ -3733,6 +3793,12 @@ class Strings {
       'totalWinnings': 'કુલ જીત',
       'biggestPot': 'સૌથી મોટો પોટ',
       'playedNote': 'કોઈ ચાલ ચાલો ત્યારે જ હાથ ગણાય છે.',
+      'statsAll': 'બધા',
+      'handsHeld': 'મળેલા હાથ',
+      'variationsPlayed': 'રમેલા વેરિએશન',
+      'statsPlayed': 'રમ્યા',
+      'statsWon': 'જીત્યા',
+      'statsNoVariations': 'હજી કોઈ વેરિએશન હાથ નથી',
       'fourHourBonus': '4-કલાકનું બોનસ',
       'dailyBonus': 'દૈનિક બોનસ',
       'luckyDrawChip': 'લકી ડ્રો',
@@ -4474,6 +4540,12 @@ class Strings {
       'totalWinnings': 'ਕੁੱਲ ਜਿੱਤ',
       'biggestPot': 'ਸਭ ਤੋਂ ਵੱਡਾ ਪੌਟ',
       'playedNote': 'ਹੱਥ ਤਾਂ ਹੀ ਗਿਣਿਆ ਜਾਂਦਾ ਹੈ ਜਦੋਂ ਤੁਸੀਂ ਕੋਈ ਚਾਲ ਚੱਲੀ ਹੋਵੇ।',
+      'statsAll': 'ਸਾਰੇ',
+      'handsHeld': 'ਮਿਲੇ ਹੱਥ',
+      'variationsPlayed': 'ਖੇਡੇ ਵੇਰੀਏਸ਼ਨ',
+      'statsPlayed': 'ਖੇਡੇ',
+      'statsWon': 'ਜਿੱਤੇ',
+      'statsNoVariations': 'ਅਜੇ ਕੋਈ ਵੇਰੀਏਸ਼ਨ ਹੱਥ ਨਹੀਂ',
       'fourHourBonus': '4-ਘੰਟੇ ਦਾ ਬੋਨਸ',
       'dailyBonus': 'ਰੋਜ਼ਾਨਾ ਬੋਨਸ',
       'luckyDrawChip': 'ਲੱਕੀ ਡਰਾਅ',

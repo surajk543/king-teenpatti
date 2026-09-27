@@ -372,7 +372,8 @@ and the transactions that DO run have this shape:
   → BEGIN
   → SELECT chips FROM users WHERE id=$1 FOR UPDATE        lock the wallet row(s), ascending id
   → UPDATE users SET chips = chips + delta                  DELTA, never an absolute
-  → INSERT player_stats … ON CONFLICT DO UPDATE <counters> only when a counter moves (since 26 Sep 2026, Friends V1)
+  (no counter is written here since Player stats v2, 27 Sep 2026: the table hands a hand's counters to the stats
+   recorder once this COMMIT has happened, and a flusher adds them to player_stats in batches — §7.3)
   → INSERT chip_ledger (…, action_id UNIQUE)               one row per player per checkpoint
   → COMMIT
 ```
@@ -1130,7 +1131,9 @@ scan every body for them). Routes, all signed in; the four writes through the `w
 (they move no wallet): **`GET /api/players/{playerId}`** → `{player, friendStatus: NONE|PENDING_SENT|PENDING_RECEIVED|
 FRIENDS|SELF, requestId?}` (`requestId` only with PENDING_*); **`GET /api/players/{playerId}/profile`** → `{profile:
 {…PlayerCard, friendStatus, requestId?, presence? {status: ONLINE|PLAYING|OFFLINE, online, playing, game?, variant?},
-stats {handsPlayed, handsWon, handsLost, handsLeft, winRate}}}` — `presence` ONLY for FRIENDS or SELF; `winRate` =
+stats {handsPlayed, handsWon, handsLost, handsLeft, winRate, categories {teenPatti, variation, poker}}}}` (the per-game
+record since Player stats v2 — counts, the hands held and the variations played, never a chip figure) — `presence` ONLY for
+FRIENDS or SELF; `winRate` =
 round(100·won/played, 2), 0 with no hands; no total winnings or biggest pot (chip figures); **`GET /api/friends`** →
 `{friends: [PlayerCard + {status, online, playing, game?, variant?, friendsSince}]}`, PLAYING then ONLINE then OFFLINE,
 then name; **`GET /api/friends/requests`** → `{incoming, outgoing}` of `{requestId, player, createdAt}`, PENDING only,
@@ -1228,7 +1231,8 @@ owns `users`.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly thirty-three, and none of them is game state** (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph; `player_stats`, `friend_requests` and `friendships` since the same day, Friends V1, §7.2; and eight of levels, badges and the daily XP since 27 Sep 2026 — `player_levels`, `badges`, `user_badges`, `badge_purchases`, `xp_sources`, `xp_settings`, `player_xp`, `player_xp_claims`, §6.6): ten of accounts, money and the picture
+Tables — **there are exactly thirty-five, and none of them is game state** (Player stats v2's `player_variation_stats` and
+`stats_flushes` since 27 Sep 2026, in the statistics paragraph below) (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph; `player_stats`, `friend_requests` and `friendships` since the same day, Friends V1, §7.2; and eight of levels, badges and the daily XP since 27 Sep 2026 — `player_levels`, `badges`, `user_badges`, `badge_purchases`, `xp_sources`, `xp_settings`, `player_xp`, `player_xp_claims`, §6.6): ten of accounts, money and the picture
 catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`, `user_table_choice` — the paragraph after the
 `users` trigger below; merged 23 Sep 2026) (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
 `missile_spends` are below), and since 23 Sep 2026 **four of table configuration** — `table_engines`,
@@ -1322,16 +1326,36 @@ epoch-ms with a DEFAULT; no index beyond the keys each declares (each is read wh
   table. The seed is the CODE's default menu: a deployment whose `.env` configures its own gets its own into the
   database with `gameplay -export-table-config` (§4, DEPLOY.md §3).
 
-**Gameplay statistics live in `player_stats`** since 26 Sep 2026 (Friends V1, owner: "Create a separate player_stats
-table … Do not maintain duplicate copies"): `user_id` PK → `users` (CASCADE), `hands_played`, `hands_won`, `hands_lost`,
-`hands_left`, `total_winnings`, `biggest_pot` (BIGINT), `created_at`/`updated_at` with defaults. The ledger's checkpoints
-(§5.1) keep `UPDATE users` to the wallet and add, in the same transaction and only when a counter moves, an upsert here
-(`db.addPlayerStats`); every account read `LEFT JOIN`s it (0 without a row), the HANDS_PLAYED milestone reads it, and the
-wire `user` object is byte for byte what it was (`handsLeftMid` ← `hands_left`). **`users` has no stat column** (owner,
-26 Sep 2026: "only store in player_stats table") — the six are gone from `CREATE TABLE users`, and nothing copies an older
-database's figures across: this build is deployed onto a FRESH database (owner, the same day), and on an older one the
-statistics simply start at 0 (the old columns, where a database has them, are never read or written). A rollback to
-go-server/v1.5.0, which reads and writes those columns, therefore needs a fresh database too (DEPLOY.md §5). **The
+**Gameplay statistics live in `player_stats`**, per game since **Player stats v2** (27 Sep 2026, owner: "maintain stats
+acc to only three category: teenpatti variation and poker … how many times he got trail, pair, highcard, pure sequence,
+sequence also. how many muflis, ak47, other gameplay type he played … store this info in redis, then async you can update by
+group commit so that u don't call postgres db multiple times"). **`player_stats`**: one row per player per BUCKET — PK
+`(user_id, category)`, `category` TEEN_PATTI (seen and blind, public or private), VARIATION or POKER (`game.StatsBucket`, no
+CHECK: an open set) — with the six outcome counters (`hands_played` = made a voluntary bet, `hands_won`, `hands_lost`,
+`hands_left` = abandoned mid-hand, `total_winnings` = GROSS chips taken in pots won — a taxed win counts the whole pot, the
+`table_tax` row nothing — and `biggest_pot`) and the hand each player HELD at a Teen Patti or Variation hand end (`trail`,
+`pure_sequence`, `sequence`, `color`, `pair`, `high_card`, as the table counted it: wild cards make the category, under
+5-Card the three that played; all 0 on a POKER row). **`player_variation_stats`**: per player per variation (MUFLIS … FIVE_CARD,
+open set), `hands_played`/`hands_won`. **`stats_flushes`**: the flusher's receipts, one row per batch committed — what makes a
+batch count once. **The path** (`internal/stats`, `internal/live/stats.go`/`redis_stats.go`, `db/stats.go`): the ledger writes
+MONEY ONLY (and the settle's XP); a table works out each hand's `game.HandStats` while the cards and rules are still there,
+carries them on `SettleRequest.Stats`, and hands them to its `StatsRecorder` only once the write has COMMITTED — on the first
+attempt or the Settler's retry, never on `duplicate_action` — so a hand counts at most once and only when its money moved (a
+leaver is counted at the leave's committed checkpoint). `stats.Recorder` queues them off the actor into the live store
+(`kt:stats:<userId>`, one round trip a hand); `stats.Flusher`, every `STATS_FLUSH_MS` (10 s), moves up to `STATS_FLUSH_BATCH`
+(500) players out atomically under a batch id (`TakeStatsBatch`), adds them in ONE PostgreSQL transaction with its receipt,
+and only then finishes the batch in the live store — a crash in between replays the batch, which its receipt makes a no-op.
+Losing the live store loses the counters not yet flushed (at most one interval), as it loses the hands in play. So the figures
+TRAIL play by up to one interval: every account read sums a player's rows (`statsColumns`, two correlated subqueries; the wire
+`user` keeps the six career totals with their old keys and adds **`stats {teenPatti, variation, poker}`** per game), the
+HANDS_PLAYED milestone reads the sum, and the app re-reads the account when the Stats drawer opens and once more
+`GameState.statsCatchUpAfter` (11 s) after leaving a table. `DELETE /api/account` deletes the rows; pending counters are dropped
+from the live store, best effort, and a flush that still finds some adds nothing to a deleted account. **`users` has no stat
+column** (owner, 26 Sep 2026: "only store in player_stats table"). **A database go-server/v1.6.0 built** holds `player_stats` as
+one row per player: the baseline REFUSES to boot on it, naming the fix (a fresh database, DEPLOY.md §5/§8 —
+`TestABootOnTheV160PlayerStatsIsRefusedNamingTheFix`), and a rollback from v2 to v1.6.0 needs a fresh database too, since
+v1.6.0 writes its counters with `ON CONFLICT (user_id)`. A rollback to go-server/v1.5.0 or older, which reads the old `users`
+columns, needs one as well. **The
 friends graph**: **`friend_requests`** (`id` BIGSERIAL, `requester_id`/`recipient_id` → `users` CASCADE, `status`
 PENDING|ACCEPTED|REJECTED|CANCELLED, timestamps, `CHECK requester <> recipient`; `UNIQUE INDEX … (LEAST(requester_id,
 recipient_id), GREATEST(…)) WHERE status = 'PENDING'` — no duplicate and no A→B beside B→A — plus the two partial indexes
@@ -1547,6 +1571,7 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | `LIVE_STATE_TTL_MS` | 86400000 | how long a table snapshot that stops updating survives in the live store |
 | `LIVE_INSTANCE_ID` | `hostname:pid` | presence / matchmaking owner tag (`Load()` only; `Defaults()`/`FromEnv()` carry `""`) |
 | `LIVE_RECONCILE_MS` | 30000 | how often the live store is pinged, refilled from memory after an outage, and swept for stray seat/summary keys; 0 disables |
+| **`STATS_FLUSH_MS`** / **`STATS_FLUSH_BATCH`** | 10000 / 500 | **Go-only (Player stats v2, 27 Sep 2026, §7.3).** How often the flusher moves the players' pending statistics from the live store into PostgreSQL, and the most players one flush transaction holds (a pass takes batch after batch until nobody waits). The interval is also how far a player's statistics and the hands-played milestone may trail play. **Trap: `STATS_FLUSH_MS=0` turns the flusher OFF** — nothing is flushed, not even at shutdown; the counters wait in the live store for a process that flushes. |
 | `LOG_LEVEL` | info | slog level (`util.ParseLogLevel`) |
 | `ROOT_REDIRECT` | empty | **Go-only.** Set (**production: `/dashboard/`**, the Grafana login) it hides the browser client: `GET /` → 302 to the value, every top-level file of `PUBLIC_DIR` (`index.html`, `client.js`, the stylesheets) and `/socket.io/socket.io(.min).js` → 404; subdirectories keep serving — `privacy/` (Play listing link), `profiles/` (Flutter avatars via `/api/profiles`). Empty = browser client at `/` (dev, parity). The rule is the directory layout, not a filename list (`static.go`). |
 
@@ -1574,6 +1599,9 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   — `op=bet` is now the transaction that BANKS a departing player's bets, not one per bet, §5.1);
   pool gauges `db_pool_connections/idle_connections/waiting_requests` via `bindPool(getPool)`; HTTP `http_requests_total` /
   `http_request_duration_seconds{method,route,status_code}`.
+- Player-stats metrics (Player stats v2, §7.3): `game_stats_flushes_total{result}` and the histogram `game_stats_flush_players`
+  (players per committed batch); the live-store ops `record_stats`, `take_stats_batch`, `stats_batches` and the batch finish
+  and drop join the `op` labels below.
 - Live-store metrics (`internal/live` + the restart sequence): `live_store_operations_total{op,result}`,
   `live_store_duration_seconds{op}` (buckets 0.1 ms…1 s), `live_store_errors_total{op}`, `live_store_reconciles_total{result}`,
   `restored_tables_total` (**unlabelled** — the live store is the only source a table can come back from),
@@ -1938,8 +1966,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   26 Sep 2026: "show each other at the top how long they are friends in time"; `_FriendsFor`, from the friend list's
   `friendsSince` via `FriendsState.friendsSinceOf`, the same moment for both, in the largest whole unit — minutes, hours,
   days, months of 30 days, years — or "Friends since just now", counted again every 30 s; `Strings.friendsFor`, which
-  added months and years to the time units) — and the five stat tiles through the ONE `PlayerStatsGrid`
-  (`widgets/player_profile.dart`, `RecordSurface.lobby|table`, shared with the lobby profile). No presence, no wallet, no
+  added months and years to the time units) — and the record through the ONE `PlayerStatsGrid`
+  (`widgets/player_profile.dart`, `RecordSurface.lobby|table`, shared with the lobby profile and, as `PlayerStatsGrid.own`,
+  the lobby's Stats drawer under its level row): since Player stats v2 (27 Sep 2026) a game switch — All · Teen Patti ·
+  Variation · Poker (`StatsCategory`, `models/player_stats.dart`) — over the counts, and for Teen Patti and Variation the hands
+  held (Trail down to High Card) and the variations played; counts in thousands grouping, a chip figure only on the player's
+  own record. No presence, no wallet, no
   table id. Its own state slot (`FriendsState.seatPlayer/seatProfile/openSeat/closeSeat`), apart from the page's. A seat
   whose player has asked the viewer wears **`SeatRequestBadge`** (a gold person-add disc on the lower-LEFT corner of their
   picture — on the pod's top corner it covered a long name's first letter), and a seat whose player is the viewer's

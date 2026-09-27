@@ -34,6 +34,10 @@ type Memory struct {
 	lobby     map[string]map[string]struct{}
 	// lobby: bucket "<category>:<boot>" → public room ids published there
 	xpDays map[string]*memXPDay // userID → XP play-time window (PlayClock)
+
+	// stats holds the players' pending and in-flight statistics (stats.go);
+	// nothing in it expires.
+	stats *StatsBook
 }
 
 // memXPDay is one player's XP play-time record: the window it counts in (its
@@ -95,6 +99,7 @@ func NewMemoryWithClock(now func() time.Time) Store {
 		summaries: make(map[string]*memSummary),
 		lobby:     make(map[string]map[string]struct{}),
 		xpDays:    make(map[string]*memXPDay),
+		stats:     NewStatsBook(),
 	}
 	m.lastSweep = now()
 	return m
@@ -650,4 +655,60 @@ func (m *Memory) Candidates(ctx context.Context, category string, bootAmount int
 	}
 	sort.Slice(out, func(i, j int) bool { return lessCandidate(out[i], out[j]) })
 	return out, nil
+}
+
+// ---- player statistics ------------------------------------------------------
+
+// RecordStats implements Store: every delta folded in under the one mutex.
+func (m *Memory) RecordStats(ctx context.Context, deltas []StatsDelta) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.enter(ctx); err != nil {
+		return err
+	}
+	m.stats.Record(deltas)
+	return nil
+}
+
+// TakeStatsBatch implements Store: the move is one step under the mutex, so
+// no delta can land half in and half out of the batch.
+func (m *Memory) TakeStatsBatch(ctx context.Context, batchID string, max int) (StatsBatch, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.enter(ctx); err != nil {
+		return StatsBatch{}, err
+	}
+	return m.stats.Take(batchID, max, m.now().UnixMilli())
+}
+
+// StatsBatches implements Store.
+func (m *Memory) StatsBatches(ctx context.Context) ([]StatsBatch, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.enter(ctx); err != nil {
+		return nil, err
+	}
+	return m.stats.Batches(), nil
+}
+
+// FinishStatsBatch implements Store.
+func (m *Memory) FinishStatsBatch(ctx context.Context, batchID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.enter(ctx); err != nil {
+		return err
+	}
+	m.stats.Finish(batchID)
+	return nil
+}
+
+// DropStats implements Store.
+func (m *Memory) DropStats(ctx context.Context, userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.enter(ctx); err != nil {
+		return err
+	}
+	m.stats.Drop(userID)
+	return nil
 }

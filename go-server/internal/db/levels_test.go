@@ -850,9 +850,12 @@ func TestATaxedWinIsTheWinGrossAndTheTaxAsItsOwnRow(t *testing.T) {
 		t.Fatalf("the tax row %+v: want -%d under %s at the wallet's balance, same hand", taxRow, tax, game.TaxActionID(hand, a.ID))
 	}
 	f.reconcile()
-	// The counters are the pot's, once: the tax row moves none.
-	if u := f.find(a.ID); u.HandsWon != 1 || u.HandsPlayed != 1 || u.TotalWinnings != pot || u.BiggestPot != pot {
-		t.Errorf("the winner's counters: %+v", u)
+	// No counter moves here (Player stats v2, 27 Sep 2026): the ledger writes
+	// money and XP only, and the table records the hand's counters after the
+	// commit, through the stats flusher — the pot counted once, gross, the tax
+	// row nothing (game.TestATaxedWinCountsThePotOnceAndTheTaxNothing).
+	if u := f.find(a.ID); u.HandsWon != 0 || u.HandsPlayed != 0 || u.TotalWinnings != 0 || u.BiggestPot != 0 {
+		t.Errorf("the settle wrote the winner's counters: %+v", u)
 	}
 
 	// The hand's XP, in the same transaction: a won it with a sequence (4),

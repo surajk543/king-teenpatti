@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -120,15 +119,51 @@ type PlayerResponse struct {
 	RequestID    *int64     `json:"requestId,omitempty"`
 }
 
-// PlayerStatsView is a profile's stats: four counters from player_stats and
-// the win rate, round(100 · won / played, 2), 0 before a hand is played and
-// never over 100. No chip figure — totalWinnings and biggestPot stay off.
+// PlayerStatsView is a profile's stats: four counters — the player's whole
+// career, every bucket of player_stats summed — and the win rate,
+// round(100 · won / played, 2), 0 before a hand is played and never over 100;
+// then the same per bucket (Player stats v2, owner 27 Sep 2026). No chip
+// figure — totalWinnings and biggestPot stay off, here and in every category.
 type PlayerStatsView struct {
 	HandsPlayed int64   `json:"handsPlayed"`
 	HandsWon    int64   `json:"handsWon"`
 	HandsLost   int64   `json:"handsLost"`
 	HandsLeft   int64   `json:"handsLeft"`
 	WinRate     float64 `json:"winRate"`
+	// Categories is the career per bucket: teenPatti, variation, poker.
+	Categories ProfileCategories `json:"categories"`
+}
+
+// ProfileCategoryStats is one bucket on a profile: user.stats' category
+// without its chip figures.
+type ProfileCategoryStats struct {
+	HandsPlayed int64   `json:"handsPlayed"`
+	HandsWon    int64   `json:"handsWon"`
+	HandsLost   int64   `json:"handsLost"`
+	HandsLeft   int64   `json:"handsLeft"`
+	WinRate     float64 `json:"winRate"`
+}
+
+// ProfileTeenPattiStats is a profile's Teen Patti bucket, with the hands held.
+type ProfileTeenPattiStats struct {
+	ProfileCategoryStats
+	Hands db.HandTally `json:"hands"`
+}
+
+// ProfileVariationStats is a profile's Variation bucket, with the hands held
+// and the variations played ([] before the first).
+type ProfileVariationStats struct {
+	ProfileCategoryStats
+	Hands      db.HandTally        `json:"hands"`
+	Variations []db.VariationTally `json:"variations"`
+}
+
+// ProfileCategories is PlayerStatsView.Categories: the shape of user.stats
+// without totalWinnings and biggestPot.
+type ProfileCategories struct {
+	TeenPatti ProfileTeenPattiStats `json:"teenPatti"`
+	Variation ProfileVariationStats `json:"variation"`
+	Poker     ProfileCategoryStats  `json:"poker"`
 }
 
 // PlayerProfile is GET /api/players/{playerId}/profile's profile: the card's
@@ -596,28 +631,47 @@ func requestItem(r db.FriendRequest) FriendRequestItem {
 	return FriendRequestItem{RequestID: r.ID, Player: cardOf(r.Player), CreatedAt: r.CreatedAt}
 }
 
-// statsView is a profile's stats with its win rate.
-func statsView(s db.PlayerStats) PlayerStatsView {
+// statsView is a profile's stats: the career's totals with their win rate,
+// and each bucket the same way — never a chip figure.
+func statsView(s db.StatsSheet) PlayerStatsView {
+	totals := profileCategory(s.Totals())
+	variations := s.Variations
+	if variations == nil {
+		variations = []db.VariationTally{}
+	}
 	return PlayerStatsView{
-		HandsPlayed: s.HandsPlayed,
-		HandsWon:    s.HandsWon,
-		HandsLost:   s.HandsLost,
-		HandsLeft:   s.HandsLeft,
-		WinRate:     WinRate(s.HandsWon, s.HandsPlayed),
+		HandsPlayed: totals.HandsPlayed,
+		HandsWon:    totals.HandsWon,
+		HandsLost:   totals.HandsLost,
+		HandsLeft:   totals.HandsLeft,
+		WinRate:     totals.WinRate,
+		Categories: ProfileCategories{
+			TeenPatti: ProfileTeenPattiStats{ProfileCategoryStats: profileCategory(s.TeenPatti), Hands: s.TeenPatti.Hands},
+			Variation: ProfileVariationStats{ProfileCategoryStats: profileCategory(s.Variation), Hands: s.Variation.Hands,
+				Variations: variations},
+			Poker: profileCategory(s.Poker),
+		},
+	}
+}
+
+// profileCategory is one bucket's line on a profile: four counters and the
+// win rate, the chip figures left behind.
+func profileCategory(l db.StatsLine) ProfileCategoryStats {
+	return ProfileCategoryStats{
+		HandsPlayed: l.HandsPlayed,
+		HandsWon:    l.HandsWon,
+		HandsLost:   l.HandsLost,
+		HandsLeft:   l.HandsLeft,
+		WinRate:     WinRate(l.HandsWon, l.HandsPlayed),
 	}
 }
 
 // WinRate is round(100 · won / played, 2): 0 before a hand has been played,
 // and never over 100 — a hand won without a voluntary bet (everybody else
 // packed first) counts as won but not as played (requirement 16), so won
-// can outrun played.
-func WinRate(won, played int64) float64 {
-	if played <= 0 || won <= 0 {
-		return 0
-	}
-	rate := math.Round(10000*float64(won)/float64(played)) / 100
-	return math.Min(rate, 100)
-}
+// can outrun played. It is db.WinRate: the user object's buckets and a
+// profile's use the one rule.
+func WinRate(won, played int64) float64 { return db.WinRate(won, played) }
 
 // byMethod serves one path under several methods (HEAD with GET, as
 // methods does), and answers anything else with the JSON 404.

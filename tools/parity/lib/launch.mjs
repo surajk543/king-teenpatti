@@ -43,6 +43,10 @@ export const BASE_ENV = {
   METRICS_TOKEN: 'metrics-test-token',
   LOG_LEVEL: 'warn',
   PUBLIC_DIR: path.join(goServerDir, 'public'),
+  // Player stats v2 (27 Sep 2026): the players' statistics reach PostgreSQL by
+  // the stats flusher's group commit, so the money audit reads counters that
+  // trail play by one interval. A short one keeps that wait short.
+  STATS_FLUSH_MS: '250',
 };
 
 /** Env keys a profile may leave unset on purpose — scrubbed from the inherited environment. */
@@ -55,7 +59,7 @@ export const SCRUBBED = [
   'DATABASE_URL', 'PG_POOL_MAX', 'JWT_EXPIRES_IN', 'CORS_ORIGIN', 'MAX_PLAYERS_PER_ROOM', 'MIN_PLAYERS_TO_START',
   'VARIATION_SELECT_TIMEOUT_MS', 'VARIATION_MAX_POT_BOOTS', 'POKER_TURN_TIMEOUT_MS', 'POKER_MIN_BUYIN_BOOTS',
   'POKER_MAX_DISCARDS', 'MIN_CLIENT_BUILD', 'LEDGER_PURGE_INTERVAL_MS', 'LEDGER_PURGE_AFTER_MS',
-  'TABLE_CONFIG_SOURCE',
+  'TABLE_CONFIG_SOURCE', 'STATS_FLUSH_MS', 'STATS_FLUSH_BATCH',
 ];
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

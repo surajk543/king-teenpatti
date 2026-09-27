@@ -68,9 +68,10 @@ void openPlayerDrawer(BuildContext context, Seat seat) {
 /// their profile arrives, the one move that fits what the two are to each
 /// other: Add Friend; Request Sent (quiet, and dead); Accept or Reject a
 /// request of theirs; or a ✓ Friends tag (nothing is ended from a table).
-/// Under it, their record — the lobby profile's own tiles
-/// ([PlayerStatsGrid]). A refusal is said here, in the drawer the move was
-/// made from, and the profile is read again to offer what fits now.
+/// Under it, their record — the lobby profile's own, All · Teen Patti ·
+/// Variation · Poker ([PlayerStatsGrid]). A refusal is said here, in the
+/// drawer the move was made from, and the profile is read again to offer what
+/// fits now.
 ///
 /// It subscribes for itself ([FriendsState], the language): the table's
 /// Scaffold watches nothing, since rebuilding it tears an open drawer down.
@@ -172,7 +173,14 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
           text: friendsRefusalText(t, note),
         ),
       const SizedBox(height: Space.lg),
-      PlayerStatsGrid(t: t, stats: profile.stats, surface: RecordSurface.table),
+      // Keyed, so the game the player chose to look at stays chosen when a
+      // refusal's note arrives above it and moves it down the list.
+      PlayerStatsGrid(
+        key: const ValueKey('seat-record'),
+        t: t,
+        stats: profile.stats,
+        surface: RecordSurface.table,
+      ),
     ];
   }
 }

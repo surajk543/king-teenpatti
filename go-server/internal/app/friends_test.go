@@ -237,22 +237,41 @@ func TestTheEightFriendsRoutesAnswerTheContract(t *testing.T) {
 	mustBody(t, "no friends", raw, `{"friends":[]}`)
 
 	// ---- 2. GET /api/players/{playerId}/profile
-	// A hand's statistics first: B wins one of two counted hands.
-	if _, err := database.Pool.Exec(ctx, `INSERT INTO player_stats (user_id, hands_played, hands_won, hands_lost, hands_left, total_winnings, biggest_pot)
-	     VALUES ($1, 3, 1, 1, 1, 75000, 50000)`, idB); err != nil {
+	// A hand's statistics first (Player stats v2: a row per bucket): B wins one
+	// of two counted Teen Patti hands, holding a trail, and one Variation hand
+	// under Muflis.
+	if _, err := database.Pool.Exec(ctx, `INSERT INTO player_stats (user_id, category, hands_played, hands_won, hands_lost, hands_left,
+	         total_winnings, biggest_pot, trail, pair) VALUES ($1, 'TEEN_PATTI', 2, 1, 1, 1, 75000, 50000, 1, 2),
+	                                                          ($1, 'VARIATION', 1, 0, 0, 0, 0, 0, 0, 1)`, idB); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := database.Pool.Exec(ctx, `INSERT INTO player_variation_stats (user_id, variation, hands_played) VALUES ($1, 'MUFLIS', 1)`, idB); err != nil {
+		t.Fatal(err)
+	}
+	const zeroHands = `{"trail":0,"pureSequence":0,"sequence":0,"color":0,"pair":0,"highCard":0}`
+	const zeroLine = `"handsPlayed":0,"handsWon":0,"handsLost":0,"handsLeft":0,"winRate":0`
+	statsB := `"stats":{"handsPlayed":3,"handsWon":1,"handsLost":1,"handsLeft":1,"winRate":33.33,"categories":{` +
+		`"teenPatti":{"handsPlayed":2,"handsWon":1,"handsLost":1,"handsLeft":1,"winRate":50,"hands":{"trail":1,"pureSequence":0,"sequence":0,"color":0,"pair":2,"highCard":0}},` +
+		`"variation":{"handsPlayed":1,"handsWon":0,"handsLost":0,"handsLeft":0,"winRate":0,"hands":{"trail":0,"pureSequence":0,"sequence":0,"color":0,"pair":1,"highCard":0},` +
+		`"variations":[{"variation":"MUFLIS","handsPlayed":1,"handsWon":0}]},` +
+		`"poker":{` + zeroLine + `}}}`
 	status, raw = b.call(t, ts.URL, tokA, http.MethodGet, "/api/players/"+idB+"/profile", "")
 	mustStatus(t, "B's profile", status, http.StatusOK, raw)
-	mustBody(t, "B's profile, a friend's", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Bobby","profilePicture":{"id":null,"url":null},"friendStatus":"FRIENDS","presence":{"status":"OFFLINE","online":false,"playing":false},"stats":{"handsPlayed":3,"handsWon":1,"handsLost":1,"handsLeft":1,"winRate":33.33}}}`, idB))
+	mustBody(t, "B's profile, a friend's", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Bobby","profilePicture":{"id":null,"url":null},"friendStatus":"FRIENDS","presence":{"status":"OFFLINE","online":false,"playing":false},%s}}`, idB, statsB))
 	t.Logf("GET /api/players/{playerId}/profile (FRIENDS): %s", raw)
 	// A stranger's profile: stats, and no presence.
 	status, raw = b.call(t, ts.URL, tokC, http.MethodGet, "/api/players/"+idB+"/profile", "")
-	mustBody(t, "B's profile, a stranger's", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Bobby","profilePicture":{"id":null,"url":null},"friendStatus":"NONE","stats":{"handsPlayed":3,"handsWon":1,"handsLost":1,"handsLeft":1,"winRate":33.33}}}`, idB))
+	mustBody(t, "B's profile, a stranger's", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Bobby","profilePicture":{"id":null,"url":null},"friendStatus":"NONE",%s}}`, idB, statsB))
 	t.Logf("GET /api/players/{playerId}/profile (NONE): %s", raw)
+	// No chip figure on another player's profile, in any category.
+	for _, chips := range []string{"totalWinnings", "biggestPot"} {
+		if strings.Contains(string(raw), chips) {
+			t.Fatalf("a profile carries %s: %s", chips, raw)
+		}
+	}
 	// Your own: presence, and a win rate of 0 before any hand.
 	status, raw = b.call(t, ts.URL, tokC, http.MethodGet, "/api/players/"+idC+"/profile", "")
-	mustBody(t, "your own profile", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Carla","profilePicture":{"id":null,"url":null},"friendStatus":"SELF","presence":{"status":"OFFLINE","online":false,"playing":false},"stats":{"handsPlayed":0,"handsWon":0,"handsLost":0,"handsLeft":0,"winRate":0}}}`, idC))
+	mustBody(t, "your own profile", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Carla","profilePicture":{"id":null,"url":null},"friendStatus":"SELF","presence":{"status":"OFFLINE","online":false,"playing":false},"stats":{`+zeroLine+`,"categories":{"teenPatti":{`+zeroLine+`,"hands":`+zeroHands+`},"variation":{`+zeroLine+`,"hands":`+zeroHands+`,"variations":[]},"poker":{`+zeroLine+`}}}}}`, idC))
 	status, raw = b.call(t, ts.URL, tokA, http.MethodGet, "/api/players/nobody-at-all/profile", "")
 	mustStatus(t, "a profile of nobody", status, http.StatusNotFound, raw)
 	mustBody(t, "a profile of nobody", raw, `{"error":"player_not_found","message":"Player not found."}`)

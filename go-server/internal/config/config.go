@@ -164,6 +164,10 @@ type Config struct {
 	// (every table re-saved, seats and lobby index re-published). 0 disables
 	// the reconciler.
 	LiveReconcile time.Duration
+	// Stats is the players' statistics pipeline (Player stats v2): how often
+	// and in what batches the pending counters move from the live store into
+	// PostgreSQL.
+	Stats StatsConfig
 
 	// TableConfigSource is TABLE_CONFIG_SOURCE resolved (tables.go): "db" —
 	// the four configuration tables in PostgreSQL (the engines, the
@@ -233,6 +237,24 @@ type DBConfig struct {
 	// pass deletes every purgeable row in the table. Use LedgerPurgeInterval
 	// = 0 to turn the job off.
 	LedgerPurgeAfter time.Duration
+}
+
+// StatsConfig ← the stats flusher (Player stats v2, owner 27 Sep 2026: "store
+// this info in redis, then async you can update by group commit"). Go-only
+// keys.
+type StatsConfig struct {
+	// FlushInterval is STATS_FLUSH_MS (10 s): how often the flusher moves the
+	// players' pending statistics out of the live store into PostgreSQL — one
+	// transaction per batch, however many hands the batch's players finished.
+	// It is also how far the statistics a player reads (and the hands-played
+	// milestone) may trail their play. 0 turns the flusher off: nothing is
+	// flushed, not even at shutdown, and the counters wait in the live store
+	// for a process that flushes.
+	FlushInterval time.Duration
+	// FlushBatch is STATS_FLUSH_BATCH (500): the most players one batch — one
+	// PostgreSQL transaction — holds. A pass takes batch after batch until no
+	// player is left waiting. At least 1.
+	FlushBatch int
 }
 
 // LobbyTable is one "category:boot" entry of LOBBY_TABLES, in menu order.
@@ -644,6 +666,7 @@ func Defaults() *Config {
 		LiveStateTTL:   24 * time.Hour,
 		LiveInstanceID: "",
 		LiveReconcile:  30 * time.Second,
+		Stats:          StatsConfig{FlushInterval: 10 * time.Second, FlushBatch: 500},
 		// No table env key set → the database (tables.go).
 		TableConfigSource: TableConfigSourceDB,
 	}
@@ -881,6 +904,14 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	c.LiveStateTTL = r.millis("LIVE_STATE_TTL_MS", c.LiveStateTTL)
 	c.LiveInstanceID = r.str("LIVE_INSTANCE_ID", c.LiveInstanceID)
 	c.LiveReconcile = r.millis("LIVE_RECONCILE_MS", c.LiveReconcile)
+	c.Stats.FlushInterval = r.millis("STATS_FLUSH_MS", c.Stats.FlushInterval)
+	if c.Stats.FlushInterval < 0 {
+		r.fail("STATS_FLUSH_MS", strconv.FormatInt(c.Stats.FlushInterval.Milliseconds(), 10), "must be 0 (off) or more")
+	}
+	c.Stats.FlushBatch = r.integer("STATS_FLUSH_BATCH", c.Stats.FlushBatch)
+	if c.Stats.FlushBatch < 1 {
+		r.fail("STATS_FLUSH_BATCH", strconv.Itoa(c.Stats.FlushBatch), "must be 1 or more")
+	}
 
 	source, keysSet, err := resolveTableConfigSource(lookup)
 	if err != nil && r.err == nil {

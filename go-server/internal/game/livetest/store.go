@@ -48,6 +48,9 @@ type Store struct {
 	calls   []string
 	closed  bool
 	failure map[string]error
+	// stats is the players' pending and in-flight statistics, with the
+	// contract's semantics (live.StatsBook).
+	stats *live.StatsBook
 
 	// StaleSaves makes every SaveTable return live.ErrStale (the two-owners
 	// fence) while true.
@@ -65,6 +68,7 @@ func New() *Store {
 		offers:  map[string]live.ResumeOffer{},
 		index:   map[string]live.TableSummary{},
 		failure: map[string]error{},
+		stats:   live.NewStatsBook(),
 	}
 }
 
@@ -81,6 +85,7 @@ func (s *Store) Flush() {
 	s.offers = map[string]live.ResumeOffer{}
 	s.index = map[string]live.TableSummary{}
 	s.saves = nil
+	s.stats.Reset()
 }
 
 // Fail makes every call of op (snake_case method name, e.g. "save_table")
@@ -477,6 +482,61 @@ func (s *Store) Candidates(_ context.Context, category string, bootAmount int64)
 		return out[i].CreatedAt < out[j].CreatedAt
 	})
 	return out, nil
+}
+
+// PendingStats returns a player's pending statistics (nil for none).
+func (s *Store) PendingStats(userID string) map[string]int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.stats.Pending(userID)
+}
+
+func (s *Store) RecordStats(_ context.Context, deltas []live.StatsDelta) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.record("record_stats", len(deltas)); err != nil {
+		return err
+	}
+	s.stats.Record(deltas)
+	return nil
+}
+
+func (s *Store) TakeStatsBatch(_ context.Context, batchID string, max int) (live.StatsBatch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.record("take_stats_batch", batchID, max); err != nil {
+		return live.StatsBatch{}, err
+	}
+	return s.stats.Take(batchID, max, time.Now().UnixMilli())
+}
+
+func (s *Store) StatsBatches(_ context.Context) ([]live.StatsBatch, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.record("stats_batches"); err != nil {
+		return nil, err
+	}
+	return s.stats.Batches(), nil
+}
+
+func (s *Store) FinishStatsBatch(_ context.Context, batchID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.record("finish_stats_batch", batchID); err != nil {
+		return err
+	}
+	s.stats.Finish(batchID)
+	return nil
+}
+
+func (s *Store) DropStats(_ context.Context, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.record("drop_stats", userID); err != nil {
+		return err
+	}
+	s.stats.Drop(userID)
+	return nil
 }
 
 func (s *Store) Ping(context.Context) error {

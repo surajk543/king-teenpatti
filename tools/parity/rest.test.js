@@ -26,7 +26,7 @@ const uniqueStake = stakeCounter(100);
 
 const USER_KEYS = [
   'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'tablePicture', 'chips', 'diamond', 'hammer', 'missile',
-  'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'rewards',
+  'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'stats', 'rewards',
   'createdAt', 'lastLoginAt',
   // The player's own standing (owner, 26–27 Sep 2026; Go only): their level
   // and XP, the badges they hold, and the winning tax they pay.
@@ -65,6 +65,15 @@ test('guest login creates an account with the welcome chip grant, in the exact p
   for (const counter of ['handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot']) {
     assert.equal(user[counter], 0, counter);
   }
+  // The same career per bucket (Player stats v2, 27 Sep 2026): zeros, and
+  // every list a list.
+  const zero = { handsPlayed: 0, handsWon: 0, handsLost: 0, handsLeft: 0, totalWinnings: 0, biggestPot: 0, winRate: 0 };
+  const noHands = { trail: 0, pureSequence: 0, sequence: 0, color: 0, pair: 0, highCard: 0 };
+  assert.deepEqual(user.stats, {
+    teenPatti: { ...zero, hands: noHands },
+    variation: { ...zero, hands: noHands, variations: [] },
+    poker: zero,
+  });
   assert.deepEqual(user.rewards, {
     milestoneAvailable: false,
     milestoneAt: 0,
@@ -615,12 +624,12 @@ test('a diamond picture is paid in diamonds, never chips, and a new account can 
 // ---------------------------------------------------------------- rewards
 
 // setHandsPlayed puts a career's worth of hands on the counter, so the
-// milestone test does not have to play 25. The counter is
-// player_stats.hands_played since Friends V1 (26 Sep 2026): the users column
-// of that name is retired and nothing reads it.
+// milestone test does not have to play 25. The counter is hands_played summed
+// over the player's player_stats rows, a row per bucket (Player stats v2,
+// 27 Sep 2026): this sets their Teen Patti row's.
 const setHandsPlayed = ([n, userId]) => query(
-  `INSERT INTO player_stats (user_id, hands_played) VALUES ($2, $1)
-     ON CONFLICT (user_id) DO UPDATE SET hands_played = EXCLUDED.hands_played`, [n, userId]);
+  `INSERT INTO player_stats (user_id, category, hands_played) VALUES ($2, 'TEEN_PATTI', $1)
+     ON CONFLICT (user_id, category) DO UPDATE SET hands_played = EXCLUDED.hands_played`, [n, userId]);
 
 test('the milestone reward is refused until 25 played hands, then paid exactly once through the ledger', async () => {
   const { token, user } = await guestLogin('device-milestone-0001', 'Miles');

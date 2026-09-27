@@ -61,6 +61,11 @@ func TestWithHooksObservesEveryCall(t *testing.T) {
 	_, _ = store.Candidates(ctx, "blind", 200)
 	_, _ = store.ListSummaries(ctx)
 	must(t, store.RetireTable(ctx, "r", "blind", 200))
+	must(t, store.RecordStats(ctx, []StatsDelta{{UserID: "u", Add: map[string]int64{"POKER:hands_won": 1}}}))
+	_, _ = store.TakeStatsBatch(ctx, "b", 10)
+	_, _ = store.StatsBatches(ctx)
+	must(t, store.FinishStatsBatch(ctx, "b"))
+	must(t, store.DropStats(ctx, "u"))
 	must(t, store.Ping(ctx))
 	must(t, store.Close())
 
@@ -72,7 +77,9 @@ func TestWithHooksObservesEveryCall(t *testing.T) {
 		"append_chat", "load_chat", "delete_chat",
 		"set_seated", "seat_of", "list_seats", "clear_seated", "set_online", "online_count", "presence", "set_offline",
 		"put_resume_offer", "take_resume_offer", "delete_resume_offer",
-		"publish_table", "candidates", "list_summaries", "retire_table", "ping", "close",
+		"publish_table", "candidates", "list_summaries", "retire_table",
+		"record_stats", "take_stats_batch", "stats_batches", "finish_stats_batch", "drop_stats",
+		"ping", "close",
 	}
 	mu.Lock()
 	defer mu.Unlock()

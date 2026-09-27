@@ -60,23 +60,6 @@ Future<void> showFriends(BuildContext context) {
   );
 }
 
-/// The lobby's name for a Teen Patti or poker game, as a name: the app's own
-/// words, written in capitals on the lobby's badges ("TEEN PATTI", "SEEN"),
-/// set in title case where the script has case ("Teen Patti", "Seen"). A
-/// script without case — Devanagari, Bengali, Gujarati, Gurmukhi — and a name
-/// already in mixed case ("Texas Hold'em") are left exactly as they are.
-String friendlyName(String name) {
-  if (name != name.toUpperCase() || name == name.toLowerCase()) return name;
-  return name
-      .split(' ')
-      .map(
-        (word) => word.isEmpty
-            ? word
-            : '${word.substring(0, 1)}${word.substring(1).toLowerCase()}',
-      )
-      .join(' ');
-}
-
 /// "Teen Patti • Seen", "Poker • Texas Hold'em": the game a playing friend is
 /// at, in the app's own localized names for its engines and categories. A
 /// game or variant this build has never heard of goes by the server's name for
@@ -2043,7 +2026,11 @@ class _ProfileView extends StatelessWidget {
             height: 120,
             child: _Waiting(key: ValueKey('friend-profile-loading')),
           )
-        : PlayerStatsGrid(t: t, stats: profile.stats);
+        : PlayerStatsGrid(
+            key: const ValueKey('friend-record'),
+            t: t,
+            stats: profile.stats,
+          );
 
     return LayoutBuilder(
       builder: (context, box) {

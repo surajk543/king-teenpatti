@@ -3,6 +3,7 @@ package db_test
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,7 +58,8 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	execSQL(t, older, `DROP TABLE emojis`)
 	// And Friends V1's three (26 Sep 2026). This build goes onto a FRESH
 	// database (owner, 26 Sep 2026), so nothing is copied from anywhere: a boot
-	// on an older one just creates them, and its players' statistics start at 0.
+	// on an older one just creates them, and its players' statistics start at
+	// 0 — player_stats in the shape Player stats v2 declares (27 Sep 2026).
 	execSQL(t, older, `DROP TABLE friendships`)
 	execSQL(t, older, `DROP TABLE friend_requests`)
 	execSQL(t, older, `DROP TABLE player_stats`)
@@ -177,16 +179,15 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	}
 
 	// A second boot on the upgraded database is a no-op, statistics included:
-	// a hand played since the upgrade survives it.
-	if _, err := db.NewLedger(d, nil, nil).Settle(ctx, game.SettleRequest{
-		RoomID: "upgrade-room", HandID: "upgrade-settle-" + randomSuffix(t),
-		Entries: []game.SettleEntry{{UserID: before.ID, Delta: 0, Reason: game.LedgerReasonHandLoss,
-			ActionID: game.SettleActionID("upgrade-settle", before.ID), Outcome: true, DidChaal: true}},
-	}); err != nil {
-		t.Fatal(err)
+	// a hand played since the upgrade — its counters flushed into the fresh
+	// shape, a row per bucket — survives it.
+	played := db.NewStatsDelta(before.ID)
+	played.Add(game.HandStats{UserID: before.ID, Bucket: game.StatsTeenPatti, Played: 1, Lost: 1, HasHeld: true, Held: game.Pair})
+	if applied, err := db.NewStatsStore(d, nil).Flush(ctx, "upgrade-"+randomSuffix(t), []db.StatsDelta{*played}); err != nil || !applied {
+		t.Fatalf("a flush after the upgrade: %v %v", applied, err)
 	}
 	reboot(t, d)
-	if n := countOf(t, d, `SELECT hands_played FROM player_stats WHERE user_id = $1`, before.ID); n != 1 {
+	if n := countOf(t, d, `SELECT hands_played FROM player_stats WHERE user_id = $1 AND category = 'TEEN_PATTI'`, before.ID); n != 1 {
 		t.Errorf("hands_played after a second boot = %d, want 1", n)
 	}
 	for _, c := range [][2]string{{"users", "is_bot"}, {"users", "is_active"}, {"chip_ledger", "game"}, {"chip_ledger", "variant"}} {
@@ -194,4 +195,48 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 			t.Errorf("%s.%s after a second boot", c[0], c[1])
 		}
 	}
+}
+
+// TestABootOnTheV160PlayerStatsIsRefusedNamingTheFix: go-server/v1.6.0 built
+// player_stats as one row per player (user_id PRIMARY KEY, six counters, no
+// category). CREATE TABLE IF NOT EXISTS leaves such a table as it is, and on it
+// every account read of this build — which reads the table by bucket — fails
+// after a boot that looked clean. So the baseline refuses that boot, with a
+// message that names the fix (a fresh database, DEPLOY.md §8), rather than
+// convert counters that cover every game into one bucket.
+func TestABootOnTheV160PlayerStatsIsRefusedNamingTheFix(t *testing.T) {
+	older := dbtest.Open(t, "v160stats")
+	execSQL(t, older, `DROP TABLE player_stats`)
+	execSQL(t, older, `CREATE TABLE player_stats (
+  user_id        TEXT   PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+  hands_played   BIGINT NOT NULL DEFAULT 0,
+  hands_won      BIGINT NOT NULL DEFAULT 0,
+  hands_lost     BIGINT NOT NULL DEFAULT 0,
+  hands_left     BIGINT NOT NULL DEFAULT 0,
+  total_winnings BIGINT NOT NULL DEFAULT 0,
+  biggest_pot    BIGINT NOT NULL DEFAULT 0,
+  created_at     BIGINT NOT NULL DEFAULT 0,
+  updated_at     BIGINT NOT NULL DEFAULT 0)`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	d, err := db.Open(ctx, db.Options{URL: testURL(), Schema: older.Schema, PoolMax: 2})
+	if err == nil {
+		d.Close()
+		t.Fatal("a boot on the v1.6.0 player_stats must be refused, not look clean")
+	}
+	for _, want := range []string{"go-server/v1.6.0", "fresh database", "DEPLOY.md"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal %q does not say %q", err.Error(), want)
+		}
+	}
+
+	// A database this build made boots again untouched: the guard reads the
+	// catalogue and nothing else.
+	fresh := dbtest.Open(t, "v2stats")
+	again, err := db.Open(ctx, db.Options{URL: testURL(), Schema: fresh.Schema, PoolMax: 2})
+	if err != nil {
+		t.Fatalf("a second boot of this build's own database: %v", err)
+	}
+	again.Close()
 }

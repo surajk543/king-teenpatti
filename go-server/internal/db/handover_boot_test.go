@@ -198,9 +198,9 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	// tables added after §7 was written, and are exactly the case it foresaw.
 	// user_lucky_draws (24 Sep 2026), the Lucky Draw's spins, is the next, and
 	// user_emojis (26 Sep 2026), who has bought which emoji, the one after —
-	// then Friends V1's three the same day: player_stats, whose backfill also
-	// reads users (SELECT, granted), friend_requests and friendships, which
-	// reference users twice each.
+	// then Friends V1's three the same day: player_stats (reshaped by Player
+	// stats v2, 27 Sep 2026: a row per bucket), friend_requests and
+	// friendships, which reference users twice each.
 	referencing := []string{"diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends",
 		"user_table_pictures", "user_table_choice", "user_lucky_draws", "user_emojis",
 		"player_stats", "friend_requests", "friendships"}
@@ -289,7 +289,8 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	// 8. Friends V1 (26 Sep 2026) on §7's grants: a friend request locks both
 	// accounts FOR KEY SHARE (which takes the UPDATE privilege on users §7
 	// grants) and an accept writes the friendship both ways; a hand's
-	// counters land in player_stats; a deletion clears the graph.
+	// counters land in player_stats by the stats flusher (Player stats v2); a
+	// deletion clears the graph and the statistics.
 	friend, _, err := db.NewUsers(d, welcome, nil).UpsertFromProfile(ctx, db.Profile{
 		Provider: db.ProviderGuest, ProviderUserID: "handover-friend-" + suffix, DisplayName: "Friend",
 	})
@@ -308,13 +309,22 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 		t.Fatalf("a lookup on §7's grants: %+v %v", found, err)
 	}
 	hand := "handover-hand-" + suffix
-	if _, err := db.NewLedger(d, nil, nil).Settle(ctx, game.SettleRequest{RoomID: "handover", HandID: hand, Entries: []game.SettleEntry{{
+	loss := game.SettleEntry{
 		UserID: friend.ID, Delta: 0, Reason: game.LedgerReasonHandLoss, ActionID: game.SettleActionID(hand, friend.ID),
 		Outcome: true, DidChaal: true,
-	}}}); err != nil {
-		t.Fatalf("a hand's counters on §7's grants: %v", err)
 	}
-	if got, err := db.NewUsers(d, welcome, nil).FindByID(ctx, friend.ID); err != nil || got == nil || got.HandsPlayed != 1 || got.HandsLost != 1 {
+	if _, err := db.NewLedger(d, nil, nil).Settle(ctx, game.SettleRequest{RoomID: "handover", HandID: hand, Entries: []game.SettleEntry{loss}}); err != nil {
+		t.Fatalf("a hand's settle on §7's grants: %v", err)
+	}
+	counted, _ := game.StatsForEntry(loss, game.StatsVariation)
+	counted.HasHeld, counted.Held, counted.Variation = true, game.Pair, game.VariationMuflis
+	delta := db.NewStatsDelta(friend.ID)
+	delta.Add(counted)
+	if applied, err := db.NewStatsStore(d, nil).Flush(ctx, "handover-"+suffix, []db.StatsDelta{*delta}); err != nil || !applied {
+		t.Fatalf("a hand's counters flushed on §7's grants: %v %v", applied, err)
+	}
+	if got, err := db.NewUsers(d, welcome, nil).FindByID(ctx, friend.ID); err != nil || got == nil || got.HandsPlayed != 1 || got.HandsLost != 1 ||
+		got.Stats.Variation.Hands.Pair != 1 || len(got.Stats.Variation.Variations) != 1 {
 		t.Fatalf("the counters read back on §7's grants: %+v %v", got, err)
 	}
 	if err := db.NewUsers(d, welcome, nil).DeleteAccount(ctx, friend.ID); err != nil {

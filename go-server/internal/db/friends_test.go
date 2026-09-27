@@ -134,17 +134,29 @@ func TestAPlayersPictureAndStatsAreThoseTheirAccountShows(t *testing.T) {
 	}
 
 	hand := "hand-profile-" + randomSuffix(t)
-	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: "room-profile", HandID: hand, Entries: []game.SettleEntry{
+	entries := []game.SettleEntry{
 		settleEntry(hand, google.ID, 500, true, true, 1000),
 		settleEntry(hand, viewer.ID, -500, false, true, 0),
-	}}); err != nil {
+	}
+	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: "room-profile", HandID: hand, Entries: entries}); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.lookup(viewer.ID, google.ID).Stats; got != (db.PlayerStats{HandsPlayed: 1, HandsWon: 1}) {
+	// The counters arrive by the stats flusher (Player stats v2).
+	f.counted(game.StatsVariation, entries...)
+	if got := f.lookup(viewer.ID, google.ID).Stats.Totals(); got.HandsPlayed != 1 || got.HandsWon != 1 || got.HandsLost != 0 {
 		t.Fatalf("the winner's stats = %+v", got)
 	}
-	if got := f.lookup(google.ID, viewer.ID).Stats; got != (db.PlayerStats{HandsPlayed: 1, HandsLost: 1}) {
+	if got := f.lookup(google.ID, viewer.ID).Stats.Totals(); got.HandsPlayed != 1 || got.HandsLost != 1 || got.HandsWon != 0 {
 		t.Fatalf("the loser's stats = %+v", got)
+	}
+	// Per bucket, exactly as the player's own account reads them.
+	for _, id := range []string{google.ID, viewer.ID} {
+		if got, own := f.lookup(viewer.ID, id).Stats.Wire(), f.find(id).Stats; !reflect.DeepEqual(got, own) {
+			t.Fatalf("a profile's stats %+v differ from the account's %+v", got, own)
+		}
+	}
+	if got := f.lookup(viewer.ID, google.ID).Stats.Variation.HandsWon; got != 1 {
+		t.Fatalf("the win is in the Variation bucket: %d", got)
 	}
 }
 

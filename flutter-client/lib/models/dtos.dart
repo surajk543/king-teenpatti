@@ -10,6 +10,8 @@ library;
 import 'dart:math' as math;
 import 'dart:ui' show Brightness;
 
+import 'player_stats.dart';
+
 int _int(dynamic v) => v is num ? v.toInt() : 0;
 
 /// Null stays null: a picture id of 0 would be a real-looking id the server
@@ -327,6 +329,7 @@ class User {
     required this.handsLeftMid,
     required this.totalWinnings,
     required this.biggestPot,
+    this.stats = const StatsByCategory(),
     required this.rewards,
     this.playerLevel,
     this.badges = const [],
@@ -436,7 +439,26 @@ class User {
   final int handsLeftMid;
   final int totalWinnings;
   final int biggestPot;
+
+  /// The record game by game (player stats v2, owner, 27 Sep 2026): Teen
+  /// Patti, Variation and Poker, each with its figures — the two chip figures
+  /// included, this being the player's own account — Teen Patti's and
+  /// Variation's hands held, and the variations played. The six figures above
+  /// are the totals of the three.
+  final StatsByCategory stats;
   final Rewards? rewards;
+
+  /// The six totals above as one record — every game together, the Stats
+  /// drawer's "All". The account carries no win rate for them, and the
+  /// player's own record shows none.
+  CategoryStats get totals => CategoryStats(
+    handsPlayed: handsPlayed,
+    handsWon: handsWon,
+    handsLost: handsLost,
+    handsLeft: handsLeftMid,
+    totalWinnings: totalWinnings,
+    biggestPot: biggestPot,
+  );
 
   /// The same account with a new hammer count — what a Force Sideshow's ack
   /// reports, applied without waiting for the next `/api/auth/me`.
@@ -458,6 +480,7 @@ class User {
     handsLeftMid: handsLeftMid,
     totalWinnings: totalWinnings,
     biggestPot: biggestPot,
+    stats: stats,
     rewards: rewards,
     playerLevel: playerLevel,
     badges: badges,
@@ -485,6 +508,7 @@ class User {
     handsLeftMid: handsLeftMid,
     totalWinnings: totalWinnings,
     biggestPot: biggestPot,
+    stats: stats,
     rewards: rewards,
     playerLevel: standing.playerLevel,
     badges: standing.badges,
@@ -511,6 +535,7 @@ class User {
     handsLeftMid: handsLeftMid,
     totalWinnings: totalWinnings,
     biggestPot: biggestPot,
+    stats: stats,
     rewards: rewards,
     playerLevel: playerLevel,
     badges: badges,
@@ -539,6 +564,9 @@ class User {
     handsLeftMid: _int(j['handsLeftMid']),
     totalWinnings: _int(j['totalWinnings']),
     biggestPot: _int(j['biggestPot']),
+    stats: j['stats'] is Map
+        ? StatsByCategory.fromJson(Map<String, dynamic>.from(j['stats'] as Map))
+        : const StatsByCategory(),
     rewards: j['rewards'] is Map
         ? Rewards.fromJson(Map<String, dynamic>.from(j['rewards'] as Map))
         : null,

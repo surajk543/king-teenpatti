@@ -42,6 +42,11 @@ const (
 	OpRetireTable       = "retire_table"
 	OpCandidates        = "candidates"
 	OpListSummaries     = "list_summaries"
+	OpRecordStats       = "record_stats"
+	OpTakeStatsBatch    = "take_stats_batch"
+	OpStatsBatches      = "stats_batches"
+	OpFinishStatsBatch  = "finish_stats_batch"
+	OpDropStats         = "drop_stats"
 	OpPing              = "ping"
 	OpClose             = "close"
 	OpAddPlayTime       = "add_play_time"
@@ -61,6 +66,9 @@ type Fake struct {
 	offers    map[string]offerEntry
 	summaries map[string]live.TableSummary
 	xpDays    map[string]*xpDayEntry
+	// stats is the players' pending and in-flight statistics, with the
+	// contract's semantics (live.StatsBook).
+	stats *live.StatsBook
 
 	calls map[string]int
 	fail  map[string]error
@@ -113,6 +121,7 @@ func NewWithClock(now func() time.Time) *Fake {
 		offers:    map[string]offerEntry{},
 		summaries: map[string]live.TableSummary{},
 		xpDays:    map[string]*xpDayEntry{},
+		stats:     live.NewStatsBook(),
 		calls:     map[string]int{},
 		fail:      map[string]error{},
 	}
@@ -250,6 +259,30 @@ func (f *Fake) Seed(roomID string, seq int64, snapshot []byte) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.tables[roomID] = tableEntry{seq: seq, snapshot: append([]byte(nil), snapshot...), expiresAt: f.expiry(0)}
+}
+
+// PendingStats peeks at a player's pending statistics (nil for none). Does
+// not count as a call.
+func (f *Fake) PendingStats(userID string) map[string]int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.stats.Pending(userID)
+}
+
+// DirtyStats lists the players with pending statistics, sorted. Does not
+// count as a call.
+func (f *Fake) DirtyStats() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.stats.Dirty()
+}
+
+// OpenStatsBatches lists the batches taken and not finished, oldest first.
+// Does not count as a call.
+func (f *Fake) OpenStatsBatches() []live.StatsBatch {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.stats.Batches()
 }
 
 // Closed reports whether Close was called.
@@ -603,6 +636,56 @@ func (f *Fake) Candidates(ctx context.Context, category string, bootAmount int64
 		return out[i].RoomID < out[j].RoomID
 	})
 	return out, nil
+}
+
+// ---- player statistics ------------------------------------------------------
+
+func (f *Fake) RecordStats(ctx context.Context, deltas []live.StatsDelta) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter(ctx, OpRecordStats); err != nil {
+		return err
+	}
+	f.stats.Record(deltas)
+	return nil
+}
+
+func (f *Fake) TakeStatsBatch(ctx context.Context, batchID string, max int) (live.StatsBatch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter(ctx, OpTakeStatsBatch); err != nil {
+		return live.StatsBatch{}, err
+	}
+	return f.stats.Take(batchID, max, f.now().UnixMilli())
+}
+
+func (f *Fake) StatsBatches(ctx context.Context) ([]live.StatsBatch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter(ctx, OpStatsBatches); err != nil {
+		return nil, err
+	}
+	return f.stats.Batches(), nil
+}
+
+func (f *Fake) FinishStatsBatch(ctx context.Context, batchID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter(ctx, OpFinishStatsBatch); err != nil {
+		return err
+	}
+	f.stats.Finish(batchID)
+	return nil
+}
+
+func (f *Fake) DropStats(ctx context.Context, userID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter(ctx, OpDropStats); err != nil {
+		return err
+	}
+	f.stats.Drop(userID)
+	return nil
 }
 
 // ---- lifecycle --------------------------------------------------------------

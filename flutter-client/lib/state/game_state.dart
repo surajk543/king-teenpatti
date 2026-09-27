@@ -1266,38 +1266,14 @@ class GameState extends ChangeNotifier {
       _conn.onKicked.listen((kick) {
         notice = kickText(kick.reason, kick.message);
         switching = false;
-        room = null;
-        seatedAt = null;
-        chat.clear();
-        _clearBubbles();
-        _clearBlocked();
-        _clearSideshow();
-        _clearVariation();
-        _clearMissile();
-        _clearCelebration();
-        _clearPokerHand();
-        screen = Screen.lobby;
-        notifyListeners();
-        unawaited(refreshUser());
+        handleBackToLobby();
       }),
 
       _conn.onLeft.listen((_) {
         // Mid-switch, the next table's snapshot is already on its way, so a
         // room closing behind us is not a reason to walk back to the lobby.
         if (switching) return;
-        room = null;
-        seatedAt = null;
-        chat.clear();
-        _clearBubbles();
-        _clearBlocked();
-        _clearSideshow();
-        _clearVariation();
-        _clearMissile();
-        _clearCelebration();
-        _clearPokerHand();
-        screen = Screen.lobby;
-        notifyListeners();
-        unawaited(refreshUser());
+        handleBackToLobby();
       }),
       _conn.onSideshowAsked.listen((_) {
         // The request itself arrives in the table snapshot that follows; this
@@ -2287,6 +2263,8 @@ class GameState extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    _statsCatchUp?.cancel();
+    _statsCatchUp = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('token');
     _token = null;
@@ -2325,6 +2303,45 @@ class GameState extends ChangeNotifier {
     if (id != null) await NoWinningsConsent.record(id);
     consentPending = false;
     notifyListeners();
+  }
+
+  /// The table is gone — the player left, was shown out, or it closed —
+  /// and the lobby comes back: everything the table held is cleared, and the
+  /// account is read at once and once more after the stats flush
+  /// ([statsCatchUpAfter]).
+  @visibleForTesting
+  void handleBackToLobby() {
+    room = null;
+    seatedAt = null;
+    chat.clear();
+    _clearBubbles();
+    _clearBlocked();
+    _clearSideshow();
+    _clearVariation();
+    _clearMissile();
+    _clearCelebration();
+    _clearPokerHand();
+    screen = Screen.lobby;
+    notifyListeners();
+    unawaited(refreshUser());
+    _catchUpStats();
+  }
+
+  /// How long after leaving a table the account is read once more: the
+  /// server's stats flusher (Player stats v2) moves a finished hand's counters
+  /// into PostgreSQL up to STATS_FLUSH_MS (10 s) after the hand, so the read
+  /// the lobby makes at once can miss the last hand — in the Stats drawer and
+  /// in the milestone chip's count. One more read just after the flush
+  /// catches it up.
+  static const statsCatchUpAfter = Duration(seconds: 11);
+  Timer? _statsCatchUp;
+
+  void _catchUpStats() {
+    _statsCatchUp?.cancel();
+    _statsCatchUp = Timer(statsCatchUpAfter, () {
+      _statsCatchUp = null;
+      if (_token != null) unawaited(refreshUser());
+    });
   }
 
   Future<void> refreshUser() async {
@@ -4304,6 +4321,7 @@ class GameState extends ChangeNotifier {
     unawaited(purchases.dispose());
     friends.dispose();
     _rentalWatch?.cancel();
+    _statsCatchUp?.cancel();
     _clearSideshow();
     _clearVariation();
     _clearMissile();

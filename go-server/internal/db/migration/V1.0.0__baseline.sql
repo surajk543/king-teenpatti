@@ -113,8 +113,9 @@
 -- `users.active_picture_id` references it, and `user_profile_pictures`, the
 -- table pictures, the emojis (`emojis`, then `user_emojis`, which names a
 -- player and an emoji), `chip_ledger` and the purchase and spend tables come
--- after both for the same reason, as do player_stats (after user_milestones)
--- and the two friends tables (after the Lucky Draw). The Lucky Draw's three
+-- after both for the same reason, as do the statistics (player_stats and
+-- player_variation_stats, then stats_flushes, after user_milestones) and the
+-- two friends tables (after the Lucky Draw). The Lucky Draw's three
 -- follow the purchase tables — its draws, their slots (which
 -- name a draw), and the spins (which name a player, a draw and a slot) — then
 -- the player levels, badges and XP (player_levels, badges, then user_badges,
@@ -144,14 +145,15 @@
 -- what a picture costs, and are read once at boot. Nothing about any table in
 -- play is ever written to them. Nor are the Lucky Draw's (24 Sep 2026): its
 -- draws and slots are configuration, and its spins an audit — a spin is one
--- request, over before it answers. Nor are player_stats and the friends
--- tables (26 Sep 2026): career counters a checkpoint adds to, and who asked
--- whom and who is friends with whom — account facts; whether a friend is
--- online or at a table lives in the live store and nowhere here. Nor the
--- player levels, badges and XP (26–27 Sep 2026): player_levels, badges,
--- xp_sources and xp_settings are configuration, and user_badges, player_xp and
--- player_xp_claims account facts — a settle adds to player_xp, and no table
--- reads any of them to play a hand. The active play time the 30-
+-- request, over before it answers. Nor are the statistics and the friends
+-- tables (26-27 Sep 2026): career counters the stats flusher adds finished
+-- hands to (and its receipts), and who asked whom and who is friends with
+-- whom — account facts; a hand in play, whether a friend is online or at a
+-- table, and the counters not yet flushed live in the live store and nowhere
+-- here. Nor the player levels, badges and XP (26–27 Sep 2026): player_levels,
+-- badges, xp_sources and xp_settings are configuration, and user_badges,
+-- player_xp and player_xp_claims account facts — a settle adds to player_xp,
+-- and no table reads any of them to play a hand. The active play time the 30-
 -- and 60-minute XP is earned by lives in the live store, never here.
 
 
@@ -265,8 +267,8 @@ CREATE TABLE IF NOT EXISTS users (
   -- missile_purchases and missile_spends below are its receipts.
   missile           INTEGER NOT NULL DEFAULT 1 CHECK (missile >= 0),
   -- No gameplay counters: hands played, won, lost and left mid-hand, total
-  -- winnings and the biggest pot live in player_stats (below) alone (Friends
-  -- V1, owner 26 Sep 2026: "only store in player_stats table").
+  -- winnings, the biggest pot and the rest live in player_stats (below),
+  -- per bucket (Player stats v2, owner 27 Sep 2026).
   -- The reward milestones a player has collected live in user_milestones
   -- (below), not here (owner, 14 Sep 2026).
   created_at        BIGINT NOT NULL,
@@ -639,37 +641,100 @@ CREATE TABLE IF NOT EXISTS user_milestones (
   PRIMARY KEY (user_id, milestone)
 );
 
--- Each player's gameplay statistics (Friends V1, owner 26 Sep 2026): the six
--- counters that sat on users until this build, in a table of their own so the
--- account row is identity, account and wallet and nothing else — users has
--- none of them any more (owner: "only store in player_stats table"). The ONE
--- source: db.Ledger's checkpoints add to them — in the SAME transaction as the
--- chip delta they belong to, and only when a counter moves — and every account
--- read (db.userFromAt) joins them, 0 without a row; the HANDS_PLAYED milestone
--- and a friend's profile read hands_played here.
+-- Each player's gameplay statistics — Player stats v2 (owner, 27 Sep 2026:
+-- "maintain stats acc to only three category: teenpatti variation and poker …
+-- also store … how many times he got trail, pair, highcard, pure sequence,
+-- sequence … how many muflis, ak47, other gameplay type he played … store this
+-- info in redis, then async … group commit"). users holds none of them.
 --
--- One row per player, inserted by the first checkpoint that moves a counter
--- (INSERT … ON CONFLICT (user_id) DO UPDATE). Nothing is copied from an older
--- database's users columns: this build is deployed onto a fresh database
--- (owner, 26 Sep 2026). hands_left is the old hands_left_mid under its new
--- name — hands abandoned before they finished, counted apart from losses —
--- and the wire's `handsLeftMid` still carries it. A hand counts as played only once
--- the player made a voluntary bet (requirement 16); total_winnings is gross
--- chips taken in pots won and biggest_pot the largest of them.
+-- ONE row per player per BUCKET: `category` is TEEN_PATTI (seen and blind
+-- tables, public or private), VARIATION (variation tables) or POKER (the four
+-- poker categories) — game.StatsBucket. No CHECK: the server writes only those
+-- three, and a fourth would be a new value, never a constraint to change. The
+-- six outcome counters follow requirement 16 (a hand is played once the player
+-- made a voluntary bet; total_winnings is gross chips taken in pots won and
+-- biggest_pot the largest of them; hands_left is hands abandoned mid-hand,
+-- which the wire's handsLeftMid still carries); trail … high_card count the
+-- hand each player HELD at a Teen Patti or Variation hand end, as the table
+-- counted it (wild cards make the category; under 5-Card the three that
+-- played) — the six sum to the hands those buckets finished, and all six stay
+-- 0 on a POKER row.
 --
--- A CREATE TABLE and nothing on users: a table with a foreign key to users
--- needs only the REFERENCES grant ops/DEPLOY.md §7 gives, so a database built
--- before it takes it at its next boot whoever owns users.
+-- NOT written in the money transactions: the ledger writes money only. A
+-- hand's counters are recorded in the live store (kt:stats:<userId>) once its
+-- write has committed, and the stats flusher (internal/stats) adds them here in
+-- batches — one transaction per batch, exactly once by stats_flushes below. So
+-- the figures here trail play by up to one flush interval (STATS_FLUSH_MS);
+-- every account read sums a player's rows (db.userColumns), and the
+-- HANDS_PLAYED milestone reads that sum. This build goes onto a fresh database
+-- (owner, 27 Sep 2026): nothing is copied from anywhere.
 CREATE TABLE IF NOT EXISTS player_stats (
-  user_id        TEXT   PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+  user_id        TEXT   NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  category       TEXT   NOT NULL,
   hands_played   BIGINT NOT NULL DEFAULT 0,
   hands_won      BIGINT NOT NULL DEFAULT 0,
   hands_lost     BIGINT NOT NULL DEFAULT 0,
   hands_left     BIGINT NOT NULL DEFAULT 0,
   total_winnings BIGINT NOT NULL DEFAULT 0,
   biggest_pot    BIGINT NOT NULL DEFAULT 0,
+  trail          BIGINT NOT NULL DEFAULT 0,
+  pure_sequence  BIGINT NOT NULL DEFAULT 0,
+  sequence       BIGINT NOT NULL DEFAULT 0,
+  color          BIGINT NOT NULL DEFAULT 0,
+  pair           BIGINT NOT NULL DEFAULT 0,
+  high_card      BIGINT NOT NULL DEFAULT 0,
   created_at     BIGINT NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
-  updated_at     BIGINT NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
+  updated_at     BIGINT NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  PRIMARY KEY (user_id, category)
+);
+
+-- A database a go-server/v1.6.0 boot built (Friends V1, the table tax) holds
+-- player_stats in its OLD shape — one row per player, no category — and the
+-- CREATE TABLE IF NOT EXISTS above leaves it as it is. This build reads and
+-- writes the table by bucket, so on that one every account read and every
+-- stats flush would fail AFTER a boot that looked clean: logins, the socket
+-- handshake, rewards, all of it. The boot is refused here instead, naming the
+-- fix. Nothing is converted: v1.6.0's counters cover every game, and filing
+-- them under TEEN_PATTI would misstate them — this build goes onto a FRESH
+-- database (owner, 27 Sep 2026; go-server/ops/DEPLOY.md §8).
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = current_schema() AND table_name = 'player_stats'
+                    AND column_name = 'category') THEN
+    RAISE EXCEPTION 'player_stats has the go-server/v1.6.0 shape (one row per player, no category); this build keeps it per game (Player stats v2) and needs a fresh database — go-server/ops/DEPLOY.md §8';
+  END IF;
+END $$;
+
+-- The Variation bucket by the variation each hand was played under (Player
+-- stats v2): one row per player per variation — MUFLIS, AK47, JOKER, HUKAM,
+-- LOWEST_JOKER, HIGHEST_JOKER, FIVE_CARD (game.Variation). An OPEN set: a
+-- future variation is a new value, never a schema change, so no CHECK.
+-- hands_played counts every hand the player was resolved in at the hand end
+-- under it, hands_won the ones they won. Written by the stats flusher alone,
+-- beside player_stats and in the same transaction.
+CREATE TABLE IF NOT EXISTS player_variation_stats (
+  user_id      TEXT   NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  variation    TEXT   NOT NULL,
+  hands_played BIGINT NOT NULL DEFAULT 0,
+  hands_won    BIGINT NOT NULL DEFAULT 0,
+  created_at   BIGINT NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at   BIGINT NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  PRIMARY KEY (user_id, variation)
+);
+
+-- The stats flusher's receipts: one row per batch it committed, written in
+-- the batch's own transaction (db.StatsStore.Flush). The batch id is minted
+-- when the batch is moved out of the live store's pending counters and kept
+-- with them until this row exists; a batch whose id is already here was
+-- committed and its acknowledgement lost, so a retry of it adds nothing — the
+-- group commit is exactly once. players is how many players the batch held;
+-- flushed_at (epoch ms) is what the flusher prunes by after 7 days. Not money
+-- and not audit: a bookkeeping row of the counters' pipeline.
+CREATE TABLE IF NOT EXISTS stats_flushes (
+  batch_id   TEXT    PRIMARY KEY,
+  players    INTEGER NOT NULL,
+  flushed_at BIGINT  NOT NULL
 );
 
 

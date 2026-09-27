@@ -15,7 +15,8 @@ import (
 )
 
 // settle is the statsAndRewards helper: one synthetic hand, no version/state,
-// no pot row — the counters still move.
+// no pot row — its money settled by the ledger and its counters, as the game
+// counts them, flushed (Player stats v2).
 func (f *fixture) settle(entries []game.SettleEntry, pot int64) {
 	f.t.Helper()
 	var winner *string
@@ -44,16 +45,17 @@ func (f *fixture) settle(entries []game.SettleEntry, pot int64) {
 	if err != nil {
 		f.t.Fatalf("settle: %v", err)
 	}
+	f.counted(game.StatsTeenPatti, filled...)
 }
 
 // setHandsPlayed reaches past the API to put a career's worth of hands on the
 // counter, so the milestone tests do not have to settle 25 hands apiece. The
-// counter is player_stats.hands_played (Friends V1): the users column of that
-// name is retired.
+// counter is hands_played summed over the player's player_stats rows (Player
+// stats v2): this sets their Teen Patti row's.
 func (f *fixture) setHandsPlayed(userID string, n int) {
 	f.t.Helper()
-	if err := f.d.Exec(f.ctx, `INSERT INTO player_stats (user_id, hands_played) VALUES ($2, $1)
-	     ON CONFLICT (user_id) DO UPDATE SET hands_played = EXCLUDED.hands_played`, n, userID); err != nil {
+	if err := f.d.Exec(f.ctx, `INSERT INTO player_stats (user_id, category, hands_played) VALUES ($2, 'TEEN_PATTI', $1)
+	     ON CONFLICT (user_id, category) DO UPDATE SET hands_played = EXCLUDED.hands_played`, n, userID); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -1654,11 +1656,12 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 		t.Fatal(err)
 	}
 	// tablePicture (15 Sep 2026) is the table picture laid, null until one is.
-	// playerLevel, badges and taxBps (26–27 Sep 2026) are the player's own
-	// standing — level and XP, the badges they hold, and the winning tax they
-	// pay (db.Standing) — last.
+	// stats (Player stats v2, 27 Sep 2026) is the career per bucket, after the
+	// six totals it sums to; playerLevel, badges and taxBps (26–27 Sep 2026)
+	// are the player's own standing — level and XP, the badges they hold, and
+	// the winning tax they pay (db.Standing) — last.
 	wantKeys := []string{"id", "provider", "displayName", "email", "avatarUrl", "providerAvatarUrl", "activePictureId", "tablePicture", "chips", "diamond", "hammer", "missile",
-		"handsPlayed", "handsWon", "handsLost", "handsLeftMid", "totalWinnings", "biggestPot", "rewards", "createdAt", "lastLoginAt", "playerLevel",
+		"handsPlayed", "handsWon", "handsLost", "handsLeftMid", "totalWinnings", "biggestPot", "stats", "rewards", "createdAt", "lastLoginAt", "playerLevel",
 		"badges", "taxBps"}
 	if len(m) != len(wantKeys) {
 		t.Fatalf("user has %d keys, want %d: %s", len(m), len(wantKeys), out)

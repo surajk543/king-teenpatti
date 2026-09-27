@@ -55,8 +55,9 @@ const (
 
 // Rewards is user.rewards on the wire (publicUser).
 type Rewards struct {
-	// MilestoneAvailable: milestoneFor(player_stats.hands_played) > the player's
-	// HANDS_PLAYED claimed_up_to in user_milestones (0 with no row).
+	// MilestoneAvailable: milestoneFor(hands_played summed over the player's
+	// player_stats rows) > the player's HANDS_PLAYED claimed_up_to in
+	// user_milestones (0 with no row).
 	MilestoneAvailable bool `json:"milestoneAvailable"`
 	// MilestoneAt is floor(hands_played / 25) * 25.
 	MilestoneAt     int   `json:"milestoneAt"`
@@ -121,16 +122,23 @@ type User struct {
 	// Missile is users.missile, what a missile costs (owner, 14 Sep 2026): 1
 	// for every account (the column's default), and traded for diamonds in the missile store's packs (POST
 	// /api/store/missiles). Never chip_ledger's business.
-	Missile       int     `json:"missile"`
-	HandsPlayed   int     `json:"handsPlayed"`
-	HandsWon      int     `json:"handsWon"`
-	HandsLost     int     `json:"handsLost"`
-	HandsLeftMid  int     `json:"handsLeftMid"`
-	TotalWinnings int64   `json:"totalWinnings"`
-	BiggestPot    int64   `json:"biggestPot"`
-	Rewards       Rewards `json:"rewards"`
-	CreatedAt     int64   `json:"createdAt"`   // epoch ms
-	LastLoginAt   int64   `json:"lastLoginAt"` // epoch ms
+	Missile int `json:"missile"`
+	// HandsPlayed … BiggestPot are the player's whole career: every bucket of
+	// player_stats summed, the biggest pot the largest (StatsSheet.Totals) —
+	// the keys and the meaning they had before the buckets existed.
+	HandsPlayed   int   `json:"handsPlayed"`
+	HandsWon      int   `json:"handsWon"`
+	HandsLost     int   `json:"handsLost"`
+	HandsLeftMid  int   `json:"handsLeftMid"`
+	TotalWinnings int64 `json:"totalWinnings"`
+	BiggestPot    int64 `json:"biggestPot"`
+	// Stats is the same career per bucket — Teen Patti, Variation, Poker —
+	// with the hands held and the variations played (Player stats v2, owner
+	// 27 Sep 2026). Zeros, and no variations, for a player with no row.
+	Stats       UserStats `json:"stats"`
+	Rewards     Rewards   `json:"rewards"`
+	CreatedAt   int64     `json:"createdAt"`   // epoch ms
+	LastLoginAt int64     `json:"lastLoginAt"` // epoch ms
 	// Standing is the player's level and XP, the badges they hold and the
 	// winning tax they pay (owner, 26–27 Sep 2026; levels.go) — on the wire
 	// as user.playerLevel, user.badges and user.taxBps — resolved with every
@@ -338,14 +346,15 @@ type queryer interface {
 // 2026). The reward
 // milestones come from user_milestones, where milestone_claimed and
 // next_bonus_at sat until 14 Sep 2026, and read 0 for a player with no row.
-// The six gameplay counters come from player_stats (Friends V1, 26 Sep 2026;
-// the users columns of the same names are retired and never read), 0 for a
-// player with no row, and player_stats.hands_left is what the wire still calls
-// handsLeftMid. Qualified with the `u` alias because every read now goes
-// through userFrom's joins.
+// The gameplay statistics come from player_stats and player_variation_stats
+// (Player stats v2, 27 Sep 2026: a row per bucket, and one per variation) as
+// statsColumns' two JSON arrays, '[]' for a player with none; the six counters
+// the user object has always carried are their sum (StatsSheet.Totals), and
+// player_stats.hands_left is what the wire still calls handsLeftMid.
+// Qualified with the `u` alias because every read now goes through userFrom's
+// joins.
 const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.email, u.avatar_url, u.chips, u.diamond, u.hammer, u.missile,
-       COALESCE(ps.hands_played, 0), COALESCE(ps.hands_won, 0), COALESCE(ps.hands_lost, 0), COALESCE(ps.hands_left, 0),
-       COALESCE(ps.total_winnings, 0), COALESCE(ps.biggest_pot, 0),
+       ` + statsColumns + `,
        COALESCE(mh.claimed_up_to, 0), COALESCE(mt.next_claim_at, 0), COALESCE(mb.next_claim_at, 0),
        u.active_picture_id, u.created_at, u.updated_at, u.last_login_at, u.is_active,
        ap.asset_url,
@@ -355,11 +364,10 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
 // userFromAt is the FROM clause of every account read: it joins the picture
 // the player is wearing so publicUser can resolve avatarUrl without a second
 // round trip, the table picture they have laid for the same reason, the
-// player's three rows of user_milestones for the rewards, and their
-// player_stats row for the counters (and the HANDS_PLAYED milestone, which is
-// judged on player_stats.hands_played). LEFT, because most players wear
-// nothing, a new one has collected nothing and played nothing, and every one
-// of them must still come back from these queries.
+// player's three rows of user_milestones for the rewards. LEFT, because most
+// players wear nothing and a new one has collected nothing, and every one of
+// them must still come back from these queries. (Their statistics are
+// statsColumns' subqueries, not a join: a player has a row per bucket.)
 //
 // The laid table picture joins only while it may still be laid — a FREE row,
 // or a PREMIUM one whose rental has not run out at this instant (%d, epoch
@@ -386,8 +394,7 @@ const userFromAt = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.act
            AND (o.expires_at = 0 OR o.expires_at > %[1]d)))
   LEFT JOIN user_milestones mh ON mh.user_id = u.id AND mh.milestone = 'HANDS_PLAYED'
   LEFT JOIN user_milestones mt ON mt.user_id = u.id AND mt.milestone = 'TIMED_BONUS'
-  LEFT JOIN user_milestones mb ON mb.user_id = u.id AND mb.milestone = 'DAILY_BONUS'
-  LEFT JOIN player_stats ps ON ps.user_id = u.id ` + playerLevelJoins
+  LEFT JOIN user_milestones mb ON mb.user_id = u.id AND mb.milestone = 'DAILY_BONUS' ` + playerLevelJoins
 
 // userFrom is userFromAt with this instant baked in.
 func (u *Users) userFrom() string {
@@ -414,11 +421,11 @@ type userRow struct {
 	diamond                    int
 	hammer                     int
 	missile                    int
-	// handsPlayed … biggestPot are the player's player_stats row (0 with
-	// none); handsLeftMid is its hands_left.
-	handsPlayed, handsWon     int
-	handsLost, handsLeftMid   int
-	totalWinnings, biggestPot int64
+	// stats is the player's statistics (player_stats and
+	// player_variation_stats; zeros with no row), and handsPlayed their sum of
+	// hands_played — what the HANDS_PLAYED milestone is judged on.
+	stats       StatsSheet
+	handsPlayed int
 	// milestoneClaimed is the HANDS_PLAYED claimed_up_to, nextBonusAt the
 	// TIMED_BONUS next_claim_at and nextDailyAt the DAILY_BONUS one, from
 	// user_milestones; 0 with no row.
@@ -435,8 +442,9 @@ type userRow struct {
 // scanUser scans one row selected with userColumns; pgx.ErrNoRows → nil, nil.
 func scanUser(row pgx.Row) (*userRow, error) {
 	var r userRow
+	var buckets, variations string
 	targets := []any{&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond, &r.hammer, &r.missile,
-		&r.handsPlayed, &r.handsWon, &r.handsLost, &r.handsLeftMid, &r.totalWinnings, &r.biggestPot,
+		&buckets, &variations,
 		&r.milestoneClaimed, &r.nextBonusAt, &r.nextDailyAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt, &r.active,
 		&r.pictureAssetURL,
 		&r.tablePictureID, &r.tableDayURL, &r.tableNightURL, &r.tableAssetFormat, &r.tableCurrency, &r.tableCost}
@@ -447,6 +455,10 @@ func scanUser(row pgx.Row) (*userRow, error) {
 	if err != nil {
 		return nil, err
 	}
+	if r.stats, err = parseStatsSheet(buckets, variations); err != nil {
+		return nil, err
+	}
+	r.handsPlayed = int(r.stats.Totals().HandsPlayed)
 	return &r, nil
 }
 
@@ -471,7 +483,13 @@ func (u *Users) publicUser(r *userRow) *User {
 	if r == nil {
 		return nil
 	}
+	// The HANDS_PLAYED milestone is judged on hands_played summed over every
+	// bucket. Those counters reach PostgreSQL by the stats flusher's group
+	// commit, so they trail play by up to one STATS_FLUSH_MS (10 s by
+	// default): a player who has just finished their 25th hand may see the
+	// milestone a few seconds later. Accepted (owner, 27 Sep 2026).
 	milestone := MilestoneFor(r.handsPlayed)
+	totals := r.stats.Totals()
 	// A picture chosen in-game wins over the one the provider gave us. The
 	// choice is a catalogue id now, so what goes on the wire is that row's
 	// asset_url; a row that has since been deleted leaves the join null and
@@ -509,11 +527,12 @@ func (u *Users) publicUser(r *userRow) *User {
 		Hammer:            r.hammer,
 		Missile:           r.missile,
 		HandsPlayed:       r.handsPlayed,
-		HandsWon:          r.handsWon,
-		HandsLost:         r.handsLost,
-		HandsLeftMid:      r.handsLeftMid,
-		TotalWinnings:     r.totalWinnings,
-		BiggestPot:        r.biggestPot,
+		HandsWon:          int(totals.HandsWon),
+		HandsLost:         int(totals.HandsLost),
+		HandsLeftMid:      int(totals.HandsLeft),
+		TotalWinnings:     totals.TotalWinnings,
+		BiggestPot:        totals.BiggestPot,
+		Stats:             r.stats.Wire(),
 		Rewards: Rewards{
 			MilestoneAvailable:   milestone > r.milestoneClaimed,
 			MilestoneAt:          milestone,
@@ -730,7 +749,9 @@ func collectMilestone(ctx context.Context, tx pgx.Tx, userID, milestone string, 
 }
 
 // ClaimMilestoneReward (requirement 17): lock the row; milestone =
-// floor(hands_played/25)*25; if milestone <= the HANDS_PLAYED claimed_up_to →
+// floor(hands_played/25)*25, hands_played being the sum of the player's
+// player_stats rows over every bucket; if milestone <= the HANDS_PLAYED
+// claimed_up_to →
 // {Claimed false, Reason "not_available", User}. Else chips +=
 // MilestoneReward, claimed_up_to = milestone (collectMilestone), ledger row
 // (action_id "<userId>:milestone:<milestone>", reason milestone_reward) →
@@ -749,6 +770,10 @@ func (u *Users) ClaimMilestoneReward(ctx context.Context, userID string) (*Rewar
 			return fmt.Errorf("unknown user %s", userID)
 		}
 
+		// hands_played summed over every bucket, as flushed so far: a hand
+		// finished in the last STATS_FLUSH_MS may not be in it yet (the
+		// statistics reach PostgreSQL by the flusher's group commit). The
+		// claim then waits for the next flush — accepted.
 		milestone := MilestoneFor(row.handsPlayed)
 		if milestone <= row.milestoneClaimed {
 			result = &RewardResult{Claimed: false, Reason: RewardNotAvailable, User: u.publicUser(row)}
@@ -999,6 +1024,13 @@ func (u *Users) DeleteAccount(ctx context.Context, userID string) error {
 		// LEVELS) go with it, for the same reason: the row's cascade never
 		// fires. A deleted account holds nothing and pays nobody's rate.
 		if _, err = tx.Exec(ctx, `DELETE FROM user_badges WHERE user_id = $1`, userID); err != nil {
+			return err
+		}
+		// The statistics (Player stats v2): the player's rows go, per bucket
+		// and per variation — the same cascade reason. Counters still pending
+		// in the live store are dropped by the app, best effort, and a flush
+		// of any that remain finds the account deleted and adds nothing.
+		if err := deleteStats(ctx, tx, userID); err != nil {
 			return err
 		}
 		// The social graph (Friends V1): nobody keeps a deleted account as a

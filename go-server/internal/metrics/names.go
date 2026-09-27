@@ -99,6 +99,15 @@ const (
 	NameRestoredSeats       = "game_restored_seats_total"
 )
 
+// Player statistics (Player stats v2, owner 27 Sep 2026): the stats
+// flusher's group commits from the live store into PostgreSQL. No label ever
+// names a player: result is one of StatsFlushResults, and the players of a
+// batch are a histogram's observation, not a label.
+const (
+	NameStatsFlushes      = "game_stats_flushes_total" // {result}
+	NameStatsFlushPlayers = "game_stats_flush_players" // histogram, players per committed batch
+)
+
 // HTTP.
 const (
 	NameHTTPRequestsTotal   = "game_http_requests_total"           // {method,route,status_code}
@@ -107,6 +116,11 @@ const (
 
 // LatencyBuckets is Node's LATENCY_BUCKETS: 1 ms … 1 s.
 var LatencyBuckets = []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1}
+
+// StatsFlushPlayersBuckets are game_stats_flush_players' buckets: how many
+// players one committed batch held, up to STATS_FLUSH_BATCH's default and a
+// little past it.
+var StatsFlushPlayersBuckets = []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000}
 
 // LiveBuckets are game_live_store_duration_seconds' buckets: 0.1 ms … 1 s —
 // finer at the bottom than LatencyBuckets because a Redis round trip on the
@@ -138,8 +152,14 @@ var (
 		LiveOpSetOnline: {}, LiveOpSetOffline: {}, LiveOpOnlineCount: {}, LiveOpPresence: {},
 		LiveOpPutResumeOffer: {}, LiveOpTakeResumeOffer: {}, LiveOpDeleteResumeOffer: {},
 		LiveOpPublishTable: {}, LiveOpRetireTable: {}, LiveOpCandidates: {}, LiveOpListSummaries: {},
+		LiveOpRecordStats: {}, LiveOpTakeStatsBatch: {}, LiveOpStatsBatches: {}, LiveOpFinishStatsBatch: {}, LiveOpDropStats: {},
 		LiveOpPing: {},
 	}
+	// StatsFlushResults are the `result` values of game_stats_flushes_total:
+	// a batch committed (ok), found committed already — its acknowledgement
+	// lost — and so added again nowhere (duplicate), or refused (error, to be
+	// retried under the same id).
+	StatsFlushResults = map[string]struct{}{StatsFlushOK: {}, StatsFlushDuplicate: {}, StatsFlushError: {}}
 	// LiveResults are the `result` values of game_live_store_operations_total.
 	LiveResults = map[string]struct{}{LiveResultOK: {}, LiveResultNotFound: {}, LiveResultStale: {}, LiveResultError: {}}
 	// WriteResults are the `result` values of game_live_store_reconciles_total.
@@ -204,7 +224,22 @@ const (
 	LiveOpRetireTable       = "retire_table"
 	LiveOpCandidates        = "candidates"
 	LiveOpListSummaries     = "list_summaries"
-	LiveOpPing              = "ping"
+	// The players' statistics (Player stats v2): recorded after every
+	// committed hand, and moved out, listed, finished and dropped by the stats
+	// flusher and an account deletion.
+	LiveOpRecordStats      = "record_stats"
+	LiveOpTakeStatsBatch   = "take_stats_batch"
+	LiveOpStatsBatches     = "stats_batches"
+	LiveOpFinishStatsBatch = "finish_stats_batch"
+	LiveOpDropStats        = "drop_stats"
+	LiveOpPing             = "ping"
+)
+
+// Stats flush result labels (StatsFlushResults).
+const (
+	StatsFlushOK        = "ok"
+	StatsFlushDuplicate = "duplicate"
+	StatsFlushError     = "error"
 )
 
 // Live-store result labels. not_found and stale are ordinary outcomes of a

@@ -259,6 +259,7 @@ type harnessOptions struct {
 	owed       func(req SettleRequest, owed bool)
 	hammers    HammerWallet
 	missiles   MissileWallet
+	stats      StatsRecorder
 }
 
 type harnessOption func(*harnessOptions)
@@ -271,6 +272,11 @@ func withHammers(w HammerWallet) harnessOption {
 // withSettlementOwed hears the table's TableOptions.SettlementOwed reports.
 func withSettlementOwed(fn func(req SettleRequest, owed bool)) harnessOption {
 	return func(o *harnessOptions) { o.owed = fn }
+}
+
+// withStats hears the table's committed gameplay counters (TableOptions.Stats).
+func withStats(fn StatsRecorder) harnessOption {
+	return func(o *harnessOptions) { o.stats = fn }
 }
 
 // withLedger swaps the ledger the table is built with.
@@ -329,6 +335,7 @@ func newHarness(t *testing.T, cfg TableConfig, opts ...harnessOption) *harness {
 		Listener:   h.rec,
 		Live:       o.live,
 		LiveErrors: o.liveErrors,
+		Stats:      o.stats,
 
 		SettlementOwed: o.owed,
 	})

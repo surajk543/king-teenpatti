@@ -386,6 +386,23 @@ deployed onto a fresh database, so nothing migrates them). go-server/v1.5.0 and 
 those columns on every login and checkpoint, so rolling back to one of them means deploying it onto a
 fresh database, not onto this one.
 
+**Player stats v2 and go-server/v1.6.0 need a fresh database in both directions** (27 Sep 2026). v2
+keeps `player_stats` per game — one row per player per bucket (TEEN_PATTI, VARIATION, POKER), keyed
+`(user_id, category)`, beside `player_variation_stats` and the flusher's receipts in `stats_flushes` —
+where v1.6.0 kept one row per player. `CREATE TABLE IF NOT EXISTS` changes neither shape into the other,
+so:
+- **Deploying v2 onto a database v1.6.0 built**: the baseline REFUSES the boot, naming this section
+  (`player_stats has the go-server/v1.6.0 shape … needs a fresh database`) — without that guard the boot
+  looked clean and then every login failed. Deploy it with §8's fresh-database procedure.
+- **Rolling back from v2 to v1.6.0**: v1.6.0 writes its counters in the money transaction with
+  `ON CONFLICT (user_id)`, which v2's table cannot satisfy, so every hand-end settle and every leave of
+  a player who had bet would fail and money would stop being written. Roll back onto a fresh database
+  too — or recreate v1.6.0's `player_stats` by hand (`user_id` primary key, the six counters) and drop
+  `player_variation_stats` and `stats_flushes` first.
+- A hand's counters wait in Redis (`kt:stats:<userId>`) for up to `STATS_FLUSH_MS` before the flusher
+  moves them; a restart keeps them there for the next process, and the fresh-database procedure's
+  `kt:*` wipe discards them with everything else, which is intended.
+
 Releases are tagged (`go-server/vX.Y.Z`, see `../README.md` §Releasing), so going back one is a
 checkout and a rebuild. One thing has to be settled **before** the checkout — who owns `users` — and
 one is worth knowing first: what an older tag's own migrations do to a database built from the

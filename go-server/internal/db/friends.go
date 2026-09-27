@@ -109,16 +109,6 @@ type FriendPlayer struct {
 	PictureURL *string
 }
 
-// PlayerStats are the four counters a friend's profile shows, from
-// player_stats (0 with no row). No chip figure: total_winnings and
-// biggest_pot stay off the profile.
-type PlayerStats struct {
-	HandsPlayed int64
-	HandsWon    int64
-	HandsLost   int64
-	HandsLeft   int64
-}
-
 // PlayerLookup is one player as a viewer looks them up (GET
 // /api/players/{playerId} and its /profile).
 type PlayerLookup struct {
@@ -128,7 +118,10 @@ type PlayerLookup struct {
 	// RequestID is the pending request between the two — the viewer's
 	// (PENDING_SENT) or the player's (PENDING_RECEIVED) — and 0 otherwise.
 	RequestID int64
-	Stats     PlayerStats
+	// Stats are the player's statistics per bucket, as their own account
+	// reads them (Player stats v2); the profile leaves the chip figures
+	// (total winnings, biggest pot) off the wire.
+	Stats StatsSheet
 }
 
 // Friend is one friend of a player's list (or either side of the friendship
@@ -206,23 +199,26 @@ func (f *Friends) Lookup(ctx context.Context, viewerID, playerID string) (*Playe
 	var out PlayerLookup
 	var friends bool
 	var sent, received *int64
+	var buckets, variations string
 	player, err := scanFriendPlayer(f.db.Pool.QueryRow(ctx,
 		`SELECT `+friendPlayerColumns+`,
-		        COALESCE(ps.hands_played, 0), COALESCE(ps.hands_won, 0), COALESCE(ps.hands_lost, 0), COALESCE(ps.hands_left, 0),
+		        `+statsColumns+`,
 		        EXISTS (SELECT 1 FROM friendships fr WHERE fr.user_id = $1 AND fr.friend_user_id = u.id),
 		        (SELECT r.id FROM friend_requests r
 		          WHERE r.status = 'PENDING' AND r.requester_id = $1 AND r.recipient_id = u.id),
 		        (SELECT r.id FROM friend_requests r
 		          WHERE r.status = 'PENDING' AND r.requester_id = u.id AND r.recipient_id = $1)
 		   FROM users u`+friendPictureJoin+`
-		   LEFT JOIN player_stats ps ON ps.user_id = u.id
 		  WHERE u.id = $2 AND `+visibleAccount, viewerID, playerID),
-		&out.Stats.HandsPlayed, &out.Stats.HandsWon, &out.Stats.HandsLost, &out.Stats.HandsLeft,
+		&buckets, &variations,
 		&friends, &sent, &received)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrPlayerNotFound
 	}
 	if err != nil {
+		return nil, err
+	}
+	if out.Stats, err = parseStatsSheet(buckets, variations); err != nil {
 		return nil, err
 	}
 	out.Player = player

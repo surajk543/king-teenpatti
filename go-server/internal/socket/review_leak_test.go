@@ -142,10 +142,16 @@ func TestReviewSideshowLoserCardsNeverReachTheThirdPlayer(t *testing.T) {
 	assertNoForeignCards(t, loser.user.DisplayName+" (after sideshow)", loser.c.Frames(), cards[third.user.ID], third.user.DisplayName)
 
 	// The loser is packed but still seated and still a viewer: their room:state
-	// shows the survivors with cardCount only.
-	state, ok := loser.c.Last(EvRoomState)
-	if !ok {
-		t.Fatal("loser has no room:state")
+	// shows the survivors with cardCount only. Waited for, not read as the last
+	// frame: the loser's own snapshot of the pack can land a moment after the
+	// third player heard the result, and a busy machine made the last frame
+	// the one from before it.
+	state, err := loser.c.Wait(EvRoomState, func(raw json.RawMessage) bool {
+		return str(raw, "you.status") == "packed"
+	}, eventTimeout)
+	if err != nil {
+		last, _ := loser.c.Last(EvRoomState)
+		t.Fatalf("loser never saw themselves packed (%v); last room:state you.status = %q", err, str(last, "you.status"))
 	}
 	for _, s := range arr(state, "seats") {
 		m, _ := s.(map[string]any)

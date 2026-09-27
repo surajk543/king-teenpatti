@@ -34,8 +34,17 @@ import (
 //
 // A player written twice for the same hand (packed, then settled) computes a
 // zero delta the second time, so the money moves once while the outcome row
-// and its counters are still recorded. A zero-delta row is not noise: it is
-// what says this player was in the hand and how it ended for them.
+// is still recorded. A zero-delta row is not noise: it is what says this
+// player was in the hand and how it ended for them.
+//
+// # Money only
+//
+// The ledger writes MONEY and nothing else (Player stats v2, owner 27 Sep
+// 2026): no gameplay counter is written in these transactions any more. The
+// counters a write resolves travel beside it (SettleRequest.Stats) and reach
+// the table's StatsRecorder only once it has committed, which queues them for
+// the live store; a flusher moves them into PostgreSQL in batches
+// (internal/stats).
 //
 // # Errors and idempotency
 //
@@ -60,19 +69,16 @@ type Ledger interface {
 	// Settle is the HAND-END checkpoint: every player still at the table.
 	// Per entry, in ascending userId
 	// order: lock the wallet (skip silently if the row is gone), balance =
-	// max(0, chips + delta), UPDATE users (chips, updated_at); when a counter
-	// moves, add to the player's player_stats row in the same transaction
-	// (hands_played += DidChaal when Outcome, hands_won += IsWinner,
-	// hands_lost += Outcome && !IsWinner && !LeftMidHand, hands_left +=
-	// LeftMidHand, total_winnings += Pot if winner, biggest_pot = GREATEST(…,
-	// Pot if winner) — users has no counter column, Friends V1); INSERT
+	// max(0, chips + delta), UPDATE users (chips, updated_at); INSERT
 	// chip_ledger with the entry's ActionID and Reason (a zero delta is STILL
 	// written) — and for an entry carrying a table tax, the win gross and a
 	// table_tax row after it (LedgerRows), in the same transaction. Returns
 	// every settled balance and, per player, the winning-tax rate their level
 	// carries after the XP this settle awarded (SettleResult.TaxBps).
-	// The Table retries it unchanged on failure; the UNIQUE action ids are
-	// what make that safe.
+	// req.Stats is not the ledger's: no counter is written here (Player stats
+	// v2) — it is carried for the table, which records it once the write has
+	// committed (StatsRecorder). The Table retries it unchanged on failure;
+	// the UNIQUE action ids are what make that safe.
 	Settle(ctx context.Context, req SettleRequest) (SettleResult, error)
 }
 
@@ -83,9 +89,9 @@ const (
 	// It carries no counters — the outcome row at the hand end does.
 	LedgerReasonHandPacked = "hand_packed"
 	// LedgerReasonHandLeft is the leave/switch checkpoint: the player is
-	// gone from the table, their wallet must be right immediately, and
-	// player_stats.hands_left is incremented here because they will not be at
-	// the hand-end write.
+	// gone from the table, their wallet must be right immediately, and it is
+	// the write their departure is counted after (hands_left), because they
+	// will not be at the hand-end write.
 	LedgerReasonHandLeft = "hand_left"
 )
 
@@ -104,10 +110,10 @@ type SettleEntry struct {
 	// Reason is the chip_ledger reason: hand_packed, hand_left, hand_win or
 	// hand_loss.
 	Reason string
-	// Outcome marks the row that RESOLVES the hand for this player and
-	// therefore carries the counters (hand_win, hand_loss, hand_left). The
-	// pack checkpoint is not an outcome — the player is still at the table
-	// and the hand-end write will resolve them.
+	// Outcome marks the row that RESOLVES the hand for this player, and so
+	// the one their counters are computed from (StatsForEntry: hand_win,
+	// hand_loss, hand_left). The pack checkpoint is not an outcome — the
+	// player is still at the table and the hand-end write will resolve them.
 	Outcome bool
 	// IsWinner drives hands_won, total_winnings and biggest_pot.
 	IsWinner bool
@@ -124,7 +130,7 @@ type SettleEntry struct {
 	LeftMidHand bool
 	// Pot is the hand's pot, used for total_winnings/biggest_pot when
 	// IsWinner. With several winners (a poker split or side pot) it is THIS
-	// winner's share: the database counts per entry, so each winning entry
+	// winner's share: the counters are per entry, so each winning entry
 	// carries what its player took.
 	Pot int64
 	// Tax is the TABLE TAX withheld from this entry's winnings (owner, 26 Sep
@@ -177,6 +183,14 @@ type SettleRequest struct {
 	// XP is earned (db.Ledger hands it on after the commit). A retry resends
 	// it unchanged. 0 adds nothing.
 	PlayedMs int64
+	// Stats are the counters this hand resolves, one per player it counts
+	// for (StatsForEntry plus the held hand and the variation), computed when
+	// the hand ended — the cards and the rules are gone by the time a retry
+	// lands. The ledger never reads them: the table records them once a
+	// Settle of this request has COMMITTED (on the first attempt or a retry,
+	// never on duplicate_action — Settler), so a hand is counted at most
+	// once, and only when its money moved.
+	Stats []HandStats
 }
 
 // SettleResult is what a landed hand-end settlement reports.

@@ -206,18 +206,25 @@ func (f *fixture) pack(roomID, handID string, u *db.User, delta int64) (game.Che
 	})
 }
 
-// left is the leave/switch checkpoint: it resolves the player, so it carries
-// the counters (hands_left_mid, and hands_played when they had chaaled).
+// left is the leave/switch checkpoint: it resolves the player, so it is the
+// entry their departure is counted from (hands_left, and hands_played when
+// they had chaaled) — by the game, once it commits; the ledger writes money
+// only (Player stats v2).
 func (f *fixture) left(roomID, handID string, u *db.User, delta int64, didChaal bool) (game.CheckpointResult, error) {
 	f.t.Helper()
 	return f.ledger.Checkpoint(f.ctx, game.CheckpointRequest{
 		RoomID: roomID, HandID: handID,
-		Entry: game.SettleEntry{
-			UserID: u.ID, Delta: delta, Reason: game.LedgerReasonHandLeft,
-			ActionID: game.LeftActionID(handID, u.ID),
-			Outcome:  true, LeftMidHand: true, DidChaal: didChaal,
-		},
+		Entry: leftEntry(handID, u.ID, delta, didChaal),
 	})
+}
+
+// leftEntry builds one leave checkpoint's entry.
+func leftEntry(handID, userID string, delta int64, didChaal bool) game.SettleEntry {
+	return game.SettleEntry{
+		UserID: userID, Delta: delta, Reason: game.LedgerReasonHandLeft,
+		ActionID: game.LeftActionID(handID, userID),
+		Outcome:  true, LeftMidHand: true, DidChaal: didChaal,
+	}
 }
 
 // settleEntry builds one hand-end entry.
