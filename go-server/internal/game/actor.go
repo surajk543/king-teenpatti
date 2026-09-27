@@ -372,6 +372,10 @@ type Settler struct {
 	// was never banked). Actor-owned.
 	retryTimers map[uint64]*settleRetry
 	retryGen    uint64
+	// departed are the owed marks OweDeparted set: userId → the one-entry
+	// request reported owed, so ReleaseDeparted reports exactly it back.
+	// Actor-owned.
+	departed map[string]SettleRequest
 	// detachedMu guards the bookkeeping of settlement chains still being
 	// retried after Destroy: detachedOpen is how many are running,
 	// detachedDone is broadcast when one finishes, landed/abandoned record
@@ -431,6 +435,55 @@ func (s *Settler) Owe(req SettleRequest, owed bool) {
 	}
 }
 
+// OweDeparted marks a player who is off the table while their wallet is
+// still owed part of the live hand — delta, `chips − chipsWritten` of their
+// contribution: a leave (or, before it, a pack) whose checkpoint the ledger
+// refused, or a replayed one that banked less than the stake. Only the hand
+// end writes that delta now (the catch-up row, or a packer's outcome row), so
+// until it does the wallet still holds chips the seat has already put in the
+// pot, and a lobby debit of them (WhileUnseated), or a seat taken from them
+// elsewhere (freshPlayer), would leave that late debit to clamp at zero —
+// paying the winner chips that never existed. The mark is the manager's
+// owed count (TableOptions.SettlementOwed), which both of those refuse.
+//
+// The room calls it on the actor in removePlayer, straight after the leave's
+// checkpoint and before anything that could end the hand: every seat
+// transition runs RemovePlayer under the player's stripe, so the mark is set
+// before that stripe is let go (RoomManager.settlementOwed) — and again at
+// restore (resumeTimers), before the listener opens, for every contribution
+// whose player is no longer seated. One mark per player per hand; a zero
+// delta owes nothing and marks nothing.
+func (s *Settler) OweDeparted(roomID, handID, userID string, delta int64) {
+	if delta == 0 {
+		return
+	}
+	if _, marked := s.departed[userID]; marked {
+		return
+	}
+	req := SettleRequest{RoomID: roomID, HandID: handID, Entries: []SettleEntry{{UserID: userID, Delta: delta}}}
+	if s.departed == nil {
+		s.departed = map[string]SettleRequest{}
+	}
+	s.departed[userID] = req
+	s.Owe(req, true)
+}
+
+// ReleaseDeparted lifts every OweDeparted mark: the hand they stood for has
+// ended, or is no longer this process's. The hand end calls it once its
+// settlement has either landed — the catch-up with it — or begun its retry
+// chain, whose own mark (Owe) was set first, so the player is never
+// uncovered in between; destroy calls it for a fenced room, whose hand is
+// another process's to settle (and to mark again when it restores it). A
+// suspended room keeps its marks: the process is on its way out — as its
+// departing marks, they are never cleared — and the next owner marks the
+// players again when it restores the hand. Actor only.
+func (s *Settler) ReleaseDeparted() {
+	for userID, req := range s.departed {
+		delete(s.departed, userID)
+		s.Owe(req, false)
+	}
+}
+
 // Retry (_retrySettle): if destroyed → continue off the actor. attempt > 10
 // → Abandoned ("settlement of hand <id> failed after 10 attempts"). delay =
 // min(30s, baseDelay × attempt). AfterFunc(delay) → Run: Settle again; on
@@ -441,6 +494,20 @@ func (s *Settler) Owe(req SettleRequest, owed bool) {
 // DECISIONS.md §2: a retry refused with duplicate_action means the write
 // already landed (the per-player settle action ids are UNIQUE), so it counts
 // as success and the chain stops.
+//
+// What such a refusal cannot say is that THIS request landed: the settle ids
+// name the hand and the player, not how the hand ended. A hand end that
+// committed in a life of the hand whose live save was then lost (the process
+// stopped first, or the store was refusing saves), restored from the save
+// before it and played to a DIFFERENT end — another winner, another player
+// left — is refused as a whole and read as landed here: the restored ending is
+// never written, the wallets keep the lost life's, and the seats and wallets
+// disagree by the difference (a review of 27 Sep 2026; pre-existing and not
+// changed). PostgreSQL's own books stay whole — every wallet equals its
+// ledger — but telling the two endings apart would mean comparing the stored
+// settle rows with the request, and writing the difference an action id of
+// its own; that is the owner's call (DECISIONS.md, "A checkpoint the ledger
+// refuses", which rides these retries).
 //
 // A retry the room no longer owns — Destroy ran first, or ran while the
 // timer's callback was already on its way to the actor — is not dropped: the

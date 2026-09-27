@@ -82,9 +82,20 @@ type books struct {
 	wallets map[string]int64
 	rows    []game.SettleEntry
 	refuse  bool
-	// duplicate answers a checkpoint the way the UNIQUE action_id does when
-	// the write landed and only its acknowledgement was lost (§5.1).
+	// duplicate answers a checkpoint the way db.Ledger does a replay: the
+	// write had landed in an earlier life of the hand (applied here as it was
+	// then), and the refusal is duplicate_action carrying the delta it moved.
 	duplicate bool
+	// landed, when set, is the delta that earlier write moved instead of the
+	// replay's own: a player who bet again after the restore, before replaying.
+	landed *int64
+	// bare makes that duplicate_action say nothing of what landed, as a ledger
+	// that cannot read the row back answers.
+	bare bool
+	// lost makes a checkpoint COMMIT and then answer with an error: the
+	// acknowledgement lost (a statement timeout after the commit, a dropped
+	// connection).
+	lost bool
 }
 
 func (b *books) ledger() *game.MemoryLedger {
@@ -96,10 +107,24 @@ func (b *books) ledger() *game.MemoryLedger {
 				return game.NewGameError(game.CodePersistFailed, "down")
 			}
 			if b.duplicate {
-				return game.NewGameError(game.CodeDuplicateAction, "already applied")
+				landed := args.Entry.Delta
+				if b.landed != nil {
+					landed = *b.landed
+				}
+				b.wallets[args.Entry.UserID] += landed
+				row := args.Entry
+				row.Delta = landed
+				b.rows = append(b.rows, row)
+				if b.bare {
+					return game.NewGameError(game.CodeDuplicateAction, "already applied")
+				}
+				return game.DuplicateCheckpoint("already applied", landed)
 			}
 			b.wallets[args.Entry.UserID] += args.Entry.Delta
 			b.rows = append(b.rows, args.Entry)
+			if b.lost {
+				return game.NewGameError(game.CodePersistFailed, "the reply was lost")
+			}
 			return nil
 		},
 		Settle: func(req game.SettleRequest, entries []game.SettleEntry) (map[string]int64, error) {
@@ -112,6 +137,32 @@ func (b *books) ledger() *game.MemoryLedger {
 			return out, nil
 		},
 	})
+}
+
+// caughtUp holds userID's rows of hand handID to the one shape a leave and
+// its catch-up may take in the books: the hand_left row under the leave's own
+// action id, then a hand_loss under the settle's that moves chips — the pair
+// the money audits (tools/parity/money.test.js, tools/crashtest.mjs) read as
+// ONE resolution of the hand, never a player resolved twice.
+func (b *books) caughtUp(t *testing.T, handID, userID string) {
+	t.Helper()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var outcome []game.SettleEntry
+	for _, r := range b.rows {
+		if r.UserID == userID && r.Reason != game.LedgerReasonHandPacked {
+			outcome = append(outcome, r)
+		}
+	}
+	if len(outcome) != 2 ||
+		outcome[0].Reason != game.LedgerReasonHandLeft || outcome[0].ActionID != game.LeftActionID(handID, userID) ||
+		outcome[1].Reason != game.LedgerReasonHandLoss || outcome[1].ActionID != game.SettleActionID(handID, userID) ||
+		outcome[1].Delta == 0 {
+		for _, r := range b.rows {
+			t.Logf("row %s %s %s delta=%d", r.UserID, r.Reason, r.ActionID, r.Delta)
+		}
+		t.Fatalf("%s's rows are not a leave and its catch-up", userID)
+	}
 }
 
 func (b *books) total() int64 {
@@ -165,6 +216,13 @@ type harnessOptions struct {
 
 func newHarness(t *testing.T, variant Variant) *harness {
 	t.Helper()
+	return newHarnessOwed(t, variant, nil)
+}
+
+// newHarnessOwed is newHarness with the manager's owed hook
+// (RoomDeps.SettlementOwed).
+func newHarnessOwed(t *testing.T, variant Variant, owed func(req game.SettleRequest, owed bool)) *harness {
+	t.Helper()
 	clock := testclock.New(start)
 	rec := newRecorder()
 	b := &books{wallets: map[string]int64{}}
@@ -184,7 +242,7 @@ func newHarness(t *testing.T, variant Variant) *harness {
 	stats := &statsLog{}
 	table := NewTable(TableOptions{
 		ID: "room-1", Code: "ROOM0001", Config: cfg, Listener: rec,
-		Deps: game.RoomDeps{Clock: clock, Ledger: b.ledger(), Stats: stats.record},
+		Deps: game.RoomDeps{Clock: clock, Ledger: b.ledger(), Stats: stats.record, SettlementOwed: owed},
 	})
 	t.Cleanup(func() { _ = table.Destroy() })
 	return &harness{t: t, table: table, clock: clock, rec: rec, books: b, cfg: cfg, stats: stats}
@@ -206,6 +264,18 @@ func (h *harness) read(fn func()) {
 	if err := h.table.run(fn); err != nil {
 		h.t.Fatalf("read: %v", err)
 	}
+}
+
+// handID is the live hand's id ("" between hands).
+func (h *harness) handID() string {
+	h.t.Helper()
+	var id string
+	h.read(func() {
+		if h.table.hand != nil {
+			id = h.table.hand.id
+		}
+	})
+	return id
 }
 
 func (h *harness) deal() {
@@ -931,6 +1001,70 @@ func TestSnapshotRoundTripRestoresAHandMidStreet(t *testing.T) {
 	}
 }
 
+// A hand whose BUTTON has walked out goes on with the button where it was:
+// the button is a position, and blinds, the order of play and the odd chips
+// are all counted from it whether or not anybody still sits there. Its
+// snapshot must restore — refusing it ("button seat is empty") dropped the
+// room and its live hand at a graceful restart, every stake in it and every
+// departed player's owed write with it.
+func TestAHandWhoseButtonLeftSurvivesARestore(t *testing.T) {
+	h := newHarness(t, TexasHoldem)
+	h.seat("a", 10_000)
+	h.seat("b", 10_000)
+	h.seat("c", 10_000)
+	h.deal()
+	var button string
+	var buttonSeat int
+	h.read(func() { buttonSeat = h.table.hand.button; button = h.table.seats[buttonSeat].userID })
+	if _, err := h.table.RemovePlayer(button, game.LeaveReasonLeft); err != nil {
+		t.Fatal(err)
+	}
+	if !h.table.HasHand() {
+		t.Fatal("the leave ended the hand; want it live")
+	}
+	snap, err := h.table.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := h.table.marshalSnapshot(snap.Seq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseSnapshot(data)
+	if err != nil {
+		t.Fatalf("a hand whose button left cannot be restored: %v", err)
+	}
+	if parsed.Hand.Button != buttonSeat || parsed.Seats[buttonSeat] != nil {
+		t.Fatalf("the snapshot's button is seat %d (seat %d left)", parsed.Hand.Button, buttonSeat)
+	}
+	restored, err := RestoreTable(parsed, TableOptions{Listener: newRecorder(), Deps: game.RoomDeps{Clock: h.clock, Ledger: h.books.ledger()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restored.Destroy() })
+	// The first process stops here. The restored hand plays on to its end.
+	for i := 0; i < 20 && restored.HasHand(); i++ {
+		var turn string
+		_ = restored.run(func() {
+			if restored.hand != nil && restored.hand.turnSeat >= 0 && restored.seats[restored.hand.turnSeat] != nil {
+				turn = restored.seats[restored.hand.turnSeat].userID
+			}
+		})
+		if turn == "" {
+			t.Fatal("nobody is on turn in the restored hand")
+		}
+		if _, err := restored.Act(turn, ActionFold, ActRequest{}); err != nil {
+			t.Fatalf("act after restore: %v", err)
+		}
+	}
+	if restored.HasHand() {
+		t.Fatal("the restored hand did not end")
+	}
+	if total := h.books.total(); total != 30_000 {
+		t.Fatalf("the books hold %d, want 30,000", total)
+	}
+}
+
 func TestSnapshotRefusesAForeignFamilyAndABadCard(t *testing.T) {
 	if _, err := ParseSnapshot([]byte(`{"game":"teen_patti","roomId":"x"}`)); err == nil {
 		t.Fatal("a Teen Patti document parsed as poker")
@@ -1130,9 +1264,11 @@ func TestALeaveCheckpointTheLedgerRefusedIsBankedAtTheHandEnd(t *testing.T) {
 	}
 }
 
-// The same write, landed but unacknowledged: the ledger answers
-// duplicate_action, the money has moved once, and the seat counts as written
-// through — never charged a second time at the next checkpoint.
+// The same write, landed in an earlier life of the hand (the process stopped
+// before its snapshot recorded it, and the restored hand replayed the move):
+// the ledger answers duplicate_action with what landed, the money has moved
+// once, and the seat counts as written through — never charged a second time
+// at the next checkpoint.
 func TestACheckpointRefusedAsADuplicateCountsAsWrittenThrough(t *testing.T) {
 	h := newHarness(t, TexasHoldem)
 	h.seat("a", 10_000)

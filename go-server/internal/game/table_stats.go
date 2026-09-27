@@ -30,7 +30,9 @@ func (t *Table) handStats(entries []SettleEntry) []HandStats {
 				stats.Held, stats.HasHeld = held, true
 			}
 		}
-		if bucket == StatsVariation && rules.Variation != "" {
+		// A leaver's catch-up row counts only what their own leave would
+		// have (Table.checkpoint): no held hand, no variation.
+		if bucket == StatsVariation && rules.Variation != "" && (!entry.LeftMidHand || entry.IsWinner) {
 			stats.Variation = rules.Variation
 			stats.VariationWon = entry.IsWinner
 		}

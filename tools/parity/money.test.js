@@ -159,10 +159,19 @@ test('every hand conserves chips, and resolves each player exactly once', async 
   }
   // One OUTCOME row per player per hand (hand_win / hand_loss / hand_left).
   // A packer also has a hand_packed row — that is the money moving early —
-  // but never two outcomes.
+  // but never two outcomes. Nor is a leaver's CATCH-UP one (go-server
+  // DECISIONS.md, "A checkpoint the ledger refuses"): a hand_loss under the
+  // settle's id beside that player's own hand_left row of the same hand is
+  // what the hand end wrote of the stake that leave did not bank — a leave
+  // replayed after a restore that landed less than the restored stake — so
+  // the pair is ONE resolution, and the check below holds the pair to moving
+  // money.
   const { rows: dupes } = await query(
-    `SELECT hand_id, user_id, COUNT(*) AS n FROM chip_ledger
+    `SELECT hand_id, user_id, COUNT(*) AS n FROM chip_ledger c
       WHERE reason IN ('hand_win', 'hand_loss', 'hand_left')
+        AND NOT (reason = 'hand_loss' AND EXISTS (
+              SELECT 1 FROM chip_ledger l
+               WHERE l.hand_id = c.hand_id AND l.user_id = c.user_id AND l.reason = 'hand_left'))
       GROUP BY hand_id, user_id HAVING COUNT(*) > 1`);
   assert.deepEqual(dupes, [], 'a player was resolved twice in one hand');
   // A Teen Patti hand has exactly one winner; a poker hand may split a pot or
@@ -344,10 +353,18 @@ const auditCounters = async () => {
     assert.ok(user.biggest_pot >= biggestNet.get(user.id), `biggestPot ${user.biggest_pot} < biggest net ${biggestNet.get(user.id)}`);
     assert.ok(user.biggest_pot <= user.total_winnings, 'the biggest pot cannot exceed the total');
   }
-  // Nobody is credited a loss and a departure for the same hand.
+  // Nobody is credited a loss and a departure for the same hand. A hand_loss
+  // beside a hand_left of the same player and hand is that leave's catch-up
+  // (the check above): money the leave did not bank, never a second outcome
+  // — so it always moves chips. A zero-delta hand_loss there would be a leaver
+  // the hand end resolved again. (The one exception is a fault neither this
+  // harness nor crashtest.mjs can cause: a poker leave with nothing staked
+  // whose commit's acknowledgement the database lost.)
   const { rows: both } = await query(
-    `SELECT hand_id, user_id FROM chip_ledger WHERE reason IN ('hand_loss','hand_left')
-      GROUP BY hand_id, user_id HAVING COUNT(*) > 1`);
+    `SELECT c.hand_id, c.user_id FROM chip_ledger c
+      WHERE c.reason = 'hand_loss' AND c.delta = 0 AND EXISTS (
+            SELECT 1 FROM chip_ledger l
+             WHERE l.hand_id = c.hand_id AND l.user_id = c.user_id AND l.reason = 'hand_left')`);
   assert.deepEqual(both, [], 'a player was both lost and left in one hand');
 };
 

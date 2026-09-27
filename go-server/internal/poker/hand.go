@@ -934,8 +934,9 @@ func (t *Table) endHandRefunded(reason WinReason) {
 
 // handStats is what a poker hand end counts for each outcome entry
 // (game.StatsForEntry, in the POKER bucket): played, won, lost or left, and
-// the winnings. A money-only row (a departed player's refused stake riding
-// the settle) is not an outcome and counts nothing.
+// the winnings. A departed player's catch-up row counts only when it is their
+// outcome (a refused leave that counted nothing); after a replay it is money
+// only and counts nothing.
 func handStats(entries []game.SettleEntry) []game.HandStats {
 	out := make([]game.HandStats, 0, len(entries))
 	for _, entry := range entries {
@@ -958,13 +959,16 @@ func (t *Table) settle(reason WinReason, winners map[string]bool, pushes map[str
 		// A player who put nothing in is still owed a row when they won
 		// something: the last player standing after the blinds walked out
 		// on them took the blinds with 0 chips in (without the row the seat
-		// was paid and the wallet never was).
-		if entry == nil || (entry.contributed <= 0 && entry.won <= 0) {
+		// was paid and the wallet never was). So is a leaver whose refused
+		// leave counted nothing (leftUncounted): the row below counts them.
+		if entry == nil || (entry.contributed <= 0 && entry.won <= 0 && !entry.leftUncounted) {
 			continue
 		}
 		isWinner := winners[userID]
 		isPush := pushes[userID]
-		summary = append(summary, HandSummaryEntry{UserID: userID, DisplayName: entry.displayName, SeatIndex: entry.seatIndex, Contributed: entry.contributed, Won: entry.won, Status: entry.status})
+		if entry.contributed > 0 || entry.won > 0 {
+			summary = append(summary, HandSummaryEntry{UserID: userID, DisplayName: entry.displayName, SeatIndex: entry.seatIndex, Contributed: entry.contributed, Won: entry.won, Status: entry.status})
+		}
 		rowReason := game.LedgerReasonHandLoss
 		outcome := true
 		var pot int64
@@ -987,14 +991,19 @@ func (t *Table) settle(reason WinReason, winners map[string]bool, pushes map[str
 			// settle has a retry chain — so their stake would stay unbanked
 			// while the winner is paid a pot that includes it, and the books
 			// would gain chips out of nowhere. Whatever is still owed
-			// therefore rides THIS request, and so the retry chain, as a
-			// money-only row: the counters were the leave's to move, and the
-			// settle's own action id is used because the leave's is either
-			// spent or about to be by a write of ours that landed unheard.
-			if entry.chips == entry.chipsWritten {
+			// therefore rides THIS request, and so the retry chain, with the
+			// settle's own action id, because the leave's is either spent or
+			// about to be by a write of ours that landed unheard. It is their
+			// outcome (hands_left, hands_played) only when the leave was
+			// REFUSED in this life and so counted nothing (leftUncounted);
+			// after a replay the earlier life counted it and the row moves
+			// money only — the hand counted exactly once (game.Table.endHand).
+			// Beside a leave that did land, the books then hold its hand_left
+			// and this hand_loss: one resolution, as the audits read it.
+			if entry.chips == entry.chipsWritten && !entry.leftUncounted {
 				continue
 			}
-			outcome = false
+			outcome = entry.leftUncounted
 		}
 		entries = append(entries, game.SettleEntry{
 			UserID:      userID,
@@ -1030,6 +1039,9 @@ func (t *Table) settle(reason WinReason, winners map[string]bool, pushes map[str
 		}
 		t.recordStats(req.Stats)
 	}
+	// Whoever left this hand still owed part of it is written now, or rides
+	// the retry chain marked owed above: their own marks can go.
+	t.Settler.ReleaseDeparted()
 
 	community := game.CardCodes(h.community)
 	t.lastResult = &ResultView{HandID: h.id, Reason: reason, Pots: pots, Reveals: reveals, Community: community, Dealer: dealer}

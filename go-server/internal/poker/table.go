@@ -132,6 +132,11 @@ type contribution struct {
 	// §5.1), exactly as game.Table keeps them.
 	chips        int64
 	chipsWritten int64
+	// leftUncounted: this leaver's hand_left checkpoint was REFUSED in this
+	// life of the hand and recorded no counters, so the settle's catch-up row
+	// is their outcome (game.Table's contribution.leftUncounted; kept in the
+	// snapshot).
+	leftUncounted bool
 }
 
 // hand is the live hand.
@@ -776,6 +781,11 @@ func (t *Table) removePlayer(userID, reason string) *game.SeatInfo {
 		t.LiveState.AppendChat(msg, t.chat.MaxHistory)
 	}
 
+	if !wasInHand && t.hand != nil {
+		// Folded earlier, and still owed that fold's stake if its checkpoint
+		// was refused: only the settle writes it now.
+		t.oweDeparted(t.hand.contributions[userID])
+	}
 	if wasInHand {
 		h := t.hand
 		s.status = game.SeatPacked
@@ -791,6 +801,9 @@ func (t *Table) removePlayer(userID, reason string) *game.SeatInfo {
 		}
 		h.lastDeparture = game.StrPtr(userID)
 		t.checkpoint(entry, game.LedgerReasonHandLeft, game.LeftActionID(h.id, userID), true)
+		// Before anything below can end the hand: a refused leave is owed
+		// until the settle's catch-up row has landed or taken its retry chain.
+		t.oweDeparted(entry)
 		t.listener.OnAction(t.view, ActionEvent{
 			UserID: userID, SeatIndex: s.seatIndex, Action: ActionFold, Street: h.street(), Pot: h.pot, Reason: reason,
 		})
@@ -818,7 +831,17 @@ func actionPtr(a Action) *Action { return &a }
 // checkpoint writes ONE player's chips through (a fold, a departure):
 // delta = chips now − chips as PostgreSQL last had them. A failure is
 // reported and never refuses the move; chipsWritten stays put, so the next
-// checkpoint carries the delta.
+// checkpoint carries the delta — for a player who has left, the settle's
+// catch-up row, with the player marked owed until then (removePlayer →
+// Settler.OweDeparted).
+//
+// A duplicate_action that says what landed (game.LandedDelta) is this very
+// write, landed in an earlier life of the hand whose snapshot never recorded
+// it: chipsWritten advances by exactly that, never to the current stack — a
+// restored player who bet again before replaying the move holds less than the
+// write that landed, and counting the whole stack as written let the winner
+// be paid chips no wallet gave up. One that does not say is treated as
+// refused (the Teen Patti table's rule, game.Table.checkpoint).
 func (t *Table) checkpoint(entry *contribution, reason, actionID string, outcome bool) {
 	if entry == nil || t.hand == nil {
 		return
@@ -839,26 +862,34 @@ func (t *Table) checkpoint(entry *contribution, reason, actionID string, outcome
 			Variant:     t.cfg.Category,
 		},
 	}
-	_, err := t.ledger.Checkpoint(t.Context(), req)
-	if err != nil {
-		// duplicate_action is the UNIQUE action_id refusing a write that
-		// already landed and whose acknowledgement was lost (CLAUDE.md §5.1):
-		// the money moved exactly once, so the seat IS written through and
-		// the delta must not be computed against a stale chipsWritten again.
-		if game.CodeOf(err, "") != game.CodeDuplicateAction {
+	if _, err := t.ledger.Checkpoint(t.Context(), req); err != nil {
+		landed, replayed := game.LandedDelta(err)
+		if !replayed {
 			t.hooks.OnRoomPersistError(t, game.PersistErrorEvent{UserID: entry.userID, Delta: delta, Reason: reason, HandID: t.hand.id, Err: err})
+			// A refused departure counted nothing: the settle's catch-up row
+			// resolves it (game.Table.checkpoint's rule). A bare
+			// duplicate_action landed in an earlier life, which counted it.
+			if outcome && entry.leftMidHand && game.CodeOf(err, "") != game.CodeDuplicateAction {
+				entry.leftUncounted = true
+			}
 			return
 		}
+		// A replay counts nothing: the earlier life counted it.
+		t.version.Add(1)
+		entry.chipsWritten += landed
+		entry.leftUncounted = false
+		return
 	}
 	t.version.Add(1)
 	entry.chipsWritten = entry.chips
+	entry.leftUncounted = false
 	// A departure is counted once its own write has committed — not on a
 	// replay (duplicate_action), whose counters were never this call's to
-	// count. A fold is not an outcome and counts nothing here.
-	if err == nil {
-		if stats, ok := game.StatsForEntry(req.Entry, game.StatsPoker); ok && !stats.Empty() {
-			t.recordStats([]game.HandStats{stats})
-		}
+	// count. A fold is not an outcome and counts nothing here. Counted before
+	// the live save that records the departure, as the Teen Patti table does
+	// (game.Table.checkpoint says what a lost save then counts twice).
+	if stats, ok := game.StatsForEntry(req.Entry, game.StatsPoker); ok && !stats.Empty() {
+		t.recordStats([]game.HandStats{stats})
 	}
 }
 
@@ -867,6 +898,16 @@ func (t *Table) recordStats(stats []game.HandStats) {
 	if t.record != nil && len(stats) > 0 {
 		t.record(stats)
 	}
+}
+
+// oweDeparted marks a player leaving the live hand owed whatever PostgreSQL
+// has not yet been given of it (game.Settler.OweDeparted; settle lifts it).
+// Actor only.
+func (t *Table) oweDeparted(entry *contribution) {
+	if entry == nil || t.hand == nil {
+		return
+	}
+	t.Settler.OweDeparted(t.id, t.hand.id, entry.userID, entry.chips-entry.chipsWritten)
 }
 
 // ------------------------------------------------------------- lifecycle
@@ -1124,6 +1165,9 @@ func (t *Table) destroy() {
 	t.clearStartTimer()
 	t.clearUnfundedTimer()
 	t.Settler.Detach()
+	// A hand ended above lifted its departed players' marks already; a fenced
+	// room's hand is another process's to settle, and to mark.
+	t.Settler.ReleaseDeparted()
 	t.chat.Clear()
 	if !fenced {
 		t.LiveState.Delete()
@@ -1151,6 +1195,16 @@ func (t *Table) suspend() {
 func (t *Table) resumeTimers() {
 	t.MarkDirty()
 	now := t.clock.Now()
+	// A player who left this hand still owed part of it was marked owed by
+	// the process that saw them go; marked again here, before anything below
+	// can end the hand (game.Table.resumeTimers).
+	if t.hand != nil {
+		for _, userID := range t.hand.contribOrder {
+			if t.findSeat(userID) == nil {
+				t.oweDeparted(t.hand.contributions[userID])
+			}
+		}
+	}
 	switch {
 	case t.hand != nil:
 		h := t.hand

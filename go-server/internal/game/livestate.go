@@ -316,18 +316,19 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 		}
 		for _, c := range sh.Contributions {
 			h.contributions[c.UserID] = &contribution{
-				userID:       c.UserID,
-				displayName:  c.DisplayName,
-				seatIndex:    c.SeatIndex,
-				contributed:  c.Contributed,
-				status:       c.Status,
-				sawCards:     c.SawCards,
-				cards:        ParseCards(c.Cards),
-				didChaal:     c.DidChaal,
-				leftMidHand:  c.LeftMidHand,
-				taxBps:       c.TaxBps,
-				chips:        c.Chips,
-				chipsWritten: c.ChipsWritten,
+				userID:        c.UserID,
+				displayName:   c.DisplayName,
+				seatIndex:     c.SeatIndex,
+				contributed:   c.Contributed,
+				status:        c.Status,
+				sawCards:      c.SawCards,
+				cards:         ParseCards(c.Cards),
+				didChaal:      c.DidChaal,
+				leftMidHand:   c.LeftMidHand,
+				leftUncounted: c.LeftMidHand && c.LeftUncounted,
+				taxBps:        c.TaxBps,
+				chips:         c.Chips,
+				chipsWritten:  c.ChipsWritten,
 			}
 			h.contribOrder = append(h.contribOrder, c.UserID)
 		}
@@ -379,6 +380,19 @@ func (t *Table) resumeTimers() {
 	// happens below.
 	t.liveDirty = true
 	now := t.clock.Now()
+
+	// A player who left this hand still owed part of it — a refused leave or
+	// pack, carried to the hand end — was marked owed by the process that saw
+	// them go, and that mark went with it. Marked again here, before anything
+	// below can end the hand and before the listener opens (App.New restores
+	// first), so no lobby door can spend the stake meanwhile.
+	if t.hand != nil {
+		for _, userID := range t.hand.contribOrder {
+			if t.findSeat(userID) == nil {
+				t.oweDeparted(t.hand.contributions[userID])
+			}
+		}
+	}
 
 	// Every 5-Card window that is still open comes back on the one sweep
 	// clock, for what is LEFT of its original deadline; any that lapsed while

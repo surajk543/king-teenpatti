@@ -145,7 +145,11 @@ type TableOptions struct {
 	// in req do not hold that hand's result, wherever their players have gone
 	// since (RoomManager.settlementOwed). Called on the actor, or on the
 	// clock's goroutine for a retry that outlived Destroy or Suspend; must not
-	// block or call back into the table.
+	// block or call back into the table. It also hears, on the actor, of every
+	// player who walks out of a live hand still owed part of it — a one-entry
+	// req with their outstanding delta, owed=true as they leave (or as a
+	// restore finds them gone) and owed=false once the hand end has written
+	// it or handed it to a retry chain (Settler.OweDeparted).
 	SettlementOwed func(req SettleRequest, owed bool)
 	// Stats, if set, receives the gameplay counters of every write that
 	// COMMITTED (Player stats v2): a hand end's, once its Settle — the first
@@ -297,7 +301,9 @@ type contribution struct {
 	// a figure to settle against.
 	chips int64
 	// chipsWritten is the stack as PostgreSQL last had it. Every checkpoint
-	// writes `chips - chipsWritten` and then sets this to `chips`, so the
+	// writes `chips - chipsWritten` and then sets this to `chips` (a replay
+	// of one that landed in an earlier life of the hand: advances it by what
+	// landed — Table.checkpoint), so the
 	// money moves exactly once however many times a player is written: a
 	// packer's hand-end row computes a delta of zero and records only the
 	// outcome. It starts at the seat's chips when the hand was dealt, BEFORE
@@ -307,6 +313,16 @@ type contribution struct {
 	// bonus or a milestone reward, which credits the wallet and not the seat,
 	// and `SET chips = <live figure>` would erase it.
 	chipsWritten int64
+	// leftUncounted marks a leaver whose hand_left checkpoint the ledger
+	// REFUSED in this life of the hand (Table.checkpoint): that write recorded
+	// no counters, so the hand end's catch-up row is their outcome and counts
+	// the hand for them (hands_left, hands_played) once it commits. False
+	// after a leave that committed (it counted them) and after a replay (the
+	// earlier life whose write landed counted them). Kept in the snapshot, so
+	// a restart between the leave and the hand end neither loses the count
+	// nor makes it twice; a snapshot from before the flag reads false — at
+	// most once.
+	leftUncounted bool
 }
 
 // pendingSideshow is hand.sideshow.
@@ -1236,6 +1252,13 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 		t.liveAppendChat(msg)
 	}
 
+	if !wasActive && t.hand != nil {
+		// Off the table with the hand still live, and — when their pack
+		// checkpoint was refused — still owed its stake: only the hand end's
+		// outcome row writes it now, so they are marked owed until it has.
+		t.oweDeparted(t.hand.contributions[userID])
+	}
+
 	if wasActive && t.hand != nil {
 		t.hand.packedUserIDs[userID] = struct{}{}
 		s.status = SeatPacked
@@ -1255,6 +1278,11 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 		if entry := t.hand.contributions[userID]; entry != nil {
 			entry.chips = s.chips
 			t.checkpoint(entry, LedgerReasonHandLeft, LeftActionID(t.hand.id, userID), true)
+			// A leave the ledger refused (or a replay that banked less than
+			// the stake) leaves the rest to the hand end's catch-up row: the
+			// player is marked owed until then — here, before anything below
+			// can end the hand and release the marks.
+			t.oweDeparted(entry)
 		}
 		departed := userID
 		t.hand.lastDeparture = &departed
@@ -2127,9 +2155,41 @@ func (t *Table) rememberAction(userID, actionID string) {
 // overwrite — see the Ledger doc.
 //
 // A failure is reported (persistError) and never refuses the move: the pack
-// or the departure has already happened at the table. The wallet is then
-// behind by that player's stake until the hand-end write catches it up (their
-// chipsWritten was not advanced), which is why nothing is lost.
+// or the departure has already happened at the table. chipsWritten is then
+// NOT advanced, so the wallet still holds the stake the seat has put in, and
+// the owed delta has to reach PostgreSQL some other way — a checkpoint has no
+// retry chain; only the hand-end settle has one (Settler). endHand therefore
+// carries it: a packer's outcome row computes the whole delta, and a player
+// who LEFT, whom the hand end otherwise skips, gets a catch-up row in the same
+// request (their outcome, counted there, when this refusal left them
+// uncounted — leftUncounted). Nothing is lost only because of that catch-up — and
+// a player who leaves with it owed is marked so from the leave to the hand
+// end (removePlayer → Settler.OweDeparted).
+//
+// A duplicate_action that says what landed (LandedDelta) is not a failure.
+// The action ids are UNIQUE and name one hand, one player and one checkpoint,
+// so it means this very write landed in an earlier life of the hand: the
+// process stopped between the commit and the live save that would have
+// recorded it (or while the live store was refusing saves), and the restored
+// hand has replayed the move. chipsWritten advances by exactly what landed,
+// never to the current stack: when the restored player made the same move
+// with the same stack that is the whole delta, but one who played on first (a
+// chaal the earlier life never saw) holds a smaller stack than the one
+// written, and counting it all as written left that chaal unwritten while the
+// winner was paid it — chips from nothing. What remains reaches the wallet as
+// a refused write's does, at the hand end. Reporting the replay and advancing
+// nothing, as before, charged the landed stake a second time there.
+//
+// Two answers still charge a landed stake twice, and neither can create a
+// chip: a duplicate_action that does not say what landed — a ledger that
+// could not read the row back — is treated as the refusal it may as well be
+// (reported, nothing advanced); and a replay under the OTHER checkpoint's id
+// (the earlier life packed, then left, and the restored player only leaves)
+// learns only what its own id banked.
+//
+// Every reading of a checkpoint's answer errs towards debiting too much, never
+// too little: a wallet a replay overcharges is short by a stake, where one it
+// undercharged would have paid the winner chips that never existed.
 func (t *Table) checkpoint(entry *contribution, reason string, actionID string, outcome bool) {
 	if entry == nil {
 		return
@@ -2149,15 +2209,40 @@ func (t *Table) checkpoint(entry *contribution, reason string, actionID string, 
 		},
 	}
 	if _, err := t.ledger.Checkpoint(t.Context(), req); err != nil {
-		t.listener.OnPersistError(t.view, PersistErrorEvent{UserID: entry.userID, Delta: delta, Reason: reason, HandID: t.hand.id, Err: err})
+		landed, replayed := LandedDelta(err)
+		if !replayed {
+			t.listener.OnPersistError(t.view, PersistErrorEvent{UserID: entry.userID, Delta: delta, Reason: reason, HandID: t.hand.id, Err: err})
+			// A refused departure recorded no counters: the hand end's
+			// catch-up row resolves them instead (endHand). A refusal whose
+			// write in fact committed unheard counted nothing either — the
+			// counters are recorded only after an answer — so it is still
+			// counted exactly once, there. A BARE duplicate_action is not a
+			// refusal for the counters: its write landed in an earlier life,
+			// which counted it (the money is still read as refused).
+			if outcome && entry.leftMidHand && CodeOf(err, "") != CodeDuplicateAction {
+				entry.leftUncounted = true
+			}
+			return
+		}
+		// A replay counts nothing: the earlier life whose write landed
+		// recorded this departure's counters after its commit. What it did
+		// not bank rides the catch-up as money only.
+		t.version.Add(1)
+		entry.chipsWritten += landed
+		entry.leftUncounted = false
 		return
 	}
 	t.version.Add(1)
 	entry.chipsWritten = entry.chips
+	entry.leftUncounted = false
 	// A departure is counted now that its write has committed (hands_left,
 	// and hands_played if they had bet); a pack is not an outcome and counts
 	// nothing here — the hand-end write resolves the packer. No held hand and
-	// no variation: they did not finish the hand.
+	// no variation: they did not finish the hand. Counted before the live save
+	// that records the departure: should that save be lost, the restored hand
+	// has the player in it again, and a DIFFERENT move of theirs (a pack, the
+	// clock's pack) is counted again by the hand end — a replayed leave is not
+	// (Player stats v2's rule, pre-existing; DECISIONS.md).
 	if stats, ok := StatsForEntry(req.Entry, StatsBucketOf(t.cfg.Category)); ok && !stats.Empty() {
 		t.recordStats([]HandStats{stats})
 	}
@@ -2168,6 +2253,17 @@ func (t *Table) recordStats(stats []HandStats) {
 	if t.record != nil && len(stats) > 0 {
 		t.record(stats)
 	}
+}
+
+// oweDeparted marks a player leaving the live hand owed whatever PostgreSQL
+// has not yet been given of it — nothing when their checkpoints landed
+// (Settler.OweDeparted says why the mark is needed; endHand lifts it). Actor
+// only.
+func (t *Table) oweDeparted(entry *contribution) {
+	if entry == nil || t.hand == nil {
+		return
+	}
+	t.Settler.OweDeparted(t.id, t.hand.id, entry.userID, entry.chips-entry.chipsWritten)
 }
 
 // refusal (_refusal) maps a Ledger error onto the GameError the player is
@@ -3088,7 +3184,12 @@ func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showReques
 // A packer's delta is zero here (their pack checkpoint already moved it), so
 // the money moves once and the row records only the outcome — exactly what a
 // losing player's row has always been. A player who LEFT is not written here:
-// their leave checkpoint resolved them and counted hands_left.
+// their leave checkpoint resolved them and counted hands_left — unless the
+// ledger refused that checkpoint (or a replay of it banked less than the
+// stake), when what it still owes rides this request as a catch-up row (the
+// settle's action id, hand_loss; their outcome, counted with the settle, only
+// when the refused leave counted nothing — leftUncounted), so the Settler's
+// retry chain carries it with everyone else's.
 //
 // On failure the hand is over anyway — memory is already right — and retrySettle re-sends the identical
 // request until it lands; the per-entry action ids make that safe.
@@ -3177,9 +3278,48 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	entries := make([]SettleEntry, 0, len(contributors))
 	for _, entry := range contributors {
 		isWinner := winnerID != nil && entry.userID == *winnerID
+		outcome := true
 		if entry.leftMidHand && !isWinner {
-			// Resolved at their own checkpoint when they walked out.
-			continue
+			// Resolved at their own checkpoint when they walked out: that
+			// hand_left row moved their stake and their counters, so there is
+			// ordinarily nothing to write here. The exception is a leave the
+			// ledger REFUSED (checkpoint left chipsWritten where it was), or a
+			// replayed one that banked less than the stake (a restored player
+			// who bet again first; checkpoint advanced it by what landed):
+			// nothing else would ever write the rest — a checkpoint has no retry
+			// chain — while the winner is paid a pot that includes that stake,
+			// so the books would gain it from nothing. Whatever is still owed
+			// therefore rides THIS request, and with it the Settler's retry
+			// chain, as a catch-up row:
+			//   - Outcome only when the leave was REFUSED in this life
+			//     (leftUncounted): it recorded no counters, so this row counts
+			//     the hand for them (hands_left, hands_played) once it has
+			//     committed — the counters ride SettleRequest.Stats like
+			//     everyone's. After a replay the leave landed in an earlier
+			//     life, which counted it, and the row moves money only —
+			//     exactly once, never twice (a double count could pay the
+			//     hands-played milestone early). Never XP either way: the
+			//     ledger awards none to a LeftMidHand row.
+			//   - the settle's own action id, never the leave's: the leave's
+			//     may be spent by a write that landed unheard, and a duplicate
+			//     on it would roll back the whole settle and read as a replay,
+			//     settling nobody. A :settle: row is hand_win or hand_loss.
+			// A leave that committed (or whose replay found all of it landed)
+			// left chips == chipsWritten and is written nothing more: a second
+			// row would be a second outcome for one player in one hand. As
+			// the poker rooms do (poker settle; DECISIONS.md). Where the leave
+			// DID land and a catch-up is still written — a replay that banked
+			// less than the stake, a bare duplicate_action, a commit whose
+			// answer was lost — the books hold the leave's hand_left and this
+			// hand_loss for one player in one hand: one resolution, the audits
+			// read it so (tools/parity/money.test.js, tools/crashtest.mjs), and
+			// such a catch-up always moves chips. The player has
+			// been marked owed since they left (removePlayer); the mark is
+			// lifted below, once this request has landed or begun its retries.
+			if entry.chips == entry.chipsWritten && !entry.leftUncounted {
+				continue
+			}
+			outcome = entry.leftUncounted
 		}
 		rowReason := LedgerReasonHandLoss
 		if isWinner {
@@ -3200,7 +3340,7 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 			Delta:       entry.chips - entry.chipsWritten,
 			ActionID:    SettleActionID(h.id, entry.userID),
 			Reason:      rowReason,
-			Outcome:     true,
+			Outcome:     outcome,
 			IsWinner:    isWinner,
 			DidChaal:    entry.didChaal,
 			LeftMidHand: entry.leftMidHand,
@@ -3265,6 +3405,10 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 		t.adoptTaxRates(settled.TaxBps)
 		t.recordStats(settleReq.Stats)
 	}
+	// The players who left this hand still owed part of it are written now,
+	// or ride the retry chain just marked owed above: their own marks, set as
+	// they left, can go (Settler.ReleaseDeparted).
+	t.Settler.ReleaseDeparted()
 
 	var winnerName *string
 	if winnerSeat != nil {
@@ -3380,6 +3524,9 @@ func (t *Table) destroy() {
 	// happens to the table: every stopped retry continues off the actor
 	// (Settler.Detach).
 	t.Settler.Detach()
+	// A hand ended above lifted its departed players' marks already; a fenced
+	// room's hand is another process's to settle, and to mark.
+	t.Settler.ReleaseDeparted()
 	// The room is gone, and so is its chat: history exists only for as long as
 	// the room does. The live store's copy goes with it — unless another
 	// process owns the table, in which case the copy is theirs.
@@ -3459,18 +3606,19 @@ func (t *Table) snapshot() *Snapshot {
 				continue
 			}
 			contributions = append(contributions, SnapshotContribution{
-				UserID:       entry.userID,
-				Contributed:  entry.contributed,
-				Status:       entry.status,
-				DidChaal:     entry.didChaal,
-				LeftMidHand:  entry.leftMidHand,
-				DisplayName:  entry.displayName,
-				SeatIndex:    entry.seatIndex,
-				SawCards:     entry.sawCards,
-				Cards:        CardCodes(entry.cards),
-				Chips:        entry.chips,
-				ChipsWritten: entry.chipsWritten,
-				TaxBps:       entry.taxBps,
+				UserID:        entry.userID,
+				Contributed:   entry.contributed,
+				Status:        entry.status,
+				DidChaal:      entry.didChaal,
+				LeftMidHand:   entry.leftMidHand,
+				LeftUncounted: entry.leftUncounted,
+				DisplayName:   entry.displayName,
+				SeatIndex:     entry.seatIndex,
+				SawCards:      entry.sawCards,
+				Cards:         CardCodes(entry.cards),
+				Chips:         entry.chips,
+				ChipsWritten:  entry.chipsWritten,
+				TaxBps:        entry.taxBps,
 			})
 		}
 		packed := make([]string, 0, len(h.packedUserIDs))
