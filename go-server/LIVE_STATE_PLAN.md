@@ -77,7 +77,7 @@ There is no refund path, because there is no pot in PostgreSQL to refund.
 2. `rooms.Restore(ctx)`: `ListTables` → for each `LoadTable` → `game.RestoreTable(snapshot, opts)` → register in maps (`playerRooms` from seats) → `PublishTable`. Tables whose snapshot fails to parse are deleted from the store and reported. **This is the only pass there is**: an empty live store restores nothing.
 3. *(Removed 9 Sep 2026.)* There was a third step here — `db.RefundOrphanedPots`, which returned every open `pots` row with no restored table. It went with the `pots` table: PostgreSQL no longer knows a pot exists, so there is nothing to orphan and nothing to refund. What a lost Redis costs now is set out under §The money model.
 4. `handler.RestoreSeats(rooms)`: for every restored seat, mark disconnected and arm the reconnect grace timer exactly as a drop would; when the player reconnects, `session:ready` → `room:joined` as today.
-5. Restored tables re-arm their own timers inside `RestoreTable`: turn deadline in the past → the pack fires on the first actor turn; sideshow past its expiry → lapses; `starting` → `startsAt` (or now).
+5. Restored tables re-arm their own timers inside `RestoreTable`: turn deadline in the past → a FRESH full turn clock from the restore, with no pack and no missed turn charged for the server's downtime (owner, 27 Sep 2026; until then the pack fired on the first actor turn and counted a miss); sideshow past its expiry → lapses; a variation or 5-Card window past its deadline → closes (not a miss); a seat marked `kickPending` → kicked; `starting` → `startsAt` (or now).
 6. Then the sweeper starts and the listener opens.
 
 ## Key schema (prefix `kt:`; tests use a random prefix)

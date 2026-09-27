@@ -1254,11 +1254,15 @@ class Strings {
   String get packed => _('packed');
 
   // --- requirement 31: auto-packs in a row, and the last warning
+  // The table's warning after a missed turn (owner, 27 Sep 2026;
+  // widgets/missed_turns_notice.dart): what happened, then how many of the
+  // table's allowance are gone — or, one short of the kick, the last warning.
   String get autoPacked => _('autoPacked');
-  String get autoPackedOne => _('autoPackedOne');
+  String get missedYourTurn => _('missedYourTurn');
+  String missedTurnsCount(int n, int max) =>
+      _('missedTurnsCount').replaceAll('{n}', '$n').replaceAll('{max}', '$max');
   String get lastWarning => _('lastWarning');
   String get missOneMore => _('missOneMore');
-  String get missedTurnsLabel => _('missedTurnsLabel');
   String get resumingTable => _('resumingTable');
   String get welcomeBack => _('welcomeBack');
   String get appVersion => _('appVersion');
@@ -1574,6 +1578,7 @@ class Strings {
   String get updateOpenStore => _('updateOpenStore');
   String get updateOpenAppStore => _('updateOpenAppStore');
   String get updateFailed => _('updateFailed');
+  String get purchaseNotLaunched => _('purchaseNotLaunched');
 
   // --- name and the entry cap
   String get changeName => _('changeName');
@@ -1697,6 +1702,7 @@ class Strings {
       'updateOpenStore': 'Open Play Store',
       'updateOpenAppStore': 'Open App Store',
       'updateFailed': 'The update did not finish. Please try again.',
+      'purchaseNotLaunched': 'The purchase did not go through.',
       'storeTitle': 'Chip Store',
       'storeBlurb': 'The bigger the pack, the bigger the bonus.',
       'storeTabChips': 'Chips',
@@ -2061,11 +2067,11 @@ class Strings {
       'waiting': 'waiting',
       'offline': 'offline',
       'packed': 'PACKED',
-      'autoPacked': 'turns missed in a row',
-      'autoPackedOne': 'turn missed',
+      'autoPacked': 'You missed your turn — auto-packed',
+      'missedYourTurn': 'You missed your turn',
       'lastWarning': 'Last warning',
-      'missOneMore': 'Miss this turn and you leave the table.',
-      'missedTurnsLabel': 'Missed turns',
+      'missOneMore': 'One more missed turn and you leave the table',
+      'missedTurnsCount': 'Missed turns: {n} of {max}',
       'resumingTable': 'Returning to your table…',
       'welcomeBack': "Welcome back — you're back at your table.",
       'appVersion': 'App version',
@@ -2073,7 +2079,7 @@ class Strings {
       'notConnected': 'No connection. That did not go through.',
       'reconnecting': 'Connection lost. Reconnecting…',
       'kickedNoChips': "You don't have enough chips to stay at this table.",
-      'kickedIdle': 'You left the table after {n} missed turns.',
+      'kickedIdle': 'You left the table after {n} missed turns in a row.',
       'leaveStakeStays': 'Your stake stays in the pot',
       'winner': 'Winner',
       'tableChat': 'Table chat',
@@ -2516,6 +2522,7 @@ class Strings {
       'updateOpenStore': 'प्ले स्टोर खोलें',
       'updateOpenAppStore': 'ऐप स्टोर खोलें',
       'updateFailed': 'अपडेट पूरा नहीं हुआ। कृपया फिर कोशिश करें।',
+      'purchaseNotLaunched': 'खरीदारी पूरी नहीं हुई।',
       'storeTitle': 'चिप स्टोर',
       'storeBlurb': 'जितना बड़ा पैक, उतना बड़ा बोनस।',
       'storeTabChips': 'चिप्स',
@@ -2874,11 +2881,11 @@ class Strings {
       'waiting': 'इंतज़ार',
       'offline': 'ऑफ़लाइन',
       'packed': 'पैक',
-      'autoPacked': 'लगातार चालें चूकीं',
-      'autoPackedOne': 'चाल चूकी',
+      'autoPacked': 'आपकी बारी छूट गई — अपने-आप पैक हुआ',
+      'missedYourTurn': 'आपकी बारी छूट गई',
       'lastWarning': 'आखिरी चेतावनी',
-      'missOneMore': 'यह चाल चूके तो आप टेबल से बाहर हो जाएंगे।',
-      'missedTurnsLabel': 'चूकी चालें',
+      'missOneMore': 'एक और बारी छूटी तो आप टेबल से बाहर हो जाएंगे',
+      'missedTurnsCount': 'छूटी बारियाँ: {max} में से {n}',
       'resumingTable': 'आपकी टेबल पर वापस जा रहे हैं…',
       'welcomeBack': 'वापसी पर स्वागत है — आप अपनी टेबल पर वापस हैं।',
       'appVersion': 'ऐप संस्करण',
@@ -3321,6 +3328,7 @@ class Strings {
       'updateOpenStore': 'প্লে স্টোর খুলুন',
       'updateOpenAppStore': 'অ্যাপ স্টোর খুলুন',
       'updateFailed': 'আপডেট শেষ হয়নি। আবার চেষ্টা করুন।',
+      'purchaseNotLaunched': 'কেনাকাটা সম্পন্ন হয়নি।',
       'storeTitle': 'চিপ স্টোর',
       'storeBlurb': 'প্যাক যত বড়, বোনাসও তত বড়।',
       'storeTabChips': 'চিপস',
@@ -3678,11 +3686,11 @@ class Strings {
       'waiting': 'অপেক্ষা',
       'offline': 'অফলাইন',
       'packed': 'প্যাক',
-      'autoPacked': 'পরপর চাল মিস',
-      'autoPackedOne': 'চাল মিস',
+      'autoPacked': 'আপনার পালা ফসকে গেছে — নিজে থেকে প্যাক হয়েছে',
+      'missedYourTurn': 'আপনার পালা ফসকে গেছে',
       'lastWarning': 'শেষ সতর্কতা',
-      'missOneMore': 'এই চাল মিস করলে আপনি টেবিল ছাড়বেন।',
-      'missedTurnsLabel': 'মিস করা চাল',
+      'missOneMore': 'আর একটি পালা ফসকালে আপনি টেবিল ছাড়বেন',
+      'missedTurnsCount': 'ফসকানো পালা: {max}টির মধ্যে {n}টি',
       'resumingTable': 'আপনার টেবিলে ফিরছি…',
       'welcomeBack': 'ফিরে আসায় স্বাগত — আপনি আপনার টেবিলে ফিরে এসেছেন।',
       'appVersion': 'অ্যাপ সংস্করণ',
@@ -4123,6 +4131,7 @@ class Strings {
       'updateOpenStore': 'પ્લે સ્ટોર ખોલો',
       'updateOpenAppStore': 'એપ સ્ટોર ખોલો',
       'updateFailed': 'અપડેટ પૂરું થયું નથી. ફરી પ્રયાસ કરો.',
+      'purchaseNotLaunched': 'ખરીદી પૂર્ણ થઈ નહીં.',
       'storeTitle': 'ચિપ સ્ટોર',
       'storeBlurb': 'પૅક જેટલું મોટું, બોનસ એટલું મોટું.',
       'storeTabChips': 'ચિપ્સ',
@@ -4477,11 +4486,11 @@ class Strings {
       'waiting': 'રાહ',
       'offline': 'ઑફલાઇન',
       'packed': 'પૅક',
-      'autoPacked': 'સળંગ ચાલ ચૂક્યા',
-      'autoPackedOne': 'ચાલ ચૂક્યા',
+      'autoPacked': 'તમારો વારો ચૂકી ગયા — આપમેળે પૅક થયું',
+      'missedYourTurn': 'તમારો વારો ચૂકી ગયા',
       'lastWarning': 'છેલ્લી ચેતવણી',
-      'missOneMore': 'આ ચાલ ચૂકશો તો તમે ટેબલ છોડશો.',
-      'missedTurnsLabel': 'ચૂકેલી ચાલો',
+      'missOneMore': 'હજી એક વારો ચૂકશો તો તમે ટેબલ છોડશો',
+      'missedTurnsCount': 'ચૂકેલા વારા: {max} માંથી {n}',
       'resumingTable': 'તમારા ટેબલ પર પાછા જઈ રહ્યા છીએ…',
       'welcomeBack': 'પરત સ્વાગત — તમે તમારા ટેબલ પર પાછા છો.',
       'unlock': 'અનલૉક કરો',
@@ -4924,6 +4933,7 @@ class Strings {
       'updateOpenStore': 'ਪਲੇ ਸਟੋਰ ਖੋਲ੍ਹੋ',
       'updateOpenAppStore': 'ਐਪ ਸਟੋਰ ਖੋਲ੍ਹੋ',
       'updateFailed': 'ਅੱਪਡੇਟ ਪੂਰਾ ਨਹੀਂ ਹੋਇਆ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+      'purchaseNotLaunched': 'ਖਰੀਦਦਾਰੀ ਪੂਰੀ ਨਹੀਂ ਹੋਈ।',
       'storeTitle': 'ਚਿੱਪ ਸਟੋਰ',
       'storeBlurb': 'ਪੈਕ ਜਿੰਨਾ ਵੱਡਾ, ਬੋਨਸ ਓਨਾ ਵੱਡਾ।',
       'storeTabChips': 'ਚਿਪਸ',
@@ -5285,10 +5295,10 @@ class Strings {
       'waiting': 'ਉਡੀਕ',
       'offline': 'ਔਫ਼ਲਾਈਨ',
       'packed': 'ਪੈਕ',
-      'autoPacked': 'ਲਗਾਤਾਰ ਚਾਲਾਂ ਖੁੰਝੀਆਂ',
-      'autoPackedOne': 'ਚਾਲ ਖੁੰਝੀ',
+      'autoPacked': 'ਤੁਹਾਡੀ ਵਾਰੀ ਖੁੰਝ ਗਈ — ਆਪਣੇ-ਆਪ ਪੈਕ ਹੋ ਗਿਆ',
+      'missedYourTurn': 'ਤੁਹਾਡੀ ਵਾਰੀ ਖੁੰਝ ਗਈ',
       'lastWarning': 'ਆਖਰੀ ਚੇਤਾਵਨੀ',
-      'missOneMore': 'ਇਹ ਚਾਲ ਖੁੰਝੀ ਤਾਂ ਤੁਸੀਂ ਟੇਬਲ ਛੱਡ ਦਿਓਗੇ।',
+      'missOneMore': 'ਇੱਕ ਹੋਰ ਵਾਰੀ ਖੁੰਝੀ ਤਾਂ ਤੁਸੀਂ ਟੇਬਲ ਛੱਡ ਦਿਓਗੇ',
       'unlock': 'ਅਨਲਾਕ ਕਰੋ',
       'unlockTitle': 'ਇਹ ਤਸਵੀਰ ਅਨਲਾਕ ਕਰਨੀ ਹੈ?',
       'unlockBody': '{name} ਦੀ ਕੀਮਤ {cost} ਚਿਪਸ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
@@ -5346,7 +5356,7 @@ class Strings {
       'rentalEnded': 'ਖਤਮ ਹੋਈ: {date}',
       'wear': 'ਲਗਾਓ',
       'wearing': 'ਲੱਗੀ ਹੋਈ ਹੈ',
-      'missedTurnsLabel': 'ਖੁੰਝੀਆਂ ਚਾਲਾਂ',
+      'missedTurnsCount': 'ਖੁੰਝੀਆਂ ਵਾਰੀਆਂ: {max} ਵਿੱਚੋਂ {n}',
       'resumingTable': 'ਤੁਹਾਡੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਜਾ ਰਹੇ ਹਾਂ…',
       'welcomeBack': 'ਵਾਪਸੀ ਤੇ ਸਵਾਗਤ — ਤੁਸੀਂ ਆਪਣੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਹੋ।',
       'appVersion': 'ਐਪ ਵਰਜਨ',

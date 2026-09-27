@@ -150,6 +150,18 @@ class SeatPod extends StatelessWidget {
     this.friendMark,
   });
 
+  /// The gap between the plaque and the turn's ring round it.
+  static const double turnRingGap = 3;
+
+  /// The turn ring's edge at its heaviest (it breathes from 2 to this).
+  static const double turnRingEdge = 2.5;
+
+  /// How far the seat on turn's ring stands out from its plaque on each
+  /// side: the pod's box is this much larger all round while the seat is on
+  /// turn. A notice laid under a pod anchored by its top (the head seat)
+  /// must clear it (27 Sep 2026).
+  static const double turnRingOutset = turnRingGap + turnRingEdge;
+
   /// A tap on the pod — the glass plaque, not the cards and bet under it:
   /// another player's opens the table's player drawer (owner, 26 Sep 2026).
   /// Null for the viewer's own pod, which a tap does nothing to; an empty
@@ -1515,13 +1527,14 @@ class _TurnRingState extends State<_TurnRing>
         // alpha, move now — and less far, so the ring pulses rather than
         // throbs beside the key the player is about to press.
         return Container(
-          padding: const EdgeInsets.all(3),
+          padding: const EdgeInsets.all(SeatPod.turnRingGap),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(widget.radius + 4),
             border: Border.all(
               color: (widget.edge ?? widget.colour).withValues(
                 alpha: floor + (1 - floor) * t,
               ),
+              // 2 to [SeatPod.turnRingEdge].
               width: 2.0 + 0.5 * t,
             ),
             boxShadow: [

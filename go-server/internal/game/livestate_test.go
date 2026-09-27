@@ -446,7 +446,14 @@ func mustSeats(t *testing.T, table *Table) []SeatInfo {
 	return seats
 }
 
-func TestRestoreWithTheDeadlinePastTimesTheTurnOutAtOnce(t *testing.T) {
+// A turn whose deadline passed while the process was down is NOT timed out
+// at the restore (owner, 27 Sep 2026): the player did not run their clock out,
+// the server was away. They get a fresh, full clock from the restore instant,
+// no pack, no missed turn — and so no idle kick at boot however many turns
+// they had missed before. Until then the restore timed the turn out at once,
+// charging a miss for the server's own downtime, and a player on their second
+// miss was kicked by a restart.
+func TestRestoreWithTheDeadlinePastGivesAFreshClockAndChargesNoMiss(t *testing.T) {
 	h := newHarness(t, liveConfig())
 	for _, id := range []string{"a", "b", "c"} {
 		h.seat(id, tableStart)
@@ -459,38 +466,61 @@ func TestRestoreWithTheDeadlinePastTimesTheTurnOutAtOnce(t *testing.T) {
 	later := newFakeClock(h.clock.Now().Add(30 * time.Second))
 	r := restoreHarness(t, roundTrip(t, snap), later)
 
+	eq(t, len(r.rec.all("action")), 0, "nothing is played for them at the restore")
+	eq(t, r.turnUser(), player, "the same player is still on turn")
+	eq(t, r.mustSeat(player).MissedTurns, 0, "no missed turn for the server's downtime")
+	eq(t, r.mustSeat(player).Status, SeatActive, "still in the hand")
+	eq(t, *r.view(player).Turn.Deadline, Millis(later.Now().Add(25*time.Second)), "a full clock from the restore instant")
+	eq(t, len(r.rec.all("kick")), 0, "no kick")
+
+	// The fresh clock is an ordinary turn clock: it runs out 25 s later and
+	// that one IS a missed turn.
+	later.Advance(25*time.Second - time.Millisecond)
+	eq(t, len(r.rec.all("action")), 0, "not before the new deadline")
+	later.Advance(time.Millisecond)
 	acts := r.rec.all("action")
-	eq(t, len(acts), 1, "one action on restore")
+	eq(t, len(acts), 1, "the fresh clock times out")
 	pack := acts[0].(ActionEvent)
 	eq(t, pack.Action, ActionPack, "pack")
 	eq(t, pack.Reason, PackReasonTimeout, "timeout")
-	eq(t, pack.UserID, player, "the player whose clock ran out")
-	eq(t, r.mustSeat(player).MissedTurns, 1, "missedTurns++")
-	eq(t, r.mustSeat(player).Status, SeatPacked, "packed")
-	eq(t, r.hasHand(), true, "two players still in")
-	next := r.turnUser()
-	eq(t, next != player, true, "the turn moved on")
-	eq(t, *r.view(next).Turn.Deadline, Millis(later.Now().Add(25*time.Second)), "a full clock from the restore instant")
-	eq(t, len(r.rec.all("turn")), 1, "turn event for the next player")
-	eq(t, len(r.rec.all("kick")), 0, "one missed turn is no kick")
+	eq(t, pack.UserID, player, "the player who let it run out")
+	eq(t, r.mustSeat(player).MissedTurns, 1, "that one counts")
+}
 
-	// Third missed turn in a row → the ordinary idle kick.
+// A restored player on their second missed turn is not kicked at boot: the
+// deadline that passed while the server was down charges nothing.
+func TestARestoredPlayerOnTwoMissedTurnsIsNotKickedAtBoot(t *testing.T) {
+	h := newHarness(t, liveConfig())
+	for _, id := range []string{"a", "b", "c"} {
+		h.seat(id, tableStart)
+	}
+	h.advance(6 * time.Second)
+	player := h.turnUser()
+	snap := mustSnapshot(h)
+
 	tired := roundTrip(t, snap)
 	for _, s := range tired.Seats {
 		if s != nil && s.UserID == player {
 			s.MissedTurns = 2
 		}
 	}
-	r2 := restoreHarness(t, tired, newFakeClock(h.clock.Now().Add(30*time.Second)), withKickHandler())
-	kicks := r2.kickEvents()
-	eq(t, len(kicks), 1, "kicked")
+	r := restoreHarness(t, tired, newFakeClock(h.clock.Now().Add(30*time.Second)), withKickHandler())
+	eq(t, len(r.kickEvents()), 0, "not kicked at boot")
+	r.waitKicks()
+	if r.seatInfo(player) == nil {
+		t.Fatal("the seat is still there")
+	}
+	eq(t, r.mustSeat(player).MissedTurns, 2, "the misses they really made still stand")
+	eq(t, r.turnUser(), player, "on turn, with a fresh clock")
+
+	// Their own clock running out now is the third miss in a row: the
+	// ordinary idle kick.
+	r.clock.Advance(25 * time.Second)
+	kicks := r.kickEvents()
+	eq(t, len(kicks), 1, "kicked on the third real miss")
 	eq(t, kicks[0].UserID, player, "the idle player")
 	eq(t, kicks[0].Reason, KickReasonIdle, "idle")
 	eq(t, kicks[0].Message, "Left the table after 3 missed turns", "message")
-	r2.waitKicks()
-	if r2.seatInfo(player) != nil {
-		t.Fatal("the kick handler removed the seat")
-	}
 }
 
 func TestRestoreWithAPendingSideshow(t *testing.T) {

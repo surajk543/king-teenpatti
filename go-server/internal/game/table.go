@@ -1009,6 +1009,11 @@ func (t *Table) RespondToSideshow(userID string, accept bool) (SideshowOutcome, 
 		if accept {
 			reason = SideshowAccepted
 		}
+		// An answer, either way, proves the player is there: their missed
+		// turns no longer count against them (requirement 31; owner, 27 Sep
+		// 2026). Cleared before resolving, so the snapshot the resolution
+		// saves carries it even when the answer packs them.
+		t.clearMissedTurns(userID)
 		outcome, _ = t.resolveSideshow(accept, reason)
 	})
 	if err != nil {
@@ -1681,6 +1686,18 @@ func (t *Table) onTurnTimeout(seatIndex int, token string) {
 	// given back to the table.
 	if t.cfg.MaxMissedTurns > 0 && s.missedTurns >= t.cfg.MaxMissedTurns {
 		t.kick(s, KickReasonIdle, fmt.Sprintf(KickMessageIdleFormat, s.missedTurns))
+	}
+}
+
+// clearMissedTurns zeroes a seated player's missed-turn count (requirement
+// 31) after an answer that proves they are at the table without being a move
+// in act(): a sideshow answered, the variation chosen, the 5-Card three
+// chosen (owner, 27 Sep 2026). Marks the snapshot dirty so the count saved to
+// the live store follows.
+func (t *Table) clearMissedTurns(userID string) {
+	if s := t.findSeat(userID); s != nil && s.missedTurns != 0 {
+		s.missedTurns = 0
+		t.liveDirty = true
 	}
 }
 
@@ -2369,7 +2386,9 @@ func (t *Table) act(userID string, action Action, req ActRequest) (ActResult, er
 	// look at one's own cards is free, off-turn and changes nothing, and
 	// counting it let a player tap See once a hand and never be kicked idle
 	// (requirement 31; owner's "fix all bugs", 24 Sep 2026 — Node reset it
-	// on any successful act).
+	// on any successful act). Answers that are not moves here clear it too
+	// (clearMissedTurns: a sideshow answered, the variation or the 5-Card
+	// three chosen; owner, 27 Sep 2026).
 	if action != ActionSee {
 		s.missedTurns = 0
 	}

@@ -222,6 +222,9 @@ func (t *Table) selectCards(userID string, codes []string) (PickResult, error) {
 	if !ok {
 		return PickResult{}, NewGameError(CodeInvalidPick, MsgInvalidPick)
 	}
+	// Choosing proves the player is there (requirement 31; owner, 27 Sep
+	// 2026): their missed turns no longer count against them.
+	t.clearMissedTurns(userID)
 	result := t.settlePick(s, picked, PickByPlayer)
 	// A server showdown may have been waiting for exactly this choice.
 	t.runDeferredShowdown()

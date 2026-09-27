@@ -336,8 +336,10 @@ func (rm *RoomManager) registerRestored(ctx context.Context, table Room, seats [
 		report.HandIDs = append(report.HandIDs, handID)
 	}
 
-	// Second phase: clocks. Anything that fires now (a lapsed turn, a kick)
-	// runs against a registered table. The first save that follows (seq + 1)
+	// Second phase: clocks. Anything that fires now (a lapsed sideshow, a
+	// variation or 5-Card window past its deadline, a pending kick) runs
+	// against a registered table; a turn whose deadline passed while the
+	// process was down gets a fresh clock instead (owner, 27 Sep 2026). The first save that follows (seq + 1)
 	// claims the table in the live store.
 	if err := table.Resume(); err != nil && !errors.Is(err, ErrTableDestroyed) {
 		rm.log.Error("table restore: resume failed", "roomId", table.ID(), "error", err.Error())

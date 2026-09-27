@@ -2102,6 +2102,104 @@ class GameState extends ChangeNotifier {
     });
   }
 
+  // ------------------------------------------------------------- lifecycle
+
+  /// How long the app may sit in the background at a table before its socket
+  /// is closed (owner, 27 Sep 2026: "a locked or backgrounded phone keeps its
+  /// way back").
+  ///
+  /// A locked or backgrounded phone used to keep its socket open, so the
+  /// server saw a CONNECTED player who never moved: three turn clocks later
+  /// (~83 s) they were idle-kicked with no way back, and the room:kicked went
+  /// to a phone that was not listening. Closing the socket starts the
+  /// server's reconnect grace instead — the seat is held, and if it lapses
+  /// (or the turns run out meanwhile) the server keeps a resume offer, which
+  /// the warm session:ready on [AppLifecycleState.resumed] takes up.
+  ///
+  /// Why a delay, and not at once: some trips out of the app are part of
+  /// using it — Play's purchase sheet, Google sign-in, the privacy page or a
+  /// support e-mail, the system's own dialogs — and are over in seconds. A
+  /// phone back within the delay never dropped its socket at all. One away
+  /// longer loses nothing either: the reconnect gets the held seat back
+  /// (RECONNECT_GRACE_MS, 60 s) or the offer (RESUME_OFFER_MS, 10 min). The
+  /// delay only spares a quick trip a reconnect. Eight seconds is under a
+  /// third of a turn clock (25 s), so a player who has left keeps at most
+  /// that much of a live connection while their turn runs down.
+  static const backgroundGrace = Duration(seconds: 8);
+
+  Timer? _backgroundTimer;
+
+  /// True from closing the socket for the background until the app is back.
+  bool _closedForBackground = false;
+
+  /// Whether a flow that takes the player out of the app on purpose, and
+  /// must not lose its connection meanwhile, is under way: a Play purchase
+  /// with its sheet open ([Purchases.buying], capped at [Purchases.buyingFor]),
+  /// or Play's in-app update. While it is, the socket is not closed; the check
+  /// runs again one [backgroundGrace] later.
+  ///
+  /// A purchase Play reports as PENDING ([purchasePending] — a slow payment
+  /// such as UPI) does not count: it can stay pending for days, or be
+  /// abandoned and never reported again, and counting it kept a seated
+  /// phone's socket open whenever it was put away for the rest of the session,
+  /// which is exactly the idle kick with no way back this closing exists to
+  /// prevent. Its receipt is banked over REST when Play delivers it, which
+  /// needs no socket.
+  bool get purchaseInFlight => purchases.buying || updating;
+
+  /// The app's lifecycle, as the platform reports it (main.dart's
+  /// [AppLifecycleListener]).
+  ///
+  /// Only [AppLifecycleState.paused] and [AppLifecycleState.resumed] matter:
+  /// `inactive` is transient (a notification shade, a system dialog, the
+  /// app switcher), and `hidden` always comes between the two. Paused while
+  /// seated at a table arms [backgroundGrace]; resumed cancels it, or — when
+  /// the socket was closed — connects again. In the lobby nothing happens:
+  /// the socket there only brings friend requests, and nothing is at stake.
+  void handleLifecycle(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+        _backgroundTimer?.cancel();
+        _backgroundTimer = null;
+        if (room == null || _token == null) return;
+        _backgroundTimer = Timer(backgroundGrace, _closeForBackground);
+      case AppLifecycleState.resumed:
+        _backgroundTimer?.cancel();
+        _backgroundTimer = null;
+        if (!_closedForBackground) return;
+        _closedForBackground = false;
+        final token = _token;
+        // Signed out meanwhile (a disabled account, say): nothing to rejoin.
+        if (token == null) return;
+        // The warm session:ready that follows takes the player back: the
+        // held seat's room:joined, or the resume offer (see _wire).
+        _conn.connect(token);
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        break;
+    }
+  }
+
+  void _closeForBackground() {
+    _backgroundTimer = null;
+    // Left the table while the timer ran (a kick heard in time, say).
+    if (room == null || _token == null) return;
+    if (purchaseInFlight) {
+      _backgroundTimer = Timer(backgroundGrace, _closeForBackground);
+      return;
+    }
+    _seatCheck?.cancel();
+    _conn.disconnect();
+    _closedForBackground = true;
+    offline = true;
+    notifyListeners();
+  }
+
+  /// Whether the socket is closed because the app went to the background.
+  @visibleForTesting
+  bool get closedForBackground => _closedForBackground;
+
   // ---------------------------------------------------------------- resume
 
   void _beginResume() {
@@ -2270,6 +2368,9 @@ class GameState extends ChangeNotifier {
     await prefs.remove('token');
     _token = null;
     _conn.disconnect();
+    _backgroundTimer?.cancel();
+    _backgroundTimer = null;
+    _closedForBackground = false;
     room = null;
     seatedAt = null;
     user = null;
@@ -2494,7 +2595,10 @@ class GameState extends ChangeNotifier {
     try {
       tablePictures = await _api.tablePictures(_token);
       PictureCache.warm(
-        tablePictures.expand((p) => [p.dayUrl, p.nightUrl]).map(absoluteUrl).nonNulls,
+        tablePictures
+            .expand((p) => [p.dayUrl, p.nightUrl])
+            .map(absoluteUrl)
+            .nonNulls,
       );
       notifyListeners();
     } catch (_) {
@@ -3243,7 +3347,9 @@ class GameState extends ChangeNotifier {
       }
       ..onFailed = (message) {
         purchasePending = false;
-        notice = message;
+        notice = message == Purchases.notLaunched
+            ? t.purchaseNotLaunched
+            : message;
         notifyListeners();
       }
       ..onDeliver = _deliverPurchase;
@@ -4375,6 +4481,7 @@ class GameState extends ChangeNotifier {
     _clearMissile();
     _resumeTimer?.cancel();
     _seatCheck?.cancel();
+    _backgroundTimer?.cancel();
     _chatCooldownTimer?.cancel();
     _celebrationTimer?.cancel();
     _ticker?.cancel();

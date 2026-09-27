@@ -15,13 +15,17 @@ class _FakeIap implements InAppPurchase {
   bool? autoConsume;
   final completed = <String>[];
 
+  /// What `buyConsumable` answers: the plugin returns false, without
+  /// throwing, when Play's billing flow did not launch.
+  bool launches = true;
+
   @override
   Future<bool> buyConsumable({
     required PurchaseParam purchaseParam,
     bool autoConsume = true,
   }) async {
     this.autoConsume = autoConsume;
-    return true;
+    return launches;
   }
 
   @override
@@ -49,6 +53,15 @@ PurchaseDetails _purchase(
   status: status,
 )..pendingCompletePurchase = !acknowledged;
 
+final _product = ProductDetails(
+  id: 'chips_small',
+  title: 'Chips',
+  description: '',
+  price: '₹49',
+  rawPrice: 49,
+  currencyCode: 'INR',
+);
+
 void main() {
   test('a purchase is bought with autoConsume off, so Play cannot consume it '
       'before the server has banked it', () async {
@@ -65,6 +78,39 @@ void main() {
       ),
     );
     expect(iap.autoConsume, isFalse);
+  });
+
+  // The sheet counts as open until Play answers (GameState keeps a seated
+  // player's socket while it is, 27 Sep 2026). A launch Play refuses answers
+  // `false` and nothing ever arrives on the stream, so it must not count as an
+  // open sheet — or a phone put away at the table kept its socket for ten
+  // minutes and was idle-kicked with no way back.
+  test(
+    'a purchase sheet that opened counts as buying until Play answers',
+    () async {
+      final iap = _FakeIap();
+      final failures = <String>[];
+      final purchases = Purchases(iap: iap, available: true)
+        ..onFailed = failures.add;
+      await purchases.buy(_product);
+      expect(purchases.buying, isTrue);
+      expect(failures, isEmpty);
+      await purchases.handle([
+        _purchase('tok-cancel', status: PurchaseStatus.canceled),
+      ]);
+      expect(purchases.buying, isFalse);
+    },
+  );
+
+  test('a purchase sheet Play refused to open is not counted as buying, and '
+      'is reported as failed', () async {
+    final iap = _FakeIap()..launches = false;
+    final failures = <String>[];
+    final purchases = Purchases(iap: iap, available: true)
+      ..onFailed = failures.add;
+    await purchases.buy(_product);
+    expect(purchases.buying, isFalse);
+    expect(failures, hasLength(1));
   });
 
   test('a purchase is consumed only once the server has banked it', () async {

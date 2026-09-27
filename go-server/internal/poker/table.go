@@ -1211,18 +1211,17 @@ func (t *Table) resumeTimers() {
 		if h.turnSeat >= 0 && h.turnSeat < len(t.seats) && t.seats[h.turnSeat] != nil {
 			token := util.UUID()
 			h.turnToken = token
-			if h.turnDeadline.IsZero() {
+			// A deadline that passed while the process was down gets a fresh,
+			// full clock and charges no missed turn (owner, 27 Sep 2026; as
+			// game.Table.resumeTimers): the server was away, not the player.
+			if h.turnDeadline.IsZero() || !h.turnDeadline.After(now) {
 				h.turnDeadline = now.Add(t.cfg.TurnTimeout)
 			}
-			if !h.turnDeadline.After(now) {
-				t.onTurnTimeout(h.turnSeat, token)
-			} else {
-				seatIndex := h.turnSeat
-				t.clearTurnTimer()
-				t.turnTimer = t.clock.AfterFunc(h.turnDeadline.Sub(now), func() {
-					_ = t.run(func() { t.onTurnTimeout(seatIndex, token) })
-				})
-			}
+			seatIndex := h.turnSeat
+			t.clearTurnTimer()
+			t.turnTimer = t.clock.AfterFunc(h.turnDeadline.Sub(now), func() {
+				_ = t.run(func() { t.onTurnTimeout(seatIndex, token) })
+			})
 		} else if !t.resolveIfOnlyOneLeft() {
 			// No turn recorded: open the street to whoever should act.
 			if !t.streetHasSomeoneToAct() {

@@ -496,8 +496,15 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
 - **Turn clock** 25s → `missedTurns++`, `_pack('timeout')`; at `maxMissedTurns` (3) emits
   `kick {reason:'idle'}`. `missedTurns` resets to 0 only **after a successful move** — and a `see` is
   not one (24 Sep 2026, owner's "fix all bugs": Node reset it on any act, so tapping See once a hand
-  defeated the idle kick; `TestAPlayerWhoOnlyLooksIsStillKickedIdle`). The table only
-  *emits* `kick`; RoomManager/socket layer removes the player.
+  defeated the idle kick; `TestAPlayerWhoOnlyLooksIsStillKickedIdle`). **Since 27 Sep 2026 (owner) three
+  answers that are not moves clear it too** — answering a sideshow (accept or decline), choosing the
+  variation, choosing the 5-Card three (`Table.clearMissedTurns`; a lapse clears nothing;
+  `presence_test.go`) — and **a restore never charges one**: a turn whose deadline passed while the
+  process was down gets a fresh, full clock from the restore instead of timing out at once (`resumeTimers`,
+  Teen Patti and poker alike; it used to pack them and count a miss, so a restart could idle-kick a player
+  on their second). The table only *emits* `kick`; RoomManager/socket layer removes the player — and an
+  idle kick of a player with no live socket leaves a resume offer (§7.1). The app warns after every miss
+  (§8.4 "The missed-turn warning").
 - **Rounds** count when the turn steps *over* `startSeat` (by `_distance`, not equality).
   `round >= maxBetRounds` → forced showdown. `pot + stake > maxPot` → `POT_LIMIT` showdown.
 - **Show**: exactly 2 active seats; costs `showCost = chaal`; **null/unaffordable cost →
@@ -1011,7 +1018,14 @@ Disconnect: seat held `reconnectGraceMs` (60s) then `await rooms.leave(userId,'d
 leaving, `resumeOffers.set(userId, {roomId, at})`. On connect: if still seated → `room:joined` + `chat:history`
 re-sent (resume); else `takeResumeOffer(userId)` (fresh within `resumeOfferMs`, table alive and not full, offered
 once) rides on `session:ready.resume {roomId, code, category, bootAmount}` and the Flutter client auto-joins it
-with `room:joinCode`. Voluntary leave / kick never create an offer (the grace timer finds no seat).
+with `room:joinCode`. Voluntary leave / kick never create an offer (the grace timer finds no seat) — **except an
+idle kick of a player with NO live socket** (Go, owner 27 Sep 2026): the turn clocks keep running through the grace,
+so a disconnected player is often shown out by their third missed turn before the grace ends, and `OnPlayerKicked`
+then stores the same offer `graceExpired` would have (`putResumeOffer`, `RESUME_OFFER_MS`); the returning app sits
+down afresh at 0 misses if the table is alive and has room. A connected idler still gets none
+(`TestAnIdleKickWhileDisconnectedLeavesAResumeOffer`, `TestIdleKick`). Silent drops are noticed by the Engine.IO
+heartbeat (20 s ping / 25 s timeout) before the 60 s grace starts; a phone the app itself sends to the background
+closes its socket after 8 s (§8.1).
 `room:switch` must `untrackRoom` *before* `switchTable` and re-track on failure; on success it untracks every table but the RESULT's `To`, and `room:moved` (`OnPlayerMoved`) is ignored unless the player is still seated at its target — a consolidation racing a switch left the socket subscribed to a table it was not seated at (24 Sep 2026).
 
 ### 7.2 REST (`auth/routes.js` → `internal/auth/http.go` + `handlers.go`)
@@ -1865,6 +1879,29 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   Patti one) and `table_screen`'s blind-move dots — `GameConfig.entryFor` tries a PRIVATE room's template in
   `privateTables` by category first, then the public entry of the pair, then 4. Seats are still laid out from the one
   global `config.maxPlayers`.
+- **The app's lifecycle** (owner, 27 Sep 2026: "a locked or backgrounded phone keeps its way back";
+  `GameState.handleLifecycle`, fed by one `AppLifecycleListener` in `main.dart`). Until then the app ignored it: a
+  phone locked at a table kept its socket, the server saw a CONNECTED player who never moved, and three turn clocks
+  later (~83 s) idle-kicked them with no resume offer, the `room:kicked` going to a phone that was not listening.
+  Now `paused` while seated (`room != null`, signed in) arms `GameState.backgroundGrace` (**8 s**); when it runs
+  out the socket is closed (`_conn.disconnect()`, `offline = true` for the reconnecting veil, the table left on
+  screen), which starts the server's reconnect grace at once. `resumed` cancels the timer, or — the socket having
+  been closed — connects again with the session's token, and the warm `session:ready` does the rest: the held
+  seat's `room:joined`, or the resume offer taken with `room:joinCode` (§7.1: after the grace, or after an idle
+  kick while disconnected), or neither and the seat check sends the player to the lobby with `tableLost`.
+  `inactive` (a shade, a system dialog, the app switcher) and `hidden` do nothing; the lobby does nothing. **The
+  delay** spares a quick trip out of the app — Play's purchase sheet, Google sign-in, the privacy page, a support
+  e-mail — a reconnect; nothing is lost either way (the held seat or the offer brings the player back), and 8 s
+  is under a third of a turn clock. **A purchase in flight** (`purchaseInFlight`: Play's sheet open —
+  `Purchases.buying`, from `buy()` until Play reports anything but pending, 10 min at most — or Play's in-app update)
+  keeps the socket up; the check runs again every 8 s and closes it once the purchase is over. A purchase Play reports
+  as PENDING (`purchasePending`, a slow payment such as UPI) does NOT count: it can stay pending for days or be
+  abandoned and never reported again, and counting it held a seated phone's socket open for the rest of the session —
+  the idle kick with no way back again (the verifier's finding, 27 Sep 2026); its receipt is banked over REST, which
+  needs no socket. A purchase sheet Play refuses to open (`buyConsumable` answers false, without a throw, and nothing
+  ever arrives on the stream) is not counted as open, and is reported as a failed purchase in the player's language
+  (`Purchases.notLaunched` → `Strings.purchaseNotLaunched`; `test/purchases_consume_test.dart`).
+  `test/app_lifecycle_test.dart`.
 - **A disabled account** (owner, 26 Sep 2026; server side §7.2): every door answers `account_disabled`
   (`accountDisabledCode`, `net/api_client.dart`), and the app turns it into ONE popup wherever it arrives —
   `ApiClient.onAccountDisabled` fires from `_decode` for the login, a cold start's `me()` and any signed-in request;
@@ -2287,6 +2324,34 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   over the middle of the table were removed (owner, 10 Sep 2026): the scrim greyed every revealed
   hand a player wanted to compare against, and the result is announced on the winner's own pod by
   `_WinnerFlash` instead. `handLive` gates bet pills. While `you.unfundedDeadline` is set, `_Status` shows `buyChipsToStay` (amber, counting down) in place of the waiting/starting line.
+- **The missed-turn warning** (owner, 27 Sep 2026: "warn before the kick"; `widgets/missed_turns_notice.dart`). A turn
+  clock running out packs the player (poker: checks where free, stands pat, else folds) and counts a miss; until
+  then nothing on the table said so — `you.missedTurns` reached only `TurnBuzzer`'s vibration. Now `_Status` (and
+  `_PokerStatus`) show `MissedTurnsNotice`, a small charcoal `Plate` in the status slot (the poker felt's pocket
+  right of the pot during a hand), drawn from `you.missedTurns` / `you.maxMissedTurns` alone
+  (`missedTurnsWarning`): after a miss "You missed your turn — auto-packed" over "Missed turns: 1 of 3" (poker:
+  "You missed your turn", or `pokerTimedOut` for a clock fold), one short of the kick "Last warning" over "One
+  more missed turn and you leave the table" (the alarm red; the first in the tax amber); nothing when the count
+  is 0 or the table never shows anybody out. It stands until the server's count clears (any move, a sideshow
+  answered, a variation or 5-Card three chosen, §6.1), across hands and reconnects. Below the seat held for a
+  purchase and the variation's notices (Teen Patti) or the draw / play-or-fold asks (poker), above the waiting and
+  starting lines. **Where**: the status slot at a five- or three-place table; at a table with a HEAD seat (two and
+  four places) a pocket right of the pot (`_Felt.headNoticePocket`, `_PocketNotice`), from under the head seat's pod
+  — and the turn's ring round it, `SeatPod.turnRingOutset` 5.5dp a side, the pod hanging from its top — to the key
+  cluster, and from the pot's slot to the right-hand seat's column (centred on the status line there it stood on the
+  head pod); on the poker felt its own band of the pocket, from under the top-right seat's column
+  (`SeatRing.columnShare`) to the keys (`_PokerFelt._noticeBand`; centred on the pocket it stood on that seat's In
+  Pot capsule in the Indic languages at ×1.25 from 844dp up). Measured at 1.35× (the pocket 1.9×) the slot's width so
+  its title breaks in two — wider where a line would need a third and be cut (`MissedTurnsNotice.wrapWidthFor`:
+  English at 592x360 ×1.25, Bengali and Punjabi) — then scaled to the slot and to `maxHeight` (the room between the
+  slot and the pot's plate, `_Felt.statusRoom`, or the pocket's band), so it never reaches the pot, a key, a card, a
+  seat or the winning tax's pill and nothing on it is cut short. Strings
+  `autoPacked`, `missedYourTurn`, `missedTurnsCount`, `lastWarning`, `missOneMore` in all five languages
+  (`autoPackedOne`/`missedTurnsLabel` went); the idle kick's English `kickedIdle` now says "in a row" as the other
+  four did. `test/missed_turns_test.dart` (the count 1 → 2 → 0 on both felts, 640x360 ×1.25 in all five
+  languages both themes with the Noto fonts, and every phone size 592x360–915x412 ×1.0/×1.25 in all five languages
+  at tables of two to five places and on the poker felt, no line cut); scenes 36–41 in `table_scenes.dart` (40 and
+  41 the two- and four-place tables).
 - **The table polish** (owner's brief, 24 Sep 2026: "a polish pass, not a redesign" — type scale, spacing, clipping,
   subtle accents, responsiveness, the keys' hierarchy; presentation only, nothing of the lobby's). **One type scale**,
   `theme/table_theme.dart`: `TableType` roles taken from the theme's ramp — `pot` 20/w700, `modalTitle` 17, `system`

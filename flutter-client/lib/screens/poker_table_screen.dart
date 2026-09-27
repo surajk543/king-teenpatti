@@ -12,12 +12,14 @@ import '../widgets/buy_chips.dart';
 import '../widgets/deal_flight.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/emoji_shelf.dart';
+import '../widgets/missed_turns_notice.dart';
 import '../widgets/player_drawer.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/pot_flight.dart';
 import '../widgets/rules_sheet.dart';
 import '../widgets/seat_pod.dart';
+import '../widgets/seat_ring.dart';
 import '../widgets/table_chrome.dart';
 import '../widgets/variation_prompt.dart';
 
@@ -194,6 +196,23 @@ class _PokerFelt extends StatelessWidget {
   static const double _promptW = 0.195;
   static const double _promptWrap = 1.9;
 
+  /// The band of the pocket a missed-turn notice stands in (owner, 27 Sep
+  /// 2026), top and bottom down a felt [h] tall on a [screen]: from under the
+  /// top-right seat's column at its tallest ([SeatRing.columnShare] pods,
+  /// centred on its place) to the top of the key cluster
+  /// ([SeatRing.keysTopFor]), a step clear of each. The notice is two lines,
+  /// taller than the pocket's other lines, and centred on the pocket as they
+  /// are it stood on that seat's In Pot capsule in Hindi, Gujarati and Punjabi
+  /// at text x1.25 on a phone 844dp wide or more.
+  static (double, double) _noticeBand(Size screen, double h, double podW) => (
+    seatPlaces[3].dy * h + SeatRing.columnShare / 2 * podW + Space.xs,
+    SeatRing.keysTopFor(screen, h) - Space.xs,
+  );
+
+  /// Half the pot's plinth and a step: how far above the pot's middle a
+  /// notice on the status line must end.
+  static const double _statusClear = 30;
+
   /// Where the dealer's hand (3-Card Poker) ends: its FOOT, above the pot's
   /// plinth. Anchored there rather than by its middle because the reveal adds
   /// a line under its cards, and a column anchored by its middle grew down
@@ -271,6 +290,11 @@ class _PokerFelt extends StatelessWidget {
           final h = box.maxHeight;
           final podW = Dim.podW(w, h);
           final handH = Dim.handH(h);
+          final (noticeTop, noticeBottom) = _noticeBand(
+            MediaQuery.sizeOf(context),
+            h,
+            podW,
+          );
 
           Widget pod(int viewIndex) {
             final s = viewIndex < seats.length ? seats[viewIndex] : null;
@@ -445,13 +469,25 @@ class _PokerFelt extends StatelessWidget {
                     room: room,
                     pocket: true,
                     wrapAt: w * _promptW * _promptWrap,
+                    // A missed-turn notice stands in its own band, from
+                    // under the top-right seat's column to the keys.
+                    maxHeight: math.max(24.0, noticeBottom - noticeTop),
+                    noticeShift: (noticeTop + noticeBottom) / 2 - _promptDy * h,
                   ),
                   width: w * _promptW,
                 )
               else
                 at(
                   const Offset(0.5, _statusDy),
-                  _PokerStatus(room: room, pocket: false),
+                  _PokerStatus(
+                    room: room,
+                    pocket: false,
+                    // Centred on its line, and clear of the pot's plinth.
+                    maxHeight: math.max(
+                      24.0,
+                      2 * ((_potDy - _statusDy) * h - _statusClear),
+                    ),
+                  ),
                   width: w * 0.28,
                 ),
 
@@ -862,9 +898,19 @@ class _PokerStatus extends StatelessWidget {
     required this.room,
     required this.pocket,
     this.wrapAt = 0,
+    this.maxHeight = double.infinity,
+    this.noticeShift = 0,
   });
 
   final RoomState room;
+
+  /// The most a missed-turn notice may stand here ([MissedTurnsNotice]).
+  final double maxHeight;
+
+  /// How far below this line's place a missed-turn notice is centred: in the
+  /// pocket, the middle of its own band ([_PokerFelt._noticeBand]) rather
+  /// than the pocket's; nothing elsewhere.
+  final double noticeShift;
 
   /// Drawn in the pocket right of the pot (a hand on the table) rather than
   /// across the top of the felt: the line takes two lines there, and the pair
@@ -888,6 +934,26 @@ class _PokerStatus extends StatelessWidget {
     final timedOut =
         state.pokerTimedOutHand == room.handNo &&
         room.you?.status == SeatState.packed;
+
+    // A missed turn (requirement 31; owner, 27 Sep 2026: "warn before the
+    // kick") — a check or a stand-pat the clock made counts as much as a
+    // fold. Said until the player acts again, from the count in their own
+    // snapshot; under the seat held for a purchase and the two asks (the
+    // draw, play or fold), which are what the player must answer now.
+    final warning = graceLeft == null && !state.canDraw && !state.canPlay
+        ? missedTurnsWarning(room.you, t, poker: true, folded: timedOut)
+        : null;
+    if (warning != null) {
+      final notice = MissedTurnsNotice(
+        key: ValueKey('missed-turns-${warning.last}'),
+        warning: warning,
+        maxHeight: maxHeight,
+        wrapFactor: pocket ? _PokerFelt._promptWrap : 1.35,
+      );
+      return noticeShift == 0
+          ? notice
+          : Transform.translate(offset: Offset(0, noticeShift), child: notice);
+    }
 
     final String line;
     if (graceLeft != null) {

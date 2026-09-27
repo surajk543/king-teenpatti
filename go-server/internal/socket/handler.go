@@ -1248,7 +1248,9 @@ func (h *Handler) pingRTT(_ *sio.Socket, args []json.RawMessage, ack sio.AckFunc
 //	"disconnected") (error → log `grace removal failed`, return);
 //	broadcastState(current) if it still exists.
 //
-// Voluntary leave / kick never create an offer (the timer finds no seat).
+// Voluntary leave / kick never create an offer here (the timer finds no
+// seat); an idle kick of a player with no live socket makes its own
+// (OnPlayerKicked, 27 Sep 2026).
 // Runs exactly once per socket, whichever caller gets there first.
 func (h *Handler) onDisconnect(s *sio.Socket, reason string) {
 	sess := sessionOf(s)
@@ -2138,22 +2140,58 @@ func (h *Handler) OnPlayerMoved(m game.PlayerMove) {
 
 // OnPlayerKicked: kicks_total{SafeLabel(reason, game.KnownKickReasons)}++;
 // emitToUser room:kicked {roomId, reason, message}; untrack the user's
-// socket from the room; broadcastState(table) if it still exists. They are
-// told why, so the lobby can say something better than "you were removed".
+// socket from the room; a player with no live socket loses the reconnect
+// grace's timer with the seat it held, and an IDLE kick of one stores a
+// resume offer for the table (Go only, 27 Sep 2026); broadcastState(table)
+// if it still exists. They are told why, so the lobby can say something
+// better than "you were removed".
 func (h *Handler) OnPlayerKicked(k game.PlayerKicked) {
 	if m := h.mx(); m != nil {
 		m.KicksTotal.WithLabelValues(metrics.SafeLabel(k.Reason, game.KnownKickReasons, metrics.OtherLabel)).Inc()
 	}
 	h.emitToUser(k.UserID, EvRoomKicked, RoomKickedEvent{RoomID: k.RoomID, Reason: k.Reason, Message: k.Message})
+	rooms := h.rooms()
+	// Read before h.mu is taken (never call the RoomManager under it). The
+	// kick has already vacated the seat (kickHook → leaveFrom), so this is
+	// false unless the player has since sat down somewhere else.
+	seatedElsewhere := rooms != nil && rooms.GetTableForPlayer(k.UserID) != nil
 	h.mu.Lock()
 	s := h.userSockets[k.UserID]
+	// A kicked player with no live socket was inside the reconnect grace, and
+	// the kick took the seat that grace was holding. Drop its timer with the
+	// seat (27 Sep 2026): left behind, it would find nothing to remove when it
+	// fired, but a return before then would be counted as a `seat_held`
+	// reconnect for a seat that no longer exists — and, after an idle kick,
+	// counted again as the `offer` it takes below. Decided in the same
+	// section that found no socket, so a sign-in cannot slip between the two.
+	var deadGrace game.Timer
+	if s == nil && !seatedElsewhere {
+		deadGrace = h.pendingRemovals[k.UserID]
+		delete(h.pendingRemovals, k.UserID)
+	}
 	h.mu.Unlock()
+	if deadGrace != nil {
+		deadGrace.Stop()
+	}
 	if s != nil {
 		h.untrackRoom(k.RoomID, s)
 	}
-	if rooms := h.rooms(); rooms != nil {
-		if still := rooms.GetTable(k.RoomID); still != nil {
-			h.broadcastState(still)
-		}
+	if rooms == nil {
+		return
+	}
+	still := rooms.GetTable(k.RoomID)
+	// An idle kick of a player with NO live socket — inside the reconnect
+	// grace, their phone locked or their connection gone — leaves the same
+	// offer the grace running out would have (owner, 27 Sep 2026): their
+	// turns ran out because they could not play them, and the room:kicked
+	// above reached nobody. The app that comes back is offered the table on
+	// session:ready.resume and sits down again with a fresh seat (0 misses)
+	// if it is still there and has room. A CONNECTED idler — at the table and
+	// not playing — gets no offer, as before.
+	if s == nil && k.Reason == game.KickReasonIdle && still != nil {
+		h.putResumeOffer(k.UserID, still)
+	}
+	if still != nil {
+		h.broadcastState(still)
 	}
 }

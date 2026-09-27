@@ -185,11 +185,13 @@ func (t *Table) Resume() error { return t.resume() }
 //   - a live hand with a pending sideshow: expiresAt in the past → it lapses
 //     (resolveSideshow timeout; the asker's clock restarts full), otherwise
 //     the sideshow timer is armed for what is left;
-//   - a live hand on turn: turnDeadline in the past → the timeout fires now
-//     through onTurnTimeout (missedTurns++, pack, kick at MaxMissedTurns —
-//     the ordinary semantics), otherwise the turn timer is armed for what is
-//     left under a fresh turnToken; the deadline itself is unchanged, so
-//     clients see the same clock;
+//   - a live hand on turn: turnDeadline in the past → the player gets a
+//     FRESH, full turn clock from now and no missed turn is charged (owner,
+//     27 Sep 2026: the server's downtime is not the player's idleness; it
+//     used to time the turn out at once, missedTurns++ and a kick on the
+//     third), otherwise the turn timer is armed for what is left under a
+//     fresh turnToken; the deadline itself is unchanged, so clients see the
+//     same clock;
 //   - starting: startsAt in the past → startHand now (boots go through the
 //     Ledger as for any deal), otherwise the countdown is armed for what is
 //     left;
@@ -432,18 +434,20 @@ func (t *Table) resumeTimers() {
 		} else if h.turnSeat >= 0 && h.turnSeat < len(t.seats) && t.seats[h.turnSeat] != nil {
 			token := util.UUID()
 			h.turnToken = token
-			if h.turnDeadline.IsZero() {
+			// A deadline that passed while the process was down is not the
+			// player running their clock out — the server was away (owner,
+			// 27 Sep 2026). They get a fresh, full clock from now, and no
+			// missed turn is charged: timing the turn out here packed them
+			// and counted a miss for the server's own downtime, and a player
+			// on their second miss was kicked idle by a restart.
+			if h.turnDeadline.IsZero() || !h.turnDeadline.After(now) {
 				h.turnDeadline = now.Add(t.cfg.TurnTimeout)
 			}
-			if !h.turnDeadline.After(now) {
-				t.onTurnTimeout(h.turnSeat, token)
-			} else {
-				seatIndex := h.turnSeat
-				t.clearTurnTimer()
-				t.turnTimer = t.clock.AfterFunc(h.turnDeadline.Sub(now), func() {
-					_ = t.run(func() { t.onTurnTimeout(seatIndex, token) })
-				})
-			}
+			seatIndex := h.turnSeat
+			t.clearTurnTimer()
+			t.turnTimer = t.clock.AfterFunc(h.turnDeadline.Sub(now), func() {
+				_ = t.run(func() { t.onTurnTimeout(seatIndex, token) })
+			})
 		} else {
 			// No turn recorded (never the case for a hand startHand dealt):
 			// open play to the dealer's left as startHand would have.
