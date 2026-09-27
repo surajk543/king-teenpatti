@@ -1026,11 +1026,9 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
 
     // How far the XP has come from this level's threshold to the next's —
     // only where the ladder says where this level starts.
-    double? progress;
-    final from = level == null ? null : ladder?.levelOf(level.level)?.minXp;
-    if (level != null && next != null && from != null && next.minXp > from) {
-      progress = ((level.xp - from) / (next.minXp - from)).clamp(0.0, 1.0);
-    }
+    final progress = level == null || next == null
+        ? null
+        : levelProgressOf(level, ladder);
 
     return [
       Text(t.winningTaxOnlyWinner, style: TableType.modalBody(theme)),

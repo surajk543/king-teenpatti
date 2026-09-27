@@ -2030,6 +2030,26 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   shows "Guest0E00B" whole; `test/lobby_polish_test.dart`). The Shop key is struck gold (`AppTheme.goldFace`, #F1D27A →
   #D4A514 → #B8890F) on a still lift and a restrained gold bloom; its highlight crosses once every 6 s (it swept every
   3.2 s over a breathing bloom) — at the table too, the same widget;
+  **The player's level and XP under the name** (owner, 27 Sep 2026: "In the Lobby on Top show current level of player and
+  xp progress bar for next level"; `widgets/lobby_level_bar.dart` `LobbyLevelBar`, placed by `_NameBlock`): the name's second
+  line — the level's mark and number ("🌟 Lv 10") at the left, the figure ("4,180 / 5,200 XP") at the right, over a 4dp gold
+  bar spanning both (the level screen's own `LevelBar`, which animates when a `player:level` push moves the XP — a new level
+  is a new bar, keyed by the level, that fills from empty: kept, it tweened DOWN from the old level's fill, which read as XP lost), at most
+  230dp (× the text scale) wide; at Level 50 "MAX LEVEL" over a full bar. Chosen over a ring round the picture because a line
+  under the name takes no width from the name or the wallets (the name's box is exactly what it is without a level — held at
+  every screen, scale, language and theme by `test/lobby_level_bar_test.dart`) and can carry the figure in words, which a ring
+  cannot. Where the block is narrow the row gives way a step at a time before any type shrinks: the figure drops "XP", then the
+  mark goes, then the goal (the XP alone), then the word "Lv"/"लेवल"/"লেভেল" becomes the number on a gold plate (the foot key's
+  badge), and only then is it scaled — never below 0.7 at 592x360–1280x800, ×1.0 and ×1.25, in all five languages. The progress
+  is `levelProgressOf` (`level_screen.dart`, which the XP card and the table's tax popup read too): it needs the ladder
+  (`GET /api/levels`), now read at every sign-in when not held; until it arrives the line shows the level and the figure with
+  no bar rather than one measured from 0 XP. Built `const` and `select`ing only its figures (`_LevelBarView`), so the bar's
+  one-second rebuilds never reach it. A tap anywhere on the name block (name or line) opens `showLevelInfo` with `lobbyClick`;
+  its Semantics is one button, "Level 10, 4,180 of 5,200 XP" (`levelBarSemantics`/`levelBarTopSemantics`, `levelShort`, all
+  five languages). The GUEST provider tag keeps its line only where name, tag and level line fit the bar's content height
+  (measured with a `TextPainter`, §12.3) — 891x411 ×1.0 and 1280x800 keep it, 891x411 ×1.25 drops it; the tight bar never had it.
+  The foot's `LevelKey` stays (the owner did not ask to remove it; it is the level screen's key where the name block is cut
+  short). Pictures by hand: `test/lobby_level_bar_shots.dart` (run like table_shots);
   `_DailyBonusChip` in the bottom-left corner (the daily bonus — 1 lakh chips and 1 hammer every 24 h, a gift glyph, hidden when
   the server offers no daily bonus, the celebration showing the hammer under the chips; tapped while it is
   still counting down it opens `openBonusDetails`, as the 4-hour `_BonusChip` does — a popup of the reward, a live countdown and the

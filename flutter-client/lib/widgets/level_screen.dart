@@ -1480,6 +1480,32 @@ class LevelBar extends StatelessWidget {
   }
 }
 
+/// How far [level]'s XP has come from its own threshold to the next level's,
+/// 0..1: 1 at the top of the ladder (nothing further to reach), and null
+/// while the ladder has not said where this level starts — a bar drawn from
+/// 0 XP instead would claim progress the player has not made. The level
+/// screen's XP card and the lobby's level bar ([LobbyLevelBar]) both read it,
+/// so the two can never disagree.
+double? levelProgressOf(PlayerLevel level, LevelLadder? ladder) =>
+    levelFractionOf(
+      xp: level.xp,
+      nextMinXp: level.next?.minXp,
+      fromXp: ladder?.levelOf(level.level)?.minXp,
+    );
+
+/// [levelProgressOf] from the figures alone: the XP, the next level's
+/// threshold (null at the top of the ladder) and this level's (null until the
+/// ladder is read).
+double? levelFractionOf({
+  required int xp,
+  required int? nextMinXp,
+  required int? fromXp,
+}) {
+  if (nextMinXp == null) return 1;
+  if (fromXp == null || nextMinXp <= fromXp) return null;
+  return ((xp - fromXp) / (nextMinXp - fromXp)).clamp(0.0, 1.0);
+}
+
 /// The XP card: "23 / 100 XP" and "77 XP to 🔰 Rookie" over the bar from this
 /// level's threshold to the next's, and the next level with its rate — or,
 /// at the top of the ladder, the XP alone over a full bar. The bar waits for
@@ -1503,15 +1529,7 @@ class LevelXpCard extends StatelessWidget {
     );
     final quiet = levelQuiet(theme, figures: true);
 
-    double? fraction;
-    if (next == null) {
-      fraction = 1;
-    } else {
-      final from = ladder?.levelOf(level.level)?.minXp;
-      if (from != null && next.minXp > from) {
-        fraction = (level.xp - from) / (next.minXp - from);
-      }
-    }
+    final fraction = levelProgressOf(level, ladder);
 
     return LevelCard(
       key: const ValueKey('level-xp'),

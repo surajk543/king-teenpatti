@@ -782,6 +782,22 @@ class Strings {
   /// The top of the ladder, on the level's hero.
   String get levelMax => _('levelMax');
 
+  /// The lobby top bar's level, short: "Lv 10" (owner, 27 Sep 2026: "In the
+  /// Lobby on Top show current level of player and xp progress bar").
+  String levelShort(int n) => _('levelShort').replaceFirst('{n}', '$n');
+
+  /// What a screen reader says of the top bar's level:
+  /// "Level 10, 4,180 of 5,200 XP" — and at the top of the ladder
+  /// "Level 50, 20 Lakh XP, top level". Figures arrive formatted.
+  String levelBarSemantics(int n, String xp, String max) =>
+      _('levelBarSemantics')
+          .replaceFirst('{n}', '$n')
+          .replaceFirst('{xp}', xp)
+          .replaceFirst('{max}', max);
+  String levelBarTopSemantics(int n, String xp) => _(
+    'levelBarTopSemantics',
+  ).replaceFirst('{n}', '$n').replaceFirst('{xp}', xp);
+
   /// The heading over the sentences that say how the tax works.
   String get levelHowTax => _('levelHowTax');
 
@@ -1916,6 +1932,9 @@ class Strings {
       'taxNoteBadge': 'An active badge can lower your tax further.',
       'badgeActive': 'Active',
       'levelMax': 'MAX LEVEL',
+      'levelShort': 'Lv {n}',
+      'levelBarSemantics': 'Level {n}, {xp} of {max} XP',
+      'levelBarTopSemantics': 'Level {n}, {xp} XP, top level',
       'levelHowTax': 'How Winning Tax works',
       'badgeSetsRate': 'Sets your rate',
       'badgeExpiresIn': 'Expires in {time}',
@@ -2733,6 +2752,9 @@ class Strings {
       'taxNoteBadge': 'सक्रिय बैज आपका टैक्स और घटा सकता है।',
       'badgeActive': 'सक्रिय',
       'levelMax': 'सबसे ऊँचा लेवल',
+      'levelShort': 'लेवल {n}',
+      'levelBarSemantics': 'लेवल {n}, {max} में से {xp} XP',
+      'levelBarTopSemantics': 'लेवल {n}, {xp} XP, सबसे ऊँचा लेवल',
       'levelHowTax': 'जीत टैक्स कैसे लगता है',
       'badgeSetsRate': 'आपकी दर तय करता है',
       'badgeExpiresIn': '{time} में खत्म',
@@ -3535,6 +3557,9 @@ class Strings {
       'taxNoteBadge': 'সক্রিয় ব্যাজ আপনার ট্যাক্স আরও কমাতে পারে।',
       'badgeActive': 'সক্রিয়',
       'levelMax': 'সর্বোচ্চ লেভেল',
+      'levelShort': 'লেভেল {n}',
+      'levelBarSemantics': 'লেভেল {n}, {max}-এর মধ্যে {xp} XP',
+      'levelBarTopSemantics': 'লেভেল {n}, {xp} XP, সর্বোচ্চ লেভেল',
       'levelHowTax': 'জয়ের ট্যাক্স কীভাবে লাগে',
       'badgeSetsRate': 'আপনার হার ঠিক করে',
       'badgeExpiresIn': '{time} পরে শেষ',
@@ -4341,6 +4366,9 @@ class Strings {
       'taxNoteBadge': 'સક્રિય બેજ તમારો ટેક્સ વધુ ઘટાડી શકે છે.',
       'badgeActive': 'સક્રિય',
       'levelMax': 'સૌથી ઊંચું લેવલ',
+      'levelShort': 'લેવલ {n}',
+      'levelBarSemantics': 'લેવલ {n}, {max} માંથી {xp} XP',
+      'levelBarTopSemantics': 'લેવલ {n}, {xp} XP, સૌથી ઊંચું લેવલ',
       'levelHowTax': 'જીત ટેક્સ કેવી રીતે લાગે છે',
       'badgeSetsRate': 'તમારો દર નક્કી કરે છે',
       'badgeExpiresIn': '{time}માં સમાપ્ત',
@@ -5145,6 +5173,9 @@ class Strings {
       'taxNoteBadge': 'ਸਰਗਰਮ ਬੈਜ ਤੁਹਾਡਾ ਟੈਕਸ ਹੋਰ ਘਟਾ ਸਕਦਾ ਹੈ।',
       'badgeActive': 'ਸਰਗਰਮ',
       'levelMax': 'ਸਭ ਤੋਂ ਉੱਚਾ ਲੈਵਲ',
+      'levelShort': 'ਲੈਵਲ {n}',
+      'levelBarSemantics': 'ਲੈਵਲ {n}, {max} ਵਿੱਚੋਂ {xp} XP',
+      'levelBarTopSemantics': 'ਲੈਵਲ {n}, {xp} XP, ਸਭ ਤੋਂ ਉੱਚਾ ਲੈਵਲ',
       'levelHowTax': 'ਜਿੱਤ ਟੈਕਸ ਕਿਵੇਂ ਲੱਗਦਾ ਹੈ',
       'badgeSetsRate': 'ਤੁਹਾਡੀ ਦਰ ਤੈਅ ਕਰਦਾ ਹੈ',
       'badgeExpiresIn': '{time} ਵਿੱਚ ਖ਼ਤਮ',
