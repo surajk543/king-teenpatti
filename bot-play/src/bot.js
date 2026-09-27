@@ -9,6 +9,7 @@ import { moodFor, pickLine, tableAllowsChat } from './chat.js';
 import { config } from './config.js';
 import { PURE_SEQUENCE } from './handrank.js';
 import { identityFor, rotatedIdentity } from './identities.js';
+import { TableMenu } from './menu.js';
 import { personaFor, restMs, sessionHands, thinkTime } from './persona.js';
 import { profileFor, profileIds } from './profiles.js';
 import { mathRandom } from './random.js';
@@ -21,6 +22,17 @@ export const botUserIds = new Set();
  * the bot was thinking — rather than that its idea of what is legal drifted.
  */
 const RACED = new Set(['not_your_turn', 'no_hand', 'not_in_hand', 'show_unavailable', 'sideshow_pending']);
+
+/**
+ * Join refusals that say this is the wrong table for the bot rather than a
+ * bad moment: its stack is outside the table's band (`over_entry_cap`,
+ * `below_table_minimum`), or the lobby no longer offers the table at all.
+ * Retrying the same table cannot succeed; moving can.
+ */
+const BAND_OR_MENU = new Set(['over_entry_cap', 'below_table_minimum', 'table_not_offered']);
+
+/** Why a bot whose home entry the server no longer offers ends its sitting. */
+const OFF_MENU = "(its table is not on the server's menu)";
 
 const firstName = (name) => String(name ?? '').trim().split(/[\s_]+/)[0] ?? '';
 /** While the fleet is still sitting down, bots do not welcome each other: that is a chorus. */
@@ -43,11 +55,24 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * server restarts, network blips and its own bad luck at cards.
  */
 export class Bot {
-  constructor({ index, table, log }) {
+  constructor({ index, table, log, menu, openSocket = io }) {
     this.index = index;
     this.home = table; // the category this bot belongs to in the fleet's counts
     this.table = table; // { category, boot } — where it sits now (hops change it)
     this.log = log;
+    /**
+     * The lobby as the server publishes it (menu.js), shared by the whole
+     * fleet: what is offered and each table's stack band. A bot on its own
+     * gets a menu of its own, which starts empty and fills from its first
+     * session:ready.
+     */
+    this.menu = menu ?? new TableMenu({ entries: config.categories, log: (m) => log?.(m) });
+    /**
+     * How connect() opens its socket: socket.io-client's `io`. A test hands
+     * in a fake so the events connect() wires up can be delivered to the bot
+     * exactly as the server would, with no server.
+     */
+    this.openSocket = openSocket;
     this.persona = personaFor(index);
     this.generation = 0;
     this.identity = identityFor(index);
@@ -236,7 +261,7 @@ export class Bot {
 
   connect() {
     this.socket?.close();
-    this.socket = io(config.serverUrl, {
+    this.socket = this.openSocket(config.serverUrl, {
       auth: { token: this.token },
       transports: ['websocket'],
       forceNew: true,
@@ -247,6 +272,11 @@ export class Bot {
       reconnectionDelayMax: 30000,
     });
     const socket = this.socket;
+
+    // Every session names the table catalogue the server runs and carries its
+    // menu. After a server restart with a changed catalogue, the first bot to
+    // reconnect brings the fleet the new menu (TableMenu.noticeSession).
+    socket.on('session:ready', (payload) => this.menu.noticeSession(payload?.config));
 
     // Do NOT join on connect. The server restores a player who is still
     // seated and sends `room:joined` by itself — that is how a client survives
@@ -306,18 +336,46 @@ export class Bot {
    * `already_in_room` is the common one and is not an error: a restart inside
    * the 60-second reconnect grace finds the old seat still held. Retrying
    * rides it out; giving up would bench the bot until someone noticed.
+   *
+   * The table it is headed for is checked against the menu first: it may have
+   * left the lobby, or the bot's stack may have outgrown (or not yet reached)
+   * the table's band since it last sat there. Reading that costs nothing;
+   * learning it from a refusal costs a round trip and a refusal in the
+   * server's metrics. The refusals are still handled, since the server is the
+   * authority and the bot's view of its own stack can lag.
+   *
+   * Before any of that, the bot's HOME entry must still be staffed. A bot
+   * counts towards its home in the fleet's figures, and a home the server no
+   * longer offers wants none of its bots online (Fleet.tick), so the sitting
+   * ends instead of the bot taking a seat at some other table on top of that
+   * table's own bots. Moving elsewhere is for a bot whose stack is wrong for
+   * the table it is headed to, not for one whose table has gone.
    */
   join(attempt = 1) {
     if (this.stopped || this.leaving || !this.socket?.connected) return;
+    if (!this.menu.isOffered(this.home)) return this.goOffline(OFF_MENU);
+    if (!this.menu.admits(this.table, this.chips ?? 0) && !this.moveToAdmittingTable()) return;
     this.socket.emit(
       'room:quickJoin',
       { bootAmount: this.table.boot, category: this.table.category },
       (ack) => {
         if (ack?.ok) return;
         if (ack?.code === 'insufficient_chips') return this.onBroke();
-        if (ack?.code === 'over_entry_cap') {
-          // Too rich for this table, and waiting will not make it poorer.
-          this.table = this.affordableTable();
+        if (ack?.code === 'table_not_offered') {
+          // The server no longer offers this table: out of every bot's
+          // choices, logged once fleet-wide. When it was the bot's home the
+          // sitting ends, as above; when it was a hop target the bot goes on
+          // to a table it can sit at.
+          this.menu.retire(this.table, ack.message);
+          if (!this.menu.isOffered(this.home)) return this.goOffline(OFF_MENU);
+        }
+        if (BAND_OR_MENU.has(ack?.code)) {
+          // The wrong table for this stack, and waiting will not change it.
+          // Bounded, because a bot whose idea of its stack has drifted could
+          // otherwise bounce between two tables for as long as it runs; a
+          // sitting that ends here logs in afresh, with the server's figure.
+          if (attempt >= 20) return this.goOffline(`(still refused ${ack.code} after ${attempt} tries)`);
+          if (!this.moveToAdmittingTable()) return;
           return this.after(1000 + Math.random() * 2000, () => this.join(attempt + 1));
         }
         const retryable = ack?.code === 'already_in_room' || ack?.code === 'table_full';
@@ -615,8 +673,11 @@ export class Bot {
       this.after(900 + Math.random() * 2600, () => this.say(mood, { name: firstName(winnerName) }));
     }
 
-    // Between hands is when a person gets up.
-    if (!config.steady && (this.wrappingUp || this.handsThisSitting >= this.plannedHands)) {
+    // Between hands is when a person gets up. Under --steady nobody gets up
+    // of their own accord, but the fleet asking (wrapUp) is still honoured:
+    // a steady fleet never thins, so the one ask it makes is for the bots of
+    // an entry the server has stopped offering, which must not sit on for good.
+    if (this.wrappingUp || (!config.steady && this.handsThisSitting >= this.plannedHands)) {
       const why = this.wrappingUp ? 'the fleet is thinning out' : `after ${this.handsThisSitting} hands`;
       // Promptly: the next deal is NEXT_HAND_DELAY (4 s) away, and a bot still
       // seated then is dealt in, and leaving packs that boot away.
@@ -679,6 +740,25 @@ export class Bot {
   }
 
   /**
+   * The other lobby entries this bot could sit at with what it is carrying.
+   *
+   * A player with two hundred chips does not wander into the 50,000 table,
+   * and a bot that tries is refused `insufficient_chips` and treated as
+   * broke — which, under `--on-broke rotate`, throws away a perfectly solvent
+   * account and mints a fresh welcome bonus in its place. So affordability is
+   * checked here rather than discovered from the refusal, and the bar is
+   * config.bootsToSit boots, not one: sitting down with a single boot is not
+   * a game, it is one hand and a walk back to the lobby.
+   *
+   * Only tables the server offers, and only those whose stack band admits
+   * this stack (menu.js): blind 200 shuts past 20 Lakh, the 20 Lakh tables
+   * open only from 50 Crore, and walking into either is a refusal.
+   */
+  tablesItCanAfford() {
+    return this.menu.choices(this.table, this.chips ?? 0, config.bootsToSit);
+  }
+
+  /**
    * Moves to a DIFFERENT lobby table — another stake, or the other category.
    *
    * `wander` cannot do this: room:switch is defined as "another table of the
@@ -689,25 +769,6 @@ export class Bot {
    * Only some bots ever do it, and rarely, because a fleet that redistributes
    * itself constantly leaves whole stakes empty for minutes at a time.
    */
-  /**
-   * The other lobby entries this bot could sit at with what it is carrying.
-   *
-   * A player with two hundred chips does not wander into the 50,000 table,
-   * and a bot that tries is refused `insufficient_chips` and treated as
-   * broke — which, under `--on-broke rotate`, throws away a perfectly solvent
-   * account and mints a fresh welcome bonus in its place. So affordability is
-   * checked here rather than discovered from the refusal, and the bar is
-   * config.bootsToSit boots, not one: sitting down with a single boot is not
-   * a game, it is one hand and a walk back to the lobby.
-   */
-  tablesItCanAfford() {
-    const stack = this.chips ?? 0;
-    return config.categories.filter(
-      (c) => !(c.category === this.table.category && c.boot === this.table.boot)
-        && stack >= c.boot * config.bootsToSit,
-    );
-  }
-
   hop() {
     if (this.stopped || !this.seated || this.leaving) return;
     const elsewhere = this.tablesItCanAfford();
@@ -724,25 +785,42 @@ export class Bot {
   }
 
   /**
-   * A table this bot can actually sit at, given what it is carrying.
+   * A table this bot can actually sit at, given what it is carrying — or null
+   * when no offered table will take this stack.
    *
-   * Requirement 30 caps the cheapest blind table so a big stack cannot sit
-   * down at it. A bot that has won its way past the cap is refused for ever
-   * otherwise, and retrying twenty times does not change its balance.
+   * Every table has a stack band (requirement 30, generalised): blind 200 is
+   * shut to a stack over 20 Lakh, and a bot that has won its way past a cap is
+   * refused for ever otherwise — retrying does not change its balance. The
+   * band is read from the menu, so the table offered here is one the server
+   * will seat it at.
    */
   affordableTable() {
     const others = this.tablesItCanAfford();
     if (others.length) return others[Math.floor(Math.random() * others.length)];
-    // Nothing it can afford properly: fall back to the cheapest entry that is
-    // not the one that just refused it, so a bot turned away for being too
+    // Nothing it can afford properly: the cheapest other entry whose band
+    // admits it and whose boot it covers, so a bot turned away for being too
     // rich still has somewhere to go.
-    const cheapest = config.categories
-      .filter((c) => !(c.category === this.table.category && c.boot === this.table.boot))
-      .sort((a, b) => a.boot - b.boot)[0];
-    return cheapest ?? this.table;
+    return this.menu.fallback(this.table, this.chips ?? 0);
   }
 
-  /** Asked by the fleet to get up after this hand. */
+  /**
+   * Points the bot at a table its stack belongs at. When no offered table
+   * will take this stack at all, the sitting ends instead: an online bot that
+   * can sit nowhere would hold a place in the fleet's count for ever, and the
+   * next sitting logs in afresh and looks again. Returns whether a table was
+   * found.
+   */
+  moveToAdmittingTable() {
+    const next = this.affordableTable();
+    if (!next) {
+      this.goOffline(`(no offered table admits a stack of ${this.chips ?? 0})`);
+      return false;
+    }
+    this.table = next;
+    return true;
+  }
+
+  /** Asked by the fleet to get up after this hand — honoured under --steady too (onHandEnded). */
   wrapUp() {
     if (!this.online || this.leaving) return;
     this.wrappingUp = true;

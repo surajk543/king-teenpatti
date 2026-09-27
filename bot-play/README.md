@@ -16,7 +16,7 @@ cd bot-play && npm install
 npm start                        # 243 bots, 20–25 seated at each lobby table
 npm start -- --per-category 10   # a smaller fleet
 npm run dev                      # six per category, for a laptop
-npm test                         # the decision, hand-ranking, persona and chat rules
+npm test                         # the decision, hand-ranking, persona, chat and table-menu rules
 ```
 
 ## Where it connects
@@ -37,8 +37,9 @@ Set `SERVER_URL` only when the bots genuinely run off-host.
 ## The fleet
 
 The fleet covers **four lobby tables** — `seen:200`, `blind:200`,
-`blind:5000` and, since 22 Sep 2026, `variation:50000` — and holds a target
-number of bots **seated at each one**:
+`blind:5000` and, since 22 Sep 2026, `variation:50000` — as long as the server
+offers them (*Following the server's menu*, below), and holds a target number
+of bots **seated at each one**:
 
 | Lobby table | Pool | Seated |
 |---|---|---|
@@ -62,11 +63,11 @@ with nothing actually wrong. An absolute target is one the fleet can hold, so
 the number in the log is now the number at the table.
 
 Variation is deliberately smaller. Its boot is 50,000, so a fresh bot sits
-down with six boots where a 200 table gives it fifteen hundred, and a bot that
-busts is replaced by a **new account carrying a new welcome bonus**
-(`--on-broke`). Fewer seats there means less of the fleet exposed to that, and
-richer bots reach it by hopping — `hop` only ever offers a table the bot can
-afford (`--boots-to-sit`).
+down with twenty boots of its 10 Lakh welcome where a 200 table gives it five
+thousand, and a bot that busts is replaced by a **new account carrying a new
+welcome bonus** (`--on-broke`). Fewer seats there means less of the fleet
+exposed to that, and richer bots reach it by hopping — `hop` only ever offers a
+table the bot can afford (`--boots-to-sit`) and whose stack band admits it.
 
 | Flag / env | Default | Meaning |
 |---|---|---|
@@ -78,7 +79,7 @@ afford (`--boots-to-sit`).
 | `--boots-to-sit` / `BOOTS_TO_SIT` | 8 | Boots a bot wants before it will hop to a table |
 | `--session-hands` / `SESSION_HANDS` | 20 | Average hands in a sitting before a bot gets up |
 | `--rest-minutes` / `REST_MINUTES` | 25 | Average minutes away between sittings |
-| `--steady` / `STEADY` | off | Everyone online and nobody gets up — the fleet before 12 Sep 2026 |
+| `--steady` / `STEADY` | off | Everyone online and nobody gets up of their own accord — the fleet before 12 Sep 2026 (the bots of an entry the server stops offering still do) |
 | `--chat-scale` / `CHAT_SCALE` | 1 | Multiplies how often bots talk; 0 silences the fleet |
 | `--switch-every` / `SWITCH_EVERY` | 240 | Seconds between a bot considering another table at the SAME stake; 0 disables |
 | `--hop-every` / `HOP_EVERY` | 900 | Seconds between a bot considering a DIFFERENT stake; 0 disables |
@@ -86,6 +87,54 @@ afford (`--boots-to-sit`).
 | `--on-broke` / `ON_BROKE` | `rotate` | `rotate` or `retire` — see below |
 | `--quiet` / `QUIET` | off | Only log chip-minting rotations and the heartbeat |
 | `--verbose` / `VERBOSE` | off | Log every bet with the bot's hand — for watching a small fleet |
+
+### Following the server's menu
+
+The four tables above are the owner's choice of what to staff, but **the
+server decides what the lobby offers and who may sit where**, and the fleet
+follows it (`src/menu.js`, 27 Sep 2026). Before that it read neither: a table
+the server retired left its bots refused `table_not_offered` for ever, and a
+bot choosing a table on its own judgement walked into a stack band.
+
+- **At start** the fleet reads `GET /api/tables` (public, no token) — the menu
+  the server enforces, with each table's stack band — and does not staff a
+  configured entry the menu does not list, with one log line each
+  (`table menu (GET /api/tables): not staffing blind/5000 — the server does not
+  offer it`). Those bots still exist, so every bot keeps its own account, name
+  and persona; they just rest. **Nothing is ever added**: a table the server
+  offers that the list leaves out stays unstaffed.
+- **If that read fails**, the first `session:ready` a bot receives supplies the
+  same menu (`config.tables`), and until one does every configured entry is
+  staffed as before. A bot of an entry that menu leaves out, still waiting its
+  turn to start, stays resting.
+- **When the catalogue changes** (a server restart with an edited
+  `table_configs`), every session names the new `config.tableConfigVersion`;
+  the first bot to see it hands the fleet the new menu. An entry that leaves it
+  stops being staffed — its seated bots get up after their hand, one a tick,
+  under `--steady` too; one on its way to a seat ends its sitting rather than
+  sitting at another table on top of that table's own bots — and one that
+  comes back is staffed again.
+- **Bands are respected wherever a bot chooses a table**: a hop, the move after
+  a refusal, and the table it is headed for when it sits down. A stack must be
+  at least the table's `minChips` and, when it has one, at most its `maxChips`:
+
+  | Table | Band (production, 27 Sep 2026) |
+  |---|---|
+  | `seen:200`, `seen:50000` | open to all |
+  | `blind:200` | up to 20 Lakh (the entry cap, folded into the card) |
+  | `blind:5000` | up to 20 Crore |
+  | `blind:50000`, `variation:50000` | up to 200 Crore |
+  | `blind:2000000`, `variation:2000000` | only from 50 Crore |
+
+  The fleet reads the bands from the menu and no figure of them is in its code;
+  this table is only a snapshot of what the menu said.
+- **Refusals are still handled**, since the server is the authority and a bot's
+  idea of its own stack can lag: `over_entry_cap` and `below_table_minimum` move
+  the bot to a table its stack belongs at, and `table_not_offered` takes that
+  entry out of every bot's choices (logged once): a bot refused its own table
+  ends its sitting, as above, and one refused a table it was hopping to moves
+  to an offered one. A bot that no offered table will take ends its sitting and
+  looks again at the next.
 
 ## How they play
 
@@ -223,7 +272,9 @@ end sees bets that made sense for the cards that turn over.
   and category" — changing stake is leaving one game for another, so it is a
   leave and a fresh quick-join, as a player would do it from the lobby. Only
   the ~28% of personas with a `hopRate` ever do, and rarely: a fleet that
-  redistributed itself often would leave whole stakes empty in waves.
+  redistributed itself often would leave whole stakes empty in waves. A hop
+  only goes to a table the server offers and whose stack band admits the bot
+  (*Following the server's menu*, above).
 
 ## Running out of chips
 
@@ -238,8 +289,8 @@ does not:
   and the fleet quietly shrinks over weeks.
 - **`--on-broke rotate`** (default) gives that bot a fresh guest identity,
   which the server greets with `WELCOME_CHIPS`. The fleet stays at full
-  strength and **this creates chips** — every rotation adds `WELCOME_CHIPS` (3 lakh in production) to the
-  economy out of nothing.
+  strength and **this creates chips** — every rotation adds `WELCOME_CHIPS`
+  (10 Lakh, 1,000,000, in production) to the economy out of nothing.
 
 The running total is printed on every rotation and in the five-minute
 heartbeat, precisely so that inflation is something you watch rather than
