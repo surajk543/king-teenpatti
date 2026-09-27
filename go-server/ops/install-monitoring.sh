@@ -379,7 +379,12 @@ EOF
 chmod 0644 "$LOKI_CFG"
 # The retention the guard adjusts ("fake" is the one tenant of a Loki without
 # auth). A re-run keeps what the guard set, unless it is over the new maximum.
-cur_hours="$(sed -n 's/^[[:space:]]*retention_period:[[:space:]]*\([0-9]\+\)h.*/\1/p' "$LOKI_RUNTIME" 2>/dev/null | head -n1)"
+# (Read only when it exists: under pipefail a sed on a missing file ends the
+# whole script, silently — the first production run stopped here.)
+cur_hours=""
+if [ -r "$LOKI_RUNTIME" ]; then
+  cur_hours="$(sed -n 's/^[[:space:]]*retention_period:[[:space:]]*\([0-9]\+\)h.*/\1/p' "$LOKI_RUNTIME" | head -n1)"
+fi
 if [ -z "$cur_hours" ] || [ "$cur_hours" -gt "$MAX_HOURS" ]; then cur_hours="$MAX_HOURS"; fi
 cat > "$LOKI_RUNTIME" <<EOF
 # Written by install-monitoring.sh and rewritten by $LOKI_GUARD. Loki reads it every 10 s.
@@ -420,7 +425,7 @@ cat > "$LOKI_GUARD" <<'EOF'
 set -euo pipefail
 . /etc/default/loki-disk-guard
 used="$(df --output=pcent "$DIR" | tail -n1 | tr -dc '0-9')"
-cur="$(sed -n 's/^[[:space:]]*retention_period:[[:space:]]*\([0-9]\+\)h.*/\1/p' "$RUNTIME" | head -n1)"
+cur="$(sed -n 's/^[[:space:]]*retention_period:[[:space:]]*\([0-9]\+\)h.*/\1/p' "$RUNTIME" 2>/dev/null | head -n1 || true)"
 cur="${cur:-$MAX_HOURS}"
 new="$cur"
 if [ "$used" -ge "$HIGH" ]; then
