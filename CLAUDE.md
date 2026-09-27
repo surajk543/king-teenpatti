@@ -3033,9 +3033,9 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   fitted whole into the square centred on the pot, Welcome was a strip under "1,600" with one stroke peeking out): `TablePictureGround`
   reads the canvas off the cached bytes and draws a canvas wider than `bannerAspect` (2:1) across the square's width in the band at
   `bannerLift` −0.45 (between the status line and the plinth's top), faded at its two ends instead of radially; a square-ish canvas is
-  drawn as before. **The header's tab strip scrolls** when six keys would crowd the blurb off its two lines (a 640dp
-  phone at the 1.25 text ceiling): `_ChipStoreState` cuts `tabsShown` a key at a time until `blurbLinesAt(...) <= 2`, and `_revealTab`
-  jumps the strip to the key that is on. **The header's height is MEASURED** (24 Sep 2026, B1): each line the taller of the
+  drawn as before. **The header's tab strip scrolled** (15 Sep 2026) when six keys crowded the blurb off its two lines on a
+  640dp phone at the 1.25 text ceiling — gone since 27 Sep 2026: the shelf keys have a row of their own and every one is
+  always on screen ("The store navigation", below). **The header's height is MEASURED** (24 Sep 2026, B1): each line the taller of the
   Latin line and what every shelf's title and blurb take in the fonts the phone draws them in (`_measuredLine`, §12.3) —
   the Hindi Chips blurb overflowed it by a pixel on TP_Small — and the worn picture's name under it the same way;
   `test/store_header_scripts_test.dart` opens every shelf at 640x360 in all five languages at x1.0 and x1.25 with the Noto
@@ -3060,18 +3060,59 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   side, the figure 26.5px where a card-by-card fit left about 17), near square where the body allows and never over 80% of it, so
   the next row always shows; the row cut by the sheet's foot fades (`EdgeFade`, the pack shelves only: over the Pictures and
   Tables shelves' Lotties a mask is an offscreen pass every frame), and the Tables shelf keeps `Dim.packW` tiles. **The shelf
-  keys** are 44dp circles (they took the header's height — 44×69dp capsules on a two-line header), the one on lit gold inside and
-  rimmed, the others drawn to 0.92 on a faint well, every change animated; a cut strip stops on whole keys (`_revealTab`: the least
-  scroll that shows the key on; it jumped to a share of its length, leaving half-keys) and fades 6dp where more lie past it. The
-  shelf's glyph, title (w700) and blurb, and the shelf itself, fade in with a 0.985 scale; a card rises 14dp (26); the grab handle
-  is the resting hairline; the Pictures and Tables glyph is `goldDeep` by day (champagne vanished on the light sheet). **The
+  keys** were 44dp circles in the header's row, in a strip that stopped on whole keys and scrolled — replaced on 27 Sep 2026 by
+  the navigation below. The shelf's glyph, title (w700) and blurb, and the shelf itself, fade in with a 0.985 scale; a card rises
+  14dp (26) in `Motion.base` (420ms until 27 Sep 2026); the grab handle is the resting hairline; the Pictures and Tables glyph is `goldDeep` by day (champagne vanished on the light sheet). **The
   Pictures head** (`_PicturesHead`): the worn picture, "Your picture", its name and `_WornTag` — "✓ Wearing · 7d left" struck in
   solid gold — between the two menus, 57dp tall on a 640x360 phone where the 96dp portrait took 105 of a 206dp shelf. Tests:
-  `test/store_polish_test.dart` (the circles, whole keys, row fill, one figure size and the hierarchy, badges, the orb, the key,
-  0.97, the head in five languages, every word inside its card at 640x360 ×1.25 with the Noto fonts); `store_chips`/`hammers`/
-  `missiles_test` updated (the strip's hammer found in the strip, no unmarked plates). Pictures: `test/store_shots.dart` — every
-  shelf, the store at a table, the picker, at 640x360, 891x411, 592x360, 915x412 and 1280x800, both themes, ×1.0 and ×1.25, and
-  Hindi, emoji drawn from Noto Color Emoji — by hand, like table_shots.
+  `test/store_polish_test.dart` (the keys at the touch floor, no scroll view round them, row fill, one figure size and the
+  hierarchy, badges, the orb, the key, 0.97, the head in five languages, every word inside its card at 640x360 ×1.25 with the Noto
+  fonts); `store_chips`/`hammers`/`missiles_test` updated (the navigation's hammer found in the navigation, no unmarked plates).
+  Pictures: `test/store_shots.dart` — every shelf (Badges since 27 Sep 2026), the store at a table (its Animated, Chips and Badges
+  shelves), the picker, at 640x360, 891x411, 592x360, 915x412 and 1280x800, both themes, ×1.0 and ×1.25, and Hindi, emoji drawn
+  from Noto Color Emoji — by hand, like table_shots.
+- **The store navigation** (owner's brief, 27 Sep 2026: "I do NOT want the user to horizontally scroll the main store navigation
+  ... all categories visible at once on small screens"; `widgets/chip_store.dart`, presentation only — no shelf, price, pack or
+  purchase changed). The sheet is two rows over the products. **The header**: the shelf's glyph, its title (w700) over its blurb,
+  the shelf's own balance (`ChipBalance`, `DiamondBalance`, `HammerBalance`, `PictureWalletBalances`, `MissileWalletBalances`; none
+  on Badges) and the close key — the balance beside the close key on every screen, so it can never meet a shelf key; the blurb
+  takes as many lines (1–3) as the widest blurb of all the shelves needs beside the widest balance of all the shelves, so nothing
+  moves from shelf to shelf; a wallet pair stands in a row where that blurb keeps one line beside it (at 891x411 again, stacked at
+  640x360 ×1.25). **The navigation** (`_StoreTabs`, one `InkWell` keyed `store-tab-<shelf>` a shelf) is a row of its own the
+  sheet's whole width, EVERY shelf's key on screen in the lobby and at a table (the table's eight are the lobby's with Pictures
+  named Animated): each key its glyph (18dp) over its word (`labelSmall` 10.5, set solid), at least 44dp each way, 45–48dp tall.
+  `_StoreTabs.layoutFor` MEASURES the words in this language at this text scale and lays the keys out: one row of equal keys
+  where every word fits an equal share (at most `maxKeyWidth` 120, so a tablet's row stops short of the edge); else one row of keys
+  as wide as their words with the room left shared out, the 6dp gap tightened to 4 before a second row is let in (the table's
+  English keys at 592x360 ×1.25 missed one row by 1dp); else balanced rows of equal keys (four over four, four over three), which
+  no landscape phone here needs — every size tested (592–1280dp, ×1.0 and ×1.25, all five languages) is one row, and 480dp at
+  ×1.25 is the proof of the wrap. No scroll view, no fade, no `_revealTab`. The key that is on: a gold wash laid OVER the others'
+  well (champagne by day, where gold read tan; straight on the grey sheet the lit key was the darkest on the row and its word
+  2.5:1), its rim in full champagne (`goldBright` / `goldDeep`, the 1.5dp rim every key has), a soft gold glow round it (blur 10,
+  spread −2; the others carry no shadow at all — a transparent one is still painted blurred), its glyph in gold and its word in
+  gold at w700 (`goldBright` by night, `_StoreTabs.dayWordInk` #6B5212 by day, 5.6:1 on the lit face), full size; the others
+  quiet ink on a faint well and hairline, drawn to 0.96 — every change in `Motion.base` (220ms). **Height**: on a short screen
+  (`Breaks.isShort`, under 380dp) the sheet has no grab handle, a step less padding at its top and foot, 4dp either side of the
+  navigation (6 elsewhere) and 2dp above and below each key's glyph and word (`shortPadY`; 4 elsewhere, never under 44dp), and
+  everywhere it stands `sheetGap` (3% of the screen, 10–40dp) under
+  the top — it was 88% of the screen, 43dp of scrim on a 360dp phone — so with the navigation's row a 360dp phone at ×1.25 still
+  shows a whole row of pack cards (131–148dp tall, the figures no smaller than before) and a glimpse of the next. The sheet enters
+  in `Motion.slow` (300ms; 420 before). **On a phone** (`!Breaks.isExpanded`) **a shelf's own controls stand beside its
+  products** (`_ChipStoreState._sideControls`; review, 27 Sep 2026): the Pictures head — the worn picture over the filter and
+  order menus (`_PicturesHead(rail: true)`, at most 40% of the header's width) — in a column at the grid's left, and the Tables
+  shelf's `DayNightSwitch` at its right (its tiles then at most a tenth under `Dim.packW`, so a 592dp phone keeps three to the
+  row); over the grid, the head's 57dp had cut a 360dp phone's first row of faces through their names at ×1.25 with nothing of
+  the next showing, and 844x390/915x412 the same. A tablet keeps both over the grid. **Columns** stay `_ShelfGeometry`'s least-card-width rule (`Dim.packW`): 3 at 592 and
+  640, 4 at 732, 844, 891 and 915, 5 at 1280. `test/store_nav_test.dart` (86): at 592x360, 640x360, 732x412, 844x390, 915x412
+  and 1280x800, ×1.0 and ×1.25, all five languages with the Noto fonts, both themes, lobby and table — no horizontal scroll view
+  outside the products and none round the keys, one row, every key inside the sheet with its word whole and clear of the close
+  key and the balance, and each tapped on to its shelf; one row of equal keys at 891x411 in every language; the balanced wrap at
+  480dp; the Chips shelf's whole first row (3/3/4/4/4/4/5 columns), a glimpse of the next, every word whole and the figures ≥22dp
+  tall in English and Hindi; the close key; the on key's glow, rim, scale and 200–250ms; every key's word no wider than its key
+  (its intrinsic width — a word set with no clip always has its key's box); every word at 4.5:1 or more on its face, on and
+  off, both themes (sampled from the rendered screen at 3×); and EVERY shelf, lobby and table, at 592x360 and 640x360 ×1.0 and
+  ×1.25, 732x412, 844x390, 915x412 and 1280x800 ×1.25, all five languages: a whole first row, every word of it above the fold,
+  and a glimpse of the next.
 - **`Avatar` has two different fallbacks and the difference is deliberate.** No picture at all → the
   player's initial, which still says whose seat it is. A picture that was supposed to load and did
   not (a retired file, a dead Google URL, a phone that lost the network) → `assets/default_avatar.svg`,

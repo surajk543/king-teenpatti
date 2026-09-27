@@ -1,8 +1,9 @@
-// Pictures of the store's six shelves (the premium store polish, 26 Sep
-// 2026): Chips with its Premium Packages, Diamonds, Hammers, Missiles,
-// Pictures and Tables, opened over the lobby; the store opened at a table
-// (its Animated shelf, and its Chips shelf); and the lobby's picture picker,
-// which is built from the same shelf. At the landscape phone sizes the game is
+// Pictures of the store's shelves (the premium store polish, 26 Sep 2026;
+// the shelf navigation that never scrolls, 27 Sep 2026): Chips with its
+// Premium Packages, Diamonds, Hammers, Missiles, Pictures, Tables and Badges,
+// opened over the lobby; the store opened at a table (its Animated shelf, its
+// Chips shelf and its Badges); and the lobby's picture picker, which is built
+// from the same shelf. At the landscape phone sizes the game is
 // checked on and a tablet, in both themes, at text x1.0 and x1.25, and in
 // Hindi at the tightest size. Not part of `flutter test` (the name has no
 // `_test`): run it by hand.
@@ -86,6 +87,8 @@ const _scenes = [
   _Scene('08-table-animated', StoreTab.pictures, atTable: true),
   _Scene('09-table-chips', StoreTab.chips, atTable: true),
   _Scene('10-picker', StoreTab.pictures, picker: true),
+  _Scene('11-badges', StoreTab.badges),
+  _Scene('12-table-badges', StoreTab.badges, atTable: true),
 ];
 
 class _Shot {
@@ -419,8 +422,41 @@ GameState _lobbyState(AppLang lang) {
     })
     ..user = User.fromJson(_userJson())
     ..pictures = _catalogue()
-    ..tablePictures = _tableCatalogue();
+    ..tablePictures = _tableCatalogue()
+    ..levelLadder = _ladder();
 }
+
+/// The owner's Royal badges (store_badges_test.dart): name, days, rupees —
+/// each playing one of the app's own Lotties as its art.
+LevelLadder _ladder() => LevelLadder.maybe({
+  'levels': [
+    {'level': 1, 'title': 'Newbie', 'icon': '🌱', 'minXp': 0, 'taxBps': 2000},
+  ],
+  'badges': [
+    for (final (i, (code, title, days, rupees)) in const [
+      ('ROYAL_ACE', 'Royal Ace', 7, 499),
+      ('ROYAL_KING', 'Royal King', 15, 999),
+      ('ROYAL_MASTER', 'Royal Master', 30, 1799),
+      ('ROYAL_EMPEROR', 'Royal Emperor', 45, 2499),
+      ('ROYAL_LEGEND', 'Royal Legend', 60, 3299),
+      ('ROYAL_KING_OF_KINGS', 'Royal King of Kings', 90, 4499),
+    ].indexed)
+      {
+        'code': code,
+        'title': title,
+        'icon': '',
+        'taxBps': 0,
+        'validityDays': days,
+        'isDefault': false,
+        'priceInr': rupees,
+        'assetUrl': _pic(i.isEven ? 'chips.json' : 'fireworks.json'),
+        'assetFormat': 'LOTTIE',
+      },
+  ],
+  'xpSources': const <Object>[],
+  'dailyCap': null,
+  'windowMs': 86400000,
+})!;
 
 /// A table mid-hand (table_scenes.dart's first scene) with the same account
 /// and catalogues.
@@ -430,7 +466,8 @@ GameState _tableState(AppLang lang) {
   return state
     ..user = User.fromJson({..._userJson(), 'id': seat?.id ?? 'u0'})
     ..pictures = _catalogue()
-    ..tablePictures = _tableCatalogue();
+    ..tablePictures = _tableCatalogue()
+    ..levelLadder = _ladder();
 }
 
 /// The colour emoji a phone draws the shelf marks (⭐ 🔥 👑) from; without it

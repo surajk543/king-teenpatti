@@ -3,8 +3,10 @@
 // value the largest thing on it, one figure size a shelf, badges on the packs
 // the owner marked and on no others, a glow a quarter less of the card and
 // kept in its top right corner, a purchase key that reads as a key, a card
-// that presses down to 0.97; round shelf keys that stop on whole keys; the
-// worn picture's head on the Pictures shelf; and cards that fill their row.
+// that presses down to 0.97; shelf keys at the touch floor that all stand
+// on screen (the scrolling strip of round keys went on 27 Sep 2026 —
+// store_nav_test.dart); the worn picture's head on the Pictures shelf; and
+// cards that fill their row.
 //
 // Laid out for real with Inter and the phone's Noto fonts for the Indic
 // scripts (script_fonts.dart), at the sizes the game is checked on. A
@@ -26,6 +28,7 @@ import 'package:teenpatti/widgets/glass_components.dart';
 import 'package:teenpatti/widgets/glass_orb.dart';
 import 'package:teenpatti/widgets/picture_shelf.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
+import 'package:teenpatti/widgets/table_picture_shelf.dart';
 
 import 'script_fonts.dart';
 
@@ -177,7 +180,7 @@ void main() {
       (Size(891, 411), 1.0),
     ]) {
       final name = '${size.width.toInt()}x${size.height.toInt()} x$scale';
-      testWidgets('are round and the touch floor across at $name, the one '
+      testWidgets('are the touch floor or more each way at $name, the one '
           'that is on full size and the others drawn down', (tester) async {
         final state = _state();
         final feedback = FeedbackSettings();
@@ -194,11 +197,15 @@ void main() {
           expect(wells, findsNWidgets(StoreTab.values.length), reason: '$tab');
           for (var i = 0; i < StoreTab.values.length; i++) {
             final well = wells.at(i);
-            // A circle, never the header's height: on a two-line header a
-            // key used to be a 44 by 69dp capsule.
-            expect(tester.getSize(well), const Size(44, 44), reason: '$tab');
+            // Never under the touch floor, and never the header's height:
+            // on a two-line header a key used to be a 44 by 69dp capsule.
+            // (They were 44dp circles until the navigation took a row of its
+            // own, 27 Sep 2026: each is now its glyph over its word.)
+            final key = tester.getSize(well);
+            expect(key.width, greaterThanOrEqualTo(44), reason: '$tab');
+            expect(key.height, inInclusiveRange(44, 52), reason: '$tab');
             final on = tester.widget<InkWell>(well).onTap == null;
-            expect(_face(tester, well).scale, on ? 1 : 0.92, reason: '$tab');
+            expect(_face(tester, well).scale, on ? 1 : 0.96, reason: '$tab');
           }
           // Exactly one key is on.
           expect(
@@ -216,8 +223,13 @@ void main() {
       });
     }
 
+    // They stopped on whole keys in a strip that scrolled; since 27 Sep 2026
+    // there is no strip (owner: "I do NOT want the user to horizontally
+    // scroll the main store navigation"), and every key stands in the sheet
+    // with the one that is on among them. store_nav_test.dart covers every
+    // size, language and theme; this keeps the tightest phone here too.
     for (final lang in const [AppLang.english, AppLang.hindi]) {
-      testWidgets('stop on whole keys with the one that is on in view, at '
+      testWidgets('stand in no scroll view, every key inside the sheet, at '
           '640x360 x1.25 in ${lang.englishName}', (tester) async {
         final state = _state(lang: lang);
         final feedback = FeedbackSettings();
@@ -229,29 +241,24 @@ void main() {
             tab: tab,
             scale: 1.25,
           );
-          final strip = find
-              .ancestor(of: _tabs, matching: find.byType(Scrollable))
-              .first;
-          final position = tester.state<ScrollableState>(strip).position;
-          // The strip is cut on this phone: six keys do not fit.
-          expect(position.maxScrollExtent, greaterThan(0));
-          const step = 44.0 + 6.0;
-          final off = position.pixels % step;
           expect(
-            math.min(off, step - off),
-            lessThan(0.5),
-            reason: '$tab: the strip stopped part-way into a key',
+            find.ancestor(of: _tabs, matching: find.byType(Scrollable)),
+            findsNothing,
+            reason: '$tab',
           );
-          final view = tester.getRect(strip);
+          final sheet = tester.getRect(
+            find
+                .ancestor(of: _tabs, matching: find.byType(PremiumGlassPanel))
+                .first,
+          );
           final wells = _keyWells;
           for (var i = 0; i < StoreTab.values.length; i++) {
-            if (tester.widget<InkWell>(wells.at(i)).onTap != null) continue;
             final key = tester.getRect(wells.at(i));
             expect(
-              view.inflate(0.5).contains(key.topLeft) &&
-                  view.inflate(0.5).contains(key.bottomRight),
+              sheet.inflate(0.5).contains(key.topLeft) &&
+                  sheet.inflate(0.5).contains(key.bottomRight),
               isTrue,
-              reason: '$tab: $key is not inside the strip $view',
+              reason: '$tab: $key is not inside the sheet $sheet',
             );
           }
           await _unmount(tester);
@@ -601,9 +608,23 @@ void main() {
               ),
               findsOneWidget,
             );
-            // A third of the height of the 96dp portrait it replaced, which
-            // took 105dp of this phone's shelf.
-            expect(tester.getSize(head).height, lessThan(80));
+            // On a phone it stands beside the faces, level with their first
+            // row, rather than over them: over them, its height cut this
+            // phone's first row of faces through their names (review,
+            // 27 Sep 2026).
+            // (This state's table holds no animated picture: its shelf is
+            // the empty line, and the head still stands at its side.)
+            final head0 = tester.getRect(head);
+            final faces = find.byType(PictureChoice);
+            final shelf = tester.getRect(
+              faces.evaluate().isEmpty
+                  ? find.text(t.pictureShelfEmpty)
+                  : faces.first,
+            );
+            expect(head0.right, lessThanOrEqualTo(shelf.left));
+            if (faces.evaluate().isNotEmpty) {
+              expect((head0.top - shelf.top).abs(), lessThan(1));
+            }
             // At a table the shelf is the animated one, with no filter menu.
             expect(
               find.byType(PictureFilterMenu),
@@ -614,6 +635,49 @@ void main() {
           }
         },
       );
+    }
+  });
+
+  // A tablet has the height: the head stands over the faces in one row, a
+  // third of the height of the 96dp portrait it replaced, and the Tables
+  // shelf's day/night switch over its tables. On a phone both stand beside
+  // their shelves.
+  testWidgets('on a tablet the Pictures head and the Tables switch stand '
+      'over their shelves, on a phone beside them', (tester) async {
+    for (final (screen, over) in const [
+      (Size(1280, 800), true),
+      (Size(640, 360), false),
+    ]) {
+      final state = _state();
+      final feedback = FeedbackSettings();
+      await _openStore(
+        tester,
+        state: state,
+        feedback: feedback,
+        tab: StoreTab.pictures,
+        screen: screen,
+      );
+      final head = tester.getRect(_private('_PicturesHead'));
+      final face = tester.getRect(find.byType(PictureChoice).first);
+      if (over) {
+        expect(head.bottom, lessThanOrEqualTo(face.top));
+        expect(head.height, lessThan(80));
+      } else {
+        expect(head.right, lessThanOrEqualTo(face.left));
+      }
+      await tester.tap(find.byKey(const ValueKey('store-tab-tables')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      final dayNight = tester.getRect(find.byType(DayNightSwitch));
+      final table = tester.getRect(find.byType(TablePictureChoice).first);
+      if (over) {
+        expect(dayNight.bottom, lessThanOrEqualTo(table.top));
+      } else {
+        expect(dayNight.left, greaterThan(table.right));
+        expect(dayNight.top, lessThan(table.bottom));
+      }
+      expect(tester.takeException(), isNull);
+      await _close(tester, state, feedback);
     }
   });
 

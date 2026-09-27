@@ -202,7 +202,18 @@ void main() {
     // wallet's name the line under the figure already gives).
     expect(find.text('MISSILES'), findsNothing);
     expect(find.text('MISSILE'), findsNothing);
-    expect(find.text('Missiles'), findsNWidgets(3));
+    // ... and once more on the shelf's own key, which since 27 Sep 2026
+    // always carries its word (it was a bare glyph on this phone).
+    expect(find.text('Missiles'), findsNWidgets(3 + 1));
+    expect(
+      find.descendant(
+        of: find.byWidgetPredicate(
+          (w) => w.runtimeType.toString() == '_StoreTabs',
+        ),
+        matching: find.text('Missiles'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Missile'), findsOneWidget);
 
     await _close(tester, state, feedback);
@@ -432,10 +443,11 @@ void main() {
 
   for (final (size, scale, stacked) in const [
     (Size(1280, 800), 1.0, false),
-    // One over the other at 891x411 since the seventh shelf (Emojis, owner
-    // 26 Sep 2026) took a key's width from the header: beside the row the
-    // widest blurb no longer keeps its one line there.
-    (Size(891, 411), 1.0, true),
+    // In a row at 891x411 again since the shelf keys left the header for a
+    // row of their own (27 Sep 2026): the widest blurb keeps its one line
+    // beside the pair. (One over the other from 26 Sep 2026, when the Emojis
+    // key took a key's width from the header.)
+    (Size(891, 411), 1.0, false),
     (Size(640, 360), 1.25, true),
   ]) {
     final name = '${size.width.toInt()}x${size.height.toInt()}';
