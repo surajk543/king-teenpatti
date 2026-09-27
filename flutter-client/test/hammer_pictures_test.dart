@@ -151,6 +151,15 @@ Future<BuildContext> _host(
 }
 
 /// A sheet, a dialog or the store, set out.
+/// Taps the picture tile named [name], scrolled into view first: a shelf
+/// holding more than one wallet sets each under a heading of its own (owner,
+/// 27 Sep 2026), so a picture a test taps may start below the sheet's fold.
+Future<void> _tapPicture(WidgetTester tester, String name) async {
+  await tester.ensureVisible(find.text(name));
+  await tester.pump();
+  await tester.tap(find.text(name));
+}
+
 Future<void> _settle(WidgetTester tester) async {
   await tester.pump();
   await tester.pump(const Duration(seconds: 2));
@@ -420,7 +429,7 @@ void main() {
       await _settle(tester);
 
       final dialog = find.byType(GlassDialog);
-      await tester.tap(find.text('Toucan Flying'));
+      await _tapPicture(tester, 'Toucan Flying');
       await _settle(tester);
       expect(find.text('Unlock this picture?'), findsOneWidget);
       expect(
@@ -447,7 +456,7 @@ void main() {
       await _settle(tester);
       expect(find.text('Unlock this picture?'), findsNothing);
 
-      await tester.tap(find.text('Blazing Fire'));
+      await _tapPicture(tester, 'Blazing Fire');
       await _settle(tester);
       expect(
         find.text(
@@ -460,7 +469,7 @@ void main() {
       await _settle(tester);
 
       // A chip-priced one is asked about as before, with no wallet under it.
-      await tester.tap(find.text('Bear'));
+      await _tapPicture(tester, 'Bear');
       await _settle(tester);
       expect(
         find.text(
@@ -492,7 +501,7 @@ void main() {
       unawaited(openPicturePicker(host));
       await _settle(tester);
 
-      await tester.tap(find.text('Toucan Flying'));
+      await _tapPicture(tester, 'Toucan Flying');
       await _settle(tester);
       expect(find.text('Unlock this picture?'), findsNothing);
       expect(find.text('Not enough hammers'), findsOneWidget);
@@ -531,7 +540,7 @@ void main() {
 
       // One hammer short of the one-hammer picture: said in the singular.
       state.user = User.fromJson(_user(hammers: 0));
-      await tester.tap(find.text('Blazing Fire'));
+      await _tapPicture(tester, 'Blazing Fire');
       await _settle(tester);
       expect(
         find.text('Blazing Fire costs 1 hammer. Get more hammers?'),
@@ -556,7 +565,7 @@ void main() {
         unawaited(showChipStore(host, opensOn: StoreTab.pictures));
         await _settle(tester);
 
-        await tester.tap(find.text('Toucan Flying'));
+        await _tapPicture(tester, 'Toucan Flying');
         await _settle(tester);
         expect(find.text('Not enough hammers'), findsOneWidget);
         await tester.tap(find.text('Get hammers'));
@@ -826,7 +835,7 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.tap(find.text('Dancing Chip'));
+      await _tapPicture(tester, 'Dancing Chip');
       await _settle(tester);
       expect(find.text('Unlock this picture?'), findsNothing);
       expect(
@@ -835,7 +844,7 @@ void main() {
       );
 
       state.notice = null;
-      await tester.tap(find.text('Toucan Flying'));
+      await _tapPicture(tester, 'Toucan Flying');
       await _settle(tester);
       expect(find.text('Unlock this picture?'), findsOneWidget);
       expect(state.notice, isNull);
@@ -880,7 +889,7 @@ void main() {
           );
           expect(tester.takeException(), isNull);
 
-          await tester.tap(find.text('Toucan Flying'));
+          await _tapPicture(tester, 'Toucan Flying');
           await _settle(tester);
           expect(
             find.text(t.unlockRentBodyHammers('Toucan Flying', 30, 100)),

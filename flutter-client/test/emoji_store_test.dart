@@ -255,7 +255,12 @@ void main() {
       expect(_badgeOf(tester, tile).label, t.pictureOwned, reason: name);
     }
     expect(_detailOf(tester, _tile('Wave')), isNull);
-    expect(_detailOf(tester, _tile('Laughing')), endsWith('left'));
+    // The rental counts down (owner, 27 Sep 2026: "after purchasing emoji,
+    // cooldown should be shown also"): days, then a ticking clock.
+    expect(
+      _detailOf(tester, _tile('Laughing')),
+      matches(RegExp(r'^6d 0[23]:\d\d:\d\d$')),
+    );
 
     // Locked: the padlock and the price, in each wallet, and the term.
     for (final (name, cost) in [
@@ -333,13 +338,21 @@ void main() {
       (w) => w is EmojiArt && w.size >= 80 && w.url == _url(5),
     );
     expect(big, findsOneWidget);
-    // And what the player holds of the wallet that pays.
+    // And what it costs, in the wallet that pays (owner, 27 Sep 2026: "it
+    // should show hammer cost, not the count of hammers user have") — 5,
+    // never the 9 diamonds the player holds.
+    final price = find.descendant(
+      of: find.byType(Dialog),
+      matching: find.byType(DiamondBalance),
+    );
+    expect(price, findsOneWidget);
+    expect(tester.widget<DiamondBalance>(price).count, 5);
     expect(
       find.descendant(
-        of: find.byType(Dialog),
-        matching: find.byType(DiamondBalance),
+        of: find.byKey(const ValueKey('emoji-unlock-price')),
+        matching: find.text('9'),
       ),
-      findsOneWidget,
+      findsNothing,
     );
 
     await tester.tap(find.text(t.cancel));
@@ -349,6 +362,91 @@ void main() {
     expect(tester.takeException(), isNull);
 
     await _close(tester, state, feedback);
+  });
+
+  testWidgets('a rental counts down every second and says once that it has '
+      'run out', (tester) async {
+    final state = _state();
+    var now = DateTime(2026, 9, 27, 12);
+    final ends = now.add(const Duration(seconds: 2, milliseconds: 400));
+    var expired = 0;
+    await tester.pumpWidget(
+      ChangeNotifierProvider<GameState>.value(
+        value: state,
+        child: MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: RentalCountdown(
+                expiresAt: ends.millisecondsSinceEpoch,
+                clock: () => now,
+                onExpired: () => expired++,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    String shown() => tester.widget<ShelfDetail>(find.byType(ShelfDetail)).text;
+    expect(shown(), '00:00:03');
+    // A screen reader hears the words, not the clock.
+    expect(find.bySemanticsLabel('1 minute left'), findsOneWidget);
+
+    // It ticks on its own timer.
+    now = now.add(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    expect(shown(), '00:00:02');
+    expect(expired, 0);
+
+    // Run out: said once, however many ticks follow.
+    now = now.add(const Duration(seconds: 2));
+    await tester.pump(const Duration(seconds: 1));
+    expect(shown(), '00:00:00');
+    expect(expired, 1);
+    now = now.add(const Duration(seconds: 5));
+    await tester.pump(const Duration(seconds: 3));
+    expect(expired, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    state.dispose();
+  });
+
+  testWidgets('the countdown reads days, then the clock', (tester) async {
+    const t = Strings(AppLang.english);
+    final now = DateTime(2026, 9, 27, 12);
+    int at(Duration d) => now.add(d).millisecondsSinceEpoch;
+    expect(
+      rentalCountdown(
+        t,
+        at(const Duration(days: 29, hours: 23, minutes: 59, seconds: 58)),
+        now,
+      ),
+      '29d 23:59:58',
+    );
+    expect(rentalCountdown(t, at(const Duration(days: 1)), now), '1d 00:00:00');
+    expect(
+      rentalCountdown(t, at(const Duration(hours: 5, seconds: 9)), now),
+      '05:00:09',
+    );
+    // Seconds round up: a running rental never reads zero.
+    expect(
+      rentalCountdown(t, at(const Duration(milliseconds: 1)), now),
+      '00:00:01',
+    );
+    expect(rentalCountdown(t, at(Duration.zero), now), '00:00:00');
+    expect(
+      rentalCountdown(t, at(const Duration(seconds: -5)), now),
+      '00:00:00',
+    );
+    // The day mark is the language's.
+    expect(
+      rentalCountdown(
+        const Strings(AppLang.hindi),
+        at(const Duration(days: 3)),
+        now,
+      ),
+      '3दि 00:00:00',
+    );
   });
 
   testWidgets('a chip-priced emoji at a table says lobby only and asks '
@@ -370,6 +468,16 @@ void main() {
     expect(
       find.text('Party Popper costs 30 hammers. Unlock it now?'),
       findsOneWidget,
+    );
+    // The hammer price, not the 45 hammers held.
+    final hammers = find.descendant(
+      of: find.byType(Dialog),
+      matching: find.byType(HammerBalance),
+    );
+    expect(tester.widget<HammerBalance>(hammers).count, 30);
+    expect(
+      find.descendant(of: hammers, matching: find.text('45')),
+      findsNothing,
     );
     await tester.tap(find.text(t.cancel));
     await _settle(tester);

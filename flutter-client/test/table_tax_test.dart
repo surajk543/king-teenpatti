@@ -594,22 +594,6 @@ Finder _twentyLakhColumn(WidgetTester tester, Strings t) {
   throw StateError('no 20 Lakh card on the rail');
 }
 
-/// The rects of every line of words in [column], by the words — an icon's
-/// glyph is not a line of words.
-Map<String, Rect> _lines(Finder column) => {
-  for (final e
-      in find
-          .descendant(
-            of: column,
-            matching: find.byType(RichText, skipOffstage: false),
-          )
-          .evaluate())
-    if (e.findAncestorWidgetOfExactType<Icon>() == null)
-      (e.widget as RichText).text.toPlainText(): _onScreen(
-        e.renderObject! as RenderBox,
-      ),
-};
-
 /// The lobby card of the [category] table at [boot].
 Finder _card(String category, int boot) => find.byWidgetPredicate(
   (w) =>
@@ -1185,32 +1169,68 @@ void main() {
   });
 
   group('the lobby card', () {
-    testWidgets('carries the pill on the two taxing tables only, with the '
-        "viewer's own rate", (tester) async {
+    // The table cards carry the category cards' corner — the level's mark,
+    // the badge that sets the rate and the rate the player pays — and no
+    // longer the "17.43% TAX" pill on the boot's line (owner, 27 Sep 2026:
+    // "in these all cards show the same badge and level icon on top right
+    // with minimum tax which u show in lobby card, and remove the text 20%
+    // Tax").
+    Finder corners() =>
+        find.byKey(const ValueKey('table-card-badge'), skipOffstage: false);
+
+    testWidgets('carries the corner on the taxing tables only — the level, '
+        "the badge and the viewer's own rate — and no tax pill", (
+      tester,
+    ) async {
       final state = _lobbyState()..openLobbyCategory(TableCategory.blind);
       await _pumpLobby(tester, state);
-      final pills = find.byType(WinningTaxPill, skipOffstage: false);
-      expect(pills, findsOneWidget);
-      expect(tester.widget<WinningTaxPill>(pills).label, '17.43% TAX');
+      expect(find.byType(WinningTaxPill, skipOffstage: false), findsNothing);
+      expect(corners(), findsOneWidget);
       // On the 20 Lakh card, not on the cheaper three.
       final column = _twentyLakhColumn(tester, state.t);
-      expect(find.descendant(of: column, matching: pills), findsOneWidget);
+      expect(find.descendant(of: column, matching: corners()), findsOneWidget);
+      expect(
+        find.descendant(
+          of: corners(),
+          matching: find.text('17.43%', skipOffstage: false),
+        ),
+        findsOneWidget,
+      );
+      // The level's mark beside the badge, as on the category cards.
+      expect(
+        find.descendant(
+          of: corners(),
+          matching: find.byKey(
+            const ValueKey('lobby-card-level'),
+            skipOffstage: false,
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: corners(),
+          matching: find.byType(BadgeArt, skipOffstage: false),
+        ),
+        findsOneWidget,
+      );
 
       state.openLobbyCategory(TableCategory.variation);
       await tester.pump(const Duration(seconds: 1));
       await tester.pump(const Duration(seconds: 1));
-      expect(find.byType(WinningTaxPill, skipOffstage: false), findsOneWidget);
+      expect(corners(), findsOneWidget);
+      expect(find.byType(WinningTaxPill, skipOffstage: false), findsNothing);
 
-      // The seen table does not tax.
+      // The seen table does not tax: no corner.
       state.openLobbyCategory(TableCategory.seen);
       await tester.pump(const Duration(seconds: 1));
       await tester.pump(const Duration(seconds: 1));
-      expect(find.byType(WinningTaxPill, skipOffstage: false), findsNothing);
+      expect(corners(), findsNothing);
       await _unmount(tester, state);
     });
 
-    testWidgets('says the rate a badge brings down; an unknown rate says TAX '
-        'alone', (tester) async {
+    testWidgets('says the rate a badge brings down; with no rate known it '
+        'shows nothing', (tester) async {
       final gold = _lobbyState(
         level: _level1(),
         badges: [_regular(), _goldBadge()],
@@ -1218,12 +1238,11 @@ void main() {
       )..openLobbyCategory(TableCategory.blind);
       await _pumpLobby(tester, gold);
       expect(
-        tester
-            .widget<WinningTaxPill>(
-              find.byType(WinningTaxPill, skipOffstage: false),
-            )
-            .label,
-        '5% TAX',
+        find.descendant(
+          of: corners(),
+          matching: find.text('5%', skipOffstage: false),
+        ),
+        findsOneWidget,
       );
       await _unmount(tester, gold);
 
@@ -1232,51 +1251,50 @@ void main() {
         ..openLobbyCategory(TableCategory.blind);
       await _pumpLobby(tester, unknown);
       expect(
-        tester
-            .widget<WinningTaxPill>(
-              find.byType(WinningTaxPill, skipOffstage: false),
-            )
-            .label,
-        'TAX',
+        find.descendant(
+          of: corners(),
+          matching: find.textContaining('%', skipOffstage: false),
+        ),
+        findsNothing,
       );
+      expect(tester.takeException(), isNull);
       await _unmount(tester, unknown);
     });
 
     for (final scale in [1.0, 1.25]) {
-      testWidgets('moves no other line of the card (x$scale)', (tester) async {
+      testWidgets('the corner stands whole, clear of the corner keys and '
+          'inside its card, and nothing on the card is cut (x$scale)', (
+        tester,
+      ) async {
         for (final lang in AppLang.values) {
           for (final category in [
             TableCategory.blind,
             TableCategory.variation,
           ]) {
-            Future<Map<String, Rect>> linesWith({required bool tax}) async {
-              final state = _lobbyState(lang: lang, tax: tax)
-                ..openLobbyCategory(category);
-              await _pumpLobby(tester, state, scale: scale);
-              final lines = _lines(_twentyLakhColumn(tester, state.t));
-              await _unmount(tester, state);
-              return lines;
-            }
-
-            final plain = await linesWith(tax: false);
-            final taxed = await linesWith(tax: true);
-            for (final MapEntry(key: words, value: rect) in plain.entries) {
-              final now = taxed[words];
-              expect(now, isNotNull, reason: '${lang.code} $category "$words"');
-              expect(
-                (now!.topLeft - rect.topLeft).distance < 0.01 &&
-                    (now.width - rect.width).abs() < 0.01 &&
-                    (now.height - rect.height).abs() < 0.01,
-                isTrue,
-                reason: '${lang.code} $category "$words": $rect -> $now',
-              );
-            }
-            // And the one line it added is the pill's.
-            expect(
-              taxed.keys.toSet().difference(plain.keys.toSet()),
-              {Strings(lang).taxPill('17.43%')},
-              reason: '${lang.code} $category',
+            final state = _lobbyState(lang: lang)..openLobbyCategory(category);
+            await _pumpLobby(tester, state, scale: scale);
+            final why = '${lang.code} $category x$scale';
+            expect(tester.takeException(), isNull, reason: why);
+            final column = _twentyLakhColumn(tester, state.t);
+            expect(_cut(column), isEmpty, reason: why);
+            final corner = _onScreen(
+              tester.renderObject<RenderBox>(
+                find.descendant(of: column, matching: corners()),
+              ),
             );
+            for (final disc in _cornerDiscs()) {
+              expect(corner.overlaps(disc), isFalse, reason: why);
+            }
+            final card = _onScreen(
+              tester.renderObject<RenderBox>(
+                find
+                    .ancestor(of: column, matching: find.byType(GameCard))
+                    .first,
+              ),
+            );
+            expect(card.contains(corner.topLeft), isTrue, reason: why);
+            expect(card.contains(corner.bottomRight), isTrue, reason: why);
+            await _unmount(tester, state);
           }
         }
       });
@@ -1295,7 +1313,14 @@ void main() {
           Icons.info_outline_rounded,
         );
         expect(find.text(t.winningTaxLabel), findsOneWidget);
-        expect(find.text('17.43%'), findsOneWidget);
+        // In the popup — the card behind it shows the rate in its corner too.
+        expect(
+          find.descendant(
+            of: find.byType(Dialog),
+            matching: find.text('17.43%'),
+          ),
+          findsOneWidget,
+        );
         expect(find.text(t.yourLevelLabel), findsOneWidget);
         expect(find.text('Level 10 · 🌟 Rising Star'), findsOneWidget);
         await tester.tap(find.byTooltip(t.close));
@@ -2249,30 +2274,33 @@ void main() {
 
           final column = _twentyLakhColumn(tester, t);
           expect(_cut(column), isEmpty);
-          // The pill whole on its line, clear of the corner keys, hardly
-          // scaled; the column not scaled below its usual.
-          final pill = find.byType(WinningTaxPill, skipOffstage: false);
-          final fitted = tester.renderObject<RenderFittedBox>(
-            find
-                .descendant(
-                  of: find.byType(WinningTaxBeside, skipOffstage: false),
-                  matching: find.byType(FittedBox, skipOffstage: false),
-                )
-                .first,
+          // The corner whole, clear of the corner keys and inside its card
+          // (the "TAX" pill that stood here went on 27 Sep 2026).
+          expect(
+            find.byType(WinningTaxPill, skipOffstage: false),
+            findsNothing,
           );
-          final scale = fitted.size.width / fitted.child!.size.width;
-          expect(scale, greaterThan(0.8), reason: '$label: pill at $scale');
-          final pillRect = _onScreen(tester.renderObject<RenderBox>(pill));
+          final corner = _onScreen(
+            tester.renderObject<RenderBox>(
+              find.descendant(
+                of: column,
+                matching: find.byKey(
+                  const ValueKey('table-card-badge'),
+                  skipOffstage: false,
+                ),
+              ),
+            ),
+          );
           for (final disc in _cornerDiscs()) {
-            expect(pillRect.overlaps(disc), isFalse, reason: label);
+            expect(corner.overlaps(disc), isFalse, reason: label);
           }
           final card = _onScreen(
             tester.renderObject<RenderBox>(
               find.ancestor(of: column, matching: find.byType(GameCard)).first,
             ),
           );
-          expect(card.contains(pillRect.topLeft), isTrue);
-          expect(card.contains(pillRect.bottomRight), isTrue);
+          expect(card.contains(corner.topLeft), isTrue, reason: label);
+          expect(card.contains(corner.bottomRight), isTrue, reason: label);
 
           // Its popup: the winning tax's rows whole (the popup's own title
           // runs to an ellipsis at this size in every language, as it did

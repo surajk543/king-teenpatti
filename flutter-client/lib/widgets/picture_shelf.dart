@@ -143,39 +143,211 @@ Widget pictureShelf({
     );
   }
 
-  return Padding(
-    padding: const EdgeInsets.only(bottom: Space.md),
-    child: ShelfGrid(
-      tileWidth: PictureChoice.widthFor(radius),
-      children: [
-        for (final (i, p) in pictures.indexed)
-          ShelfTileEntrance(
-            // Keyed by the picture, so a tile keeps its state — its entrance
-            // run once, its ring's switcher — when the shelf is sorted, a
-            // purchase re-reads the catalogue, or the clock ticks.
-            key: ValueKey(p.id),
-            index: i,
-            child: PictureChoice(
-              picture: p,
-              radius: radius,
-              selected: user?.activePictureId == p.id,
-              busy: state.buyingPicture == p.id,
-              // One answer per kind of tile. A locked picture asks to be
-              // bought. A premium one already paid for stops to say so, and
-              // for how long, before it is worn: the tile's "12d left" is all
-              // its owner otherwise sees of the rental, and on the last day
-              // that line cannot tell twenty hours from twenty minutes. A free
-              // picture has nothing to say, so a tap simply wears it.
-              onTap: () => p.locked
-                  ? unlockPicture(context, p, openStore: openStore)
-                  : p.free
-                  ? state.chooseAvatar(p.id)
-                  : showOwnedPicture(context, p),
-            ),
-          ),
-      ],
+  Widget tile(int i, ProfilePicture p) => ShelfTileEntrance(
+    // Keyed by the picture, so a tile keeps its state — its entrance run
+    // once, its ring's switcher — when the shelf is sorted, a purchase
+    // re-reads the catalogue, or the clock ticks.
+    key: ValueKey(p.id),
+    index: i,
+    child: PictureChoice(
+      picture: p,
+      radius: radius,
+      selected: user?.activePictureId == p.id,
+      busy: state.buyingPicture == p.id,
+      // One answer per kind of tile. A locked picture asks to be bought. A
+      // premium one already paid for stops to say so, and for how long,
+      // before it is worn: the tile's "12d left" is all its owner otherwise
+      // sees of the rental, and on the last day that line cannot tell twenty
+      // hours from twenty minutes. A free picture has nothing to say, so a
+      // tap simply wears it.
+      onTap: () => p.locked
+          ? unlockPicture(context, p, openStore: openStore)
+          : p.free
+          ? state.chooseAvatar(p.id)
+          : showOwnedPicture(context, p),
     ),
   );
+
+  // A shelf holding more than one wallet — All, and the Animated shelf at a
+  // table — puts each on rows of its own, a heading line between one and the
+  // next (owner, 27 Sep 2026: "there should be separate line between coins,
+  // hammers and diamonds category list"); [shelfOrder] already keeps each
+  // wallet together. None over the first: there is nothing above it to part
+  // it from, and on a 360dp phone at text x1.25 one more line pushed the
+  // second row out of sight, and with it the only sign the shelf scrolls.
+  final groups = shelfGroups(pictures);
+  final tileWidth = PictureChoice.widthFor(radius);
+  return Padding(
+    padding: const EdgeInsets.only(bottom: Space.md),
+    child: groups.length < 2
+        ? ShelfGrid(
+            tileWidth: tileWidth,
+            children: [for (final (i, p) in pictures.indexed) tile(i, p)],
+          )
+        : ShelfGrid.sections(
+            tileWidth: tileWidth,
+            sections: [
+              for (final (n, g) in groups.indexed)
+                ShelfSection(
+                  kind: g.kind,
+                  header: n == 0
+                      ? null
+                      : ShelfSectionHeader(kind: g.kind, count: g.count),
+                  children: [
+                    for (var i = g.start; i < g.start + g.count; i++)
+                      tile(i, pictures[i]),
+                  ],
+                ),
+            ],
+          ),
+  );
+}
+
+/// The kinds a picture shelf is split into when it holds more than one:
+/// free, then each wallet.
+enum ShelfKind { free, chips, hammers, diamonds }
+
+/// Which [ShelfKind] a picture is shelved under — its wallet, as
+/// [PictureFilter.holds] files it (a currency this build does not know with
+/// chips), or free.
+ShelfKind shelfKindOf(ProfilePicture p) => p.free
+    ? ShelfKind.free
+    : switch (p.currency) {
+        PictureCurrency.hammer => ShelfKind.hammers,
+        PictureCurrency.diamond => ShelfKind.diamonds,
+        _ => ShelfKind.chips,
+      };
+
+/// The runs of one kind in [ordered] (a [shelfOrder]ed shelf), in order:
+/// where each starts and how many it holds.
+List<({ShelfKind kind, int start, int count})> shelfGroups(
+  List<ProfilePicture> ordered,
+) {
+  final groups = <({ShelfKind kind, int start, int count})>[];
+  for (var i = 0; i < ordered.length; i++) {
+    final kind = shelfKindOf(ordered[i]);
+    if (groups.isNotEmpty && groups.last.kind == kind) {
+      final last = groups.removeLast();
+      groups.add((kind: kind, start: last.start, count: last.count + 1));
+    } else {
+      groups.add((kind: kind, start: i, count: 1));
+    }
+  }
+  return groups;
+}
+
+/// One kind's rows on a sectioned [ShelfGrid]: its heading and its tiles.
+class ShelfSection {
+  const ShelfSection({
+    required this.kind,
+    required this.header,
+    required this.children,
+  });
+
+  /// Keys the section, so a tile that stays in it keeps its state when the
+  /// shelf is re-sorted.
+  final ShelfKind kind;
+
+  /// The line over its rows; null for the shelf's first section.
+  final Widget? header;
+  final List<Widget> children;
+}
+
+/// A section's heading: the wallet's glyph (a gift for the free pictures),
+/// its name, how many pictures it holds, and a hairline to the block's right
+/// edge — the line between one wallet's pictures and the next.
+class ShelfSectionHeader extends StatelessWidget {
+  const ShelfSectionHeader({
+    super.key,
+    required this.kind,
+    required this.count,
+  });
+
+  final ShelfKind kind;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final t = context.select<GameState, Strings>((s) => s.t);
+    final brightness = theme.brightness;
+    final base = theme.textTheme.labelMedium ?? const TextStyle(fontSize: 12);
+    final glyph = MediaQuery.textScalerOf(context).scale(14);
+    final ink = theme.colorScheme.onSurface;
+    final (Widget mark, String label) = switch (kind) {
+      ShelfKind.free => (
+        Icon(
+          Icons.card_giftcard_rounded,
+          size: glyph,
+          color: AppTheme.goldInk(brightness),
+        ),
+        t.badgeFree,
+      ),
+      ShelfKind.chips => (
+        PokerChip(colour: AppTheme.gold, size: glyph),
+        t.storeTabChips,
+      ),
+      ShelfKind.hammers => (
+        Icon(Icons.hardware, size: glyph, color: hammerInkOn(brightness)),
+        t.storeTabHammers,
+      ),
+      ShelfKind.diamonds => (
+        Icon(Icons.diamond, size: glyph, color: diamondInkOn(brightness)),
+        t.storeTabDiamonds,
+      ),
+    };
+    return Semantics(
+      header: true,
+      label: '$label, $count',
+      excludeSemantics: true,
+      // The name and count take their own width — held to 60% of the row, so
+      // a long name ellipsises rather than overflows — and the line all the
+      // rest. (A Flexible name beside an Expanded line split the spare width
+      // between them, and the line stopped half way across the shelf.)
+      child: LayoutBuilder(
+        builder: (context, box) => Row(
+          children: [
+            mark,
+            const SizedBox(width: Space.sm),
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: box.hasBoundedWidth ? box.maxWidth * 0.6 : 240,
+              ),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTheme.label(
+                  base,
+                  colour: ink.withValues(alpha: AppTheme.inkHigh),
+                  weight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: Space.xs),
+            Text(
+              '$count',
+              style: AppTheme.label(
+                base.copyWith(
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+                colour: ink.withValues(alpha: AppTheme.inkLowOn(brightness)),
+                weight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(width: Space.md),
+            Expanded(
+              child: Container(
+                key: const ValueKey('shelf-section-line'),
+                height: 1,
+                color: AppTheme.hairlineColour(brightness),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// A shelf's tiles in whole columns (the store polish, 26 Sep 2026: "Are
@@ -192,10 +364,22 @@ class ShelfGrid extends StatelessWidget {
     required this.children,
     this.spacing = Space.md,
     this.runSpacing = Space.lg,
-  });
+  }) : sections = null;
+
+  /// The shelf in [sections], each on rows of its own under its heading, all
+  /// of them on the same columns — the block is sized for every tile, so a
+  /// short section's rows start at the same left edge as a long one's.
+  const ShelfGrid.sections({
+    super.key,
+    required this.tileWidth,
+    required List<ShelfSection> this.sections,
+    this.spacing = Space.md,
+    this.runSpacing = Space.lg,
+  }) : children = const [];
 
   final double tileWidth;
   final List<Widget> children;
+  final List<ShelfSection>? sections;
 
   /// Between two tiles of a row, and between two rows. A row ends on type
   /// — a name, a term — so rows stand further apart than tiles do.
@@ -209,21 +393,48 @@ class ShelfGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, box) {
-      final wrap = Wrap(
-        spacing: spacing,
-        runSpacing: runSpacing,
-        children: children,
-      );
-      if (!box.hasBoundedWidth || children.isEmpty) return wrap;
+      final parts = sections;
+      final Widget content = parts == null
+          ? Wrap(spacing: spacing, runSpacing: runSpacing, children: children)
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final (i, part) in parts.indexed)
+                  Padding(
+                    key: ValueKey('shelf-section-${part.kind.name}'),
+                    padding: EdgeInsets.only(top: i == 0 ? 0 : runSpacing),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (part.header case final header?) ...[
+                          header,
+                          const SizedBox(height: Space.sm),
+                        ],
+                        Wrap(
+                          spacing: spacing,
+                          runSpacing: runSpacing,
+                          children: part.children,
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            );
+      final tiles = parts == null
+          ? children.length
+          : parts.fold<int>(0, (n, p) => n + p.children.length);
+      if (!box.hasBoundedWidth || tiles == 0) return content;
       final across = math.min(
         columnsFor(box.maxWidth, tileWidth, spacing),
-        children.length,
+        tiles,
       );
       // Half a dp over the sum, so rounding can never push the last tile of
       // a full row onto a row of its own.
       final width = across * tileWidth + (across - 1) * spacing + 0.5;
       return Center(
-        child: SizedBox(width: math.min(width, box.maxWidth), child: wrap),
+        child: SizedBox(width: math.min(width, box.maxWidth), child: content),
       );
     },
   );
@@ -864,6 +1075,100 @@ String? rentalTagLeft(Strings t, int expiresAt, DateTime now) {
   return t.minutesLeft(
     left <= 0 ? 0 : (left / Duration.millisecondsPerMinute).ceil(),
   );
+}
+
+/// What is left of an owned rental as a running clock (owner, 27 Sep 2026:
+/// "after purchasing emoji, cooldown should be shown also"): whole days with
+/// the language's day mark, then `HH:MM:SS` — "29d 23:59:58", "23:59:58" on
+/// the last day. A clock rather than [rentalTagLeft]'s words because it
+/// ticks, and rather than "29d 23h 59m 58s" because that reads at about 7sp
+/// once scaled into a 95dp tile. Seconds round UP, as the Lucky Draw's
+/// clock's do (`formatSpinClock`), so a running rental never reads 00:00:00;
+/// one that has run out does. [expiresAt] is epoch ms and must be > 0.
+String rentalCountdown(Strings t, int expiresAt, DateTime now) {
+  final ms = expiresAt - now.millisecondsSinceEpoch;
+  final s = ms <= 0 ? 0 : (ms + 999) ~/ 1000;
+  String two(int n) => n.toString().padLeft(2, '0');
+  final days = s ~/ Duration.secondsPerDay;
+  final clock =
+      '${two(s % Duration.secondsPerDay ~/ Duration.secondsPerHour)}:'
+      '${two(s % Duration.secondsPerHour ~/ Duration.secondsPerMinute)}:'
+      '${two(s % Duration.secondsPerMinute)}';
+  return days > 0 ? '$days${t.unitDayShort} $clock' : clock;
+}
+
+/// An owned rental's small print, counting down every second
+/// ([rentalCountdown]) in the tile's [ShelfDetail]. Its own one-second timer,
+/// so nothing above it rebuilds for the tick; a screen reader hears the words
+/// ([rentalTimeLeft]) rather than the clock. [onExpired] runs once, when the
+/// clock reaches zero — the shelf re-reads its catalogue then, so the tile
+/// goes back to its price.
+class RentalCountdown extends StatefulWidget {
+  const RentalCountdown({
+    super.key,
+    required this.expiresAt,
+    this.onExpired,
+    this.clock = DateTime.now,
+  });
+
+  /// Epoch ms, > 0.
+  final int expiresAt;
+  final VoidCallback? onExpired;
+
+  /// The tests' seam.
+  final DateTime Function() clock;
+
+  @override
+  State<RentalCountdown> createState() => _RentalCountdownState();
+}
+
+class _RentalCountdownState extends State<RentalCountdown> {
+  Timer? _timer;
+  bool _expiredSaid = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkExpired());
+  }
+
+  @override
+  void didUpdateWidget(RentalCountdown old) {
+    super.didUpdateWidget(old);
+    // Renewed: a new end, so it may run out again.
+    if (old.expiresAt != widget.expiresAt) _expiredSaid = false;
+  }
+
+  void _tick() {
+    if (!mounted) return;
+    setState(() {});
+    _checkExpired();
+  }
+
+  void _checkExpired() {
+    if (!mounted || _expiredSaid) return;
+    if (widget.clock().millisecondsSinceEpoch < widget.expiresAt) return;
+    _expiredSaid = true;
+    widget.onExpired?.call();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.select<GameState, Strings>((s) => s.t);
+    final now = widget.clock();
+    return Semantics(
+      label: rentalTimeLeft(t, widget.expiresAt, now),
+      excludeSemantics: true,
+      child: ShelfDetail(text: rentalCountdown(t, widget.expiresAt, now)),
+    );
+  }
 }
 
 /// The moment a rental ends, as the popup writes it: `dd/MM/yyyy HH:mm` on the
