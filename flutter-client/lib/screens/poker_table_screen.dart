@@ -305,9 +305,13 @@ class _PokerFelt extends StatelessWidget {
             final other = playerDrawerSeat(state, s);
             return SeatPod(
               poker: true,
-              onTap: other == null
-                  ? null
-                  : () => openPlayerDrawer(context, other),
+              // Another player's pod opens their card; the viewer's own opens
+              // their record and their friends (owner, 27 Sep 2026).
+              onTap: other != null
+                  ? () => openPlayerDrawer(context, other)
+                  : ownDrawerSeat(state, s)
+                  ? () => openOwnDrawer(context)
+                  : null,
               requestBadge: other == null
                   ? null
                   : SeatRequestBadge(userId: other.userId!),

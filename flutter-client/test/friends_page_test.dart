@@ -1010,11 +1010,13 @@ void main() {
   });
 
   // Friends at the table (owner, 26 Sep 2026): a tap on another player's pod
-  // opens the player drawer, and a seat whose player asked wears a badge. That
-  // is all a table knows of Friends — never the Friends page, its key, or
-  // where a friend is.
+  // opens the player drawer, and a seat whose player asked wears a badge. The
+  // Friends page and its key stay in the lobby. Where a friend is reaches a
+  // table through ONE file: the viewer's own drawer (a tap on their own pod,
+  // owner 27 Sep 2026: "also shows his friend list with status who all are
+  // online"), which draws the Friends page's own presence lines.
   test('the gameplay screens know the player drawer and the request badge, '
-      'never the Friends page or presence', () {
+      'never the Friends page; presence only through the own drawer', () {
     const table = [
       'lib/screens/table_screen.dart',
       'lib/screens/poker_table_screen.dart',
@@ -1047,6 +1049,16 @@ void main() {
       expect(source, contains('openPlayerDrawer('), reason: felt);
       expect(source, contains('SeatRequestBadge('), reason: felt);
     }
+    // Where a friend is: the own drawer's, drawn by the Friends page's own
+    // widget (friend_presence.dart), never a second one.
+    final own = File('lib/widgets/own_seat_drawer.dart').readAsStringSync();
+    expect(own, contains("import 'friend_presence.dart';"));
+    expect(own, contains('FriendPresenceLines('));
+    expect(own, isNot(contains('friends_screen')));
+    expect(
+      File('lib/screens/friends_screen.dart').readAsStringSync(),
+      contains('FriendPresenceLines('),
+    );
     // The chrome and the pod know neither.
     for (final path in const [
       'lib/widgets/table_chrome.dart',
