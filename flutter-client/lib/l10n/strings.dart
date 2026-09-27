@@ -246,6 +246,11 @@ class Strings {
   String get friendReject => _('friendReject');
   String get wantsToBeFriends => _('wantsToBeFriends');
   String get presenceOnline => _('presenceOnline');
+
+  /// How many friends are online, beside the table's own drawer's Friends
+  /// tab: "3 online".
+  String friendsOnlineCount(int n) =>
+      _('friendsOnlineCount').replaceAll('{n}', '$n');
   String get presenceOffline => _('presenceOffline');
   String get playingNow => _('playingNow');
   String get addFriendHint => _('addFriendHint');
@@ -2407,6 +2412,7 @@ class Strings {
       'refuseUnknownAction': 'That move is not one the table knows',
       // Friends (owner, 26 Sep 2026)
       'friends': 'Friends',
+      'friendsOnlineCount': '{n} online',
       'friendRequestWaiting': '1 new friend request',
       'friendRequestsWaiting': '{n} new friend requests',
       'yourPlayerId': 'Your Player ID',
@@ -3218,6 +3224,7 @@ class Strings {
       'refuseUnknownAction': 'यह चाल टेबल नहीं जानती',
       // Friends (owner, 26 Sep 2026)
       'friends': 'दोस्त',
+      'friendsOnlineCount': '{n} ऑनलाइन',
       'friendRequestWaiting': '1 नई फ़्रेंड रिक्वेस्ट',
       'friendRequestsWaiting': '{n} नई फ़्रेंड रिक्वेस्ट',
       'yourPlayerId': 'आपकी खिलाड़ी आईडी',
@@ -4031,6 +4038,7 @@ class Strings {
       'refuseUnknownAction': 'এই চাল টেবিলের জানা নেই',
       // Friends (owner, 26 Sep 2026)
       'friends': 'বন্ধুরা',
+      'friendsOnlineCount': '{n} জন অনলাইন',
       'friendRequestWaiting': '1টি নতুন বন্ধুত্বের অনুরোধ',
       'friendRequestsWaiting': '{n}টি নতুন বন্ধুত্বের অনুরোধ',
       'yourPlayerId': 'আপনার খেলোয়াড় আইডি',
@@ -4840,6 +4848,7 @@ class Strings {
       'refuseUnknownAction': 'આ ચાલ ટેબલ જાણતું નથી',
       // Friends (owner, 26 Sep 2026)
       'friends': 'મિત્રો',
+      'friendsOnlineCount': '{n} ઑનલાઇન',
       'friendRequestWaiting': '1 નવી મિત્રતાની વિનંતી',
       'friendRequestsWaiting': '{n} નવી મિત્રતાની વિનંતીઓ',
       'yourPlayerId': 'તમારી ખેલાડી આઈડી',
@@ -5657,6 +5666,7 @@ class Strings {
       'refuseUnknownAction': 'ਇਹ ਚਾਲ ਟੇਬਲ ਨਹੀਂ ਜਾਣਦਾ',
       // Friends (owner, 26 Sep 2026)
       'friends': 'ਦੋਸਤ',
+      'friendsOnlineCount': '{n} ਔਨਲਾਈਨ',
       'friendRequestWaiting': '1 ਨਵੀਂ ਦੋਸਤੀ ਦੀ ਬੇਨਤੀ',
       'friendRequestsWaiting': '{n} ਨਵੀਆਂ ਦੋਸਤੀ ਦੀਆਂ ਬੇਨਤੀਆਂ',
       'yourPlayerId': 'ਤੁਹਾਡੀ ਖਿਡਾਰੀ ਆਈਡੀ',

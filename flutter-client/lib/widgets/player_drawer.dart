@@ -13,6 +13,7 @@ import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
 import 'avatar.dart';
 import 'edge_fade.dart';
+import 'own_seat_drawer.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
 import 'player_profile.dart';
@@ -40,6 +41,32 @@ Seat? playerDrawerSeat(GameState state, Seat? seat) {
     return null;
   }
   return state.friends.available ? seat : null;
+}
+
+/// Whether [seat] is the viewer's own, taken: a tap on its pod opens the
+/// drawer on the viewer themselves ([openOwnDrawer]; owner, 27 Sep 2026).
+bool ownDrawerSeat(GameState state, Seat? seat) {
+  final userId = seat?.userId;
+  return seat != null &&
+      seat.occupied &&
+      userId != null &&
+      userId.isNotEmpty &&
+      userId == state.user?.id;
+}
+
+/// Opens the table's drawer on the viewer themselves — a tap on their own pod
+/// (owner, 27 Sep 2026: "player can click his own pod and it will his own
+/// stats which you show when you click in lobby and also shows his friend list
+/// with status who all are online"): their record and their friends
+/// ([OwnSeatBody]). The friend list is read as it slides in, and the account
+/// too, as the lobby's Stats drawer reads it: the record trails play by the
+/// server's stats flush, and the level and badges move with a hand's end.
+void openOwnDrawer(BuildContext context) {
+  final state = context.read<GameState>();
+  tapHaptic(context);
+  unawaited(state.refreshUser());
+  unawaited(state.friends.openOwn());
+  state.tableScaffold.currentState?.openEndDrawer();
 }
 
 /// Opens the player drawer for the player sitting in [seat] — never for the
@@ -106,9 +133,27 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
   Widget build(BuildContext context) {
     final lang = context.select<GameState, AppLang>((s) => s.lang);
     final t = Strings(lang);
+    final screenW = MediaQuery.sizeOf(context).width;
+    // The viewer's own pod: their record and their friends, in a drawer as
+    // wide as the lobby's Stats drawer (OwnSeatBody.widthFor).
+    return ListenableBuilder(
+      listenable: _friends,
+      builder: (context, _) => _friends.ownOpen
+          ? GlassDrawerPanel(
+              alignment: AlignmentDirectional.centerEnd,
+              width: OwnSeatBody.widthFor(screenW),
+              padding: EdgeInsets.zero,
+              child: const SizedBox.expand(child: OwnSeatBody()),
+            )
+          : _other(context, t, screenW),
+    );
+  }
+
+  /// Another player's card: the drawer as a pod of theirs opened it.
+  Widget _other(BuildContext context, Strings t, double screenW) {
     return GlassDrawerPanel(
       alignment: AlignmentDirectional.centerEnd,
-      width: TableSpace.drawerW(MediaQuery.sizeOf(context).width),
+      width: TableSpace.drawerW(screenW),
       padding: EdgeInsets.zero,
       child: SizedBox.expand(
         child: ListenableBuilder(

@@ -41,6 +41,8 @@ import 'package:teenpatti/widgets/avatar.dart';
 import 'package:teenpatti/widgets/glass_panels.dart';
 import 'package:teenpatti/widgets/hammer_flight.dart';
 import 'package:teenpatti/widgets/player_drawer.dart';
+import 'package:teenpatti/widgets/own_record.dart';
+import 'package:teenpatti/widgets/own_seat_drawer.dart';
 import 'package:teenpatti/widgets/player_profile.dart';
 import 'package:teenpatti/widgets/poker_chip.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
@@ -517,22 +519,38 @@ void main() {
         }, () => server.client);
       });
 
-      testWidgets('the viewer\'s own pod and an empty chair open nothing', (
+      testWidgets('the viewer\'s own pod opens their own drawer, never '
+          'another player\'s card; an empty chair opens nothing', (
         tester,
       ) async {
         final server = _server();
         await http.runWithClient(() async {
           final state = _state();
           await _mount(tester, state, room(empty: [3]));
-          // The viewer's pod takes no tap at all; another player's does.
-          expect(tester.widget<SeatPod>(_podOf('u0')).onTap, isNull);
+          // Both take a tap; the viewer's own pod wears no request badge and
+          // no friend mark.
+          expect(tester.widget<SeatPod>(_podOf('u0')).onTap, isNotNull);
           expect(tester.widget<SeatPod>(_podOf('u1')).onTap, isNotNull);
           expect(tester.widget<SeatPod>(_podOf('u0')).requestBadge, isNull);
+          expect(tester.widget<SeatPod>(_podOf('u0')).friendMark, isNull);
 
-          await tester.tap(_plaqueOf('u0'), warnIfMissed: false);
+          // Owner, 27 Sep 2026: "player can click his own pod and it will his
+          // own stats … and also shows his friend list".
+          await tester.tap(_plaqueOf('u0'));
+          await _settle(tester);
+          expect(_drawerOpen(state), isTrue);
+          expect(state.friends.ownOpen, isTrue);
+          expect(state.friends.seatPlayer, isNull);
+          expect(_inDrawer(_key('own-drawer')), findsOneWidget);
+          // No profile of their own is read: the account already has it.
+          expect(
+            server.sent.where((r) => r.url.path.startsWith('/api/players/')),
+            isEmpty,
+          );
+          await tester.tap(_key('stats-close'));
           await _settle(tester);
           expect(_drawerOpen(state), isFalse);
-          expect(state.friends.seatPlayer, isNull);
+          expect(state.friends.ownOpen, isFalse);
 
           final chair = find.byIcon(Icons.chair_alt_outlined);
           expect(chair, findsOneWidget);
@@ -1570,6 +1588,185 @@ void main() {
         }, () => server.client);
       }
     });
+  });
+
+  // Owner, 27 Sep 2026: "In game table, player can click his own pod and it
+  // will his own stats which you show when you click in lobby and also shows
+  // his friend list with status who all are online and other info".
+  group('the viewer\'s own drawer', () {
+    /// Vikramaditya playing (the table's friend), Kavya online, Dev offline.
+    FakeFriendsServer ownServer() => _server()
+      ..friends.addAll([
+        friendJson('u8', 'Dev'),
+        friendJson('u9', 'Kavya', status: 'ONLINE'),
+      ]);
+
+    Future<void> openOwn(WidgetTester tester) async {
+      await tester.tap(_plaqueOf('u0'));
+      await _settle(tester);
+    }
+
+    testWidgets('the record first, the lobby Stats drawer\'s own: the head, '
+        'the scope menu and the figures', (tester) async {
+      final server = ownServer();
+      await http.runWithClient(() async {
+        final state = _state();
+        await _mount(tester, state, _teenPatti());
+        await openOwn(tester);
+        expect(_inDrawer(_key('own-drawer')), findsOneWidget);
+        expect(_inDrawer(find.byType(PlayerStatsHeader)), findsOneWidget);
+        expect(_inDrawer(find.text('Priya')), findsOneWidget);
+        expect(_inDrawer(find.byType(OwnRecord)), findsOneWidget);
+        expect(_inDrawer(find.byType(StatsScopeSelector)), findsOneWidget);
+        // As wide as the lobby's Stats drawer, wider than a player's card.
+        final panel = tester.widget<GlassDrawerPanel>(
+          _inDrawer(find.byType(GlassDrawerPanel)),
+        );
+        expect(panel.width, OwnSeatBody.widthFor(640));
+        expect(panel.alignment, AlignmentDirectional.centerEnd);
+        _expectDrawerFits(tester, 'record');
+        await _unmount(tester, state);
+      }, () => server.client);
+    });
+
+    testWidgets('Friends: every friend with where they are, playing first, '
+        'then online, then offline, and how many are online', (tester) async {
+      final server = ownServer();
+      await http.runWithClient(() async {
+        final state = _state();
+        final t = state.t;
+        await _mount(tester, state, _teenPatti());
+        await openOwn(tester);
+        // The tab says how many are online before it is opened.
+        expect(
+          _inDrawer(find.textContaining(t.friendsOnlineCount(2))),
+          findsOneWidget,
+        );
+        await tester.tap(_key('own-tab-friends'));
+        await _settle(tester);
+        final rows = [
+          for (final id in ['u4', 'u9', 'u8'])
+            tester.getRect(_inDrawer(_key('own-friend:$id'))),
+        ];
+        expect(rows[0].top, lessThan(rows[1].top));
+        expect(rows[1].top, lessThan(rows[2].top));
+        Finder inRow(String id, Finder f) =>
+            find.descendant(of: _inDrawer(_key('own-friend:$id')), matching: f);
+        expect(inRow('u4', find.textContaining(t.playingNow)), findsOneWidget);
+        expect(
+          inRow(
+            'u4',
+            find.text(
+              '${friendlyName(t.teenPatti)} • '
+              '${friendlyName(t.seen)}',
+            ),
+          ),
+          findsOneWidget,
+        );
+        expect(inRow('u9', _key('presence-dot-online')), findsOneWidget);
+        expect(inRow('u9', find.textContaining(t.playingNow)), findsNothing);
+        expect(inRow('u8', _key('presence-dot-offline')), findsOneWidget);
+        expect(
+          inRow('u8', find.textContaining(t.presenceOffline)),
+          findsOneWidget,
+        );
+        _expectDrawerFits(tester, 'friends');
+        await _unmount(tester, state);
+      }, () => server.client);
+    });
+
+    testWidgets('the list is read as it opens and every 15 s while it shows, '
+        'and no more once it has closed', (tester) async {
+      final server = ownServer();
+      await http.runWithClient(() async {
+        final state = _state();
+        await _mount(tester, state, _teenPatti());
+        final before = server.count('GET', '/api/friends');
+        await openOwn(tester);
+        expect(server.count('GET', '/api/friends'), before + 1);
+        // Kavya goes offline and Dev comes online, between two reads.
+        server.friends
+          ..removeWhere((f) => f['userId'] == 'u9' || f['userId'] == 'u8')
+          ..addAll([
+            friendJson('u9', 'Kavya'),
+            friendJson('u8', 'Dev', status: 'ONLINE'),
+          ]);
+        await tester.tap(_key('own-tab-friends'));
+        await tester.pump(FriendsState.pollEvery);
+        await _settle(tester);
+        expect(server.count('GET', '/api/friends'), before + 2);
+        expect(
+          find.descendant(
+            of: _inDrawer(_key('own-friend:u8')),
+            matching: _key('presence-dot-online'),
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(_key('stats-close'));
+        await _settle(tester);
+        final closed = server.count('GET', '/api/friends');
+        await tester.pump(FriendsState.pollEvery * 3);
+        expect(server.count('GET', '/api/friends'), closed);
+        await _unmount(tester, state);
+      }, () => server.client);
+    });
+
+    testWidgets('no friends says so; a list that cannot be read offers Retry', (
+      tester,
+    ) async {
+      final server = FakeFriendsServer();
+      await http.runWithClient(() async {
+        final state = _state();
+        final t = state.t;
+        await _mount(tester, state, _teenPatti());
+        await openOwn(tester);
+        await tester.tap(_key('own-tab-friends'));
+        await _settle(tester);
+        expect(_inDrawer(find.text(t.noFriendsTitle)), findsOneWidget);
+        await tester.tap(_key('stats-close'));
+        await _settle(tester);
+
+        server.failLists = true;
+        state.friends.reset();
+        await openOwn(tester);
+        await tester.tap(_key('own-tab-friends'));
+        await _settle(tester);
+        expect(_inDrawer(find.text(t.friendsLoadFailed)), findsOneWidget);
+        server.failLists = false;
+        server.friends.add(friendJson('u9', 'Kavya', status: 'ONLINE'));
+        await tester.tap(_key('own-friends-retry'));
+        await _settle(tester);
+        expect(_inDrawer(_key('own-friend:u9')), findsOneWidget);
+        await _unmount(tester, state);
+      }, () => server.client);
+    });
+
+    for (final brightness in Brightness.values) {
+      testWidgets('both tabs fit 640x360 at text x1.25 in every language '
+          '(${brightness.name}), on both felts', (tester) async {
+        for (final lang in AppLang.values) {
+          for (final room in [_teenPatti(), _poker()]) {
+            final server = ownServer();
+            await http.runWithClient(() async {
+              final state = _state(lang: lang);
+              await _mount(tester, state, room, brightness: brightness);
+              final where = '${lang.name} ${room.category}';
+              await openOwn(tester);
+              expect(
+                _inDrawer(_key('own-drawer')),
+                findsOneWidget,
+                reason: where,
+              );
+              _expectDrawerFits(tester, 'record $where');
+              await tester.tap(_key('own-tab-friends'));
+              await _settle(tester);
+              _expectDrawerFits(tester, 'friends $where');
+              await _unmount(tester, state);
+            }, () => server.client);
+          }
+        }
+      });
+    }
   });
 
   group('the drawer fits a 640x360 phone at text x1.25', () {

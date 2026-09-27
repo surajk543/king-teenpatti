@@ -716,10 +716,29 @@ class FriendsState extends ChangeNotifier {
     return null;
   }
 
+  /// Whether the table's drawer shows the viewer THEMSELVES (owner, 27 Sep
+  /// 2026: "player can click his own pod and it will his own stats which you
+  /// show when you click in lobby and also shows his friend list with status
+  /// who all are online"): their record and their friends, in place of
+  /// another player's card. Set by [openOwn], cleared by [openSeat] and
+  /// [closeSeat].
+  bool ownOpen = false;
+
+  /// The viewer's own pod was tapped at a table: the drawer opens on their
+  /// record and their friends, and the friend list is read now for where each
+  /// friend is (the drawer reads it again every [pollEvery] while it shows).
+  Future<void> openOwn() {
+    closeSeat(notify: false);
+    ownOpen = true;
+    _notify();
+    return refresh();
+  }
+
   /// A seat was tapped at a table: the player drawer opens on [who], drawn at
   /// once as the seat has them, and their profile is read now. A second tap
   /// on the same player keeps what is on show while it is read again.
   Future<void> openSeat(PlayerCard who) {
+    ownOpen = false;
     if (seatPlayer?.userId != who.userId) seatProfile = null;
     seatPlayer = who;
     seatError = null;
@@ -769,6 +788,7 @@ class FriendsState extends ChangeNotifier {
   /// to rebuild.
   void closeSeat({bool notify = true}) {
     _seatSeq++;
+    ownOpen = false;
     seatPlayer = null;
     seatProfile = null;
     seatLoading = false;

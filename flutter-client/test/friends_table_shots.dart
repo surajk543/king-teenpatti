@@ -64,6 +64,10 @@ enum _Scene {
   pokerBadge,
   pokerMarks,
   poker,
+  // The viewer's own pod (owner, 27 Sep 2026): their record, then their
+  // friends.
+  own,
+  ownFriends,
 }
 
 /// The scenes laid on the poker felt.
@@ -79,6 +83,15 @@ const _tapped = {
   _Scene.refused: 'u1',
   _Scene.failed: 'u1',
   _Scene.poker: 'u3',
+  _Scene.own: 'u0',
+  _Scene.ownFriends: 'u0',
+};
+
+/// The own scenes' friends and where each one is.
+const _ownFriends = {
+  4: ('PLAYING', 'TEEN_PATTI', 'SEEN'),
+  1: ('ONLINE', null, null),
+  2: ('OFFLINE', null, null),
 };
 
 class _Shot {
@@ -198,19 +211,34 @@ FakeFriendsServer _server(_Scene scene) {
     _ => [4],
   };
   final asking = scene == _Scene.longBadge ? 4 : 3;
+  final own = scene == _Scene.own || scene == _Scene.ownFriends;
   final server = FakeFriendsServer(
     friends: [
-      for (final i in friends)
-        {
-          ...friendJson(
-            'u$i',
-            _names[i],
-            status: 'PLAYING',
-            game: 'TEEN_PATTI',
-            variant: 'SEEN',
-          ),
-          'profilePicture': {'id': 1, 'url': '/profiles/${_pictures[i]}.svg'},
-        },
+      if (own)
+        for (final MapEntry(key: i, value: (status, game, variant))
+            in _ownFriends.entries)
+          {
+            ...friendJson(
+              'u$i',
+              _names[i],
+              status: status,
+              game: game,
+              variant: variant,
+            ),
+            'profilePicture': {'id': 1, 'url': '/profiles/${_pictures[i]}.svg'},
+          },
+      if (!own)
+        for (final i in friends)
+          {
+            ...friendJson(
+              'u$i',
+              _names[i],
+              status: 'PLAYING',
+              game: 'TEEN_PATTI',
+              variant: 'SEEN',
+            ),
+            'profilePicture': {'id': 1, 'url': '/profiles/${_pictures[i]}.svg'},
+          },
     ],
     incoming: [
       {'requestId': 41, 'player': card(asking), 'createdAt': 1790442915826},
@@ -354,6 +382,20 @@ Future<void> _shoot(
       'diamond': 9,
       'hammer': 20,
       'missile': 1,
+      // A record and a level, for the own drawer's pictures.
+      'handsPlayed': 412,
+      'handsWon': 180,
+      'handsLost': 214,
+      'handsLeftMid': 18,
+      'totalWinnings': 5230000,
+      'biggestPot': 820000,
+      'playerLevel': {
+        'level': 10,
+        'title': 'Rising Star',
+        'icon': '🌟',
+        'xp': 4180,
+        'taxBps': 1743,
+      },
     })
     ..screen = Screen.lobby
     ..handleState(_room(poker: _pokerScenes.contains(shot.scene)));
@@ -399,6 +441,10 @@ Future<void> _shoot(
       ),
     );
     await settle();
+    if (shot.scene == _Scene.ownFriends) {
+      await tester.tap(find.byKey(const ValueKey('own-tab-friends')));
+      await settle();
+    }
     if (shot.scene == _Scene.refused) {
       await tester.tap(find.byKey(const ValueKey('seat-add-friend')));
       await settle();

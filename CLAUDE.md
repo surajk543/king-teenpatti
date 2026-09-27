@@ -2138,7 +2138,21 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   page showing that player re-reads. The source scan in `test/friends_page_test.dart` now holds that the table files know
   the drawer and the badge and never the Friends page, its key or presence. `test/friends_table_test.dart` (73: both felts, the friend mark, the friendship's age,
   every status, the moves, the pushes, 640x360 ×1.25 in all five languages both themes); pictures by hand,
-  `test/friends_table_shots.dart`. **The key**
+  `test/friends_table_shots.dart`. **The viewer's own pod** (owner, 27 Sep 2026: "player can click his own pod and it will
+  his own stats which you show when you click in lobby and also shows his friend list with status who all are online and
+  other info") opens the same end drawer in its own mode (`FriendsState.ownOpen`, `openOwn`; `ownDrawerSeat`/`openOwnDrawer`
+  in `player_drawer.dart`, so the felts still know only that file): `OwnSeatBody` (`widgets/own_seat_drawer.dart`), as wide
+  as the lobby's Stats drawer (`widthFor`, 300–420dp) — the Stats drawer's `PlayerStatsHeader` (picture, name, level,
+  badges, its close key) over two tabs, **Your record** (`OwnRecord` and its footnote, the lobby's own, the viewer's winnings
+  and biggest pot included — their own) and **Friends** ("2 online" beside the word, `friendsOnlineCount`): every friend,
+  PLAYING, ONLINE, OFFLINE, by name, with the Friends page's own presence lines (`FriendPresenceLines`, moved with
+  `PresenceDot` and `presenceGameLine` into `widgets/friend_presence.dart`, which the page re-exports) — read, not acted on.
+  Opening it re-reads the account (`refreshUser`, as the Stats drawer does) and the friend list, and the list is read again
+  every `FriendsState.pollEvery` (15 s) while it shows (its own timer, gone with it). No friends says so; a list that cannot
+  be read offers Retry. This is the one place a table shows where a friend is: `friends_page_test`'s source scan allows
+  presence through `own_seat_drawer.dart` alone. `test/friends_table_test.dart` "the viewer's own drawer" (the record, the
+  friends in order with their presence, the 15 s read that stops on close, empty and failing lists, both tabs at 640x360
+  ×1.25 in every language, both themes, both felts); pictures `own`/`ownFriends` in `friends_table_shots.dart`. **The key**
   (`FriendsKey`) is a round 44dp key of the corner chips' card surface just left of the MILESTONE chip in the lobby's foot —
   not in the top bar, where a fourth key would have cut the player's name at text ×1.0 on a 640dp phone (the wallet pill
   takes 53% of a tight bar); the people glyph in a 28dp disc, turning gold with a soft glow and a count badge ("9+" past 9)
