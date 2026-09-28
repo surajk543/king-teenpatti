@@ -1065,7 +1065,13 @@ class SeatPod extends StatelessWidget {
         ),
       );
     }
-    fan = HandResultGroup(userId: s.userId, child: fan);
+    // Its pod stands over it, a seat's gap away: nothing a result draws
+    // reaches it.
+    fan = HandResultGroup(
+      userId: s.userId,
+      headroom: TableSpace.seat(width),
+      child: fan,
+    );
 
     // BLIND / SEEN rides on the hand it describes, and only while there is a
     // hand to describe: face-up cards at a showdown or a sideshow peek are the

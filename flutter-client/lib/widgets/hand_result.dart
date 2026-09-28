@@ -202,7 +202,8 @@ class HandResultScope extends InheritedWidget {
 /// moment the result lands. It tells its listeners only when that figure
 /// moves, so the cards stop repainting the frame they settle, however long
 /// the celebration's clock runs on; and it listens to the clock only while
-/// something listens to it.
+/// something listens to it. A [duration] of nothing is a result shown
+/// settled: 0 until [startAt], 1 from it — never before the ribbon strikes.
 class HandResultProgress extends Animation<double>
     with
         AnimationLazyListenerMixin,
@@ -228,10 +229,10 @@ class HandResultProgress extends Animation<double>
   double get value {
     // A clock that has run out has shown everything it was going to.
     if (clock.status == AnimationStatus.completed) return 1;
+    final since = clock.value * total.inMicroseconds - startAt.inMicroseconds;
     final length = duration.inMicroseconds;
-    if (length <= 0) return 1;
-    final elapsed = clock.value * total.inMicroseconds;
-    return ((elapsed - startAt.inMicroseconds) / length).clamp(0.0, 1.0);
+    if (length <= 0) return since >= 0 ? 1 : 0;
+    return (since / length).clamp(0.0, 1.0);
   }
 
   @override
@@ -321,10 +322,24 @@ void handResultSound(BuildContext context, HandResultLevel level) {
 /// [userId]'s hand, it times the animation and draws the hand's own light
 /// behind the cards; each card lights itself ([HandResultCard]).
 class HandResultGroup extends StatefulWidget {
-  const HandResultGroup({super.key, required this.userId, required this.child});
+  const HandResultGroup({
+    super.key,
+    required this.userId,
+    required this.headroom,
+    required this.child,
+  });
 
   /// Whose cards these are.
   final String? userId;
+
+  /// How far above this box the space is free, in logical pixels: the gap to
+  /// whatever stands over the hand — the viewer's own bet badge
+  /// (`TableSpace.hand`), a rim seat's pod (`TableSpace.seat`). Nothing the
+  /// result draws — a risen card, its edge light, a Trail's radial light and
+  /// sparks — crosses it, less [HandResultShape.clearance] (review, 29 Sep
+  /// 2026). It holds the whole hand's rise, so the hand rises as one.
+  final double headroom;
+
   final Widget child;
 
   @override
@@ -348,6 +363,21 @@ class HandResultGroupState extends State<HandResultGroup> {
   @visibleForTesting
   double get progress => _progress?.value ?? 0;
 
+  /// The box of everything the hand's own light (a Trail's radial light and
+  /// sparks) painted in its last frame, in global coordinates; null when it
+  /// painted none. Debug builds only.
+  @visibleForTesting
+  Rect? get debugLightBounds {
+    final boundary = context.findRenderObject();
+    final burst = boundary is RenderProxyBox ? boundary.child : null;
+    final bounds = burst is _RenderHandResultBurst
+        ? burst.debugLightBounds
+        : null;
+    return bounds == null
+        ? null
+        : MatrixUtils.transformRect(burst!.getTransformTo(null), bounds);
+  }
+
   /// Keeps the seat on the result it is showing: the same result on the same
   /// clock keeps its timing (and so never starts again), anything else starts
   /// from where its own clock is.
@@ -363,9 +393,15 @@ class HandResultGroupState extends State<HandResultGroup> {
     if (cue == null) return;
     // A result this phone has already played on another clock — the felt
     // built again round a celebration still on show — is shown settled,
-    // never played a second time.
+    // never played a second time; and settled from the moment its own clock
+    // says the result lands, not while the cards are still turning.
     if (HandResultMemory.playedElsewhere(cue)) {
-      _progress = const AlwaysStoppedAnimation<double>(1);
+      _progress = HandResultProgress(
+        clock: cue.clock,
+        total: cue.total,
+        startAt: cue.startAt,
+        duration: Duration.zero,
+      );
       return;
     }
     HandResultMemory.remember(cue);
@@ -429,6 +465,7 @@ class HandResultGroupState extends State<HandResultGroup> {
       cards: cue?.cards ?? const {},
       light: light,
       accent: accent,
+      headroom: widget.headroom,
       // In a layer of its own: while the cards move, only this seat's cards
       // are drawn again.
       child: RepaintBoundary(
@@ -437,6 +474,7 @@ class HandResultGroupState extends State<HandResultGroup> {
           profile: bursts ? profile : null,
           light: light,
           seed: cue?.key.hashCode ?? 0,
+          headroom: widget.headroom,
           child: widget.child,
         ),
       ),
@@ -452,6 +490,7 @@ class _HandResultGroupData extends InheritedWidget {
     required this.cards,
     required this.light,
     required this.accent,
+    required this.headroom,
     required super.child,
   });
 
@@ -460,6 +499,7 @@ class _HandResultGroupData extends InheritedWidget {
   final Map<String, int> cards;
   final HandResultLight light;
   final Color accent;
+  final double headroom;
 
   static _HandResultGroupData? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<_HandResultGroupData>();
@@ -470,13 +510,15 @@ class _HandResultGroupData extends InheritedWidget {
       !identical(old.profile, profile) ||
       !mapEquals(old.cards, cards) ||
       !identical(old.light, light) ||
-      old.accent != accent;
+      old.accent != accent ||
+      old.headroom != headroom;
 }
 
 /// One card, for the result animation ([HandResultGroup]): the card as it
 /// was, unless it is one of the cards that made the winning hand — then,
-/// while the result plays, it rises from its foot, catches the light and
-/// takes a gold edge, as its level's row says.
+/// while the result plays, it rises and grows about its middle, catches the
+/// light and takes a gold edge, as its level's row says, and never further
+/// than its hand has room for ([HandResultGroup.headroom]).
 ///
 /// Always this one render object round the card, lit or not, so a card is
 /// never rebuilt (its flip, its wild turn) when a result arrives or goes.
@@ -518,22 +560,33 @@ class HandResultCard extends SingleChildRenderObjectWidget {
       ..count = group?.cards.length ?? 0
       ..cardHeight = cardHeight
       ..light = group?.light ?? HandResultLight.dark
-      ..accent = group?.accent ?? AppTheme.gold;
+      ..accent = group?.accent ?? AppTheme.gold
+      ..headroom = group?.headroom ?? double.infinity;
   }
 }
 
 /// The card's render object: it paints the card, and while its result plays
-/// the soft shadow of a lifted card, the card risen and grown from its foot,
-/// the gold light round its edge and the band of light across its face. All
-/// of it moved here, frame by frame, with nothing rebuilt and nothing laid
-/// out again.
+/// the soft shadow of a lifted card, the card risen and grown about its
+/// middle, the gold light round its edge and the band of light across its
+/// face. All of it moved here, frame by frame, with nothing rebuilt and
+/// nothing laid out again.
 class RenderHandResultCard extends RenderProxyBox {
   RenderHandResultCard();
 
   /// How many frames have painted a lit card since the count was last reset
-  /// — how the tests see that a settled card is painted no more.
+  /// — how the tests see that a settled card is painted no more. Counted in
+  /// debug builds only.
   @visibleForTesting
   static int debugLitPaints = 0;
+
+  /// How far this card's edge light reached when it was last painted: the
+  /// box of the halo's visible light (its blur counted to
+  /// [HandResultShape.haloReachSigmas]) in the frame its face is drawn in —
+  /// the child's, risen and grown — or null when it painted none. Recorded
+  /// in debug builds only, for the tests that hold it under what stands over
+  /// the hand.
+  @visibleForTesting
+  Rect? debugLightBounds;
 
   Animation<double>? _progress;
   set progress(Animation<double>? value) {
@@ -586,28 +639,87 @@ class RenderHandResultCard extends RenderProxyBox {
     markNeedsPaint();
   }
 
+  /// The free space over the hand ([HandResultGroup.headroom]).
+  double _headroom = double.infinity;
+  set headroom(double value) {
+    if (value == _headroom) return;
+    _headroom = value;
+    markNeedsPaint();
+  }
+
   /// Whether this card is one of the hand's while its result is on.
   bool get lit => _progress != null && _profile != null;
 
-  /// What the card looks like now.
+  /// What the card looks like now: its level's row at this moment, its rise
+  /// held to the room its hand has ([_RenderHandResultBurst.litRoom]).
   HandResultCardEffect get effect {
     final progress = _progress;
     final profile = _profile;
     if (progress == null || profile == null) return HandResultCardEffect.rest;
-    return profile.cardAt(
+    final raw = profile.cardAt(
       progress.value,
       order: _order,
       count: _count,
       cardHeight: _cardHeight > 0 ? _cardHeight : size.height,
     );
+    final hand = _hand;
+    if (!raw.moves || hand == null || !_headroom.isFinite || !hasSize) {
+      return raw;
+    }
+    return raw.within(hand.litRoom() / _restPlace(hand).perPixel, size.height);
   }
 
-  /// Risen and grown from the card's foot.
+  /// Where this card lies in [hand] at rest: how far its top may rise before
+  /// it meets what stands over the hand, in the HAND's pixels — the hand's
+  /// headroom and the way down from the hand's top to this card's highest
+  /// corner, less [HandResultShape.clearance] — and how many of the hand's
+  /// pixels one of its own is up its length (the fan's middle card is grown,
+  /// a 5-Card hand sets two aside smaller). Read through every transform
+  /// between them but this card's own, so it is where the card rests.
+  ({double room, double perPixel}) _restPlace(RenderBox hand) {
+    final toHand = getTransformTo(hand);
+    Offset at(double x, double y) =>
+        MatrixUtils.transformPoint(toHand, Offset(x, y));
+    final top = math.min(at(0, 0).dy, at(size.width, 0).dy);
+    final length =
+        (at(size.width / 2, size.height) - at(size.width / 2, 0)).distance;
+    return (
+      room: top + _headroom - HandResultShape.clearance,
+      perPixel: size.height > 0 && length > 0 ? length / size.height : 1,
+    );
+  }
+
+  /// How far the top of this card's edge light must be drawn down, in the
+  /// pixels its face is drawn in, so that [light] — the box its halo's light
+  /// would reach, in that frame — stays under what stands over its hand:
+  /// read through every transform to the hand, the card's lean and its own
+  /// rise included, so a leaning card's raised corner is held too. None where
+  /// there is room, or no hand.
+  double _haloDrop(HandResultCardEffect e, Rect light) {
+    final hand = _hand;
+    if (hand == null || !_headroom.isFinite || !hasSize) return 0;
+    final toHand = getTransformTo(hand)..multiply(_transformOf(e));
+    double yAt(double x, double y) =>
+        MatrixUtils.transformPoint(toHand, Offset(x, y)).dy;
+    final ceiling = HandResultShape.clearance - _headroom;
+    final top = math.min(
+      yAt(light.left, light.top),
+      yAt(light.right, light.top),
+    );
+    if (top >= ceiling) return 0;
+    // How far down the hand the light's top goes for a pixel down the card.
+    final perPixel =
+        yAt(light.left, light.top + 1) - yAt(light.left, light.top);
+    return perPixel > 0 ? (ceiling - top) / perPixel : 0;
+  }
+
+  /// Risen and grown about the card's middle: half its growth goes upwards,
+  /// and its lift keeps its foot from sinking ([HandResultCardEffect.within]).
   Matrix4 _transformOf(HandResultCardEffect e) {
-    final foot = Offset(size.width / 2, size.height);
-    return Matrix4.translationValues(foot.dx, foot.dy - e.lift, 0)
+    final middle = size.center(Offset.zero);
+    return Matrix4.translationValues(middle.dx, middle.dy - e.lift, 0)
       ..scaleByDouble(e.scale, e.scale, 1, 1)
-      ..translateByDouble(-foot.dx, -foot.dy, 0, 1);
+      ..translateByDouble(-middle.dx, -middle.dy, 0, 1);
   }
 
   @override
@@ -627,13 +739,33 @@ class RenderHandResultCard extends RenderProxyBox {
     final child = this.child;
     if (child == null) return;
     final e = effect;
+    assert(() {
+      debugLightBounds = null;
+      return true;
+    }());
     if (!e.paints) {
       layer = null;
       context.paintChild(child, offset);
       return;
     }
-    debugLitPaints++;
+    assert(() {
+      debugLitPaints++;
+      return true;
+    }());
     final radius = Radius.circular(size.height * PlayingCard.cornerShare);
+    // Its halo's top drawn down into the card as far as it must, so its light
+    // never reaches what stands over the hand; the sides and foot keep theirs,
+    // and the card's lit edge keeps its top edge lit.
+    final spread = size.height * HandResultShape.haloSpread;
+    final blur = size.height * HandResultShape.haloBlur;
+    final haloDrop = e.glow > 0
+        ? _haloDrop(
+            e,
+            (Offset.zero & size).inflate(
+              spread + blur * HandResultShape.haloReachSigmas,
+            ),
+          )
+        : 0.0;
 
     // The shadow a lifted card leaves on the cloth, where it lay.
     if (e.raise > 0) {
@@ -658,17 +790,27 @@ class RenderHandResultCard extends RenderProxyBox {
       final glow = (e.glow * _light.glowStrength).clamp(0.0, 1.0);
       if (glow > 0) {
         // Soft, behind the card: only its edge shows past the stock.
+        final halo = card.inflate(spread);
+        final shape = Rect.fromLTRB(
+          halo.left,
+          math.min(halo.top + haloDrop, halo.center.dy),
+          halo.right,
+          halo.bottom,
+        );
         context.canvas.drawRRect(
-          card.inflate(size.height * HandResultShape.haloSpread),
+          RRect.fromRectAndRadius(shape, halo.tlRadius),
           Paint()
             ..color = _light.glow.withValues(
               alpha: glow * HandResultShape.haloStrength,
             )
-            ..maskFilter = MaskFilter.blur(
-              BlurStyle.normal,
-              size.height * HandResultShape.haloBlur,
-            ),
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, blur),
         );
+        assert(() {
+          debugLightBounds = shape
+              .inflate(blur * HandResultShape.haloReachSigmas)
+              .shift(-offset);
+          return true;
+        }());
       }
       context.paintChild(child, offset);
       final canvas = context.canvas;
@@ -703,8 +845,9 @@ class RenderHandResultCard extends RenderProxyBox {
   }
 
   /// The hand's own box — its [HandResultGroup]'s — which a light crossing
-  /// the whole hand crosses; null for a card in no group.
-  RenderBox? get _hand {
+  /// the whole hand crosses, and which it rises within; null for a card in no
+  /// group.
+  _RenderHandResultBurst? get _hand {
     for (var node = parent; node != null; node = node.parent) {
       if (node is _RenderHandResultBurst) return node;
     }
@@ -812,13 +955,15 @@ class RenderHandResultCard extends RenderProxyBox {
 }
 
 /// The hand's own light, behind its cards: a Trail's radial light and its
-/// sparks. Nothing at all for every other level.
+/// sparks. Nothing at all for every other level. Its box is the hand's, the
+/// one its cards rise within ([HandResultGroup.headroom]).
 class _HandResultBurst extends SingleChildRenderObjectWidget {
   const _HandResultBurst({
     required this.progress,
     required this.profile,
     required this.light,
     required this.seed,
+    required this.headroom,
     super.child,
   });
 
@@ -826,6 +971,7 @@ class _HandResultBurst extends SingleChildRenderObjectWidget {
   final HandResultProfile? profile;
   final HandResultLight light;
   final int seed;
+  final double headroom;
 
   @override
   _RenderHandResultBurst createRenderObject(BuildContext context) =>
@@ -833,7 +979,8 @@ class _HandResultBurst extends SingleChildRenderObjectWidget {
         ..progress = progress
         ..profile = profile
         ..light = light
-        ..seed = seed;
+        ..seed = seed
+        ..headroom = headroom;
 
   @override
   void updateRenderObject(
@@ -843,7 +990,8 @@ class _HandResultBurst extends SingleChildRenderObjectWidget {
     ..progress = progress
     ..profile = profile
     ..light = light
-    ..seed = seed;
+    ..seed = seed
+    ..headroom = headroom;
 }
 
 /// One spark of a Trail's burst: which way it flies, how fast and how late,
@@ -889,6 +1037,43 @@ class _RenderHandResultBurst extends RenderProxyBox {
     markNeedsPaint();
   }
 
+  /// The free space over the hand ([HandResultGroup.headroom]).
+  double _headroom = double.infinity;
+  set headroom(double value) {
+    if (value == _headroom) return;
+    _headroom = value;
+    markNeedsPaint();
+  }
+
+  /// The box of everything the hand's own light last painted — the radial
+  /// light's ellipse and every spark's streak — in its own frame, or null
+  /// when it painted none. Recorded in debug builds only, for the tests.
+  Rect? debugLightBounds;
+
+  /// How far above the hand's top its light may reach, in its own pixels:
+  /// the headroom less [HandResultShape.clearance].
+  double get _roomAbove => _headroom - HandResultShape.clearance;
+
+  /// The least room any lit card of this hand has over it
+  /// ([RenderHandResultCard._restPlace]), in the hand's pixels: what the whole
+  /// hand rises within, so it rises as one and its tightest card — the fan's
+  /// proud middle card, under the viewer's bet badge — touches nothing.
+  double litRoom() {
+    var room = double.infinity;
+    void visit(RenderObject node) {
+      if (node is RenderHandResultCard) {
+        if (node.lit && node.hasSize) {
+          room = math.min(room, node._restPlace(this).room);
+        }
+        return;
+      }
+      node.visitChildren(visit);
+    }
+
+    visitChildren(visit);
+    return room;
+  }
+
   /// The burst's sparks, made once per result from its [seed], so every frame
   /// draws the same ones where they have got to.
   List<_Spark>? _sparks;
@@ -932,22 +1117,34 @@ class _RenderHandResultBurst extends RenderProxyBox {
   void paint(PaintingContext context, Offset offset) {
     final progress = _progress;
     final profile = _profile;
+    // What it paints, noted in debug builds only ([debugLightBounds]).
+    Rect? painted;
+    bool note(Rect r) {
+      painted = painted?.expandToInclude(r) ?? r;
+      return true;
+    }
+
     if (progress != null && profile != null) {
       final e = profile.burstAtTime(progress.value);
       final canvas = context.canvas;
       final centre = (offset & size).center;
       final h = size.height;
       if (e.radial > 0) {
-        final rx =
-            (size.width / 2 + h * HandResultShape.radialReachX) * e.radialScale;
-        final ry =
-            (size.height / 2 + h * HandResultShape.radialReachY) *
-            e.radialScale;
+        // Kept under what stands over the hand: it gives way above and
+        // keeps its reach at the sides and below.
+        final bounds = HandResultShape.radialBounds(
+          size,
+          e.radialScale,
+          ceiling: -_roomAbove,
+        ).shift(offset);
+        assert(note(bounds));
+        final rx = bounds.width / 2;
+        final ry = bounds.height / 2;
         final alpha = (e.radial * _light.radialStrength).clamp(0.0, 1.0);
         final disc = Rect.fromCircle(center: Offset.zero, radius: rx);
         canvas
           ..save()
-          ..translate(centre.dx, centre.dy)
+          ..translate(bounds.center.dx, bounds.center.dy)
           ..scale(1, ry / rx)
           ..drawOval(
             disc,
@@ -972,7 +1169,7 @@ class _RenderHandResultBurst extends RenderProxyBox {
           life > 0) {
         final ax = size.width / 2;
         final ay = size.height / 2;
-        Offset at(_Spark spark, double tau) {
+        Offset at(_Spark spark, double tau, double rise) {
           final out = Curves.easeOutCubic.transform(tau.clamp(0.0, 1.0));
           final reach = h * HandResultShape.sparkReach * spark.speed * out;
           final dx = math.cos(spark.angle);
@@ -982,9 +1179,7 @@ class _RenderHandResultBurst extends RenderProxyBox {
           return centre +
               Offset(
                 dx * (ax * along + reach),
-                dy *
-                    (ay * along +
-                        reach * (dy < 0 ? HandResultShape.sparkRise : 1)),
+                dy * (ay * along + reach * (dy < 0 ? rise : 1)),
               );
         }
 
@@ -1002,11 +1197,28 @@ class _RenderHandResultBurst extends RenderProxyBox {
             HandResultShape.edgeMin,
             h * HandResultShape.sparkWidth * spark.size,
           );
+          // A spark that climbs climbs only as far as the room over the hand:
+          // the rest of its flight is behind the cards, where it began.
+          final rise = HandResultShape.sparkRiseFor(
+            angle: spark.angle,
+            reach: h * HandResultShape.sparkReach * spark.speed,
+            halfHeight: ay,
+            room: _roomAbove,
+            head: width,
+          );
+          assert(
+            note(
+              Rect.fromPoints(
+                at(spark, tau - tail, rise),
+                at(spark, tau, rise),
+              ).inflate(width / 2),
+            ),
+          );
           // A spark, not a dash: a faint tail behind a bright head.
           canvas
             ..drawLine(
-              at(spark, tau - tail),
-              at(spark, tau - tail / 3),
+              at(spark, tau - tail, rise),
+              at(spark, tau - tail / 3, rise),
               Paint()
                 ..strokeCap = StrokeCap.round
                 ..strokeWidth = width * HandResultShape.sparkTailWidth
@@ -1015,8 +1227,8 @@ class _RenderHandResultBurst extends RenderProxyBox {
                 ),
             )
             ..drawLine(
-              at(spark, tau - tail / 3),
-              at(spark, tau),
+              at(spark, tau - tail / 3, rise),
+              at(spark, tau, rise),
               Paint()
                 ..strokeCap = StrokeCap.round
                 ..strokeWidth = width
@@ -1025,6 +1237,10 @@ class _RenderHandResultBurst extends RenderProxyBox {
         }
       }
     }
+    assert(() {
+      debugLightBounds = painted?.shift(-offset);
+      return true;
+    }());
     final child = this.child;
     if (child != null) context.paintChild(child, offset);
   }

@@ -186,6 +186,8 @@ Future<void> _studio(
   );
   Widget hand(double height, double overlap) => HandResultGroup(
     userId: 'u0',
+    // Nothing stands over a hand in the studio.
+    headroom: double.infinity,
     child: SizedBox(
       width: height * PlayingCard.aspect * (3 - 2 * overlap) + 8,
       height: height,

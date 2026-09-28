@@ -12,6 +12,8 @@
 // settled; that the light stops repainting once settled; reduced motion;
 // both themes and a 640dp phone at x1.25; a head seat; the sound hook; and
 // that the next snapshot is never held up.
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -22,7 +24,9 @@ import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/theme/hand_result_motion.dart';
+import 'package:teenpatti/widgets/hammer_flight.dart' show PodImpact;
 import 'package:teenpatti/widgets/hand_result.dart';
+import 'package:teenpatti/widgets/seat_pod.dart' show SeatBet, SeatPod;
 
 import 'hand_result_scenes.dart';
 import 'table_scenes.dart' show tableApp;
@@ -123,6 +127,8 @@ Future<void> _play(
   int places = 5,
   String category = 'seen',
   String? variation,
+  String? turnUp,
+  Duration dealtFor = Duration.zero,
 }) async {
   final beaten = loser ?? (winner == 'u0' ? 'u3' : 'u0');
   final viewerCards = winner == 'u0' ? won.cards : beatenHand.cards;
@@ -137,11 +143,14 @@ Future<void> _play(
     ),
   );
   await tester.pump(const Duration(milliseconds: 16));
+  // The hand on the table this long before it is shown down: its cards dealt
+  // and at rest, as they are at a real table.
+  await _frames(tester, dealtFor.inMilliseconds);
   if (variation != null) {
     state.handleVariationAtShowdown((
       variation: variation,
       selectedBy: 'PLAYER',
-      turnUp: null,
+      turnUp: turnUp,
     ));
   }
   state.handleShowdown(resultReveal(winner, won, loser: beaten));
@@ -225,14 +234,49 @@ void main() {
     });
 
     test('a wild card pairs by the card it counted as', () {
+      // A real AK47 hand: the K is wild and stood for a nine, making a Pair of
+      // nines with the natural 9d (the strongest it could make: 9 9 2).
       expect(
         handResultCards(
           level: HandResultLevel.pair,
-          cards: ['7s', '2d', 'Kc'],
-          playsAs: ['7s', '7h', 'Kc'],
+          cards: ['Ks', '9d', '2c'],
+          playsAs: ['9h', '9d', '2c'],
         ),
-        {'7s': 0, '2d': 1},
+        {'Ks': 0, '9d': 1},
       );
+    });
+
+    test('the level is the category the server sent, never what the faces '
+        'look like', () {
+      final clock = AnimationController(vsync: const TestVSync());
+      addTearDown(clock.dispose);
+      HandResultCue? cue(Map<String, Object?> reveal) =>
+          HandResultCue.forWinner(
+            key: 'r1:7:u0',
+            reveal: Reveal.fromJson({'userId': 'u0', ...reveal}),
+            clock: clock,
+            total: const Duration(seconds: 3),
+            startAt: Duration.zero,
+          );
+      // A JOKER Trail (the turned-up card a two): dealt 7 7 2, a Pair by its
+      // faces; the wild 2d played as a seven. The server says Trail.
+      final joker = cue({
+        'cards': ['7s', '7h', '2d'],
+        'handName': 'Trail',
+        'category': 5,
+        'wild': ['2d'],
+        'playsAs': ['7s', '7h', '7d'],
+      });
+      expect(joker?.level, HandResultLevel.trail);
+      expect(joker?.cards, {'7s': 0, '7h': 1, '2d': 2});
+      // The category decides even against the name beside it.
+      final named = cue({
+        'cards': ['As', 'Ah', 'Ad'],
+        'handName': 'Pair',
+        'category': 5,
+      });
+      expect(named?.level, HandResultLevel.trail);
+      expect(named?.cards, {'As': 0, 'Ah': 1, 'Ad': 2});
     });
 
     test('under 5-Card only the three that played', () {
@@ -323,12 +367,15 @@ void main() {
         expect(peaks[i].lift, greaterThanOrEqualTo(peaks[i - 1].lift - 1e-6));
         expect(peaks[i].glow, greaterThanOrEqualTo(peaks[i - 1].glow - 1e-6));
       }
-      // Only the Trail bursts; a Pair has no light at all.
+      // Only the Trail bursts; a Pair's only light is a thin edge that rises
+      // and falls with its two cards — no sweep, nothing kept once still.
       expect(
         rows.where((r) => r.sparks > 0).single.level,
         HandResultLevel.trail,
       );
-      expect(HandResultProfile.pair.glow, 0);
+      expect(HandResultProfile.pair.glow, inInclusiveRange(0.2, 0.25));
+      expect(HandResultProfile.pair.glowFollowsLift, isTrue);
+      expect(HandResultProfile.pair.restGlow, 0);
       expect(HandResultProfile.pair.sweep, 0);
     });
 
@@ -437,6 +484,73 @@ void main() {
       }
     });
 
+    test('a card fitted to its room rises no further than the room, and its '
+        'foot never sinks', () {
+      for (final p in HandResultProfile.all) {
+        for (final h in [40.0, 46.0, 80.0, 101.0]) {
+          for (var t = 0.0; t <= 1; t += 0.01) {
+            final e = p.cardAt(t, order: 0, count: 3, cardHeight: h);
+            // Room enough: left exactly as it was.
+            expect(e.within(100, h), same(e));
+            for (final room in [0.0, 1.5, 3.0, 4.8, 5.3]) {
+              final f = e.within(room, h);
+              expect(f.riseOf(h), lessThanOrEqualTo(room + 1e-9));
+              // The foot's rise: the lift less the half growth that goes down.
+              expect(f.lift - (f.scale - 1) * h / 2, greaterThan(-1e-9));
+              expect(f.scale, lessThanOrEqualTo(e.scale + 1e-12));
+              expect(f.glow, e.glow);
+              expect(f.sweep, e.sweep);
+            }
+          }
+        }
+      }
+    });
+
+    test('the light round a hand stays under what stands over it', () {
+      for (final h in [40.0, 46.0, 96.0, 108.0]) {
+        // The radial light gives way above and keeps its reach elsewhere.
+        final hand = Size(h * 2, h);
+        final free = HandResultShape.radialBounds(hand, 1.15);
+        final held = HandResultShape.radialBounds(hand, 1.15, ceiling: -3);
+        expect(free.top, lessThan(-3));
+        expect(held.top, -3);
+        expect(held.bottom, free.bottom);
+        expect(held.left, free.left);
+        expect(held.right, free.right);
+        // A spark ends its flight no higher than the room allows, whichever
+        // way it leaves.
+        for (var a = 0.0; a < 2 * math.pi; a += 0.05) {
+          const room = 3.0;
+          final reach = h * HandResultShape.sparkReach * 1.2;
+          const head = 2.0;
+          final rise = HandResultShape.sparkRiseFor(
+            angle: a,
+            reach: reach,
+            halfHeight: h / 2,
+            room: room,
+            head: head,
+          );
+          final up = -math.sin(a);
+          expect(rise, inInclusiveRange(0, HandResultShape.sparkRise));
+          if (up > 0) {
+            final aboveTop = up * (h / 2 + reach * rise) - h / 2 + head / 2;
+            expect(aboveTop, lessThanOrEqualTo(room + 1e-9));
+          } else {
+            expect(rise, HandResultShape.sparkRise);
+          }
+        }
+        expect(
+          HandResultShape.sparkRiseFor(
+            angle: -math.pi / 2,
+            reach: 50,
+            halfHeight: h / 2,
+            room: double.infinity,
+          ),
+          HandResultShape.sparkRise,
+        );
+      }
+    });
+
     test('the progress tells its listeners only while it moves', () {
       final clock = AnimationController(
         vsync: const TestVSync(),
@@ -491,7 +605,16 @@ void main() {
           for (final c in codes) {
             final p = peaks[c]!;
             if (lit.contains(c)) {
-              expect(p.scale, closeTo(profile.peakScale, 0.004), reason: c);
+              // Its full growth, or as much as the room over the hand leaves
+              // (the viewer's middle card stands 4dp under their own badge).
+              expect(
+                p.scale,
+                inInclusiveRange(
+                  1 + (profile.peakScale - 1) * 0.8,
+                  profile.peakScale + 1e-9,
+                ),
+                reason: c,
+              );
               expect(p.lift, greaterThan(0), reason: c);
               expect(p.glow, closeTo(profile.glow, 0.02), reason: c);
             } else {
@@ -501,6 +624,91 @@ void main() {
           expect(heard.heard, [level]);
           await _unmount(tester, state);
         });
+      }
+    }
+
+    // Nothing a result draws — a risen card, its edge light, a Trail's radial
+    // light and sparks — reaches what stands over the hand: the viewer's own
+    // bet badge, a rim seat's pod (review, 29 Sep 2026: a Trail's middle card
+    // lay over the lower third of "SEEN 800" and its light tinted the words).
+    for (final (size, scale) in [
+      (const Size(640, 360), 1.25),
+      (const Size(891, 411), 1.0),
+    ]) {
+      for (final (who, winner) in [
+        ('the viewer', 'u0'),
+        ('a rim seat', 'u3'),
+      ]) {
+        for (final MapEntry(key: name, value: won) in resultHands.entries) {
+          testWidgets('$name at $who, ${size.width.toInt()}x'
+              '${size.height.toInt()} x$scale: never over what stands over '
+              'the hand', (tester) async {
+            final (state, _) = await _mount(tester, size: size, scale: scale);
+            await _play(
+              tester,
+              state,
+              winner: winner,
+              won: won,
+              dealtFor: const Duration(seconds: 1),
+            );
+            final over = winner == 'u0'
+                ? find.descendant(
+                    of: find.byKey(const ValueKey('own-hand-column')),
+                    matching: find.byType(SeatBet),
+                  )
+                : find.descendant(
+                    of: find.byWidgetPredicate(
+                      (w) => w is SeatPod && w.seat?.userId == winner,
+                    ),
+                    matching: find.byType(PodImpact),
+                  );
+            expect(over, findsOneWidget);
+            final lit = won.category == 1 ? ['7s', '7h'] : won.cards;
+            var rose = 0.0;
+            for (var at = 0; at < 1800; at += 16) {
+              await tester.pump(const Duration(milliseconds: 16));
+              // Read every frame: at the showdown the viewer's column glides
+              // up to make room for their hand's name, badge and cards alike.
+              final line = tester.getRect(over).bottom;
+              for (final c in lit) {
+                final card = _card(tester, c);
+                final child = card.child!;
+                final toScreen = child.getTransformTo(null);
+                final painted = MatrixUtils.transformRect(
+                  toScreen,
+                  Offset.zero & child.size,
+                );
+                expect(
+                  painted.top,
+                  greaterThanOrEqualTo(line),
+                  reason: '$c at $at ms: its top',
+                );
+                final halo = card.debugLightBounds;
+                if (halo != null) {
+                  expect(
+                    MatrixUtils.transformRect(toScreen, halo).top,
+                    greaterThanOrEqualTo(line - 0.01),
+                    reason: '$c at $at ms: its edge light',
+                  );
+                }
+                if (card.effect.moves) {
+                  rose = math.max(rose, card.effect.riseOf(child.size.height));
+                }
+              }
+              final light = _group(tester, winner).debugLightBounds;
+              if (light != null) {
+                expect(
+                  light.top,
+                  greaterThanOrEqualTo(line - 0.01),
+                  reason: 'the burst at $at ms',
+                );
+              }
+            }
+            // And it did rise: the brief's 2–6 px, bounded, not taken away.
+            expect(rose, greaterThanOrEqualTo(2.5));
+            await _unmount(tester, state);
+          });
+        }
       }
     }
 
@@ -520,12 +728,13 @@ void main() {
       tester,
     ) async {
       final (state, _) = await _mount(tester);
+      // AK47: the K is wild and played as a nine beside the natural 9d.
       final wildPair = hand(
-        ['7s', '2d', 'Kc'],
+        ['Ks', '9d', '2c'],
         'Pair',
         1,
-        wild: ['2d'],
-        playsAs: ['7s', '7h', 'Kc'],
+        wild: ['Ks'],
+        playsAs: ['9h', '9d', '2c'],
       );
       await _play(
         tester,
@@ -535,10 +744,49 @@ void main() {
         category: 'variation',
         variation: 'AK47',
       );
-      final peaks = await _peaks(tester, ['7s', '2d', 'Kc']);
-      expect(peaks['7s']!.scale, greaterThan(1.02));
-      expect(peaks['2d']!.scale, greaterThan(1.02));
-      expect(peaks['Kc'], HandResultCardEffect.rest);
+      final peaks = await _peaks(tester, ['Ks', '9d', '2c']);
+      expect(peaks['Ks']!.scale, greaterThan(1.02));
+      expect(peaks['9d']!.scale, greaterThan(1.02));
+      expect(peaks['2c'], HandResultCardEffect.rest);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('a JOKER Trail dealt 7 7 2 plays the Trail on all three, '
+        'however its faces read', (tester) async {
+      final (state, heard) = await _mount(tester);
+      final jokerTrail = hand(
+        ['7s', '7h', '2d'],
+        'Trail',
+        5,
+        wild: ['2d'],
+        playsAs: ['7s', '7h', '7d'],
+      );
+      await _play(
+        tester,
+        state,
+        winner: 'u3',
+        won: jokerTrail,
+        category: 'variation',
+        variation: 'JOKER',
+        turnUp: '2c',
+      );
+      final group = _group(tester, 'u3');
+      expect(group.cue?.level, HandResultLevel.trail);
+      expect(group.profile, same(HandResultProfile.trail));
+      final peaks = await _peaks(tester, jokerTrail.cards);
+      for (final c in jokerTrail.cards) {
+        expect(
+          peaks[c]!.scale,
+          closeTo(HandResultProfile.trail.peakScale, 0.004),
+          reason: c,
+        );
+        expect(
+          peaks[c]!.glow,
+          closeTo(HandResultProfile.trail.glow, 0.02),
+          reason: c,
+        );
+      }
+      expect(heard.heard, [HandResultLevel.trail]);
       await _unmount(tester, state);
     });
 
@@ -776,6 +1024,7 @@ void main() {
       AnimationController clock, {
       Key? key,
       HandResultLevel level = HandResultLevel.trail,
+      double headroom = 20,
     }) {
       final cue = HandResultCue(
         key: 'r9:3:u0',
@@ -793,6 +1042,7 @@ void main() {
             child: HandResultGroup(
               key: key,
               userId: 'u0',
+              headroom: headroom,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -917,12 +1167,101 @@ void main() {
       final box = tester.renderObject<RenderBox>(_cardFinder('Ah'));
       expect(box.size, rest.size);
       expect(tester.getRect(find.byType(Row)), row);
-      // But what is painted — the card under it — has risen.
+      // But what is painted — the card under it — has risen, grown about
+      // its middle: its top by its lift and half its growth, its foot by
+      // what is left of the lift.
       final face = find.descendant(
         of: _cardFinder('Ah'),
         matching: find.byType(SizedBox),
       );
-      expect(tester.getRect(face).bottom, lessThan(rest.bottom - 5));
+      final e = HandResultProfile.trail.cardAt(
+        400 / 1100,
+        order: 1,
+        count: 3,
+        cardHeight: 80,
+      );
+      expect(tester.getRect(face).top, closeTo(rest.top - e.riseOf(80), 0.01));
+      expect(tester.getRect(face).top, lessThan(rest.top - 5));
+      expect(tester.getRect(face).bottom, lessThanOrEqualTo(rest.bottom));
+    });
+
+    testWidgets('it rises only as far as the room over the hand, and its light '
+        'no further', (tester) async {
+      final clock = AnimationController(
+        vsync: const TestVSync(),
+        duration: const Duration(seconds: 3),
+      );
+      addTearDown(clock.dispose);
+      await tester.pumpWidget(stage(clock, headroom: 4));
+      final rest = tester.getRect(_cardFinder('Ah'));
+      final group = tester.getRect(find.byType(HandResultGroup));
+      final ceiling = group.top - 4 + HandResultShape.clearance;
+      for (var ms = 500; ms <= 1700; ms += 20) {
+        clock.value = ms / 3000;
+        await tester.pump();
+        for (final c in ['As', 'Ah', 'Ad']) {
+          final card = _card(tester, c);
+          final child = card.child!;
+          final painted = MatrixUtils.transformRect(
+            child.getTransformTo(null),
+            Offset.zero & child.size,
+          );
+          expect(painted.top, greaterThanOrEqualTo(ceiling - 1e-6), reason: c);
+          expect(painted.bottom, lessThanOrEqualTo(rest.bottom + 1e-6));
+          final halo = card.debugLightBounds;
+          if (halo != null) {
+            final lit = MatrixUtils.transformRect(
+              child.getTransformTo(null),
+              halo,
+            );
+            expect(lit.top, greaterThanOrEqualTo(ceiling - 0.01), reason: c);
+          }
+        }
+        final light = tester
+            .state<HandResultGroupState>(find.byType(HandResultGroup))
+            .debugLightBounds;
+        if (light != null) {
+          expect(
+            light.top,
+            greaterThanOrEqualTo(ceiling - 0.01),
+            reason: '$ms',
+          );
+        }
+      }
+    });
+
+    testWidgets('a result played before, on a clock built again, is settled '
+        'from the moment it lands — not while the cards still turn', (
+      tester,
+    ) async {
+      final first = AnimationController(
+        vsync: const TestVSync(),
+        duration: const Duration(seconds: 3),
+      );
+      addTearDown(first.dispose);
+      await tester.pumpWidget(
+        stage(first, level: HandResultLevel.pureSequence),
+      );
+      first.value = 1;
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox.shrink());
+      // The felt built again: a new clock, the same result.
+      final again = AnimationController(
+        vsync: const TestVSync(),
+        duration: const Duration(seconds: 3),
+      );
+      addTearDown(again.dispose);
+      await tester.pumpWidget(
+        stage(again, level: HandResultLevel.pureSequence),
+      );
+      again.value = 0.1; // 300 ms: before the result lands at 500
+      await tester.pump();
+      expect(_card(tester, 'Ah').effect, HandResultCardEffect.rest);
+      again.value = 0.2; // 600 ms: it has landed — settled at once
+      await tester.pump();
+      final settled = _card(tester, 'Ah').effect;
+      expect(settled.moves, isFalse);
+      expect(settled.glow, HandResultProfile.pureSequence.restGlow);
     });
   });
 }

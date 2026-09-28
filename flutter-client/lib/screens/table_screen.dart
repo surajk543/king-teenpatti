@@ -3778,8 +3778,14 @@ class _OwnHand extends StatelessWidget {
             ],
           ),
         );
-        // The viewer's winning hand lit by what it made (hand_result.dart).
-        return HandResultGroup(userId: state.user?.id, child: fan);
+        // The viewer's winning hand lit by what it made (hand_result.dart),
+        // never over their own bet badge, which stands TableSpace.hand over
+        // it whenever a hand is on show (`myBetShown`: in it, won or lost).
+        return HandResultGroup(
+          userId: state.user?.id,
+          headroom: TableSpace.hand,
+          child: fan,
+        );
       },
     );
   }
