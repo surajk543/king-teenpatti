@@ -185,7 +185,8 @@ end. In order:
    `go-server/.env` — the file `-migrate` reads (below). A unit with no `Environment=` at all is fine; it WARNS when
    `NODE_ENV=production` is in neither the unit nor (as far as `write` can read it) the `.env`, since the server's and
    `-migrate`'s production guards hang on it.
-4. **The latest pull** — `git fetch origin --prune --tags --force`, then the local `master` fast-forwarded to
+4. **The latest pull** — `git fetch origin --no-prune --tags --force` (it never deletes a branch or a tag, here or on
+   GitHub, not even the host's copy of a branch deleted there — owner, 29 Sep 2026), then the local `master` fast-forwarded to
    `origin/master` **as a ref**: the working tree is not touched until step 6, since the running binary serves
    `go-server/public/` from disk. A `master` with commits `origin/master` lacks stops it — the host holds no history of its own.
 5. **The tag, and what may be deployed** — the argument, or the newest `go-server/v*` by version. It prints what `/health`
