@@ -141,7 +141,9 @@ export const CONFIG_KEYS = [
 
 /** POST/GET helper returning { status, headers, body (parsed JSON or text) }. */
 export const http = async (method, path, { body, token, headers = {}, raw = false } = {}) => {
-  const init = { method, headers: { ...headers } };
+  // The harness is a tool (the app version gate, 28 Sep 2026): never
+  // version-gated, never held by maintenance. A suite may override it.
+  const init = { method, headers: { 'x-app-platform': 'tool', ...headers } };
   if (token) init.headers.authorization = `Bearer ${token}`;
   if (body !== undefined) {
     if (typeof body === 'string') {
@@ -203,7 +205,7 @@ const openClients = new Set();
  */
 export const openClient = async (token, { timeoutMs = 4000, query, leaveOnClose = true } = {}) => {
   const socket = connect(baseUrl, {
-    auth: token === undefined ? undefined : { token },
+    auth: token === undefined ? undefined : { token, appPlatform: 'tool' },
     query,
     transports: ['websocket'],
     forceNew: true,

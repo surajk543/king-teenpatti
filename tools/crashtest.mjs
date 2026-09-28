@@ -213,7 +213,7 @@ const kill = async (child, signal = 'SIGKILL') => {
 // ------------------------------------------------------------------ client
 async function login(baseUrl, schema, i) {
   const r = await fetch(`${baseUrl}/api/auth/login`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-app-platform': 'tool' },
     body: JSON.stringify({ provider: 'guest', deviceId: `crashtest-${schema}-${i}-device`, displayName: `Crash${i}` }),
   });
   if (!r.ok) throw new Error(`login ${i}: ${r.status}`);
@@ -222,7 +222,7 @@ async function login(baseUrl, schema, i) {
 
 /** A player that joins a blind table and plays whatever it is offered. */
 function connect(baseUrl, user, rec) {
-  const socket = io(baseUrl, { auth: { token: user.token }, transports: ['websocket'], forceNew: true, reconnection: false });
+  const socket = io(baseUrl, { auth: { token: user.token, appPlatform: 'tool' }, transports: ['websocket'], forceNew: true, reconnection: false });
   rec.events = [];
   let act = () => {};
   socket.onAny((name, payload) => {
