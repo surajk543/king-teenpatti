@@ -7,10 +7,10 @@ import (
 )
 
 // The one-time XP missions (owner, 28 Sep 2026) count a poker hand by its
-// game — "First Poker Hand" any of the four, "Texas Hold'em Debut" Texas
-// Hold'em alone — which the ledger reads off the hand-end settle: the room's
-// category on the request (SettleRequest.Category), agreeing with what its
-// rows are written under.
+// game — "Game Explorer" one game per category, and a mission a row scopes to
+// Poker any of the four or to Texas Hold'em alone — which the ledger reads off
+// the hand-end settle: the room's category on the request
+// (SettleRequest.Category), agreeing with what its rows are written under.
 func TestAPokerSettleNamesItsGame(t *testing.T) {
 	for _, variant := range []Variant{TexasHoldem, Omaha} {
 		t.Run(string(variant), func(t *testing.T) {

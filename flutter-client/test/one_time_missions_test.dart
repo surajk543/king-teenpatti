@@ -103,11 +103,11 @@ void main() {
       expect(l.missions.map((m) => m.code), [
         for (final m in ownersMissions) m.$1,
       ]);
-      final texas = l.sourceOf('TEXAS_HOLDEM_DEBUT')!;
-      expect(texas.oneTime, isTrue);
-      expect(texas.target, 1);
-      expect(texas.scope, 'texas_holdem');
-      expect(texas.xp, 15);
+      final explorer = l.sourceOf('VARIATION_EXPLORER')!;
+      expect(explorer.oneTime, isTrue);
+      expect(explorer.target, 1);
+      expect(explorer.scope, 'variation');
+      expect(explorer.xp, 10);
       expect(l.sourceOf('WIN_PAIR')!.oneTime, isFalse);
     });
 
@@ -187,7 +187,7 @@ void main() {
   });
 
   group('what each asks', () {
-    test('the owner\'s twelve, in English', () {
+    test('the owner\'s eight, in English', () {
       final t = Strings(AppLang.english);
       final l = ladder(withMissions: true);
       expect(
@@ -199,16 +199,33 @@ void main() {
           'FIRST_5_WINS': 'Win 5 hands',
           'CARD_PLAYER': 'Play 50 hands',
           'WINNING_STREAK': 'Win 10 hands',
-          'FIRST_POKER_HAND': 'Play 1 Poker hand',
-          'FIRST_POKER_WIN': 'Win 1 Poker hand',
-          'TEXAS_HOLDEM_DEBUT': "Play 1 Texas Hold'em hand",
-          'POKER_REGULAR': 'Play 50 Poker hands',
           'VARIATION_EXPLORER': 'Play 1 Variation hand',
           'GAME_EXPLORER': 'Play 5 different games',
         },
       );
       // A mission is named by its title; the task says what it asks.
       expect(xpSourceName(t, l.sourceOf('CARD_PLAYER')!), 'Card Player');
+      // The seed has no Poker mission any more (owner, 28 Sep 2026), but a
+      // row an owner adds may still be scoped to an engine or a category,
+      // and says so in the game's own name.
+      const pokerWin = LadderSource(
+        code: 'POKER_WIN',
+        xp: 20,
+        kind: LadderSource.kindHandsWon,
+        type: LadderSource.typeOneTime,
+        target: 1,
+        scope: 'poker',
+      );
+      expect(missionTask(t, pokerWin), 'Win 1 Poker hand');
+      const texas = LadderSource(
+        code: 'TEXAS_DEBUT',
+        xp: 15,
+        kind: LadderSource.kindHandsPlayed,
+        type: LadderSource.typeOneTime,
+        target: 1,
+        scope: 'texas_holdem',
+      );
+      expect(missionTask(t, texas), "Play 1 Texas Hold'em hand");
       // The variations reading (one UPDATE on the server).
       const variations = LadderSource(
         code: 'VARIATION_EXPLORER',
@@ -241,7 +258,7 @@ void main() {
           t.xpOneTimeTitle,
           t.xpOneTimeNote,
           t.xpMissionCompleted,
-          t.xpOneTimeDone(3, 12),
+          t.xpOneTimeDone(3, 8),
         ]) {
           expect(s, isNot(contains('{')), reason: lang.code);
         }
@@ -310,7 +327,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.text(t.xpOneTimeDone(3, 12), skipOffstage: false),
+        find.text(t.xpOneTimeDone(3, 8), skipOffstage: false),
         findsOneWidget,
       );
       expect(find.text(t.xpOneTimeTitle, skipOffstage: false), findsOneWidget);
@@ -369,14 +386,14 @@ void main() {
       }
       // The title, what it asks and the XP it gives.
       final tile = find.byKey(
-        const ValueKey('xp-mission-TEXAS_HOLDEM_DEBUT'),
+        const ValueKey('xp-mission-CARD_PLAYER'),
         skipOffstage: false,
       );
       for (final words in [
-        "Texas Hold'em Debut",
-        "Play 1 Texas Hold'em hand",
-        '+15 XP',
-        '0 / 1',
+        'Card Player',
+        'Play 50 hands',
+        '+50 XP',
+        '0 / 50',
       ]) {
         expect(
           find.descendant(of: tile, matching: find.text(words)),
@@ -386,7 +403,7 @@ void main() {
       }
       // No countdown on any mission: no reset, no timer.
       final section = find.byType(OneTimeMissionTile, skipOffstage: false);
-      expect(section, findsNWidgets(12));
+      expect(section, findsNWidgets(8));
       for (final e in section.evaluate()) {
         final of = find.byWidget(e.widget, skipOffstage: false);
         expect(
@@ -505,7 +522,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        find.text(state.t.xpOneTimeDone(4, 12), skipOffstage: false),
+        find.text(state.t.xpOneTimeDone(4, 8), skipOffstage: false),
         findsOneWidget,
       );
       await unmountLevel(tester, state);
@@ -662,7 +679,7 @@ void main() {
             ),
           );
           final tiles = find.byType(OneTimeMissionTile, skipOffstage: false);
-          expect(tiles, findsNWidgets(12), reason: where);
+          expect(tiles, findsNWidgets(8), reason: where);
           for (final e in tiles.evaluate()) {
             final r = tester.getRect(
               find.byWidget(e.widget, skipOffstage: false),

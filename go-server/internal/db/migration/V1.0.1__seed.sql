@@ -1059,10 +1059,13 @@ VALUES ('PLAY_15_MIN',       'Play 15 active minutes',  '🎮', 'PLAY_TIME', 15,
 
 -- The ONE-TIME missions (owner, 28 Sep 2026: "Add a new mission type:
 -- ONE_TIME. One-time missions are permanent missions that a player can
--- complete only once"), the owner's twelve — each once in a player's life,
+-- complete only once"), the owner's eight — each once in a player's life,
 -- never reset — at a TENTH of the XP first given (owner, the same day: "reduce
--- the XP Granted value", ÷10), so the missions alone lift a player to Level 3
--- (250 XP) rather than Level 9:
+-- the XP Granted value", ÷10), so the missions alone lift a player to Level 2
+-- (100 XP). The four Poker missions first given with them (First Poker Hand,
+-- First Poker Win, Texas Hold'em Debut, Poker Regular) were taken out the same
+-- day (owner: "Remove Poker and texas related one time XP from DB, we don't
+-- need"):
 --
 --   First Hand            play 1 hand                +5     FIRST_HAND
 --   First Win             win 1 hand                 +10    FIRST_WIN
@@ -1070,14 +1073,10 @@ VALUES ('PLAY_15_MIN',       'Play 15 active minutes',  '🎮', 'PLAY_TIME', 15,
 --   First 5 Wins          win 5 hands                +30    FIRST_5_WINS
 --   Card Player           play 50 hands              +50    CARD_PLAYER
 --   Winning Streak        win 10 hands               +75    WINNING_STREAK
---   First Poker Hand      play 1 Poker hand          +10    FIRST_POKER_HAND
---   First Poker Win       win 1 Poker hand           +20    FIRST_POKER_WIN
---   Texas Hold'em Debut   play 1 Texas Hold'em hand  +15    TEXAS_HOLDEM_DEBUT
---   Poker Regular         play 50 Poker hands        +75    POKER_REGULAR
 --   Variation Explorer    play 1 Variation hand      +10    VARIATION_EXPLORER
 --   Game Explorer         play 5 different games     +50    GAME_EXPLORER
 --
--- 365 XP in all (3,650 as first given), and none of it counted in a daily
+-- 245 XP in all (2,450 as first given), and none of it counted in a daily
 -- window. A hand is
 -- PLAYED as requirement 16 and player_stats say — the player put chips in
 -- beyond the boot (a chaal, raise or show; at poker any chips beyond the
@@ -1106,10 +1105,6 @@ VALUES ('FIRST_HAND',         'First Hand',          '🎴', 'HANDS_PLAYED',    
        ('FIRST_5_WINS',       'First 5 Wins',        '🥇', 'HANDS_WON',         'ONE_TIME', 5,  NULL,           30, 1, TRUE, 140),
        ('CARD_PLAYER',        'Card Player',         '♠️', 'HANDS_PLAYED',      'ONE_TIME', 50, NULL,           50, 1, TRUE, 150),
        ('WINNING_STREAK',     'Winning Streak',      '⚡', 'HANDS_WON',         'ONE_TIME', 10, NULL,           75, 1, TRUE, 160),
-       ('FIRST_POKER_HAND',   'First Poker Hand',    '♦️', 'HANDS_PLAYED',      'ONE_TIME', 1,  'poker',        10, 1, TRUE, 170),
-       ('FIRST_POKER_WIN',    'First Poker Win',     '💰', 'HANDS_WON',         'ONE_TIME', 1,  'poker',        20, 1, TRUE, 180),
-       ('TEXAS_HOLDEM_DEBUT', 'Texas Hold''em Debut', '🤠', 'HANDS_PLAYED',      'ONE_TIME', 1,  'texas_holdem', 15, 1, TRUE, 190),
-       ('POKER_REGULAR',      'Poker Regular',       '🎩', 'HANDS_PLAYED',      'ONE_TIME', 50, 'poker',        75, 1, TRUE, 200),
        ('VARIATION_EXPLORER', 'Variation Explorer',  '🔀', 'HANDS_PLAYED',      'ONE_TIME', 1,  'variation',    10, 1, TRUE, 210),
        ('GAME_EXPLORER',      'Game Explorer',       '🧭', 'CATEGORIES_PLAYED', 'ONE_TIME', 5,  NULL,           50, 1, TRUE, 220)
     ON CONFLICT (code) DO NOTHING;

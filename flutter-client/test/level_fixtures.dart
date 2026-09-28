@@ -118,7 +118,9 @@ List<String> get allSourceCodes => [for (final s in ownersSources) s.$1];
 
 /// The owner's one-time missions (28 Sep 2026) as the server seeds them:
 /// code, title, mark, kind, target, scope, XP — the XP a tenth of the first
-/// figures (owner, the same day: "reduce the XP Granted value").
+/// figures (owner, the same day: "reduce the XP Granted value"), and no Poker
+/// mission (owner, the same day: "Remove Poker and texas related one time XP
+/// from DB, we don't need").
 const List<(String, String, String, String, int, String?, int)>
 ownersMissions = [
   ('FIRST_HAND', 'First Hand', '🎴', 'HANDS_PLAYED', 1, null, 5),
@@ -127,26 +129,6 @@ ownersMissions = [
   ('FIRST_5_WINS', 'First 5 Wins', '🥇', 'HANDS_WON', 5, null, 30),
   ('CARD_PLAYER', 'Card Player', '♠️', 'HANDS_PLAYED', 50, null, 50),
   ('WINNING_STREAK', 'Winning Streak', '⚡', 'HANDS_WON', 10, null, 75),
-  (
-    'FIRST_POKER_HAND',
-    'First Poker Hand',
-    '♦️',
-    'HANDS_PLAYED',
-    1,
-    'poker',
-    10,
-  ),
-  ('FIRST_POKER_WIN', 'First Poker Win', '💰', 'HANDS_WON', 1, 'poker', 20),
-  (
-    'TEXAS_HOLDEM_DEBUT',
-    "Texas Hold'em Debut",
-    '🤠',
-    'HANDS_PLAYED',
-    1,
-    'texas_holdem',
-    15,
-  ),
-  ('POKER_REGULAR', 'Poker Regular', '🎩', 'HANDS_PLAYED', 50, 'poker', 75),
   (
     'VARIATION_EXPLORER',
     'Variation Explorer',

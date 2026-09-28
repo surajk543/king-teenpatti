@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// The one-time XP missions (owner, 28 Sep 2026: "First Poker Hand", "Texas
-// Hold'em Debut", "Game Explorer") count a hand by the category of the table
-// it was played at, which the ledger reads off the hand-end settle
+// The one-time XP missions (owner, 28 Sep 2026: "Variation Explorer", "Game
+// Explorer", any mission scoped to a game) count a hand by the category of the
+// table it was played at, which the ledger reads off the hand-end settle
 // (SettleRequest.Category): a Teen Patti table names its own, whatever the
 // hand's entries carry — which, at Teen Patti, is no category at all.
 func TestTheSettleNamesTheTablesCategory(t *testing.T) {

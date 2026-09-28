@@ -911,15 +911,19 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   completion, XP) rolls back with a replay's `duplicate_action` (§5.1), so neither a retry, a concurrent settle (other pool, other
   process) nor a restart gives it twice (`missions_test.go`, `missions_internal_test.go`: worker A completes, worker B waits on the
   row and grants 0). Nothing at a window's end touches the table. XP off (no `xp_settings` row) moves nothing. Bots are not special:
-  as for the daily XP, an `is_bot` account earns them. Account deletion keeps the rows (as `player_xp`). **The owner's twelve**
-  (V1.0.1, `ON CONFLICT (code) DO NOTHING`, sort_order 110–220, **365 XP in all** — a tenth of the 3,650 first given; owner, 28 Sep
-  2026: "reduce the XP Granted value"): First Hand 1 played +5 · First Win 1 won +10 ·
+  as for the daily XP, an `is_bot` account earns them. Account deletion keeps the rows (as `player_xp`). **The owner's eight**
+  (V1.0.1, `ON CONFLICT (code) DO NOTHING`, sort_order 110–160 and 210–220, **245 XP in all** — a tenth of the 2,450 first given;
+  owner, 28 Sep 2026: "reduce the XP Granted value"): First Hand 1 played +5 · First Win 1 won +10 ·
   Getting Started 10 played +15 · First 5 Wins 5 won +30 · Card Player 50 played +50 · Winning Streak 10 won +75 (ten wins in all,
-  not consecutive — the owner's name) · First Poker Hand 1 played `poker` +10 · First Poker Win 1 won `poker` +20 · Texas Hold'em
-  Debut 1 played `texas_holdem` +15 · Poker Regular 50 played `poker` +75 · Variation Explorer 1 played `variation` +10 (the other
+  not consecutive — the owner's name) · Variation Explorer 1 played `variation` +10 (the other
   reading, different variations, is one UPDATE: `kind = 'VARIATIONS_PLAYED', scope = NULL`) · Game Explorer 5 `CATEGORIES_PLAYED`
-  +50. Progress counts from the deploy (no backfill from `player_stats`). The seeded missions alone lift a player to Level 3 (250 XP;
-  19.43%), where the first figures reached Level 9.
+  +50. **The four Poker missions first given with them** (First Poker Hand, First Poker Win, Texas Hold'em Debut, Poker Regular —
+  sort_order 170–200) **were taken out the same day** (owner: "Remove Poker and texas related one time XP from DB, we don't need");
+  a database that ran the seed with them keeps its rows until they are deleted by hand (`DELETE FROM xp_sources WHERE code IN
+  ('FIRST_POKER_HAND','FIRST_POKER_WIN','TEXAS_HOLDEM_DEBUT','POKER_REGULAR')` — `player_xp_missions` CASCADEs). A scope is still an
+  open choice for a row an owner adds (`poker`, `texas_holdem` …; `TestScopedMissionsCountOnlyTheirGames` inserts its own). Progress
+  counts from the deploy (no backfill from `player_stats`). The seeded missions alone lift a player to Level 2 (100 XP; 19.71%),
+  where the first figures reached Level 9.
   **Wire**: `user.playerLevel.missions` — `[{code, type:"ONE_TIME", progress, target, completed, completedAt?, xpAwarded?}]` for every
   ACTIVE mission the player has moved or completed (absent when none; no reset or expiry field) — on every account read and in
   `player:level`, which the settle now also pushes when only a mission's progress moved (`SettledHand.Levels`).
@@ -971,8 +975,8 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   tab in UI one Time XP, on the side of Daily XP" — it was a section under the daily list for its first hours; `LevelInfoTab.oneTime`,
   `Icons.task_alt_rounded`, pane key `winning-tax-one-time`): the **One-Time missions** (`OneTimeMissionTile`, 230dp tiles in the
   hand tiles' style, no `LevelClock` — no window touches them): the server's title, what it asks in the player's words (`missionTask`,
-  `missionGameName`: "Play 10 hands", "Win 1 Poker hand", "Play 5 different games"), "+XP", "7 / 10" beside a 6dp `LevelBar` while
-  open, the green tick and "Completed" once done (the tile edged green), never a countdown, the heading "n / 12 completed"; from a
+  `missionGameName`: "Play 10 hands", "Play 1 Variation hand", "Play 5 different games"), "+XP", "7 / 10" beside a 6dp `LevelBar` while
+  open, the green tick and "Completed" once done (the tile edged green), never a countdown, the heading "n / 8 completed"; from a
   server without missions the tab says there are none (`xpOneTimeNone`, key `one-time-none`) (`LevelLadder.missions`/`sourceOf`, `LadderSource.type/target/scope`, `PlayerLevel.missions` →
   `MissionProgress`; `dailyMax` sums the daily sources alone, `levelSignatureOf` includes the missions; 15 strings in all five
   languages, and the tab's `xpOneTimeTab`/`xpOneTimeNone`; `test/one_time_missions_test.dart`, scenes `one_time` and `one_time_end` in
@@ -1969,10 +1973,10 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
     **`tools/node_modules`** — `cd tools && npm install`. `internal/game/interop_test.go` (every hand ranking and every
     sanitising result vs the Node engine) needs **`NODE_REFERENCE_DIR`** = a checkout of the removed `server/` tree with
     `node_modules` (`git worktree add /tmp/node-ref c19963b && (cd /tmp/node-ref/server && npm ci)`).
-  - **The one-time XP missions** (§6.6; 28 Sep 2026): `internal/db/missions_test.go` (the owner's twelve as seeded; partial
-    progress to completion; nothing again after it — 24 h, a week, a new login, a restart; a replayed settle; eight concurrent
+  - **The one-time XP missions** (§6.6; 28 Sep 2026): `internal/db/missions_test.go` (the owner's eight as seeded, and no Poker
+    one; partial progress to completion; nothing again after it — 24 h, a week, a new login, a restart; a replayed settle; eight concurrent
     settles through two pools and one hand from both; the daily XP beside the missions exactly as alone, a daily cap limiting the
-    daily XP only; poker missions only from poker hands, Texas Hold'em Debut only from Texas Hold'em; different categories and
+    daily XP only; missions the test adds scoped to Poker count only poker hands, one scoped to Texas Hold'em only Texas Hold'em; different categories and
     variations; leavers and money-only rows; misconfigured or switched-off missions; the ladder's two lists; a database from before
     them brought forward by one boot), `missions_internal_test.go` (worker A completes, worker B waits on the row and grants 0;
     twelve racing transactions grant once), `game/missions_category_test.go` and `poker/missions_category_test.go` (the settle names

@@ -3,7 +3,7 @@ package db_test
 // The ONE_TIME missions (owner, 28 Sep 2026: "One-time missions are permanent
 // missions that a player can complete only once … The system should now
 // support DAILY and ONE_TIME. Do not remove or modify the existing DAILY
-// behavior"; db/levels.go, V1.0.0's PLAYER LEVELS): the owner's twelve as
+// behavior"; db/levels.go, V1.0.0's PLAYER LEVELS): the owner's eight as
 // seeded, progress and completion through the hand-end settle, the XP given
 // once whatever replays, retries, concurrent settles or restarts ask again,
 // the daily XP earning beside them exactly as it does alone, and a database
@@ -131,9 +131,11 @@ func (f *fixture) onlyMissions(codes ...string) {
 	}
 }
 
-// ownersMissions is the owner's twelve (28 Sep 2026), exactly: code, title,
+// ownersMissions is the owner's eight (28 Sep 2026), exactly: code, title,
 // kind, target, scope and XP, in their order — the XP a tenth of the first
-// figures (owner, the same day: "reduce the XP Granted value").
+// figures (owner, the same day: "reduce the XP Granted value"), and none of
+// the four Poker missions first given with them (owner, the same day: "Remove
+// Poker and texas related one time XP from DB, we don't need").
 var ownersMissions = []string{
 	"FIRST_HAND|First Hand|HANDS_PLAYED|1||5",
 	"FIRST_WIN|First Win|HANDS_WON|1||10",
@@ -141,18 +143,15 @@ var ownersMissions = []string{
 	"FIRST_5_WINS|First 5 Wins|HANDS_WON|5||30",
 	"CARD_PLAYER|Card Player|HANDS_PLAYED|50||50",
 	"WINNING_STREAK|Winning Streak|HANDS_WON|10||75",
-	"FIRST_POKER_HAND|First Poker Hand|HANDS_PLAYED|1|poker|10",
-	"FIRST_POKER_WIN|First Poker Win|HANDS_WON|1|poker|20",
-	"TEXAS_HOLDEM_DEBUT|Texas Hold'em Debut|HANDS_PLAYED|1|texas_holdem|15",
-	"POKER_REGULAR|Poker Regular|HANDS_PLAYED|50|poker|75",
 	"VARIATION_EXPLORER|Variation Explorer|HANDS_PLAYED|1|variation|10",
 	"GAME_EXPLORER|Game Explorer|CATEGORIES_PLAYED|5||50",
 }
 
-// TestTheSeededOneTimeMissionsAreTheOwnersTwelve: a fresh database holds the
-// owner's twelve missions, every one ONE_TIME, active and with its icon, after
-// the eight daily sources — which stay DAILY — and nobody's progress.
-func TestTheSeededOneTimeMissionsAreTheOwnersTwelve(t *testing.T) {
+// TestTheSeededOneTimeMissionsAreTheOwnersEight: a fresh database holds the
+// owner's eight missions and no Poker one, every one ONE_TIME, active and with
+// its icon, after the eight daily sources — which stay DAILY — and nobody's
+// progress.
+func TestTheSeededOneTimeMissionsAreTheOwnersEight(t *testing.T) {
 	f := newFixture(t)
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT code, name, kind, target, COALESCE(scope, ''), xp, icon <> '', is_active
 	     FROM xp_sources WHERE mission_type = 'ONE_TIME' ORDER BY sort_order`)
@@ -178,8 +177,11 @@ func TestTheSeededOneTimeMissionsAreTheOwnersTwelve(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(ownersMissions, "\n") {
 		t.Errorf("the one-time missions:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(ownersMissions, "\n"))
 	}
-	if total != 365 {
-		t.Errorf("the missions give %d XP in all, want 365", total)
+	if total != 245 {
+		t.Errorf("the missions give %d XP in all, want 245", total)
+	}
+	if n := f.count(`SELECT count(*) FROM xp_sources WHERE scope IN ('poker', 'three_card_poker', 'five_card_draw', 'texas_holdem', 'omaha')`); n != 0 {
+		t.Errorf("%d missions scoped to Poker, want none", n)
 	}
 	if n := f.count(`SELECT count(*) FROM xp_sources WHERE mission_type = 'DAILY'`); n != 8 {
 		t.Errorf("%d daily sources, want the eight", n)
@@ -496,14 +498,25 @@ func TestTheDailyXPEarnsBesideTheMissionsExactlyAsAlone(t *testing.T) {
 	}
 }
 
-// TestPokerMissionsCountOnlyTheirGames: a Teen Patti or Variation hand moves
-// no Poker mission; any poker hand moves First Poker Hand, First Poker Win and
-// Poker Regular; only a Texas Hold'em hand completes Texas Hold'em Debut; and
-// the general missions count every game.
-func TestPokerMissionsCountOnlyTheirGames(t *testing.T) {
+// TestScopedMissionsCountOnlyTheirGames: a mission scoped to an engine counts
+// that engine's hands alone, and one scoped to a category that category's: a
+// Teen Patti or Variation hand moves no Poker mission; any poker hand moves
+// Poker Hand, Poker Win and Poker Fifty; only a Texas Hold'em hand completes
+// Texas Debut; and the general missions count every game. The owner's
+// missions hold no Poker mission (28 Sep 2026: "we don't need"), and a scope
+// is data, so these four — the Poker missions as first given — are the test's
+// own rows.
+func TestScopedMissionsCountOnlyTheirGames(t *testing.T) {
 	f := newFixture(t)
+	if _, err := f.d.Pool.Exec(f.ctx, `INSERT INTO xp_sources (code, name, icon, kind, mission_type, target, scope, xp, times_per_window, is_active, sort_order)
+	    VALUES ('POKER_HAND',  'Poker Hand',  '♦️', 'HANDS_PLAYED', 'ONE_TIME', 1,  'poker',        10, 1, TRUE, 170),
+	           ('POKER_WIN',   'Poker Win',   '💰', 'HANDS_WON',    'ONE_TIME', 1,  'poker',        20, 1, TRUE, 180),
+	           ('TEXAS_DEBUT', 'Texas Debut', '🤠', 'HANDS_PLAYED', 'ONE_TIME', 1,  'texas_holdem', 15, 1, TRUE, 190),
+	           ('POKER_FIFTY', 'Poker Fifty', '🎩', 'HANDS_PLAYED', 'ONE_TIME', 50, 'poker',        75, 1, TRUE, 200)`); err != nil {
+		t.Fatal(err)
+	}
 	a, b := f.user("Poker"), f.user("Other")
-	pokerCodes := []string{"FIRST_POKER_HAND", "FIRST_POKER_WIN", "TEXAS_HOLDEM_DEBUT", "POKER_REGULAR"}
+	pokerCodes := []string{"POKER_HAND", "POKER_WIN", "TEXAS_DEBUT", "POKER_FIFTY"}
 	for _, c := range []game.Category{game.CategorySeen, game.CategoryBlind, game.CategoryVariation} {
 		f.settleAt(f.ledger, c, "", seat{user: a, won: true, played: true}, seat{user: b, played: true})
 	}
@@ -517,24 +530,24 @@ func TestPokerMissionsCountOnlyTheirGames(t *testing.T) {
 	}
 	// Omaha: the poker missions but not the Texas one; a loss moves no win.
 	f.settleAt(f.ledger, game.CategoryOmaha, "", seat{user: b, won: true, played: true}, seat{user: a, played: true})
-	if got := f.completedMissions(a.ID); !strings.Contains(got, "FIRST_POKER_HAND") || strings.Contains(got, "FIRST_POKER_WIN") ||
-		strings.Contains(got, "TEXAS_HOLDEM_DEBUT") {
+	if got := f.completedMissions(a.ID); !strings.Contains(got, "POKER_HAND") || strings.Contains(got, "POKER_WIN") ||
+		strings.Contains(got, "TEXAS_DEBUT") {
 		t.Fatalf("after an Omaha loss: %s", got)
 	}
-	if got := f.mission(a.ID, "POKER_REGULAR"); got.Progress != 1 || got.Target != 50 {
-		t.Fatalf("Poker Regular: %+v", got)
+	if got := f.mission(a.ID, "POKER_FIFTY"); got.Progress != 1 || got.Target != 50 {
+		t.Fatalf("Poker Fifty: %+v", got)
 	}
-	// 3-Card Poker against the house: a win moves First Poker Win, and it is
-	// not Texas Hold'em either.
+	// 3-Card Poker against the house: a win moves Poker Win, and it is not
+	// Texas Hold'em either.
 	f.settleAt(f.ledger, game.CategoryThreeCardPoker, "", seat{user: a, won: true, played: true})
-	if got := f.completedMissions(a.ID); !strings.Contains(got, "FIRST_POKER_WIN") || strings.Contains(got, "TEXAS_HOLDEM_DEBUT") {
+	if got := f.completedMissions(a.ID); !strings.Contains(got, "POKER_WIN") || strings.Contains(got, "TEXAS_DEBUT") {
 		t.Fatalf("after a 3-Card Poker win: %s", got)
 	}
 	// Texas Hold'em: the debut, once.
 	before := f.xpOf(a.ID)
 	f.settleAt(f.ledger, game.CategoryTexasHoldem, "", seat{user: b, won: true, played: true}, seat{user: a, played: true})
-	if got := f.mission(a.ID, "TEXAS_HOLDEM_DEBUT"); !got.Completed || got.XPAwarded != 15 || f.xpOf(a.ID) != before+15 {
-		t.Fatalf("Texas Hold'em Debut: %+v, XP %d → %d", got, before, f.xpOf(a.ID))
+	if got := f.mission(a.ID, "TEXAS_DEBUT"); !got.Completed || got.XPAwarded != 15 || f.xpOf(a.ID) != before+15 {
+		t.Fatalf("Texas Debut: %+v, XP %d → %d", got, before, f.xpOf(a.ID))
 	}
 	// A poker hand the player did not play (folded before any voluntary bet)
 	// moves no "played" mission.
@@ -551,7 +564,7 @@ func TestPokerMissionsCountOnlyTheirGames(t *testing.T) {
 	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: "r", HandID: hand, Category: game.CategoryThreeCardPoker, Entries: []game.SettleEntry{entry}}); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.completedMissions(pushed.ID); got != "FIRST_HAND,FIRST_POKER_HAND" {
+	if got := f.completedMissions(pushed.ID); got != "FIRST_HAND,POKER_HAND" {
 		t.Fatalf("a push: %s, want played and not won", got)
 	}
 }
@@ -595,8 +608,7 @@ func TestExplorerMissionsCountDifferentGames(t *testing.T) {
 	if !got.Completed || got.Progress != 5 || got.XPAwarded != 50 {
 		t.Fatalf("the fifth game: %+v", got)
 	}
-	// First Poker Hand came with the first Omaha hand, and Getting Started
-	// is at 9 of 10: this hand gave Game Explorer's 50 alone.
+	// Getting Started is at 9 of 10: this hand gave Game Explorer's 50 alone.
 	if f.xpOf(a.ID) != before+50 {
 		t.Fatalf("the fifth game gave %d XP, want Game Explorer's 50", f.xpOf(a.ID)-before)
 	}
@@ -730,7 +742,7 @@ func TestAMissionOffOrMisconfiguredEarnsNothing(t *testing.T) {
 // TestTheLadderListsTheMissionsApartFromTheDailySources: GET /api/levels'
 // read keeps xpSources the eight daily sources — every one typed DAILY, no
 // target, their XP summing to the 108 an older app shows as a window's most —
-// and lists the twelve missions beside them, typed ONE_TIME, each with its
+// and lists the eight missions beside them, typed ONE_TIME, each with its
 // target and scope and no daily reset.
 func TestTheLadderListsTheMissionsApartFromTheDailySources(t *testing.T) {
 	f := newFixture(t)
@@ -760,7 +772,7 @@ func TestTheLadderListsTheMissionsApartFromTheDailySources(t *testing.T) {
 	}
 	raw, _ := json.Marshal(ladder)
 	for _, want := range []string{`"type":"DAILY"`, `"missions":[{"code":"FIRST_HAND","name":"First Hand","icon":"🎴","kind":"HANDS_PLAYED","type":"ONE_TIME","target":1,"xp":5,"times":1}`,
-		`"scope":"texas_holdem"`} {
+		`"scope":"variation"`} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("the ladder's JSON lacks %s:\n%s", want, raw)
 		}
@@ -772,7 +784,7 @@ func TestTheLadderListsTheMissionsApartFromTheDailySources(t *testing.T) {
 // database whose xp_sources has the daily sources and none of mission_type,
 // target and scope, and no player_xp_missions, with a player's daily XP in it.
 // One boot adds the three columns — every existing source DAILY by the
-// DEFAULT — creates the table and seeds the twelve; the player's XP and daily
+// DEFAULT — creates the table and seeds the eight; the player's XP and daily
 // claims are untouched, the daily XP earns as before, a mission completes; a
 // second boot changes nothing.
 func TestABootBringsTheXPSourcesForwardForMissions(t *testing.T) {
@@ -818,8 +830,8 @@ func TestABootBringsTheXPSourcesForwardForMissions(t *testing.T) {
 	     ('PLAY_15_MIN', 'PLAY_60_MIN', 'PLAY_120_MIN', 'WIN_PAIR', 'WIN_COLOR', 'WIN_SEQUENCE', 'WIN_PURE_SEQUENCE', 'WIN_TRAIL')`); n != 8 {
 		t.Errorf("%d of the daily sources read DAILY after the upgrade, want all 8", n)
 	}
-	if n := countOf(t, d, `SELECT count(*) FROM xp_sources WHERE mission_type = 'ONE_TIME' AND is_active`); n != 12 {
-		t.Errorf("%d missions after the upgrade, want the seed's 12", n)
+	if n := countOf(t, d, `SELECT count(*) FROM xp_sources WHERE mission_type = 'ONE_TIME' AND is_active`); n != 8 {
+		t.Errorf("%d missions after the upgrade, want the seed's 8", n)
 	}
 	// The player's XP and claim are as they were.
 	upgraded := db.NewUsers(d, welcome, clock.Now)
@@ -845,8 +857,8 @@ func TestABootBringsTheXPSourcesForwardForMissions(t *testing.T) {
 	}
 	// A second boot is a no-op.
 	reboot(t, d)
-	if n := countOf(t, d, `SELECT count(*) FROM xp_sources`); n != 20 {
-		t.Errorf("%d sources after a second boot, want 20", n)
+	if n := countOf(t, d, `SELECT count(*) FROM xp_sources`); n != 16 {
+		t.Errorf("%d sources after a second boot, want 16", n)
 	}
 	if n := countOf(t, d, `SELECT count(*) FROM player_xp_missions WHERE user_id = $1 AND completed_at > 0`, a.ID); n != 2 {
 		t.Errorf("%d completions after a second boot, want First Hand and First Win", n)

@@ -1331,9 +1331,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS player_reports_one_per_hand
 -- (3 + 20 + 50) and a win with each of Pair, Color, Sequence, Pure Sequence
 -- and Trail (1 + 2 + 4 + 8 + 20), each once — so Level 10 (4,000 XP) is at
 -- least 38 days away. The ladder, the sources, the window and any cap are all
--- rows the owner can edit. The seeded ONE_TIME missions add 365 XP once in a
--- player's life (a tenth of the 3,650 first given; owner, 28 Sep 2026), and
--- none of it to any window.
+-- rows the owner can edit. The seeded ONE_TIME missions add 245 XP once in a
+-- player's life (a tenth of the XP first given, and no Poker missions; owner,
+-- 28 Sep 2026), and none of it to any window.
 CREATE TABLE IF NOT EXISTS player_levels (
   level      SMALLINT PRIMARY KEY CHECK (level >= 1),
   -- The XP that reaches this level. UNIQUE: two levels at one threshold would

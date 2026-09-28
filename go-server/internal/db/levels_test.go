@@ -125,7 +125,7 @@ func TestTheSeededLevelsAreTheOwnersTable(t *testing.T) {
 	}
 	// The daily XP, as the owner gave it (27 Sep 2026): each once a window —
 	// every one of them DAILY. The one-time missions seeded beside them (28 Sep
-	// 2026) are TestTheSeededOneTimeMissionsAreTheOwnersTwelve's.
+	// 2026) are TestTheSeededOneTimeMissionsAreTheOwnersEight's.
 	srcRows, err := f.d.Pool.Query(f.ctx, `SELECT code, name, icon, kind, COALESCE(play_minutes, 0), COALESCE(hand_rank, ''),
 	       xp, times_per_window, is_active FROM xp_sources WHERE mission_type = 'DAILY' ORDER BY sort_order`)
 	if err != nil {
