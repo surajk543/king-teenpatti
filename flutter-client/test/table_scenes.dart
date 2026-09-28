@@ -965,14 +965,20 @@ RoomState placesRoom(int places, {List<int> empty = const []}) => _room(
 
 /// Somebody else's turn at a seen table: every stack public, the viewer's own
 /// cards face up, nothing on the console to press.
-RoomState seenOpponentTurnRoom({bool isPrivate = false}) => _room(
-  isPrivate: isPrivate,
-  category: 'seen',
-  maxPot: 2000000,
-  turnSeat: 2,
-  seats: _seenSeats(),
-  you: _you(blind: false, cards: const ['As', 'Kd', 'Qh'], blindMovesLeft: 0),
-);
+RoomState seenOpponentTurnRoom({bool isPrivate = false, int handNo = 7}) =>
+    _room(
+      isPrivate: isPrivate,
+      category: 'seen',
+      maxPot: 2000000,
+      handNo: handNo,
+      turnSeat: 2,
+      seats: _seenSeats(),
+      you: _you(
+        blind: false,
+        cards: const ['As', 'Kd', 'Qh'],
+        blindMovesLeft: 0,
+      ),
+    );
 
 /// A hand at a variation table played under AK47: the viewer on turn when
 /// [yours], the player across the table when not.
@@ -1194,3 +1200,116 @@ Widget tableApp({
     home: const TableScreen(),
   ),
 );
+
+/// Everyone at a blind table of [places] places waiting for its first deal
+/// (the review of 29 Sep 2026: emojis sent while a table waits, then the
+/// deal): nobody holds a card or has bet, every seat and the viewer waiting.
+RoomState waitingRoom({int places = 5}) => _room(
+  state: 'waiting',
+  handNo: 0,
+  pot: 0,
+  stake: 0,
+  seats: [
+    for (var i = 0; i < places; i++)
+      _seat(
+        i,
+        chips: i == 0 ? 245000 : null,
+        status: 'waiting',
+        lastBet: 0,
+        contributed: 0,
+        lastAction: '',
+        cardCount: 0,
+      ),
+  ],
+  you: _you(status: 'waiting'),
+);
+
+/// A hand at a blind table of [places] places, dealt as hand [handNo], with
+/// [turnSeat] on turn — the viewer, with their keys lit, when it is 0.
+RoomState blindTurnRoom({int handNo = 7, int turnSeat = 2, int places = 5}) =>
+    _room(
+      handNo: handNo,
+      turnSeat: turnSeat,
+      seats: _blindSeats().take(places).toList(),
+      you: _you(
+        canMissile: turnSeat == 0,
+        options: turnSeat == 0
+            ? {
+                'canSee': true,
+                'canPack': true,
+                'canSideshow': false,
+                'canForceSideshow': false,
+                'raiseSteps': [400, 800],
+                'chips': 245000,
+                'currentStake': 400,
+              }
+            : null,
+      ),
+    );
+
+/// The viewer has won a seen hand at a show, as hand [handNo]: Ravi, Arjun
+/// and Vikramaditya packed, Meera beaten (scene 07).
+RoomState youWonRoom({int handNo = 7}) {
+  final seats = _seenSeats(packed: ['u1', 'u3', 'u4']);
+  seats[0]['status'] = 'won';
+  seats[2]['status'] = 'lost';
+  return _room(
+    category: 'seen',
+    state: 'showdown',
+    handNo: handNo,
+    maxPot: 2000000,
+    pot: 14200,
+    seats: seats,
+    you: _you(
+      status: 'won',
+      blind: false,
+      cards: const ['Ah', 'Ad', 'Ac'],
+      blindMovesLeft: 0,
+    ),
+  );
+}
+
+/// The show that [youWonRoom] ends with: the viewer's trail over Meera's
+/// high card.
+void youWonShowdown(GameState s) => s.handleShowdown((
+  reveals: [
+    Reveal.fromJson({
+      'userId': 'u0',
+      'displayName': 'Priya',
+      'cards': ['Ah', 'Ad', 'Ac'],
+      'handName': 'Trail',
+      'won': true,
+    }),
+    Reveal.fromJson({
+      'userId': 'u2',
+      'displayName': 'Meera',
+      'cards': ['9h', '8h', '2c'],
+      'handName': 'High Card',
+      'won': false,
+    }),
+  ],
+  result: 'show',
+  winnerId: 'u0',
+  winnerName: 'Priya',
+  pot: 14200,
+  nextHandAt: _now + 60000,
+  reason: 'show',
+));
+
+/// [pokerRoom] on a new street: the turn card dealt and nobody's bet on it
+/// yet, so every seat's street bet has gone from its badge.
+RoomState pokerNewStreetRoom() {
+  final j = pokerRoomJson();
+  final poker = j['poker'] as Map<String, dynamic>;
+  poker['street'] = 'turn';
+  poker['community'] = ['Ah', '7d', '9c', 'Qs'];
+  poker['currentBet'] = 0;
+  for (final seat in (j['seats'] as List).cast<Map<String, dynamic>>()) {
+    seat['streetBet'] = 0;
+    seat['lastAction'] = 'check';
+  }
+  (j['you'] as Map<String, dynamic>)['streetBet'] = 0;
+  j['turn'] = {'seatIndex': 3, 'userId': _ids[3], 'deadline': _now + 15000};
+  (j['you'] as Map<String, dynamic>).remove('options');
+  return RoomState.fromJson(j);
+}

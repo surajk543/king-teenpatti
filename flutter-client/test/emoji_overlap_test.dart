@@ -108,35 +108,14 @@ void _expectApart(WidgetTester tester, List<String> ids) {
 Finder _private(String type) =>
     find.byWidgetPredicate((w) => w.runtimeType.toString() == type);
 
-/// Everything painted over [userId]'s seat, by name: the seats the felt paints
-/// after it — the rim in view order, then the viewer's — the part of its own
-/// seat that stands beside its pod (the head seat's cards), the viewer's own
-/// hand, and the controls the screen stands over the felt's corners. In these
-/// scenes seat i is `u<i>` and the viewer is u0, so the order is [seated]'s
-/// with u0 last.
-Map<String, Rect> _paintedOver(
-  WidgetTester tester,
-  String userId,
-  List<String> seated, {
-  bool poker = false,
-}) {
-  final order = [...seated.where((id) => id != 'u0'), 'u0'];
-  final later = order.sublist(order.indexOf(userId) + 1);
+/// What is painted over every seat — the viewer's own hand and cards, and
+/// the controls the screen stands over the felt's corners — by name.
+Map<String, Rect> _overEverySeat(WidgetTester tester, {bool poker = false}) {
   final cards = find.descendant(
     of: _private(poker ? '_PokerHand' : '_OwnHand'),
     matching: find.byType(PlayingCard),
   );
-  final seat = tester.getRect(_podOf(userId));
-  final pod = tester.getRect(_plaqueOf(userId));
   return {
-    for (final id in later) 'seat $id': tester.getRect(_podOf(id)),
-    if (seat.right - pod.right > 0.5)
-      'its own cards': Rect.fromLTRB(
-        pod.right,
-        seat.top,
-        seat.right,
-        seat.bottom,
-      ),
     for (var i = 0; i < cards.evaluate().length; i++)
       'the viewer\'s card $i': tester.getRect(cards.at(i)),
     if (!poker)
@@ -147,9 +126,57 @@ Map<String, Rect> _paintedOver(
         in poker
             ? const ['_PokerKeys', '_FoldKey']
             : const ['_MissileKey', '_PackKey', '_ActionCluster'])
-      key: tester.getRect(_private(key)),
+      if (_private(key).evaluate().isNotEmpty)
+        key: tester.getRect(_private(key)),
     'the Shop key': tester.getRect(find.byType(ShopButton)),
     'the wallet': tester.getRect(find.byType(TableWallet)),
+  };
+}
+
+/// What [userId]'s seat is saying, while it says it.
+Finder _speechOf(String userId) =>
+    find.descendant(of: _podOf(userId), matching: _private('_Bubble'));
+
+/// Everything painted over [userId]'s seat, by name: the seats the felt paints
+/// after it — the rim in view order, then the viewer's — and what they are
+/// saying, the part of its own seat that stands beside its pod (the head
+/// seat's cards), and what is painted over every seat ([_overEverySeat]). In
+/// these scenes seat i is `u<i>` and the viewer is u0, so the order is
+/// [seated]'s with u0 last. [shared] is [_overEverySeat], measured once.
+Map<String, Rect> _paintedOver(
+  WidgetTester tester,
+  String userId,
+  List<String> seated, {
+  bool poker = false,
+  Map<String, Rect>? shared,
+  Map<String, Rect>? seats,
+}) {
+  final order = [...seated.where((id) => id != 'u0'), 'u0'];
+  final later = order.sublist(order.indexOf(userId) + 1);
+  final seat = seats?[userId] ?? tester.getRect(_podOf(userId));
+  final pod = tester.getRect(_plaqueOf(userId));
+  return {
+    for (final id in later) ...{
+      'seat $id': seats?[id] ?? tester.getRect(_podOf(id)),
+      if (_speechOf(id).evaluate().isNotEmpty)
+        'what $id is saying': tester.getRect(_speechOf(id)),
+      for (final (i, text)
+          in find
+              .descendant(of: _podOf(id), matching: find.byType(Text))
+              .evaluate()
+              .indexed)
+        'the words of $id ($i)': tester.getRect(
+          find.byElementPredicate((e) => e == text),
+        ),
+    },
+    if (seat.right - pod.right > 0.5)
+      'its own cards': Rect.fromLTRB(
+        pod.right,
+        seat.top,
+        seat.right,
+        seat.bottom,
+      ),
+    ...shared ?? _overEverySeat(tester, poker: poker),
   };
 }
 
@@ -205,15 +232,14 @@ List<List<String>> _orders(List<String> ids) => ids.length <= 1
             [first, ...rest],
       ];
 
-/// The felt's own box, which every emoji plays inside.
-Rect _feltOf(WidgetTester tester, {bool poker = false}) => tester.getRect(
-  find
-      .descendant(
-        of: _private(poker ? '_PokerFelt' : '_Felt'),
-        matching: find.byType(LayoutBuilder),
-      )
-      .first,
-);
+/// How a sweep's orders are named: all of them, or one in [every].
+String _which(int every) => every == 1 ? 'every order' : 'one order in $every';
+
+/// Every [n]th of [orders], from the first: a deterministic part of a sweep
+/// where all of them would make the suite too slow to run.
+List<List<String>> _everyNth(List<List<String>> orders, int n) => [
+  for (var i = 0; i < orders.length; i += n) orders[i],
+];
 
 /// Every emoji playing on the felt, by its sender: where it stands and in
 /// which of its seat's places — found in one walk of the tree.
@@ -247,14 +273,108 @@ _Stage _stageOf(
   WidgetTester tester,
   List<String> seated, {
   bool poker = false,
-}) => (
-  felt: _feltOf(tester, poker: poker),
-  seats: {for (final id in seated) id: tester.getRect(_podOf(id))},
-  pods: {for (final id in seated) id: tester.getRect(_plaqueOf(id))},
-  over: {
-    for (final id in seated) id: _paintedOver(tester, id, seated, poker: poker),
-  },
-);
+}) {
+  // One walk of the tree — the sweeps measure this after every send and
+  // through every step — for what the finders above find one at a time.
+  final seats = <String, Rect>{};
+  final pods = <String, Rect>{};
+  final speech = <String, Rect>{};
+  final words = <String, List<Rect>>{};
+  final shared = <String, Rect>{};
+  Rect? felt;
+  var cards = 0;
+  Rect rectOf(Element e) {
+    final box = e.renderObject! as RenderBox;
+    return Rect.fromPoints(
+      box.localToGlobal(Offset.zero),
+      box.localToGlobal(box.size.bottomRight(Offset.zero)),
+    );
+  }
+
+  final keys = poker
+      ? const {'_PokerKeys', '_FoldKey'}
+      : const {'_MissileKey', '_PackKey', '_ActionCluster'};
+  final hand = poker ? '_PokerHand' : '_OwnHand';
+  final feltType = poker ? '_PokerFelt' : '_Felt';
+  void visit(Element e, {bool inHand = false, bool inFelt = false}) {
+    final widget = e.widget;
+    final type = widget.runtimeType.toString();
+    if (widget is SeatPod && widget.seat?.userId != null) {
+      final id = widget.seat!.userId!;
+      seats[id] = rectOf(e);
+      Element? plaque;
+      Element? said;
+      final texts = words[id] = [];
+      void inner(Element c) {
+        if (plaque == null && c.widget is GestureDetector) plaque = c;
+        if (said == null && c.widget.runtimeType.toString() == '_Bubble') {
+          said = c;
+        }
+        // Every word the seat writes: the viewer's status line stands over
+        // their pod, outside their seat's box.
+        if (c.widget is Text) texts.add(rectOf(c));
+        c.debugVisitOnstageChildren(inner);
+      }
+
+      e.debugVisitOnstageChildren(inner);
+      if (plaque case final p?) pods[id] = rectOf(p);
+      if (said case final w?) speech[id] = rectOf(w);
+      return;
+    }
+    if (inFelt && felt == null && widget is LayoutBuilder) felt = rectOf(e);
+    if (inHand && widget is PlayingCard) {
+      shared['the viewer\'s card ${cards++}'] = rectOf(e);
+    }
+    if (!poker &&
+        widget.key == const ValueKey('own-hand-column') &&
+        !shared.containsKey('the viewer\'s hand')) {
+      shared['the viewer\'s hand'] = rectOf(e);
+    }
+    if (keys.contains(type) && !shared.containsKey(type)) {
+      shared[type] = rectOf(e);
+    }
+    if (widget is ShopButton && !shared.containsKey('the Shop key')) {
+      shared['the Shop key'] = rectOf(e);
+    }
+    if (widget is TableWallet && !shared.containsKey('the wallet')) {
+      shared['the wallet'] = rectOf(e);
+    }
+    e.debugVisitOnstageChildren(
+      (c) => visit(
+        c,
+        inHand: inHand || type == hand,
+        inFelt: inFelt || type == feltType,
+      ),
+    );
+  }
+
+  tester.binding.rootElement!.debugVisitOnstageChildren(visit);
+  final order = [...seated.where((id) => id != 'u0'), 'u0'];
+  return (
+    felt: felt!,
+    seats: {for (final id in seated) id: seats[id]!},
+    pods: {for (final id in seated) id: pods[id]!},
+    over: {
+      for (final id in seated)
+        id: {
+          for (final later in order.sublist(order.indexOf(id) + 1)) ...{
+            'seat $later': seats[later]!,
+            'what $later is saying': ?speech[later],
+            for (final (i, text) in words[later]!.indexed)
+              'the words of $later ($i)': text,
+          },
+          if (seats[id]!.right - pods[id]!.right > 0.5)
+            'its own cards': Rect.fromLTRB(
+              pods[id]!.right,
+              seats[id]!.top,
+              seats[id]!.right,
+              seats[id]!.bottom,
+            ),
+          ...shared,
+        },
+    },
+  );
+}
 
 /// What is wrong with the emojis of [playing] as they stand ([now]), or
 /// null: one missing; off the felt (3); moved from where it [settled] (4);
@@ -339,6 +459,97 @@ Future<List<String>> _sweep(
       if (now[order[i]] case final sent?) {
         settled[order[i]] = sent.rect;
         places?.update(sent.place, (n) => n + 1, ifAbsent: () => 1);
+      }
+    }
+    if (fault != null) faults.add('${order.join(' > ')}: $fault');
+    await tester.pump(GameState.emojiBubbleFor);
+    await tester.pump();
+    expect(_playing(tester), isEmpty, reason: '${order.join(' > ')} ended');
+  }
+  return faults;
+}
+
+/// A change the table goes through while emojis play: its name, what it
+/// does to the table, and when after it to look — through any animation it
+/// starts (a deal's cards fly in over its first half second).
+typedef _Step = ({String name, void Function(GameState state) apply});
+
+/// How long after a step every emoji is looked at again: through the deal's
+/// entrance, frame by frame at first.
+const _watch = [
+  Duration(milliseconds: 16),
+  Duration(milliseconds: 50),
+  Duration(milliseconds: 100),
+  Duration(milliseconds: 166),
+  Duration(milliseconds: 300),
+  Duration(milliseconds: 700),
+];
+
+/// Sends each of [orders] at a table put into [start] — one emoji a player,
+/// [gap] apart — and then, while they all still play, takes the table
+/// through [steps] (the review of 29 Sep 2026: a deal to a table that was
+/// waiting, a hand won and the next dealt, the turn going round, a poker
+/// street). After every send, and again and again after every step
+/// ([_watch]), every emoji playing is checked against the table AS IT NOW
+/// STANDS: none meets another (1), none is under anything painted after its
+/// seat (2), none is off the felt (3), none has moved since it landed (4),
+/// and each is at its sender's seat (5). The orders that went wrong, each
+/// with its first fault; and how often each place was taken ([places]).
+Future<List<String>> _sweepThrough(
+  WidgetTester tester,
+  GameState state,
+  List<List<String>> orders,
+  List<String> seated, {
+  required void Function(GameState state) start,
+  List<_Step> steps = const [],
+  List<String>? seatedAfter,
+  bool poker = false,
+  Duration gap = const Duration(milliseconds: 300),
+  List<Duration> watch = _watch,
+  Map<EmojiPlace, int>? places,
+}) async {
+  final faults = <String>[];
+  var clock = 100000;
+  for (final order in orders) {
+    start(state);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 900));
+    final settled = <String, Rect>{};
+    String? fault;
+    for (var i = 0; i < order.length; i++) {
+      clock += gap.inMilliseconds;
+      state.handleChat(_emoji(order[i], order[i], clock));
+      await tester.pump();
+      await tester.pump(gap);
+      final now = _playing(tester);
+      fault ??= _faultIn(
+        order.sublist(0, i + 1),
+        now,
+        settled,
+        _stageOf(tester, seated, poker: poker),
+      );
+      if (now[order[i]] case final sent?) {
+        settled[order[i]] = sent.rect;
+        places?.update(sent.place, (n) => n + 1, ifAbsent: () => 1);
+      }
+    }
+    for (final step in steps) {
+      step.apply(state);
+      await tester.pump();
+      var elapsed = Duration.zero;
+      for (final at in watch) {
+        await tester.pump(at - elapsed);
+        elapsed = at;
+        if (fault != null) continue;
+        final why = _faultIn(
+          order,
+          _playing(tester),
+          settled,
+          _stageOf(tester, seatedAfter ?? seated, poker: poker),
+        );
+        if (why != null) {
+          fault = 'after ${step.name}, ${at.inMilliseconds} ms: $why';
+        }
       }
     }
     if (fault != null) faults.add('${order.join(' > ')}: $fault');
@@ -471,6 +682,345 @@ void main() {
     }
   }
 
+  // The third review (29 Sep 2026): placed once, the emojis moved with their
+  // seats. Emojis sent while a table waits for its first deal, then the deal
+  // (every rim seat's column grew a row of cards, and placed by its middle
+  // rose, the viewer's emoji ending on Meera's in every order at 640 and
+  // 1024); a hand the viewer wins and the next deal (their "Winner" line
+  // lifted their emoji onto Ravi's pod at 592 ×1.25). Every order, looked at
+  // again and again through each step: now the seats hold still and a placed
+  // emoji is pinned.
+  for (final (size, scale, every) in const [
+    (Size(640, 360), 1.0, 1),
+    (Size(1024, 600), 1.0, 1),
+    (Size(592, 360), 1.25, 3),
+    (Size(915, 412), 1.25, 3),
+  ]) {
+    testWidgets('at ${_nameOf(size, scale)}, ${_which(every)} of five emojis '
+        'while the table waits, then the deal', (tester) async {
+      final orders = _everyNth(_orders(everyone), every);
+      final places = <EmojiPlace, int>{};
+      final state = await _mount(
+        tester,
+        _scene('01-opponent-turn'),
+        size: size,
+        textScale: scale,
+      );
+      final faults = await _sweepThrough(
+        tester,
+        state,
+        orders,
+        everyone,
+        start: (s) => s.handleState(waitingRoom()),
+        steps: [
+          (
+            name: 'the deal',
+            apply: (s) => s.handleState(opponentTurnRoom(handNo: 1)),
+          ),
+        ],
+        places: places,
+      );
+      expect(faults, isEmpty, reason: _report(faults, orders.length));
+      expect(tester.takeException(), isNull);
+      await _unmount(tester, state);
+    });
+  }
+
+  for (final (size, scale, every) in const [
+    (Size(592, 360), 1.25, 1),
+    (Size(640, 360), 1.0, 3),
+    (Size(915, 412), 1.25, 3),
+  ]) {
+    testWidgets('at ${_nameOf(size, scale)}, ${_which(every)} of five emojis, '
+        'then the viewer wins and the next hand is dealt', (tester) async {
+      final orders = _everyNth(_orders(everyone), every);
+      final state = await _mount(
+        tester,
+        _scene('20-opponent-turn-seen'),
+        size: size,
+        textScale: scale,
+      );
+      final faults = await _sweepThrough(
+        tester,
+        state,
+        orders,
+        everyone,
+        start: (s) => s.handleState(seenOpponentTurnRoom()),
+        steps: [
+          (
+            name: 'the win',
+            apply: (s) {
+              s.handleState(youWonRoom());
+              youWonShowdown(s);
+            },
+          ),
+          (
+            name: 'the next deal',
+            apply: (s) => s.handleState(seenOpponentTurnRoom(handNo: 8)),
+          ),
+        ],
+      );
+      expect(faults, isEmpty, reason: _report(faults, orders.length));
+      expect(tester.takeException(), isNull);
+      await _unmount(tester, state);
+    });
+  }
+
+  // The turn going round the table while every emoji plays: the ring round
+  // the pod on turn makes its box taller, and the viewer's turn lights the
+  // keys at the foot.
+  for (final (size, scale, every) in const [
+    (Size(640, 360), 1.0, 3),
+    (Size(592, 360), 1.25, 3),
+    (Size(915, 412), 1.25, 3),
+  ]) {
+    testWidgets('at ${_nameOf(size, scale)}, ${_which(every)} of five emojis '
+        'while the turn goes round', (tester) async {
+      final orders = _everyNth(_orders(everyone), every);
+      final state = await _mount(
+        tester,
+        _scene('01-opponent-turn'),
+        size: size,
+        textScale: scale,
+      );
+      _Step turn(int seat) => (
+        name: 'the turn to u$seat',
+        apply: (s) => s.handleState(blindTurnRoom(turnSeat: seat)),
+      );
+      final faults = await _sweepThrough(
+        tester,
+        state,
+        orders,
+        everyone,
+        start: (s) => s.handleState(blindTurnRoom(turnSeat: 2)),
+        steps: [turn(3), turn(4), turn(0), turn(1)],
+        watch: const [Duration(milliseconds: 16), Duration(milliseconds: 300)],
+      );
+      expect(faults, isEmpty, reason: _report(faults, orders.length));
+      expect(tester.takeException(), isNull);
+      await _unmount(tester, state);
+    });
+  }
+
+  // A poker room's new street: every street bet leaves its badge.
+  for (final (size, scale, every) in const [
+    (Size(640, 360), 1.0, 1),
+    (Size(915, 412), 1.25, 3),
+  ]) {
+    testWidgets('at ${_nameOf(size, scale)}, a poker room: ${_which(every)} '
+        'of five emojis, then a new street', (tester) async {
+      final orders = _everyNth(_orders(everyone), every);
+      final state = await _mount(
+        tester,
+        _scene('15-poker-holdem'),
+        size: size,
+        textScale: scale,
+      );
+      final faults = await _sweepThrough(
+        tester,
+        state,
+        orders,
+        everyone,
+        poker: true,
+        start: (s) => s.handleState(pokerRoom()),
+        steps: [
+          (
+            name: 'the turn card',
+            apply: (s) => s.handleState(pokerNewStreetRoom()),
+          ),
+        ],
+      );
+      expect(faults, isEmpty, reason: _report(faults, orders.length));
+      expect(tester.takeException(), isNull);
+      await _unmount(tester, state);
+    });
+  }
+
+  // Tables of two, three and four places, waiting and then dealt.
+  for (final (size, scale) in const [
+    (Size(592, 360), 1.25),
+    (Size(640, 360), 1.0),
+    (Size(915, 412), 1.25),
+  ]) {
+    for (final places in const [2, 3, 4]) {
+      testWidgets('at ${_nameOf(size, scale)}, $places places: every order '
+          'while the table waits, then the deal', (tester) async {
+        final seated = everyone.take(places).toList();
+        final orders = _orders(seated);
+        final state = await _mount(
+          tester,
+          _placesScene(places),
+          size: size,
+          textScale: scale,
+        );
+        final faults = await _sweepThrough(
+          tester,
+          state,
+          orders,
+          seated,
+          start: (s) => s.handleState(waitingRoom(places: places)),
+          steps: [
+            (
+              name: 'the deal',
+              apply: (s) => s.handleState(
+                blindTurnRoom(handNo: 1, places: places, turnSeat: places - 1),
+              ),
+            ),
+          ],
+        );
+        expect(faults, isEmpty, reason: _report(faults, orders.length));
+        expect(tester.takeException(), isNull);
+        await _unmount(tester, state);
+      });
+    }
+  }
+
+  // Somebody sits down in the one empty chair while the others' emojis play.
+  for (final (size, scale) in const [
+    (Size(592, 360), 1.25),
+    (Size(915, 412), 1.25),
+  ]) {
+    testWidgets('at ${_nameOf(size, scale)}, a player sits down in an empty '
+        'chair while one order in two of the others\' emojis plays', (
+      tester,
+    ) async {
+      final state = await _mount(
+        tester,
+        _placesScene(5),
+        size: size,
+        textScale: scale,
+      );
+      final faults = <String>[];
+      for (final empty in const [1, 2, 3, 4]) {
+        final others = everyone.where((id) => id != 'u$empty').toList();
+        final orders = _everyNth(_orders(others), 2);
+        faults.addAll([
+          for (final fault in await _sweepThrough(
+            tester,
+            state,
+            orders,
+            others,
+            seatedAfter: everyone,
+            start: (s) => s.handleState(placesRoom(5, empty: [empty])),
+            steps: [
+              (
+                name: 'u$empty sitting down',
+                apply: (s) => s.handleState(placesRoom(5)),
+              ),
+            ],
+            watch: const [
+              Duration(milliseconds: 16),
+              Duration(milliseconds: 300),
+            ],
+          ))
+            'u$empty\'s chair: $fault',
+        ]);
+      }
+      expect(faults, isEmpty, reason: _report(faults, 4 * 12));
+      expect(tester.takeException(), isNull);
+      await _unmount(tester, state);
+    });
+  }
+
+  // What a seat painted after another is saying lies over the other's seat:
+  // an emoji of the other's, sent while the words are up, is kept from under
+  // them.
+  for (final (size, scale) in const [
+    (Size(592, 360), 1.25),
+    (Size(640, 360), 1.0),
+    (Size(915, 412), 1.25),
+  ]) {
+    testWidgets('at ${_nameOf(size, scale)}, an emoji sent while a seat '
+        'painted after its sender is talking is not under the words', (
+      tester,
+    ) async {
+      final state = await _mount(
+        tester,
+        _scene('17-dealing'),
+        size: size,
+        textScale: scale,
+      );
+      const order = ['u1', 'u2', 'u3', 'u4', 'u0'];
+      var clock = 500000;
+      for (var s = 1; s < order.length; s++) {
+        final speaker = order[s];
+        for (final sender in order.take(s)) {
+          clock += 1000;
+          state.handleChat(
+            ChatMessage(
+              userId: speaker,
+              displayName: speaker,
+              text: 'That was a close one, next hand is mine',
+              at: clock,
+            ),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(_speechOf(speaker), findsOneWidget, reason: speaker);
+          await _send(tester, state, _emoji(sender, sender, clock + 1));
+          _expectOnScreen(tester, [sender], size);
+          _expectOnTop(tester, sender, everyone);
+          await tester.pump(const Duration(seconds: 9));
+          await tester.pump();
+        }
+      }
+      expect(tester.takeException(), isNull);
+      await _unmount(tester, state);
+    });
+  }
+
+  // A lone emoji plays in its own place, whatever the table is doing — the
+  // third review saw the viewer's, while the table waited for its first deal,
+  // go onto their own pod at 592 to 915dp, their "Waiting" line having lifted
+  // its place into Meera's pod.
+  for (final (size, scale) in _phones) {
+    testWidgets('at ${_nameOf(size, scale)}, a lone emoji plays in its own '
+        'place while the table waits, when it is dealt and when the viewer '
+        'has won', (tester) async {
+      final state = await _mount(
+        tester,
+        _scene('01-opponent-turn'),
+        size: size,
+        textScale: scale,
+      );
+      var clock = 700000;
+      for (final (label, setUp) in <(String, void Function(GameState))>[
+        ('waiting', (s) => s.handleState(waitingRoom())),
+        ('dealt', (s) => s.handleState(opponentTurnRoom(handNo: 1))),
+        (
+          'the viewer on turn',
+          (s) => s.handleState(blindTurnRoom(turnSeat: 0)),
+        ),
+        ('a seen hand', (s) => s.handleState(seenOpponentTurnRoom(handNo: 2))),
+        (
+          'won',
+          (s) {
+            s.handleState(youWonRoom(handNo: 3));
+            youWonShowdown(s);
+          },
+        ),
+      ]) {
+        setUp(state);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 900));
+        for (final id in everyone) {
+          clock += 1000;
+          await _send(tester, state, _emoji(id, id, clock));
+          expect(
+            _placeOf(tester, id),
+            EmojiPlace.column,
+            reason: '$id, $label',
+          );
+          _expectOnTop(tester, id, everyone);
+          await tester.pump(GameState.emojiBubbleFor);
+          await tester.pump();
+        }
+      }
+      expect(tester.takeException(), isNull);
+      await _unmount(tester, state);
+    });
+  }
+
   // The review's own cases: Ravi's, then Meera's, then the viewer's — and
   // Meera's then the viewer's. The viewer's own place meets Meera's; beside
   // their pod is their hand on one side and Missile and Pack on the other;
@@ -541,8 +1091,11 @@ void main() {
   }
 
   // Where a seat's own emoji plays, as the felt reckons it before anything
-  // is drawn there (SeatPod.emojiHome), is where it does play: every seat,
-  // at every number of places and on the poker felt.
+  // is drawn there (SeatPod.emojiHome), is where it does play: in its first
+  // frame, hung in the bubble's own place before the felt has placed it, and
+  // from the next on, pinned there — with no jump between the two. Every
+  // seat, at every number of places, on the poker felt, and at a table
+  // waiting for its first deal.
   for (final (size, scale) in const [
     (Size(592, 360), 1.25),
     (Size(640, 360), 1.0),
@@ -556,13 +1109,24 @@ void main() {
           everyone.take(places).toList(),
         ),
       ('a poker room', _scene('15-poker-holdem'), everyone),
+      (
+        'a table waiting for its first deal',
+        TableScene('waiting', (s) => s.handleState(waitingRoom())),
+        everyone,
+      ),
     ]) {
       testWidgets('at ${_nameOf(size, scale)}, $label: each seat\'s own place '
           'is where the felt reckons it', (tester) async {
         final state = await _mount(tester, scene, size: size, textScale: scale);
         for (final id in seated) {
-          await _send(tester, state, _emoji(id, id, 1000));
-          expect(_placeOf(tester, id), EmojiPlace.column);
+          state.handleChat(_emoji(id, id, 1000));
+          // The first frame: the bubble's own place, before it is placed.
+          await tester.pump();
+          expect(
+            tester.widget<SeatPod>(_podOf(id)).emojiPin,
+            isNull,
+            reason: '$id, first frame',
+          );
           final seatPod = tester.widget<SeatPod>(_podOf(id));
           final pod = tester.getRect(_plaqueOf(id));
           final home = seatPod.emojiHome(
@@ -570,13 +1134,31 @@ void main() {
             pod: pod,
             bubble: SeatPod.emojiBubbleSize(pod.width),
           );
-          final mine = tester.getRect(_emojiOf(id));
+          final first = tester.getRect(_emojiOf(id));
           expect(
-            (mine.topLeft - home.topLeft).distance,
+            (first.topLeft - home.topLeft).distance,
             lessThan(0.5),
-            reason: '$id $mine, not $home',
+            reason: '$id $first, not $home',
           );
-          expect((mine.bottomRight - home.bottomRight).distance, lessThan(0.5));
+          expect(
+            (first.bottomRight - home.bottomRight).distance,
+            lessThan(0.5),
+          );
+          // Placed, and pinned exactly there.
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 400));
+          expect(_placeOf(tester, id), EmojiPlace.column, reason: id);
+          expect(tester.widget<SeatPod>(_podOf(id)).emojiPin, isNotNull);
+          final pinned = tester.getRect(_emojiOf(id));
+          expect(
+            (pinned.topLeft - first.topLeft).distance,
+            lessThan(0.5),
+            reason: '$id jumped from $first to $pinned',
+          );
+          expect(
+            (pinned.bottomRight - first.bottomRight).distance,
+            lessThan(0.5),
+          );
           await tester.pump(GameState.emojiBubbleFor);
         }
         expect(tester.takeException(), isNull);

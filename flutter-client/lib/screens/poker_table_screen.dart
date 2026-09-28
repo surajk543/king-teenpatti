@@ -462,10 +462,11 @@ class _PokerFeltState extends State<_PokerFelt>
               emojiUrl: state.absoluteUrl(state.emojiOver(s?.userId)?.url),
               // Moved beside or above the pod where its own place would meet
               // another seat's emoji, or onto the pod where no place beside
-              // it would do; never under anything drawn after the seat
-              // (EmojiPlacement).
-              emojiPlace: emojiPlaceOf(s?.userId),
+              // it would do; never under anything drawn after the seat, and
+              // pinned where it lands while it plays (EmojiPlacement).
+              emojiPin: emojiPinOf(s?.userId),
               emojiKey: emojiKeyAt(viewIndex),
+              speechKey: speechKeyAt(viewIndex),
               bubbleSide: viewIndex == 0
                   ? BubbleSide.above
                   : viewIndex <= 2

@@ -56,6 +56,12 @@ const double _kAvatarMine = 0.365;
 const double _kDealer = 0.095;
 const double _kGap = 0.04;
 
+/// The winner's rule under their name: its gap, and a line 1dp tall under it.
+const double _kLaurel = 0.02;
+
+/// How tall a rim seat's cards stand, as a share of its pod's width.
+const double _kCards = 0.42;
+
 /// The corner every capsule on a seat is cut to — BLIND / SEEN on its cards,
 /// a revealed hand's name, the bet badge and "In Pot" — so the four read as
 /// one set of labels rather than four (owner's brief, 25 Sep 2026: "Improve
@@ -94,9 +100,36 @@ enum BubbleSide { above, left, right }
 /// is ON the sender's own pod, fitted inside it with no pointer
 /// ([SeatPod.emojiOnPod]): the place that is always free, since no other
 /// seat's emoji is ever put over this seat's pod. The felt picks one for each
-/// emoji as it arrives (`EmojiPlacement`, `emoji_placement.dart`) and keeps it
-/// for as long as that emoji plays.
+/// emoji as it arrives (`EmojiPlacement`, `emoji_placement.dart`) and pins it
+/// there for as long as that emoji plays ([EmojiPin]).
 enum EmojiPlace { column, left, right, above, pod }
+
+/// Where one emoji plays, once the felt has placed it: the [place] it was
+/// given, and its box — [offset] from the seat's anchor ([SeatPod.emojiAnchor],
+/// the one point of the seat the felt holds still) and [size]. The seat draws
+/// it there and nowhere else, so an emoji already playing never moves: not
+/// when the turn's ring comes and goes round its pod, not when the winner's
+/// rule makes the pod a line taller, not when anything else in the seat's
+/// column changes (the review of 29 Sep 2026 watched every emoji at a table
+/// ride 14 to 36dp with its seat at the deal, into another's).
+@immutable
+class EmojiPin {
+  const EmojiPin(this.place, this.offset, this.size);
+
+  final EmojiPlace place;
+  final Offset offset;
+  final Size size;
+
+  @override
+  bool operator ==(Object other) =>
+      other is EmojiPin &&
+      other.place == place &&
+      other.offset == offset &&
+      other.size == size;
+
+  @override
+  int get hashCode => Object.hash(place, offset, size);
+}
 
 /// Which corner of a seat pod its orb spills out of. The table picks per seat
 /// so the colour always leaks towards open felt — never under the rail, over a
@@ -147,8 +180,9 @@ class SeatPod extends StatelessWidget {
     this.saying,
     this.emoji,
     this.emojiUrl,
-    this.emojiPlace = EmojiPlace.column,
+    this.emojiPin,
     this.emojiKey,
+    this.speechKey,
     this.bubbleSide = BubbleSide.above,
     this.reversed = false,
     this.beside = false,
@@ -313,13 +347,22 @@ class SeatPod extends StatelessWidget {
   final ChatEmoji? emoji;
   final String? emojiUrl;
 
-  /// Where [emoji] plays: in the bubble's place, beside or above the pod where
-  /// that place would meet another seat's emoji, or on the pod itself where
-  /// every other place would ([EmojiPlace]).
-  final EmojiPlace emojiPlace;
+  /// Where [emoji] plays, once the felt has placed it: in the bubble's own
+  /// place, beside or above the pod where that place would meet another
+  /// seat's emoji, or on the pod itself where every other place would — and
+  /// pinned there, still, while it plays ([EmojiPin]). Null for the one frame
+  /// before the felt has placed it, when it stands in its own place.
+  final EmojiPin? emojiPin;
+
+  /// Where [emoji] plays ([emojiPin]'s place; its own until it is placed).
+  EmojiPlace get emojiPlace => emojiPin?.place ?? EmojiPlace.column;
 
   /// Names the emoji's bubble wherever it plays, so the felt can measure it.
   final GlobalKey? emojiKey;
+
+  /// Names what this seat is saying, while it says it, so the felt can keep a
+  /// new emoji of a seat painted before this one from under it.
+  final GlobalKey? speechKey;
 
   /// Which way the bubble opens, so it lands on the felt and not off it.
   final BubbleSide bubbleSide;
@@ -402,27 +445,48 @@ class SeatPod extends StatelessWidget {
       if (_betShown(s) && !isMe) ...[
         SizedBox(height: gap),
         SeatBet(seat: s, width: width, withCategory: false, poker: poker),
-      ] else if (status != null) ...[
+      ] else if (status != null && !isMe) ...[
         SizedBox(height: gap),
-        // "Winner" says what the ribbon says, so it comes with the ribbon's
-        // strike rather than over the cards still turning.
-        if (s.status == SeatState.won && winnerStrike != null)
-          FadeTransition(
-            opacity: winnerStrike!.drive(_strikeFade),
-            child: _statusTag(context, s, status),
-          )
-        else
-          _statusTag(context, s, status),
+        _statusLine(context, s, status),
       ],
     ];
+
+    // A rim seat's rows under its pod stand at their tallest whatever they
+    // hold (29 Sep 2026): the cards' row though nobody has been dealt in yet,
+    // and a row as tall as the bet badge over its "In Pot" line, whether it
+    // holds that, a status line or nothing. The column is placed by its
+    // middle, so rows that came and went moved the pod: 14 to 36dp at the
+    // deal of a table whose seats held no cards, and 9 to 13 every time a
+    // hand ended, the badges giving way to status lines — and every emoji
+    // playing over the table moved with its seat, one onto another's (the
+    // review of 29 Sep 2026). What the rows hold is set at the top of the
+    // block, where it always stood; only the empty room under it is new. The
+    // viewer's column is not held: their pod stands on the floor, and
+    // nothing under it moves it.
+    final List<Widget> hung = isMe
+        ? below
+        : [
+            SizedBox(
+              height: _belowHeight(context, t),
+              child: OverflowBox(
+                alignment: Alignment.topCenter,
+                minHeight: 0,
+                maxHeight: double.infinity,
+                child: Column(mainAxisSize: MainAxisSize.min, children: below),
+              ),
+            ),
+          ];
+
+    final shownEmoji = emoji;
+    final pin = emojiPin;
 
     final column = <Widget>[
       // The pod takes the tap — its glass plaque, not the cards or the bet
       // hung under it. One tree shape whether or not it can be tapped, so a
       // seat whose tap comes or goes keeps its state.
-      // In a Stack that is always there, so an emoji playing beside or above
-      // the pod ([EmojiPlace]) comes and goes without the pod losing its
-      // state: the pod is the Stack's first child either way.
+      // In a Stack that is always there, so the viewer's emoji, which stands
+      // over their pod until the felt places it, comes and goes without the
+      // pod losing its state: the pod is the Stack's first child either way.
       Stack(
         clipBehavior: Clip.none,
         children: [
@@ -439,11 +503,28 @@ class SeatPod extends StatelessWidget {
               state.colourFor(s.userId ?? '', theme.colorScheme),
             ),
           ),
-          if (emoji != null && emojiPlace != EmojiPlace.column)
-            _emojiBesidePod(gap),
+          // The viewer's status line ("Waiting", "Pack", "Winner") stands
+          // over their pod as it always did, and takes no room in their
+          // column (29 Sep 2026): the column's box stays the pod, and the felt
+          // reckons with the line's own words where they are drawn
+          // ([emojiCovers]) — a box as wide as the pod over it reached over
+          // the seat on the left's emoji where no word was.
+          if (isMe && status != null)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: -gap,
+              child: IgnorePointer(
+                child: FractionalTranslation(
+                  translation: const Offset(0, -1),
+                  child: _statusLine(context, s, status),
+                ),
+              ),
+            ),
+          if (shownEmoji != null && pin == null && reversed) _emojiOverPod(gap),
         ],
       ),
-      ...below,
+      ...hung,
     ];
 
     // The bubble takes no room in the column — it hangs off one end of it in
@@ -463,41 +544,48 @@ class SeatPod extends StatelessWidget {
       BubbleSide.right => _TailFrom.left,
       BubbleSide.left => _TailFrom.right,
     };
-    final shownEmoji = emoji;
-    // An emoji playing beside or above the pod is drawn there (the Stack
-    // round the pod, above), and nothing hangs off the column meanwhile.
-    final Widget? bubble = shownEmoji != null && emojiPlace != EmojiPlace.column
-        ? null
-        : shownEmoji != null
-        ? SizedBox(
-            height: 0,
-            width: width,
-            child: OverflowBox(
-              alignment: switch (bubbleSide) {
-                BubbleSide.above => Alignment.bottomCenter,
-                BubbleSide.left => Alignment.bottomRight,
-                BubbleSide.right => Alignment.bottomLeft,
-              },
-              minWidth: 0,
-              maxWidth: bubbleMax,
-              minHeight: 0,
-              maxHeight: width * 1.3,
-              child: Padding(
-                padding: EdgeInsets.only(bottom: gap),
-                child: KeyedSubtree(
-                  key: emojiKey,
-                  child: _EmojiBubble(
-                    key: const ValueKey('seat-emoji'),
-                    emoji: shownEmoji,
-                    url: emojiUrl,
-                    width: width,
-                    tailUp: bubbleSide != BubbleSide.above,
-                    tailFrom: tailFrom,
+    // An emoji stands in the bubble's place, off the end of the column, for
+    // the one frame before the felt places it — the viewer's over their pod,
+    // above — and wherever the felt pins it after that (the Stack round the
+    // seat, below). Nothing else hangs off the column while it plays.
+    final Widget? bubble = shownEmoji != null
+        ? (pin != null || reversed
+              ? null
+              : SizedBox(
+                  height: 0,
+                  width: width,
+                  child: OverflowBox(
+                    alignment: switch (bubbleSide) {
+                      BubbleSide.above => Alignment.bottomCenter,
+                      BubbleSide.left => Alignment.bottomRight,
+                      BubbleSide.right => Alignment.bottomLeft,
+                    },
+                    minWidth: 0,
+                    maxWidth: bubbleMax,
+                    minHeight: 0,
+                    maxHeight: width * 1.3,
+                    child: Padding(
+                      // Where the column's foot stands at rest: the turn's
+                      // ring and the winner's rule make a rim seat's column
+                      // taller at both ends round its middle, and its own
+                      // place is where it is at rest ([emojiHome]).
+                      padding: EdgeInsets.only(
+                        bottom: gap + (beside ? 0 : _extraNow / 2),
+                      ),
+                      child: KeyedSubtree(
+                        key: emojiKey,
+                        child: _EmojiBubble(
+                          key: const ValueKey('seat-emoji'),
+                          emoji: shownEmoji,
+                          url: emojiUrl,
+                          width: width,
+                          tailUp: bubbleSide != BubbleSide.above,
+                          tailFrom: tailFrom,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ),
-          )
+                ))
         : saying == null
         ? null
         : SizedBox(
@@ -518,15 +606,20 @@ class SeatPod extends StatelessWidget {
               maxHeight: width * 1.3,
               child: Padding(
                 padding: EdgeInsets.only(bottom: gap),
-                child: _Bubble(
-                  text: saying!,
-                  width: width,
-                  maxWidth: bubbleMax,
-                  // The pointer says whose words these are: the rim seats'
-                  // bubbles sit below their pod and point up at it; the
-                  // viewer's sits above and points down.
-                  tailUp: bubbleSide != BubbleSide.above,
-                  tailFrom: tailFrom,
+                // Named, so the felt can keep a new emoji of a seat painted
+                // before this one from under these words (EmojiPlacement).
+                child: KeyedSubtree(
+                  key: speechKey,
+                  child: _Bubble(
+                    text: saying!,
+                    width: width,
+                    maxWidth: bubbleMax,
+                    // The pointer says whose words these are: the rim seats'
+                    // bubbles sit below their pod and point up at it; the
+                    // viewer's sits above and points down.
+                    tailUp: bubbleSide != BubbleSide.above,
+                    tailFrom: tailFrom,
+                  ),
                 ),
               ),
             ),
@@ -539,7 +632,7 @@ class SeatPod extends StatelessWidget {
 
     // The head seat: the pod on the left with its bubble hanging from it, and
     // its cards and bet beside it, centred on the pod's height.
-    final Widget body = beside
+    final Widget seatColumn = beside
         ? Row(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -554,7 +647,7 @@ class SeatPod extends StatelessWidget {
               SizedBox(width: width * SeatRing.headGapShare),
               SizedBox(
                 width: width,
-                child: Column(mainAxisSize: MainAxisSize.min, children: below),
+                child: Column(mainAxisSize: MainAxisSize.min, children: hung),
               ),
             ],
           )
@@ -565,6 +658,54 @@ class SeatPod extends StatelessWidget {
               children: [...(reversed ? ordered.reversed.toList() : ordered)],
             ),
           );
+
+    // The emoji, once the felt has placed it, pinned where it was placed
+    // ([EmojiPin]): its box is laid out against the seat's anchor, the one
+    // point of the seat the felt holds still, so whatever the column does
+    // after — the turn's ring coming, the winner's rule, a row filling — it
+    // stays where it landed. Over everything in the seat, as the bubble's own
+    // place always was: its own cards and badge, its own pod. One tree shape
+    // whether an emoji plays or not, so the seat keeps its state as one
+    // comes and goes; the emoji keeps its own through [emojiKey] as it moves
+    // from its first frame's place to its pin.
+    final Widget body = Stack(
+      clipBehavior: Clip.none,
+      children: [
+        seatColumn,
+        if (shownEmoji != null && pin != null)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomSingleChildLayout(
+                delegate: _EmojiPinLayout(anchor: _anchor, pin: pin),
+                child: KeyedSubtree(
+                  key: emojiKey,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: _EmojiBubble(
+                      key: const ValueKey('seat-emoji'),
+                      emoji: shownEmoji,
+                      url: emojiUrl,
+                      width: width,
+                      tailUp: pin.place == EmojiPlace.column
+                          ? bubbleSide != BubbleSide.above
+                          : false,
+                      tailFrom: pin.place == EmojiPlace.column
+                          ? tailFrom
+                          : _TailFrom.centre,
+                      tailSide: switch (pin.place) {
+                        EmojiPlace.left => _TailSide.right,
+                        EmojiPlace.right => _TailSide.left,
+                        _ => null,
+                      },
+                      pointer: pin.place != EmojiPlace.pod,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
 
     // The pod is the app's most expensive repeated object — a gradient, three
     // shadows, a ring and a turn clock, five times over a felt whose lamp
@@ -730,7 +871,7 @@ class SeatPod extends StatelessWidget {
                   // cannot carry the moment while the pod is also the brightest
                   // thing on a scrimmed table.
                   if (won) ...[
-                    SizedBox(height: width * 0.02),
+                    SizedBox(height: width * _kLaurel),
                     Container(
                       height: 1,
                       width: width * 0.5,
@@ -984,7 +1125,7 @@ class SeatPod extends StatelessWidget {
       5,
       show != null && show.length > s.cardCount ? show.length : s.cardCount,
     );
-    final cardH = width * 0.42;
+    final cardH = width * _kCards;
     // The three that count, once there are more than three to choose from.
     final picking =
         show != null &&
@@ -1385,9 +1526,12 @@ class SeatPod extends StatelessWidget {
   /// for a seat laid out at [seat] (the whole seat, as the felt paints it)
   /// with its pod at [pod], in the same frame of reference, and a bubble of
   /// [bubble]'s size ([emojiBubbleSize]): hung from the zero-height box at
-  /// the column's end as [build] hangs it — under the column, over it for
-  /// the viewer ([reversed]), under the pod at the head seat ([beside]) — and
-  /// opening to the [bubbleSide].
+  /// the column's end as [build] hangs it — under the column, under the pod
+  /// at the head seat ([beside]) — and opening to the [bubbleSide]; the
+  /// viewer's ([reversed]) stands over their POD, not over their column, so
+  /// the status line that comes and goes over their pod ("Waiting",
+  /// "Winner") never lifts it into the seat above (the review of 29 Sep
+  /// 2026: waiting for a deal at 592 to 915dp it lay over Meera's pod).
   ///
   /// The felt keeps every other seat's moved emoji out of it
   /// (EmojiPlacement): it is where this seat's own emojis play, and another
@@ -1398,9 +1542,17 @@ class SeatPod extends StatelessWidget {
     required Size bubble,
   }) {
     final gap = TableSpace.seat(width);
+    // At rest: the turn's ring and the winner's rule make a rim seat's column
+    // taller round its middle, and the viewer's pod taller from the floor up.
+    // Reckoned where it stands at rest, an emoji pinned there stays over its
+    // column wherever the turn goes (the head seat's hangs from its pod as
+    // it stands).
     final (left, foot) = beside
         ? (pod.left, pod.bottom)
-        : (seat.center.dx - width / 2, reversed ? seat.top : seat.bottom);
+        : (
+            seat.center.dx - width / 2,
+            reversed ? pod.top + _extraNow : seat.bottom - _extraNow / 2,
+          );
     final x = switch (bubbleSide) {
       BubbleSide.above => left + (width - bubble.width) / 2,
       BubbleSide.right => left,
@@ -1414,74 +1566,291 @@ class SeatPod extends StatelessWidget {
     );
   }
 
-  /// The emoji standing beside, above or on the pod rather than hanging off
-  /// the column ([EmojiPlace]): positioned against the pod's own box in the
-  /// Stack round it, so it takes no room and moves nothing. Beside or above
-  /// it, its pointer is at the pod — from its side at the pod's middle, or
-  /// down from its foot. On the pod it needs no pointer: it is fitted inside
-  /// the pod's box ([emojiOnPod]), drawn after the pod and over it.
-  Widget _emojiBesidePod(double gap) {
-    final bubble = KeyedSubtree(
-      key: emojiKey,
-      child: _EmojiBubble(
-        key: const ValueKey('seat-emoji'),
-        emoji: emoji!,
-        url: emojiUrl,
-        width: width,
-        tailUp: false,
-        tailFrom: _TailFrom.centre,
-        tailSide: switch (emojiPlace) {
-          EmojiPlace.left => _TailSide.right,
-          EmojiPlace.right => _TailSide.left,
-          _ => null,
-        },
-        pointer: emojiPlace != EmojiPlace.pod,
-      ),
-    );
-    return switch (emojiPlace) {
-      EmojiPlace.pod => Positioned.fill(
-        child: IgnorePointer(
-          child: Padding(
-            padding: EdgeInsets.all(width * emojiPodInsetShare),
-            child: Center(
-              child: FittedBox(fit: BoxFit.scaleDown, child: bubble),
-            ),
-          ),
+  /// How the felt holds this seat still: a rim seat by its column's middle
+  /// (it is centred on its place round the ring), the head seat ([beside])
+  /// by its top, the viewer's ([reversed]) by its foot, on the floor. Both
+  /// felts place their seats so.
+  _SeatAnchor get _anchor => beside
+      ? _SeatAnchor.top
+      : reversed
+      ? _SeatAnchor.foot
+      : _SeatAnchor.middle;
+
+  /// The one point of this seat laid out at [seat] that the felt holds still
+  /// however its column grows or shrinks ([_anchor]): the left edge at the
+  /// column's middle, its top or its foot. A placed emoji is pinned against
+  /// it ([EmojiPin]).
+  Offset emojiAnchor(Rect seat) => seat.topLeft + _anchor.of(seat.size);
+
+  /// How much taller a pod box stands while its seat is on turn: the turn's
+  /// ring round it, [turnRingOutset] above and below.
+  static const double _ringGrowth = 2 * turnRingOutset;
+
+  /// How much taller it stands once its seat has won: the rule under the
+  /// name and its gap.
+  double get _laurelGrowth => 1 + width * _kLaurel;
+
+  bool get _won => seat?.status == SeatState.won;
+
+  /// How much taller this seat's pod box stands now than at rest.
+  double get _extraNow =>
+      (onTurn ? _ringGrowth : 0) + (_won ? _laurelGrowth : 0);
+
+  /// How much taller it may still grow while an emoji plays: to the taller
+  /// of the two, a seat never being on turn and a winner at once.
+  double get _podGrowth =>
+      math.max(0.0, math.max(_ringGrowth, _laurelGrowth) - _extraNow);
+
+  /// [rect] of this seat grown by [growth] the way the felt lets it grow:
+  /// half above and half below round a rim seat's middle, downwards from the
+  /// head seat's top — and, for its pod, by half upwards too, since its pod
+  /// is centred on the cards beside it when they stand taller — and upwards
+  /// from the viewer's foot.
+  Rect _grown(Rect rect, double growth, {bool pod = false}) =>
+      switch (_anchor) {
+        _SeatAnchor.middle => Rect.fromLTRB(
+          rect.left,
+          rect.top - growth / 2,
+          rect.right,
+          rect.bottom + growth / 2,
         ),
-      ),
-      EmojiPlace.left => Positioned(
-        top: 0,
-        bottom: 0,
-        right: width + gap,
-        child: IgnorePointer(
-          child: Align(alignment: Alignment.centerRight, child: bubble),
+        _SeatAnchor.top => Rect.fromLTRB(
+          rect.left,
+          rect.top - (pod ? growth / 2 : 0),
+          rect.right,
+          rect.bottom + growth,
         ),
-      ),
-      EmojiPlace.right => Positioned(
-        top: 0,
-        bottom: 0,
-        left: width + gap,
-        child: IgnorePointer(
-          child: Align(alignment: Alignment.centerLeft, child: bubble),
+        _SeatAnchor.foot => Rect.fromLTRB(
+          rect.left,
+          rect.top - growth,
+          rect.right,
+          rect.bottom,
         ),
-      ),
-      _ => Positioned(
-        left: -width,
-        right: -width,
-        top: -gap,
-        child: IgnorePointer(
-          child: FractionalTranslation(
-            translation: const Offset(0, -1),
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              heightFactor: 1,
-              child: bubble,
-            ),
-          ),
-        ),
-      ),
-    };
+      };
+
+  /// The most room this seat's pod, laid out at [pod], can take while an
+  /// emoji plays — what no other seat's emoji may be put over
+  /// (EmojiPlacement), so a turn coming round never lays a pod's ring under
+  /// an emoji already playing.
+  Rect podReach(Rect pod) {
+    final s = seat;
+    if (s == null || !s.occupied) return pod;
+    return _grown(pod, _podGrowth, pod: true);
   }
+
+  /// What this seat, laid out at [seat] with its pod at [pod], covers on the
+  /// felt: the whole seat as it stands, and over the viewer's pod the words
+  /// of their status line, which stand outside their seat's box ([build]).
+  /// With [reach], the most it may cover while an emoji plays: a rim seat's
+  /// rows under its pod are held at their tallest already, so that is its
+  /// pod's growth ([podReach]) — and over the viewer's pod the status line
+  /// that is not there now ("Waiting", "Pack", "Winner", over the winner's
+  /// rule), as wide as its widest word. What an emoji of a seat painted
+  /// before this one is never put under (EmojiPlacement). [t] is the
+  /// language the table is in.
+  List<Rect> emojiCovers(
+    BuildContext context, {
+    required Rect seat,
+    required Rect pod,
+    required Strings t,
+    bool reach = false,
+  }) {
+    final s = this.seat;
+    if (s == null || !s.occupied) return [seat];
+    if (!reversed) return [reach ? _grown(seat, _podGrowth) : seat];
+    final line = statusLineSize(context, width: width, t: t);
+    final gap = TableSpace.seat(width);
+    Rect words(double bottom, double height) => Rect.fromLTRB(
+      pod.center.dx - line.width / 2,
+      bottom - height,
+      pod.center.dx + line.width / 2,
+      bottom,
+    );
+    if (!reach) {
+      return [
+        seat,
+        if (_status(t, s) != null) words(pod.top - gap, line.height),
+      ];
+    }
+    // The pod at rest, and every way the viewer's pod and the line over it
+    // can stand: on turn, or over the winner's rule.
+    final restTop = pod.top + _extraNow;
+    return [
+      seat,
+      _grown(pod, _podGrowth, pod: true),
+      words(restTop - gap, _laurelGrowth + line.height),
+    ];
+  }
+
+  /// The viewer's emoji for the one frame before the felt places it, over
+  /// their pod where its own place is ([emojiHome]), its pointer down at the
+  /// pod. Drawn in the Stack round the pod, after the status line over it.
+  Widget _emojiOverPod(double gap) => Positioned(
+    left: -width,
+    right: -width,
+    // Over the pod's top at rest: on turn, and once they have won, the pod
+    // stands taller from the floor up ([emojiHome]).
+    top: _extraNow - gap,
+    child: IgnorePointer(
+      child: FractionalTranslation(
+        translation: const Offset(0, -1),
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          heightFactor: 1,
+          child: KeyedSubtree(
+            key: emojiKey,
+            child: _EmojiBubble(
+              key: const ValueKey('seat-emoji'),
+              emoji: emoji!,
+              url: emojiUrl,
+              width: width,
+              tailUp: false,
+              tailFrom: _TailFrom.centre,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  /// How tall a rim seat's rows under its pod stand, whatever they hold
+  /// ([build]): a gap, the cards' row, a gap, and the bet's row
+  /// ([betRowHeight]).
+  double _belowHeight(BuildContext context, Strings t) {
+    final gap = TableSpace.seat(width);
+    return gap +
+        width * _kCards +
+        gap +
+        betRowHeight(context, width: width, t: t);
+  }
+
+  static final Map<Object, double> _rowHeights = <Object, double>{};
+
+  /// One line of [text] in [style], as a [Text] in [context] lays it out:
+  /// the ambient style merged in, the phone's text size and bold setting,
+  /// the language's fonts — a line in an Indic script stands taller than a
+  /// Latin one (CLAUDE.md §12.3).
+  static Size _lineSize(BuildContext context, TextStyle style, String text) {
+    final base = DefaultTextStyle.of(context);
+    var effective = base.style.merge(style);
+    if (MediaQuery.boldTextOf(context)) {
+      effective = effective.merge(const TextStyle(fontWeight: FontWeight.bold));
+    }
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: effective),
+      textDirection: Directionality.maybeOf(context) ?? TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+      locale: Localizations.maybeLocaleOf(context),
+      textHeightBehavior:
+          base.textHeightBehavior ?? DefaultTextHeightBehavior.maybeOf(context),
+    )..layout();
+    final size = painter.size;
+    painter.dispose();
+    return size;
+  }
+
+  /// A key for what a measured height depends on, in [context] for a pod
+  /// [width] wide, and the words [t] draws.
+  static Object _measureKey(
+    BuildContext context,
+    double width,
+    Strings t,
+    String what,
+  ) => (
+    what,
+    width,
+    MediaQuery.textScalerOf(context),
+    MediaQuery.boldTextOf(context),
+    Localizations.maybeLocaleOf(context),
+    DefaultTextStyle.of(context).style,
+    Theme.of(context).textTheme.labelMedium,
+    Theme.of(context).textTheme.labelSmall,
+    t.inPot,
+    t.waiting,
+    t.pack,
+    t.fold,
+    t.winner,
+    t.offline,
+  );
+
+  static double _remember(Object key, double Function() measure) {
+    final known = _rowHeights[key];
+    if (known != null) return known;
+    if (_rowHeights.length > 64) _rowHeights.clear();
+    return _rowHeights[key] = measure();
+  }
+
+  /// The size of the widest and of the tallest status line a seat [width]
+  /// wide writes by its pod ([_statusTag]: a dot and a word, set smaller
+  /// never wider than the pod): Offline, Pack, Fold, Winner, Waiting, in
+  /// [t]'s words.
+  static Size statusLineSize(
+    BuildContext context, {
+    required double width,
+    required Strings t,
+  }) {
+    final key = _measureKey(context, width, t, 'status');
+    final known = _lineSizes[key];
+    if (known != null) return known;
+    final status = TableType.seat(
+      Theme.of(context),
+      width,
+    ).status(colour: const Color(0xFF000000));
+    var wide = 0.0;
+    var tall = 5.0;
+    for (final word in [t.offline, t.pack, t.fold, t.winner, t.waiting]) {
+      final line = _lineSize(context, status, word);
+      wide = math.max(wide, 5 + width * 0.045 + line.width);
+      tall = math.max(tall, line.height);
+    }
+    if (_lineSizes.length > 64) _lineSizes.clear();
+    return _lineSizes[key] = Size(math.min(width, wide), tall);
+  }
+
+  static final Map<Object, Size> _lineSizes = <Object, Size>{};
+
+  /// How tall the row under a rim seat's cards is held ([build]): the bet
+  /// badge over its "In Pot" line at their full size ([SeatBet], [_lastBet],
+  /// [_total] — the figures only ever set smaller from there), or the
+  /// tallest status line ([statusLineSize]), whichever is taller.
+  static double betRowHeight(
+    BuildContext context, {
+    required double width,
+    required Strings t,
+  }) => _remember(_measureKey(context, width, t, 'bet row'), () {
+    final type = TableType.seat(Theme.of(context), width);
+    const ink = Color(0xFF000000);
+    // The badge: its hairline and padding round the chip or the figure.
+    final badge =
+        2 * (1 + width * 0.025) +
+        math.max(
+          width * 0.14,
+          _lineSize(context, type.bet(colour: ink), '0').height,
+        );
+    // "In Pot" and its figure, on their capsule.
+    final total =
+        2 * width * 0.018 +
+        math.max(
+          _lineSize(context, type.inPot(colour: ink), t.inPot).height,
+          _lineSize(context, type.inPot(colour: ink, figure: true), '0').height,
+        );
+    return math.max(
+      badge + width * _kPad * 0.5 + total,
+      statusLineSize(context, width: width, t: t).height,
+    );
+  });
+
+  /// The status line under a rim seat's pod, over the viewer's: "Winner"
+  /// says what the ribbon says, so it comes with the ribbon's strike rather
+  /// than over the cards still turning.
+  Widget _statusLine(BuildContext context, Seat s, String status) =>
+      s.status == SeatState.won && winnerStrike != null
+      ? FadeTransition(
+          opacity: winnerStrike!.drive(_strikeFade),
+          child: _statusTag(context, s, status),
+        )
+      : _statusTag(context, s, status);
 
   /// A dot and a word. The dot carries the state at pod scale, where six
   /// characters of Bengali do not.
@@ -1714,16 +2083,23 @@ class _TurnRingState extends State<_TurnRing>
         // pixel and a half. Only the edge's alpha and weight, and the halo's
         // alpha, move now — and less far, so the ring pulses rather than
         // throbs beside the key the player is about to press.
+        // 2 to [SeatPod.turnRingEdge].
+        final weight = 2.0 + 0.5 * t;
         return Container(
-          padding: const EdgeInsets.all(SeatPod.turnRingGap),
+          // The edge is drawn inside the box's padding, so the box itself is
+          // [SeatPod.turnRingOutset] larger all round at every breath (29 Sep
+          // 2026): with the gap fixed and the edge breathing outside it, the
+          // box grew and shrank half a point a side, and the column under a
+          // rim seat's pod — its cards, its badge, an emoji hung from its
+          // foot — rose and fell with every breath.
+          padding: EdgeInsets.all(SeatPod.turnRingOutset - weight),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(widget.radius + 4),
             border: Border.all(
               color: (widget.edge ?? widget.colour).withValues(
                 alpha: floor + (1 - floor) * t,
               ),
-              // 2 to [SeatPod.turnRingEdge].
-              width: 2.0 + 0.5 * t,
+              width: weight,
             ),
             boxShadow: [
               BoxShadow(
@@ -1750,6 +2126,44 @@ class _TurnRingState extends State<_TurnRing>
       child: RepaintBoundary(child: widget.child),
     );
   }
+}
+
+/// The point of a seat the felt holds still ([SeatPod.emojiAnchor]): a rim
+/// seat's left edge at its column's middle, the head seat's top-left corner,
+/// the viewer's bottom-left corner.
+enum _SeatAnchor {
+  middle,
+  top,
+  foot;
+
+  /// That point in a seat [size] big.
+  Offset of(Size size) => switch (this) {
+    _SeatAnchor.middle => Offset(0, size.height / 2),
+    _SeatAnchor.top => Offset.zero,
+    _SeatAnchor.foot => Offset(0, size.height),
+  };
+}
+
+/// Lays a placed emoji out at its pin ([EmojiPin]): its box, [EmojiPin.size]
+/// big, [EmojiPin.offset] from the seat's anchor in a seat however big the
+/// seat now is.
+class _EmojiPinLayout extends SingleChildLayoutDelegate {
+  const _EmojiPinLayout({required this.anchor, required this.pin});
+
+  final _SeatAnchor anchor;
+  final EmojiPin pin;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
+      BoxConstraints.tight(pin.size);
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) =>
+      anchor.of(size) + pin.offset;
+
+  @override
+  bool shouldRelayout(_EmojiPinLayout oldDelegate) =>
+      oldDelegate.anchor != anchor || oldDelegate.pin != pin;
 }
 
 /// A speech bubble over a seat, shown for a moment after that player speaks.

@@ -1447,10 +1447,11 @@ class _FeltState extends State<_Felt>
               emojiUrl: state.absoluteUrl(state.emojiOver(s?.userId)?.url),
               // Moved beside or above the pod where its own place would meet
               // another seat's emoji, or onto the pod where no place beside
-              // it would do; never under anything drawn after the seat
-              // (EmojiPlacement).
-              emojiPlace: emojiPlaceOf(s?.userId),
+              // it would do; never under anything drawn after the seat, and
+              // pinned where it lands while it plays (EmojiPlacement).
+              emojiPin: emojiPinOf(s?.userId),
               emojiKey: emojiKeyAt(viewIndex),
+              speechKey: speechKeyAt(viewIndex),
               // A bubble opens towards the middle of the table: seats on the
               // left speak to the right, seats on the right to the left, and
               // the viewer's own words go up over their pod. The head seat's
@@ -3831,12 +3832,17 @@ class _DealtState extends State<_Dealt> with SingleTickerProviderStateMixin {
             final settle = Curves.easeOut.transform(
               ((v - _travel) / (1 - _travel)).clamp(0.0, 1.0),
             );
-            // Out of the middle of the table, up and to the left of the fan.
-            const from = Offset(-0.5, -0.9);
+            // Out of the middle of the table, up and to the right of the fan,
+            // leaning the other way (29 Sep 2026: from up and to its LEFT, the
+            // first card crossed the corner of the viewer's own emoji, which
+            // plays over their pod left of the fan — for its first 100 ms,
+            // fading in, under the card the felt paints after every seat).
+            // So no card comes in from the left of where it lands.
+            const from = Offset(0.5, -0.9);
             // A touch past its place, then back onto it.
-            final past = rest + 0.035;
+            final past = rest - 0.035;
             final angle = v < _travel
-                ? -0.2 + (past + 0.2) * travel
+                ? 0.2 + (past - 0.2) * travel
                 : past + (rest - past) * settle;
             final scale = v < _travel
                 ? 0.9 + 0.14 * travel
