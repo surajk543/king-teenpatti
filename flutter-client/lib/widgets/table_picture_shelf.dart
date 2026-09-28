@@ -809,8 +809,6 @@ Future<void> unlockTablePicture(
     );
     return;
   }
-  final balance = walletBalanceFor(state, picture.currency);
-
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => GlassDialog(
@@ -827,6 +825,11 @@ Future<void> unlockTablePicture(
               ),
             ),
           ),
+          // The price where it is always in view: the body under the title
+          // scrolls, and on a 360dp phone its foot — where the price stood —
+          // was under the fold (28 Sep 2026).
+          const SizedBox(width: Space.md),
+          PriceAndWallet(cost: picture.cost, currency: picture.currency),
         ],
       ),
       content: Column(
@@ -842,7 +845,6 @@ Future<void> unlockTablePicture(
               ),
             ),
           ),
-          if (balance != null) ...[const SizedBox(height: Space.md), balance],
         ],
       ),
       actions: [

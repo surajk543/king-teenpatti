@@ -673,15 +673,20 @@ loop — keep consistent. Wire hand names are the **English** `CATEGORY_NAMES` a
 untranslated.
 
 ### 6.4 Variation Teen Patti — the rules (`variation.go`; Go only, owner 18 Sep 2026)
-A third category, **`variation`**: it takes its BETTING from the seen table (`config.TableRules` gives it
-`SEEN_MAX_RAISE_STEPS` and `SEEN_MAX_BET_ROUNDS` — the two-rung ladder, 7 rounds then the forced showdown) and its SECRECY
+A third category, **`variation`**: it BETS as a blind table does — since 28 Sep 2026 (owner: "no limit on chaal if a
+player has money", "the bug is that i am only able to raise one time in variation 50000") `config.TableRules` gives a public
+variation table a ladder to the stack, no round cap and no per-bet ceiling (0/0/0, fixed rather than read from `BLIND_*`;
+a private one keeps `PRIVATE_MAX_RAISE_STEPS`' two rungs); until then it took the seen table's two-rung ladder and its
+7-round forced showdown — and its SECRECY
 from the blind one (`Category.HidesChips`: other stacks are `null`), and it has **NO pot limit** (owner, 18 Sep 2026;
 `VARIATION_MAX_POT_BOOTS` 0 — the one variation-only rule key, a cap counted in that table's own BOOTS because one fixed
 figure cannot fit several stakes: the seen table's 20 Lakh is two boots at the 10 Lakh table, where every hand would be
 dealt straight into the POT_LIMIT showdown; a private variation table keeps `PRIVATE_MAX_POT`). The default menu offers
 it at **two stakes only, 50,000 and 10 Lakh**, behind the stack bands blind's tables of those stakes have. (Those are
 the env keys' composition; in db mode each variation row carries its own ladder, `max_pot`, and the two windows, which
-a CHECK keeps above 0 — seeded to exactly these figures, §7.3.) Every hand
+a CHECK keeps above 0 — seeded to exactly these figures, §7.3. A database seeded before 28 Sep 2026 keeps the old seen
+ladder on its variation rows until `UPDATE table_configs SET max_bet_rounds = 0, pot_limit_multiplier = 0 WHERE category =
+'variation'; UPDATE table_configs SET max_raise_steps = 0 WHERE category = 'variation' AND NOT is_private;` and a restart.) Every hand
 is decided by one of **seven** variations, chosen in the window §6.1 describes. Wire values, matched EXACTLY by
 `ParseVariation` (no trimming, no case folding — `muflis` and `Lowest Joker` are `invalid_variation`): `MUFLIS`, `AK47`,
 `JOKER`, `HUKAM`, `LOWEST_JOKER`, `HIGHEST_JOKER`, and — added LAST, so the six before it keep their places —
@@ -2694,10 +2699,18 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   an emoji key** (`ValueKey('rail-emoji')`, a smiley) on the left rail of both felts under the chat key — the rail column
   now centred between the Shop key and the corner keys (`SideRail.columnTop`) so four keys fit a 360dp phone — opening
   `EmojiDrawer`, a page of the table's left drawer (never a route): owned emojis to send (tap = send + close; dimmed with
-  the dial during the cooldown), locked ones with their price leading to the store's Emojis shelf. **An emoji plays over
+  the dial during the cooldown), locked ones with their price, **bought right there** (owner, 28 Sep 2026: "no need to
+  send player to store, he buy emoji there itself"; `unlockEmoji` over the drawer — the store opens only for a wallet too
+  short, on that wallet's shelf; the heading `emojiUnlockMore` reads "Tap one to unlock it"). **An emoji plays over
   its sender's seat for `GameState.emojiBubbleFor` = 5 s** (owner: "5 seconds instead of 4") on every phone, the sender's
   too, in the chat bubble's place (`SeatPod.emoji`, a one-deep queue per seat), and sits in the chat log as a small
-  playing Lottie beside the name; a blocked sender's is hidden. 18 strings in five languages.
+  playing Lottie beside the name; a blocked sender's is hidden. **Two emojis never overlap** (owner, 28 Sep 2026: "if
+  overlap then change the direction"): each plays at its bubble's place for one invisible frame, is measured
+  (`SeatPod.emojiKey`), and `_Felt._placeEmojis` moves a newer one that would meet one already playing to the first of its
+  seat's `EmojiPlace`s that stays on the felt and meets none — beside the pod towards the table's middle, above it, beside it
+  on the other side (the viewer's: over their cards, then left), preferring places off other pods — pointing at the pod
+  from its side (`_TailSide`); ordered by the server's stamp, the same on every phone; kept while it plays.
+  `test/emoji_overlap_test.dart`, scene `19c-every-seat-emoji`. 18 strings in five languages.
   `test/emoji_{state,store,table}_test.dart`.
 - **The Lucky Draw** (owner, 24 Sep 2026; `screens/lucky_draw_screen.dart`, server side §7.2/§7.3). **The lobby key** is a
   `_CornerChip` beside the daily bonus in the bottom-left corner (`_LuckyDrawChip`; the two stand in one Row keyed `_dailyChip`, so
@@ -3192,7 +3205,13 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   whole seconds (`countdownSeconds`, 24 Sep 2026: a phone running behind the server read a 10 s window as 11 — the same
   cap holds the 5-Card pick, `VariationState.secondsLeft` and the unfunded seat's grace), a draining bar, six keys three to a
   row, a one-line rule under each where the screen is not short. It takes the top 64% of the felt so the chooser's own
-  hand and "See cards" stay usable (the server allows `see` in the window). A tap darkens all six and
+  hand and "See cards" stay usable (the server allows `see` in the window). **Dark glass with depth** since 28 Sep 2026
+  (owner: "not glasmorpphism and have no depth, and add icon also"; `_PickerGlass`: a translucent obsidian body in both
+  themes — no blur on the felt —, the overlay's light and shadow from the dark depth ladder, cast round it, a gold
+  hairline; a shuffle mark beside the title, `_TitleMark`); each key a raised tile (`DepthFace`, the raised shadow) with
+  its variation's glyph over its name (`variationIcon`: swap for Muflis, a target for AK47, masks for Joker, a medal for
+  Hukam, double arrows down/up for Lowest/Highest Joker, a fan of cards for 5-Card), the chosen one struck gold; roomy keys
+  62dp. Scenes `19b-variation-picker` in `table_scenes.dart`. A tap darkens all six and
   `GameState.selectVariation` **awaits the ack**: taken → dark until the snapshot removes the panel however slow the link;
   refused or unanswered → the keys come back. As the window opens for the viewer, the drawers close and any sheet over
   the table is popped (`popUntil(isFirst)`, as `_TableRoutes` does). Everyone else gets `VariationSelectingLine` in
@@ -3649,7 +3668,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   the store is already open, and at a table the app refuses a COIN picture itself; `GameState.buyPicture` answers
   `bought | notEnough | refused`) — shown rather than hidden, because
   knowing what is behind the padlock is the whole reason anyone buys one. Tapping a locked one asks
-  first (`GlassDialog`, `t.unlockTitle`/`unlockBody`/`unlock`, with the picture itself large and playing under the title — `_PictureOnOffer`, which the "Not enough hammers/diamonds" offer of the store's shelf shows too, owner 14 Sep 2026), then `GameState.buyPicture` buys it,
+  first (`GlassDialog`, `t.unlockTitle`/`unlockBody`/`unlock`, with the picture itself large and playing under the title — `_PictureOnOffer`, which the "Not enough hammers/diamonds" offer of the store's shelf shows too, owner 14 Sep 2026), **the price named in the title row** (`PriceAndWallet`, "Price" over its wallet's pill — owner, 28 Sep 2026: "it is not showing cost after clicking on it, it is showing how many hammers i have": the one pill was the player's balance, at the foot of a body a 360dp phone scrolled out of view; the "Not enough" offer puts "You have" beside it; the table-picture and emoji questions the same), then `GameState.buyPicture` buys it,
   re-reads the catalogue (`owned` is per viewer) and wears it. The tick follows
   `user.activePictureId == p.id` — it used to compare the choice PATH to the picture's id, so
   nothing was ever ticked. `state.buyingPicture` puts a spinner on the one tile being bought.
@@ -3872,7 +3891,8 @@ HTML comment and its handler commented out while Facebook is switched off (23 Se
 1 login providers (Google and guest; Facebook switched off for now, 23 Sep 2026) · 2 DB per identity (brief says SQLite; **now Postgres by owner's decision**) ·
 3 ≤5/room · 4 ≥2 to start · 5 3 lakh welcome (2 lakh until 14 Sep 2026; with 9 diamonds, 20 hammers and 1 missile) · 6a–g core play · 7 persistence · 8 room chat ·
 9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 (and, since 18 Sep 2026, a third
-category **Variation** × 50,000 / 10 Lakh (20 Lakh since 27 Sep 2026), hidden stacks, no pot limit — §6.4: the first player to act picks Muflis, AK47,
+category **Variation** × 50,000 / 10 Lakh (20 Lakh since 27 Sep 2026), hidden stacks, no pot limit, and since 28 Sep 2026 blind's
+betting — raise as far as the chips go, no round cap — §6.4: the first player to act picks Muflis, AK47,
 Joker, Hukam, Lowest Joker or Highest Joker for the hand in a server-timed 10 s, else the server picks Muflis; the lobby
 shows the three categories first and a category's tables inside it, §8.4 — and since 23 Sep 2026 the two engines,
 Teen Patti and Poker, in front of them) ·

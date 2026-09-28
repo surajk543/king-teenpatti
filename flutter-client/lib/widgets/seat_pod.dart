@@ -85,6 +85,16 @@ const double _kAsideOpacityLight = 0.62;
 /// Where a seat's speech bubble opens relative to its pod.
 enum BubbleSide { above, left, right }
 
+/// Where a seat's emoji plays (28 Sep 2026, owner: "when two players send
+/// emoji in any game table then their emoji should not overlap, if overlap
+/// then change the direction"). [column] is the bubble's own place, hung off
+/// the end of the seat's column as its words are; the others stand beside the
+/// POD, to its [left] or [right] with the pointer at its middle, or [above]
+/// it. The felt picks one for each emoji as it arrives — the first of the
+/// seat's places that meets no emoji already playing (_Felt `_placeEmojis`) —
+/// and keeps it for as long as that emoji plays.
+enum EmojiPlace { column, left, right, above }
+
 /// Which corner of a seat pod its orb spills out of. The table picks per seat
 /// so the colour always leaks towards open felt — never under the rail, over a
 /// card fan or off the side of the screen.
@@ -134,6 +144,8 @@ class SeatPod extends StatelessWidget {
     this.saying,
     this.emoji,
     this.emojiUrl,
+    this.emojiPlace = EmojiPlace.column,
+    this.emojiKey,
     this.bubbleSide = BubbleSide.above,
     this.reversed = false,
     this.beside = false,
@@ -298,6 +310,13 @@ class SeatPod extends StatelessWidget {
   final ChatEmoji? emoji;
   final String? emojiUrl;
 
+  /// Where [emoji] plays: in the bubble's place, or beside or above the pod
+  /// where that place would meet another seat's emoji ([EmojiPlace]).
+  final EmojiPlace emojiPlace;
+
+  /// Names the emoji's bubble wherever it plays, so the felt can measure it.
+  final GlobalKey? emojiKey;
+
   /// Which way the bubble opens, so it lands on the felt and not off it.
   final BubbleSide bubbleSide;
 
@@ -397,18 +416,28 @@ class SeatPod extends StatelessWidget {
       // The pod takes the tap — its glass plaque, not the cards or the bet
       // hung under it. One tree shape whether or not it can be tapped, so a
       // seat whose tap comes or goes keeps its state.
-      GestureDetector(
-        behavior: onTap == null
-            ? HitTestBehavior.deferToChild
-            : HitTestBehavior.opaque,
-        onTap: onTap,
-        child: _pod(
-          context,
-          s,
-          beat,
-          edge,
-          state.colourFor(s.userId ?? '', theme.colorScheme),
-        ),
+      // In a Stack that is always there, so an emoji playing beside or above
+      // the pod ([EmojiPlace]) comes and goes without the pod losing its
+      // state: the pod is the Stack's first child either way.
+      Stack(
+        clipBehavior: Clip.none,
+        children: [
+          GestureDetector(
+            behavior: onTap == null
+                ? HitTestBehavior.deferToChild
+                : HitTestBehavior.opaque,
+            onTap: onTap,
+            child: _pod(
+              context,
+              s,
+              beat,
+              edge,
+              state.colourFor(s.userId ?? '', theme.colorScheme),
+            ),
+          ),
+          if (emoji != null && emojiPlace != EmojiPlace.column)
+            _emojiBesidePod(gap),
+        ],
       ),
       ...below,
     ];
@@ -431,7 +460,11 @@ class SeatPod extends StatelessWidget {
       BubbleSide.left => _TailFrom.right,
     };
     final shownEmoji = emoji;
-    final bubble = shownEmoji != null
+    // An emoji playing beside or above the pod is drawn there (the Stack
+    // round the pod, above), and nothing hangs off the column meanwhile.
+    final Widget? bubble = shownEmoji != null && emojiPlace != EmojiPlace.column
+        ? null
+        : shownEmoji != null
         ? SizedBox(
             height: 0,
             width: width,
@@ -447,13 +480,16 @@ class SeatPod extends StatelessWidget {
               maxHeight: width * 1.3,
               child: Padding(
                 padding: EdgeInsets.only(bottom: gap),
-                child: _EmojiBubble(
-                  key: const ValueKey('seat-emoji'),
-                  emoji: shownEmoji,
-                  url: emojiUrl,
-                  width: width,
-                  tailUp: bubbleSide != BubbleSide.above,
-                  tailFrom: tailFrom,
+                child: KeyedSubtree(
+                  key: emojiKey,
+                  child: _EmojiBubble(
+                    key: const ValueKey('seat-emoji'),
+                    emoji: shownEmoji,
+                    url: emojiUrl,
+                    width: width,
+                    tailUp: bubbleSide != BubbleSide.above,
+                    tailFrom: tailFrom,
+                  ),
                 ),
               ),
             ),
@@ -1309,6 +1345,62 @@ class SeatPod extends StatelessWidget {
 
   /// A dot and a word. The dot carries the state at pod scale, where six
   /// characters of Bengali do not.
+  /// The emoji standing beside or above the pod rather than hanging off the
+  /// column ([EmojiPlace]): positioned against the pod's own box in the Stack
+  /// round it, so it takes no room and moves nothing, with its pointer at the
+  /// pod — from its side at the pod's middle, or down from its foot.
+  Widget _emojiBesidePod(double gap) {
+    final bubble = KeyedSubtree(
+      key: emojiKey,
+      child: _EmojiBubble(
+        key: const ValueKey('seat-emoji'),
+        emoji: emoji!,
+        url: emojiUrl,
+        width: width,
+        tailUp: false,
+        tailFrom: _TailFrom.centre,
+        tailSide: switch (emojiPlace) {
+          EmojiPlace.left => _TailSide.right,
+          EmojiPlace.right => _TailSide.left,
+          _ => null,
+        },
+      ),
+    );
+    return switch (emojiPlace) {
+      EmojiPlace.left => Positioned(
+        top: 0,
+        bottom: 0,
+        right: width + gap,
+        child: IgnorePointer(
+          child: Align(alignment: Alignment.centerRight, child: bubble),
+        ),
+      ),
+      EmojiPlace.right => Positioned(
+        top: 0,
+        bottom: 0,
+        left: width + gap,
+        child: IgnorePointer(
+          child: Align(alignment: Alignment.centerLeft, child: bubble),
+        ),
+      ),
+      _ => Positioned(
+        left: -width,
+        right: -width,
+        top: -gap,
+        child: IgnorePointer(
+          child: FractionalTranslation(
+            translation: const Offset(0, -1),
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              heightFactor: 1,
+              child: bubble,
+            ),
+          ),
+        ),
+      ),
+    };
+  }
+
   Widget _statusTag(BuildContext context, Seat s, String text) {
     final theme = Theme.of(context);
     final tone = !s.connected
@@ -1581,6 +1673,11 @@ class _TurnRingState extends State<_TurnRing>
 /// to is half a pod-width in from that edge.
 enum _TailFrom { left, right, centre }
 
+/// A pointer on a bubble's SIDE, at its middle, for an emoji standing beside
+/// the pod ([EmojiPlace.left], [EmojiPlace.right]): [left] points out of the
+/// bubble's left edge (the pod is on that side), [right] out of its right.
+enum _TailSide { left, right }
+
 class _Bubble extends StatelessWidget {
   const _Bubble({
     required this.text,
@@ -1688,6 +1785,7 @@ class _EmojiBubble extends StatelessWidget {
     required this.width,
     required this.tailUp,
     required this.tailFrom,
+    this.tailSide,
   });
 
   final ChatEmoji emoji;
@@ -1699,6 +1797,10 @@ class _EmojiBubble extends StatelessWidget {
   final double width;
   final bool tailUp;
   final _TailFrom tailFrom;
+
+  /// Set when the bubble stands beside the pod: its pointer is on that side
+  /// instead of on its top or foot, and [tailUp] and [tailFrom] do not apply.
+  final _TailSide? tailSide;
 
   /// The emoji's side, as a share of the pod: most of it, so it reads from
   /// across the table without reaching the pot.
@@ -1716,7 +1818,12 @@ class _EmojiBubble extends StatelessWidget {
       curve: Motion.settle,
       builder: (context, v, child) => Transform.scale(
         scale: 0.6 + 0.4 * v,
-        alignment: tailUp ? Alignment.topCenter : Alignment.bottomCenter,
+        // It grows out of its pointer, at the pod.
+        alignment: switch (tailSide) {
+          _TailSide.left => Alignment.centerLeft,
+          _TailSide.right => Alignment.centerRight,
+          null => tailUp ? Alignment.topCenter : Alignment.bottomCenter,
+        },
         child: Opacity(opacity: v.clamp(0, 1), child: child),
       ),
       child: CustomPaint(
@@ -1730,16 +1837,24 @@ class _EmojiBubble extends StatelessWidget {
           reach: reach,
           tailUp: tailUp,
           tailFrom: tailFrom,
+          tailSide: tailSide,
           blur: width * 0.10,
           dy: width * 0.035,
         ),
         child: Padding(
-          padding: EdgeInsets.only(
-            top: (tailUp ? reach : 0) + pad,
-            bottom: (tailUp ? 0 : reach) + pad,
-            left: pad,
-            right: pad,
-          ),
+          padding: tailSide != null
+              ? EdgeInsets.only(
+                  top: pad,
+                  bottom: pad,
+                  left: (tailSide == _TailSide.left ? reach : 0) + pad,
+                  right: (tailSide == _TailSide.right ? reach : 0) + pad,
+                )
+              : EdgeInsets.only(
+                  top: (tailUp ? reach : 0) + pad,
+                  bottom: (tailUp ? 0 : reach) + pad,
+                  left: pad,
+                  right: pad,
+                ),
           child: EmojiArt(
             url: url,
             size: width * artShare,
@@ -1762,6 +1877,7 @@ class _BubbleSkin extends CustomPainter {
     required this.reach,
     required this.tailUp,
     required this.tailFrom,
+    this.tailSide,
     required this.blur,
     required this.dy,
   });
@@ -1775,11 +1891,19 @@ class _BubbleSkin extends CustomPainter {
   final double reach;
   final bool tailUp;
   final _TailFrom tailFrom;
+
+  /// A pointer on the bubble's side instead of its top or foot.
+  final _TailSide? tailSide;
   final double blur;
   final double dy;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final side = tailSide;
+    if (side != null) {
+      _paint(canvas, _sidePath(size, side));
+      return;
+    }
     final body = RRect.fromRectAndRadius(
       Rect.fromLTWH(
         0,
@@ -1811,6 +1935,38 @@ class _BubbleSkin extends CustomPainter {
       ], true),
     );
 
+    _paint(canvas, path);
+  }
+
+  /// A body inset by [reach] on the pod's side and a pointer out of that side
+  /// at its middle.
+  Path _sidePath(Size size, _TailSide side) {
+    final left = side == _TailSide.left;
+    final body = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        left ? reach : 0,
+        0,
+        math.max(0, size.width - reach),
+        size.height,
+      ),
+      Radius.circular(radius),
+    );
+    final half = tailBase / 2;
+    final middle = size.height / 2;
+    final base = left ? reach : size.width - reach;
+    final tip = left ? 0.0 : size.width;
+    return Path.combine(
+      PathOperation.union,
+      Path()..addRRect(body),
+      Path()..addPolygon([
+        Offset(base, middle - half),
+        Offset(tip, middle),
+        Offset(base, middle + half),
+      ], true),
+    );
+  }
+
+  void _paint(Canvas canvas, Path path) {
     canvas.drawPath(
       path.shift(Offset(0, dy)),
       Paint()
@@ -1838,6 +1994,7 @@ class _BubbleSkin extends CustomPainter {
       old.reach != reach ||
       old.tailUp != tailUp ||
       old.tailFrom != tailFrom ||
+      old.tailSide != tailSide ||
       old.blur != blur ||
       old.dy != dy;
 }

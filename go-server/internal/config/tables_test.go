@@ -79,7 +79,11 @@ func TestSpecComposesWhatTheServerAlwaysBuilt(t *testing.T) {
 		return s
 	}
 	variation := func(s TableSpec) TableSpec {
+		// A blind table's betting: the ladder to the stack, no round cap and
+		// no per-bet ceiling (owner, 28 Sep 2026). The private template puts
+		// the private ladder's two rungs back (wantPrivate).
 		s = seen(s)
+		s.MaxRaiseSteps, s.MaxBetRounds, s.PotLimitMultiplier = 0, 0, 0
 		s.VariationSelectTimeout = 10 * time.Second
 		s.FiveCardPickTimeout = 8 * time.Second
 		return s
@@ -116,7 +120,11 @@ func TestSpecComposesWhatTheServerAlwaysBuilt(t *testing.T) {
 	wantPrivate := []TableSpec{
 		private(seen(TableSpec{Category: "seen", MaxPot: 500000})),
 		private(teenPatti(TableSpec{Category: "blind", MaxPot: 500000, MaxRaiseSteps: 2})),
-		private(variation(TableSpec{Category: "variation", MaxPot: 500000})),
+		private(func() TableSpec {
+			s := variation(TableSpec{Category: "variation", MaxPot: 500000})
+			s.MaxRaiseSteps = 2
+			return s
+		}()),
 	}
 	for _, c := range []string{"three_card_poker", "five_card_draw", "texas_holdem", "omaha"} {
 		s := private(TableSpec{Category: c})

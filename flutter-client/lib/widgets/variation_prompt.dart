@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 
 import '../models/dtos.dart';
 import '../theme/app_theme.dart';
+import '../theme/depth.dart';
 import 'glass_components.dart';
 import 'playing_card.dart';
+import 'premium_surface.dart';
 
 /// Everything a variation table draws that a seen or blind one does not: the
 /// chooser's picker, everyone else's "… is selecting variation", the line that
@@ -332,9 +334,11 @@ class _VariationCountdownState extends State<VariationCountdown>
 /// with 57 to spare. Nothing in it grows with the text scale — every label is
 /// fitted into a box of fixed height — so 1.25, or 2.0, changes how large the
 /// words are drawn and never how tall the panel is. A screen that is not
-/// short (411 and up) gets 56dp keys with a line under each name saying what
-/// the variation does, and a 40dp header: 28 + 3 + 40 + 6 + 6 + 10 + 118 =
-/// 211dp into a box of at least 259.
+/// short (411 and up) gets 62dp keys — the variation's mark over its name and
+/// a line saying what it does — and a 40dp header: 28 + 40 + 6 + 6 + 10 + 130
+/// = 220dp into a box of at least 259. (Since the glass pass of 28 Sep 2026
+/// the edge is a painted hairline inside the panel rather than a 1.5dp
+/// border, so the compact panel is 3dp under the 169 above too.)
 ///
 /// **Always two rows** (owner, 18 Sep 2026, when 5-Card made the menu seven).
 /// A third row of 44 + 6 would still have fitted the 640x360 box (219 of 226)
@@ -400,7 +404,7 @@ class _VariationPromptState extends State<VariationPrompt> {
     // second line in a key, and a narrow one no width for the sentence.
     final roomy =
         !Breaks.isShort(screen.height) && !Breaks.isCompact(screen.width);
-    final keyH = roomy ? 56.0 : Dim.minTouch;
+    final keyH = roomy ? 62.0 : Dim.minTouch;
     final headerH = roomy ? 40.0 : 30.0;
     final pad = roomy ? Space.lg : Space.md;
 
@@ -433,99 +437,82 @@ class _VariationPromptState extends State<VariationPrompt> {
         return Center(
           child: SizedBox(
             width: width,
-            child: DecoratedBox(
-              // The table's own dark plate, in both brightnesses: what stands
-              // on the cloth is dark with light ink (table_screen's _Plate).
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(Radii.lg),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    AppTheme.ink800.withValues(alpha: 0.86),
-                    AppTheme.ink900.withValues(alpha: 0.94),
-                  ],
-                ),
-                border: Border.all(
-                  color: AppTheme.goldBright.withValues(alpha: 0.45),
-                  width: 1.5,
-                ),
-                boxShadow: AppTheme.controlShadow(
-                  Brightness.dark,
-                  elevation: 5,
-                ),
-              ),
-              child: Padding(
-                padding: EdgeInsets.all(pad),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      height: headerH,
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                // Translated, so it keeps its natural case.
-                                widget.title,
-                                maxLines: 1,
-                                style: AppTheme.label(
-                                  theme.textTheme.titleMedium ??
-                                      const TextStyle(),
-                                  colour: AppTheme.goldBright,
-                                  weight: FontWeight.w700,
-                                ),
+            child: _PickerGlass(
+              padding: EdgeInsets.all(pad),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    height: headerH,
+                    child: Row(
+                      children: [
+                        // The table's variation mark, in a gold-rimmed
+                        // well: the picker says what it is for before a
+                        // word is read.
+                        _TitleMark(size: headerH * 0.86),
+                        const SizedBox(width: Space.sm),
+                        Expanded(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              // Translated, so it keeps its natural case.
+                              widget.title,
+                              maxLines: 1,
+                              style: AppTheme.label(
+                                theme.textTheme.titleMedium ??
+                                    const TextStyle(),
+                                colour: AppTheme.goldBright,
+                                weight: FontWeight.w700,
                               ),
                             ),
                           ),
-                          const SizedBox(width: Space.md),
-                          VariationCountdown(
-                            deadlineMs: widget.deadlineMs,
-                            totalMs: widget.totalMs,
-                            digitsHeight: headerH,
-                            bar: false,
+                        ),
+                        const SizedBox(width: Space.md),
+                        VariationCountdown(
+                          deadlineMs: widget.deadlineMs,
+                          totalMs: widget.totalMs,
+                          digitsHeight: headerH,
+                          bar: false,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: Space.sm),
+                  // The same clock again, as the bar alone: the header above
+                  // already carries its digits.
+                  VariationCountdown(
+                    deadlineMs: widget.deadlineMs,
+                    totalMs: widget.totalMs,
+                    digitsHeight: 0,
+                    digits: false,
+                  ),
+                  const SizedBox(height: Space.md),
+                  for (final (r, row) in rows.indexed) ...[
+                    if (r > 0) const SizedBox(height: Space.sm),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        for (final (i, wire) in row.indexed) ...[
+                          if (i > 0) const SizedBox(width: gap),
+                          SizedBox(
+                            width: keyW,
+                            child: _VariationKey(
+                              key: ValueKey('variation-option-$wire'),
+                              icon: variationIcon(wire),
+                              name: widget.nameOf(wire),
+                              note: roomy ? widget.noteOf(wire) : '',
+                              height: keyH,
+                              chosen: _chosen == wire,
+                              enabled: _chosen == null,
+                              onTap: () => _choose(wire),
+                            ),
                           ),
                         ],
-                      ),
+                      ],
                     ),
-                    const SizedBox(height: Space.sm),
-                    // The same clock again, as the bar alone: the header above
-                    // already carries its digits.
-                    VariationCountdown(
-                      deadlineMs: widget.deadlineMs,
-                      totalMs: widget.totalMs,
-                      digitsHeight: 0,
-                      digits: false,
-                    ),
-                    const SizedBox(height: Space.md),
-                    for (final (r, row) in rows.indexed) ...[
-                      if (r > 0) const SizedBox(height: Space.sm),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          for (final (i, wire) in row.indexed) ...[
-                            if (i > 0) const SizedBox(width: gap),
-                            SizedBox(
-                              width: keyW,
-                              child: _VariationKey(
-                                key: ValueKey('variation-option-$wire'),
-                                name: widget.nameOf(wire),
-                                note: roomy ? widget.noteOf(wire) : '',
-                                height: keyH,
-                                chosen: _chosen == wire,
-                                enabled: _chosen == null,
-                                onTap: () => _choose(wire),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ],
                   ],
-                ),
+                ],
               ),
             ),
           ),
@@ -535,15 +522,180 @@ class _VariationPromptState extends State<VariationPrompt> {
   }
 }
 
-/// One variation in the picker.
+/// The mark each variation wears on its key: what it does, at a glance.
+///
+/// Muflis turns the ranking upside down; AK47's four ranks are a target;
+/// Joker is the jester's masks; Hukam, the trump that commands, a medal;
+/// the two per-hand jokers point to the rank they take; 5-Card is a fan of
+/// cards to choose from. A wire name this build does not know gets the
+/// variation table's own shuffle.
+IconData variationIcon(String wire) => switch (wire) {
+  Variation.muflis => Icons.swap_vert_rounded,
+  Variation.ak47 => Icons.gps_fixed_rounded,
+  Variation.joker => Icons.theater_comedy_rounded,
+  Variation.hukam => Icons.military_tech_rounded,
+  Variation.lowestJoker => Icons.keyboard_double_arrow_down_rounded,
+  Variation.highestJoker => Icons.keyboard_double_arrow_up_rounded,
+  Variation.fiveCard => Icons.style_rounded,
+  _ => Icons.shuffle_rounded,
+};
+
+/// The picker's body: dark glass with depth, in both brightnesses.
+///
+/// What stands on the cloth is dark with light ink (table_screen's _Plate),
+/// so this is the obsidian glass by day as well as by night: a translucent
+/// body the cloth's colour shows faintly through, lit along its top edge and
+/// shaded at its foot ([SurfaceLight] at [Elevation.overlay]), a gold
+/// hairline bright above and fading below ([GlassHairline]), and the
+/// overlay's shadow cast ROUND it and never under it ([OuterShadow]) — under
+/// a translucent body a shadow would show through and grey it.
+///
+/// No blur: the felt repaints every frame (the lamp breathes, chips fly), so
+/// a BackdropFilter here would be a blur at 60fps for the whole window —
+/// the reason every panel on the felt is tinted (CLAUDE.md §8.4, Theme).
+///
+/// Its outermost box is a [DecoratedBox] the size of the panel, which is
+/// what the layout tests measure as the plate. Only padding sets its size,
+/// so the height arithmetic in [VariationPrompt] is unchanged.
+class _PickerGlass extends StatelessWidget {
+  const _PickerGlass({required this.padding, required this.child});
+
+  final EdgeInsetsGeometry padding;
+  final Widget child;
+
+  static const double _radius = Radii.lg;
+
+  @override
+  Widget build(BuildContext context) {
+    final depth = Depth.forBrightness(Brightness.dark);
+    final corner = BorderRadius.circular(_radius);
+    return CustomPaint(
+      painter: OuterShadow(
+        radius: _radius,
+        shadows: depth.shadows(Elevation.overlay),
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: corner,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppTheme.ink700.withValues(alpha: 0.90),
+              AppTheme.ink900.withValues(alpha: 0.95),
+            ],
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: corner,
+          child: Stack(
+            children: [
+              // A breath of gold behind the header, where the eye starts.
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: RadialGradient(
+                        center: const Alignment(-0.7, -1.1),
+                        radius: 1.2,
+                        colors: [
+                          AppTheme.goldBright.withValues(alpha: 0.10),
+                          AppTheme.goldBright.withValues(alpha: 0),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: SurfaceLight(
+                      radius: _radius,
+                      light: depth.light(Elevation.overlay),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
+                    painter: GlassHairline(
+                      radius: _radius,
+                      width: 1.5,
+                      colors: [
+                        AppTheme.goldBright.withValues(alpha: 0.62),
+                        AppTheme.goldBright.withValues(alpha: 0.16),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Padding(padding: padding, child: child),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The picker's mark beside its title: the variation table's shuffle in a
+/// sunk, gold-rimmed disc.
+class _TitleMark extends StatelessWidget {
+  const _TitleMark({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: size,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            center: const Alignment(0, -0.4),
+            colors: [
+              AppTheme.goldBright.withValues(alpha: 0.24),
+              AppTheme.gold.withValues(alpha: 0.08),
+            ],
+          ),
+          border: Border.all(
+            color: AppTheme.goldBright.withValues(alpha: 0.55),
+            width: Dim.hairline,
+          ),
+        ),
+        child: Icon(
+          Icons.shuffle_rounded,
+          size: size * 0.56,
+          color: AppTheme.goldBright,
+        ),
+      ),
+    );
+  }
+}
+
+/// One variation in the picker: a raised glass tile with the variation's mark
+/// over its name (and, where the screen is roomy, a line on what it does).
 ///
 /// A box of fixed height with its words fitted inside, rather than a Material
 /// button that sizes itself from its label: the panel's height is arithmetic
 /// the table depends on (see [VariationPrompt]), and a key that grew with the
-/// text scale would push the panel down over the player's own cards.
+/// text scale would push the panel down over the player's own cards. The mark
+/// stands OVER the name, not beside it: a long name ("Highest Joker", and
+/// longer in Hindi) is already as wide as the key, so a mark beside it would
+/// only shrink it further.
+///
+/// Its depth is the ladder's: a key on the panel casts the raised key's small
+/// shadow round itself ([OuterShadow], so the translucent face keeps its
+/// colour) and catches the raised light along its top ([DepthFace]); pressed,
+/// a third of the light; once a choice is sent, the others sit flush and
+/// step back, and the chosen one is struck gold.
 class _VariationKey extends StatelessWidget {
   const _VariationKey({
     super.key,
+    required this.icon,
     required this.name,
     required this.note,
     required this.height,
@@ -552,6 +704,7 @@ class _VariationKey extends StatelessWidget {
     required this.onTap,
   });
 
+  final IconData icon;
   final String name;
   final String note;
   final double height;
@@ -559,11 +712,67 @@ class _VariationKey extends StatelessWidget {
   final bool enabled;
   final VoidCallback onTap;
 
+  static const double _radius = Radii.md;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final corner = BorderRadius.circular(Radii.md);
+    final corner = BorderRadius.circular(_radius);
     final ink = chosen ? AppTheme.ink900 : AppTheme.boneInk;
+    final mark = chosen ? AppTheme.ink900 : AppTheme.goldBright;
+    final lifted = enabled || chosen;
+    final depth = Depth.forBrightness(Brightness.dark);
+    // The mark's size is fixed, as the key's height is: 15 of a 44dp key's
+    // 36 inside, the name the rest; 18 of a 62dp key's 54, beside a name and
+    // a note that keep the room they had in a 56dp key.
+    final iconSize = note.isEmpty ? 15.0 : 18.0;
+
+    final face = SizedBox(
+      height: height,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: Space.sm,
+          vertical: Space.xs,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: mark, size: iconSize),
+            Flexible(
+              flex: 3,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  style: AppTheme.label(
+                    theme.textTheme.labelLarge ?? const TextStyle(),
+                    colour: ink,
+                    weight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+            if (note.isNotEmpty)
+              Flexible(
+                flex: 2,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    note,
+                    maxLines: 1,
+                    style: AppTheme.label(
+                      theme.textTheme.labelSmall ?? const TextStyle(),
+                      colour: ink.withValues(alpha: 0.72),
+                      weight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
 
     return Semantics(
       button: true,
@@ -577,66 +786,48 @@ class _VariationKey extends StatelessWidget {
         child: Opacity(
           // The ones not chosen step back; the one chosen stays lit, so the
           // player sees what they sent while the server answers.
-          opacity: enabled || chosen ? 1 : 0.42,
-          child: Material(
-            color: chosen
-                ? AppTheme.gold
-                : AppTheme.ink700.withValues(alpha: 0.92),
-            shape: RoundedRectangleBorder(
-              borderRadius: corner,
-              side: BorderSide(
-                color: AppTheme.goldBright.withValues(
-                  alpha: chosen ? 0.9 : 0.34,
-                ),
-                width: Dim.hairline,
-              ),
+          opacity: lifted ? 1 : 0.42,
+          child: CustomPaint(
+            painter: OuterShadow(
+              radius: _radius,
+              shadows: lifted
+                  ? depth.shadows(Elevation.raised)
+                  : const <BoxShadow>[],
             ),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: enabled ? onTap : null,
-              child: SizedBox(
-                height: height,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Space.sm,
-                    vertical: Space.xs,
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Flexible(
-                        flex: 3,
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            name,
-                            maxLines: 1,
-                            style: AppTheme.label(
-                              theme.textTheme.labelLarge ?? const TextStyle(),
-                              colour: ink,
-                              weight: FontWeight.w700,
-                            ),
-                          ),
+            child: Material(
+              type: MaterialType.transparency,
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: corner,
+                  gradient: chosen
+                      ? AppTheme.goldFace
+                      : LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            AppTheme.ink600.withValues(alpha: 0.86),
+                            AppTheme.ink700.withValues(alpha: 0.92),
+                          ],
                         ),
-                      ),
-                      if (note.isNotEmpty)
-                        Flexible(
-                          flex: 2,
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              note,
-                              maxLines: 1,
-                              style: AppTheme.label(
-                                theme.textTheme.labelSmall ?? const TextStyle(),
-                                colour: ink.withValues(alpha: 0.72),
-                                weight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
+                  border: Border.all(
+                    color: AppTheme.goldBright.withValues(
+                      alpha: chosen ? 0.9 : 0.30,
+                    ),
+                    width: Dim.hairline,
                   ),
+                ),
+                child: InkWell(
+                  onTap: enabled ? onTap : null,
+                  borderRadius: corner,
+                  splashColor: AppTheme.goldBright.withValues(alpha: 0.16),
+                  highlightColor: AppTheme.goldBright.withValues(alpha: 0.08),
+                  child: lifted && !chosen
+                      ? DepthFace(
+                          radius: _radius,
+                          brightness: Brightness.dark,
+                          child: face,
+                        )
+                      : face,
                 ),
               ),
             ),

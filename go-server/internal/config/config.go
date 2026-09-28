@@ -1194,12 +1194,21 @@ func (g GameConfig) TableRules(category string, bootAmount int64, isPrivate bool
 		rules.MaxBetRounds = g.BlindMaxBetRounds
 		rules.PotLimitMultiplier = g.BlindPotLimitMultiplier
 	case CategoryVariation:
-		// A variation table bets exactly as a seen one does — the SEEN_* ladder
-		// and rounds ARE its rules, with no VARIATION_* twins to keep in step.
-		// Only the pot cap is its own: NONE by default (owner, 18 Sep 2026), or
+		// A variation table bets as a blind one does: the ladder runs as far
+		// as the player's chips go, no round cap, no per-bet ceiling (owner,
+		// 28 Sep 2026: "In variation table 50000 boot, that should be no limit
+		// on chaal if a player has money" — "the bug is that i am only able to
+		// raise one time in variation 50000"). Until then it took the seen
+		// table's two-rung ladder, chaal or one raise, and its forced showdown
+		// after 7 rounds. Fixed at 0 rather than read from BLIND_MAX_RAISE_STEPS,
+		// so a deployment that limits its blind tables does not limit these.
+		// The pot cap is its own: NONE by default (owner, 18 Sep 2026), or
 		// VariationMaxPotBoots of its own boots where a deployment sets one.
-		rules.MaxRaiseSteps = g.SeenMaxRaiseSteps
-		rules.MaxBetRounds = g.SeenMaxBetRounds
+		// A PRIVATE variation table keeps the private ladder, as every private
+		// table does (below).
+		rules.MaxRaiseSteps = 0
+		rules.MaxBetRounds = 0
+		rules.PotLimitMultiplier = 0
 		rules.MaxPot = g.VariationMaxPot(rules.BootAmount)
 	default:
 		rules.MaxRaiseSteps = g.SeenMaxRaiseSteps

@@ -417,17 +417,19 @@ func TestTableRules(t *testing.T) {
 		{"private seen ignores the asked boot", "seen", 5000, true, TableRules{200, 2, 7, 1024, 500000}},
 		{"private blind", "blind", 5000, true, TableRules{200, 2, 0, 0, 500000}},
 		{"unknown category is seen", "BLIND", 200, false, TableRules{200, 2, 7, 1024, 2000000}},
-		// A variation table bets exactly as a seen one — the SEEN_* ladder and
-		// rounds are its rules — except that it has NO pot limit (owner, 18 Sep
-		// 2026: "in all variation tables, do not keep any pot limit").
-		{"public variation", "variation", 200, false, TableRules{200, 2, 7, 1024, 0}},
-		{"public variation 5,000", "variation", 5000, false, TableRules{5000, 2, 7, 1024, 0}},
-		{"public variation 50,000", "variation", 50000, false, TableRules{50000, 2, 7, 1024, 0}},
-		{"public variation 10 Lakh", "variation", 1000000, false, TableRules{1000000, 2, 7, 1024, 0}},
-		{"variation at the default boot", "variation", 0, false, TableRules{200, 2, 7, 1024, 0}},
+		// A variation table bets as a blind one: the ladder to the stack, no
+		// round cap, no per-bet ceiling (owner, 28 Sep 2026: "only able to raise
+		// one time in variation 50000") and NO pot limit (owner, 18 Sep 2026:
+		// "in all variation tables, do not keep any pot limit"). A private one
+		// keeps the private ladder.
+		{"public variation", "variation", 200, false, TableRules{200, 0, 0, 0, 0}},
+		{"public variation 5,000", "variation", 5000, false, TableRules{5000, 0, 0, 0, 0}},
+		{"public variation 50,000", "variation", 50000, false, TableRules{50000, 0, 0, 0, 0}},
+		{"public variation 10 Lakh", "variation", 1000000, false, TableRules{1000000, 0, 0, 0, 0}},
+		{"variation at the default boot", "variation", 0, false, TableRules{200, 0, 0, 0, 0}},
 		// A seen table keeps its fixed cap at any boot: only variation differs.
 		{"public seen 5,000", "seen", 5000, false, TableRules{5000, 2, 7, 1024, 2000000}},
-		{"private variation", "variation", 5000, true, TableRules{200, 2, 7, 1024, 500000}},
+		{"private variation", "variation", 5000, true, TableRules{200, 2, 0, 0, 500000}},
 		{"a near miss of variation is seen", "Variation", 200, false, TableRules{200, 2, 7, 1024, 2000000}},
 		{"zero boot is the default", "seen", 0, false, TableRules{200, 2, 7, 1024, 2000000}},
 	} {

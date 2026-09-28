@@ -858,8 +858,9 @@ void main() {
       await tester.tap(find.byTooltip(t.close));
       await tester.pump(const Duration(milliseconds: 500));
 
-      // A variation table: who picks, hidden chips, no pot limit — and the six
-      // variations under the rankings.
+      // A variation table: who picks, hidden chips, no pot limit, no round cap,
+      // the ladder to the stack (28 Sep 2026) — and the six variations under
+      // the rankings.
       state.closeLobbyLevel();
       state.openLobbyCategory(TableCategory.variation);
       await _settleLevel(tester);
@@ -872,7 +873,10 @@ void main() {
       expect(find.text(t.ruleVariationPick), findsOneWidget);
       expect(find.text(t.onlyYourChips), findsWidgets);
       expect(find.text(t.rulePotOpen), findsOneWidget);
-      expect(find.text(t.ruleRoundsEnd), findsOneWidget);
+      expect(find.text(t.ruleRoundsEnd), findsNothing);
+      // Raising as far as the chips go, as at a blind table (28 Sep 2026).
+      expect(find.text(t.ruleRaiseFree), findsOneWidget);
+      expect(find.text(t.ruleRaiseOnce), findsNothing);
       expect(
         find.text(t.variationRulesTitle, skipOffstage: false),
         findsOneWidget,
