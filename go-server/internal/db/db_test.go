@@ -99,6 +99,18 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	if strings.Contains(outside, "ALTER TABLE") {
 		t.Error("an ALTER TABLE outside a guarded DO block would run on every boot")
 	}
+	// Every index is built behind a catalogue lookup as well (29 Sep 2026): a
+	// bare CREATE INDEX IF NOT EXISTS takes SHARE on its table before it looks,
+	// and SHARE waits for every writer — which `gameplay -migrate` meets, run
+	// beside the serving build (TestABootThatChangesNothingWaitsForNoWriter).
+	if strings.Contains(outside, "INDEX IF NOT EXISTS") {
+		t.Error("a CREATE INDEX outside a guarded DO block takes SHARE on its table at every boot and every deploy")
+	}
+	for _, block := range blocks {
+		if n := strings.Count(block, "INDEX IF NOT EXISTS"); n > 0 && n != strings.Count(block, "to_regclass(")+strings.Count(block, "FROM pg_index ") {
+			t.Errorf("every CREATE INDEX must sit behind its own catalogue lookup:\n%s", block)
+		}
+	}
 	var alters []string
 	for _, block := range blocks {
 		if !strings.Contains(block, "ALTER TABLE") {

@@ -20,7 +20,8 @@ Files in this directory:
 | `build.sh` | deploy | installs Go 1.27.1 into `~/.local/go` if needed (sha256 verified against go.dev), builds `go-server/bin/gameplay` |
 | `gameplay-go.service` | — | the unit that `install-go-server.sh` installs as `gameplay.service` (`WorkingDirectory`, `EnvironmentFile` and `PUBLIC_DIR` all under `go-server/`) |
 | `install-go-server.sh` | sudo, once | backs up the Node unit → `gameplay.service.node.bak`, copies `server/.env` → `go-server/.env` once, installs the Go unit under the same name, restarts, verifies `/health` and `/metrics`, then removes `server/` from the host (`KEEP_NODE_TREE=1` skips) |
-| `lib.sh` | — | helpers shared by the two sudo scripts (paths, health polling, `.env` reading) |
+| `deploy.sh` | the checkout's owner (`write`), no `sudo` in front, inside `tmux` | **every deploy since 29 Sep 2026** (§3 "One-command deploy"): log and lock, fetch, the release tag checked out and built, `gameplay -migrate` with the new binary, restart, `/health` checked and watched — rolled back when it fails; refuses a tag older than what runs without `--allow-downgrade`, and one older than `go-server/v1.7.0` always |
+| `lib.sh` | — | helpers shared by the sudo scripts and `deploy.sh` (paths, health polling, `.env` reading) |
 | `monitoring/` | — | Prometheus + Grafana + alerts + nginx bundle and `MONITORING.md` (formerly `server/ops/monitoring`) |
 
 ---
@@ -138,11 +139,181 @@ lines, and **then removes `/var/www/gameplay/king-teenpatti/server`** (step 5; k
 Re-running the script is harmless (re-installs, restarts, re-verifies; step 5 is a no-op once the
 directory is gone).
 
+### One-command deploy (deploy.sh)
+
+Since 29 Sep 2026 (owner: "a script whenever i run it applies all ddl/dml from migration folder and then it takes latest
+pull and deploy backend tag") one command on the host does the whole routine — the pull, the tag, the build, the
+migrations, the restart — and checks every step:
+
+```bash
+tmux new -A -s deploy                                                              # FIRST: a session a dropped ssh cannot end
+bash /var/www/gameplay/king-teenpatti/go-server/ops/deploy.sh --dry-run            # what it would do; changes nothing
+bash /var/www/gameplay/king-teenpatti/go-server/ops/deploy.sh                      # the newest go-server/v* tag
+bash /var/www/gameplay/king-teenpatti/go-server/ops/deploy.sh go-server/v1.11.0    # that tag (v1.11.0 or 1.11.0 read the same)
+bash /var/www/gameplay/king-teenpatti/go-server/ops/deploy.sh --force              # restart even if /health already reports the tag
+bash /var/www/gameplay/king-teenpatti/go-server/ops/deploy.sh go-server/v1.10.2 --allow-downgrade   # a rollback, after reading §5
+```
+
+Run it as the operator who owns the checkout (`write` on game-server-01), from any directory, **never with `sudo` in
+front** (it refuses root: a root build leaves root-owned files in `bin/` and uses root's Go), and **inside `tmux` or
+`screen`** (below). It asks sudo itself — up front, before the build — for the three steps that need it: the migration
+as the service's user, the restart, and the journal when a restart goes wrong; and it refreshes that right before the
+migration and again before the restart, so **sudo may ask for the password once more** when the build ran past sudo's
+timeout (15 minutes by default — the first run as `write` downloads Go 1.27.1 and every module into `write`'s home, since
+`build.sh` as `deploy` filled `deploy`'s, and takes longer than any later one). Everything it prints also goes to
+`.git/deploy-logs/deploy-<UTC time>-<pid>.log` (the last 20 runs are kept), named at the top of the run and again at its
+end. In order:
+
+1. **Log and lock** — the log above, then `flock` on `.git/deploy.lock`; a second deploy is refused while one runs, and
+   the file says who holds it. If the pid it names no longer exists, a process that run started still holds the lock (a
+   `git gc` a fetch left running in the background, say — every child that could outlive the script is started without
+   the lock's descriptor, so this should not happen): `fuser -v .git/deploy.lock` names it. Wait for it; never delete the
+   file.
+2. **Tracked local changes are refused** (`git status --porcelain --untracked-files=no`, listed): a deploy checks another
+   commit out over them. Untracked and ignored files — `go-server/.env`, `bin/`, `play-key.json` — are fine.
+3. **The installed unit is read** (`systemctl show gameplay`): user, group, working directory, environment file,
+   `Environment=`, `ExecStart`. The installed unit may differ from `gameplay-go.service`, so nothing is assumed. It refuses a
+   unit that does not run this checkout's `go-server/bin/gameplay` from `go-server/`, or whose `EnvironmentFile=` is not
+   `go-server/.env` — the file `-migrate` reads (below). A unit with no `Environment=` at all is fine; it WARNS when
+   `NODE_ENV=production` is in neither the unit nor (as far as `write` can read it) the `.env`, since the server's and
+   `-migrate`'s production guards hang on it.
+4. **The latest pull** — `git fetch origin --prune --tags --force`, then the local `master` fast-forwarded to
+   `origin/master` **as a ref**: the working tree is not touched until step 6, since the running binary serves
+   `go-server/public/` from disk. A `master` with commits `origin/master` lacks stops it — the host holds no history of its own.
+5. **The tag, and what may be deployed** — the argument, or the newest `go-server/v*` by version. It prints what `/health`
+   reports now (version and table catalogue), the tag's migrations and which changed since the checkout. Then:
+   - a tag **older than `go-server/v1.7.0`** is refused outright, whatever the flags — this database cannot run it (§5:
+     v1.6.0 writes `player_stats` with `ON CONFLICT (user_id)`, which fails every pack, leave and hand end while `/health`
+     says ok; v1.5.0 and older do not even boot). Such a tag goes onto a fresh database only, by hand (§8);
+   - a tag **older than what runs** (`/health`'s version, else `bin/gameplay -version`) is refused without
+     `--allow-downgrade`: a rollback is a decision, taken after reading §5, never a typo;
+   - **the installed unit is compared with the tag's `gameplay-go.service`** — `TimeoutStopSec` (a stop timeout under the
+     template's would SIGKILL the server inside its own shutdown budget, mid-settle), `LimitNOFILE`, `Restart`,
+     `RestartSec` and the template's `Environment=` keys — and every difference is a WARNING, said here and again in the
+     report, with the commands that install the tag's template (`git show <tag>:go-server/ops/gameplay-go.service | sudo tee
+     /etc/systemd/system/gameplay.service && sudo systemctl daemon-reload` — after a dry run, so the deploy's own restart
+     already runs under it). A warning, not a refusal: what serves today already runs on that unit;
+   - **every directory a checkout writes in must be writable by `write`** (the checkout's, `.git`, `go-server/bin`):
+     `git checkout` that cannot replace a file says so, moves HEAD anyway and exits 0, leaving the old file under the
+     new commit — so it is refused here, naming each directory with its owner and mode;
+   - **the rollback copy is chosen** (step 6).
+6. **Keep, check out, build** — it remembers HEAD and keeps **the running build** as `bin/gameplay.prev` (only one): a copy
+   of `bin/gameplay` when `/health` reports that binary's version; the `.prev` already there when that is the one running
+   (an earlier deploy stopped before its restart, or a `build.sh` with no restart, left a build in `bin/gameplay` that
+   never ran — copying it over `.prev` would lose the only copy of the running one); and when neither is, it refuses
+   without `--force` and says which build runs and which are on disk (`deploy.sh go-server/<running> --force` puts the
+   running build back on disk). When nothing answers `/health` it keeps `bin/gameplay`, unverified, and says so. Then it
+   checks the tag out **detached**, checks git wrote every tracked file (and names any it could not, with owners and
+   modes), runs the tag's own `build.sh`, and checks that `bin/gameplay -version` names the tag.
+7. **Migrate** — the NEW binary's `gameplay -migrate`, as the unit's user, in its working directory, with its
+   `Environment=` (`NODE_ENV=production` at least): `cd go-server && sudo -n -u <user> env NODE_ENV=production … ./bin/gameplay
+   -migrate`. It prints one line per script applied and `migrated schema public: 3 of 3 scripts applied in … ms`.
+8. **Restart** — `sudo systemctl restart gameplay`, unless `/health` already answers ok with the tag's version AND the build
+   just made is byte for byte the running one (`cmp` with `.prev`: a `-trimpath` build of one commit is the same bytes) —
+   then "already running vX; migrations applied; not restarted". A tag moved on origin names new code under the same
+   version string, so it is restarted onto, with a warning; `--force` always restarts. Then up to 60 s
+   (`HEALTH_WAIT_SECONDS`) for `/health` to answer `ok` with that version — the graceful stop alone can take 20 s — and
+   **30 s more of watching** (`HEALTH_WATCH_SECONDS`): `/health`'s `ok` is true the moment the listener is up, and a build
+   that falls over seconds later (a background job's panic at 10 s) would flap under `Restart=always` while every probe
+   between two crashes said ok. The unit's `MainPID` and `NRestarts` must not change, and at the end `/health` must still
+   answer with the tag and a later uptime. **From the restart on, Ctrl-C and a dropped session do not stop it**: the
+   previous build is already stopped, so the run goes on until the new one is judged — and rolled back if it must be.
+9. **Report** — the version before and after, the table catalogue `/health` reports (a loud WARNING when
+   `tableConfig.fallback` is true: the build could not use the database's catalogue and plays the env menu, so the lobby
+   changed), the tag, the migrations, every warning again, the time and the log. Then `prod-version.sh` from anywhere.
+
+`--dry-run` does 1–5 (the fetch only moves `origin/*` and the tags; the floor, the downgrade rule, the unit comparison, the
+writability check and the rollback-copy choice all run) and prints the commands 6–8 would run. `/health` is read at
+`127.0.0.1:<PORT>`, `PORT` from the `.env` when `write` can read it, else the unit's `Environment=`, else 3000;
+`HEALTH_URL=…` overrides it.
+
+Exit codes — every exit is one of these five; a command failing unexpectedly (a fetch's own 128, say) or a signal is
+reported with its own code and exits 1, or 4 during the restart:
+`0` deployed, or nothing to do; `1` refused, or failed before any restart (a failed build or checkout puts the previous
+binary and HEAD back); `2` **a migration failed — the previous binary and HEAD are back and nothing was restarted**; `3`
+the new build never answered `/health`, or fell over while watched — the journal is printed, the previous binary put back,
+the service restarted onto it and seen healthy, the HEAD put back; `4` the rollback did not come back either, or the run
+was stopped during the restart and cannot say what serves: **production may be down**, act on the journal now.
+
+**Run it inside `tmux` or `screen`.** A dropped ssh session sends the script SIGHUP. Before the restart that stops the run
+and puts the previous build back (the old build never stopped serving); from the restart on the script ignores it and
+runs to its end, writing to the log — but sudo's cached password belongs to the terminal that typed it, so a rollback
+that needs `sudo systemctl restart` after the session has gone cannot get it. The binary on disk is the previous one
+again by then, so a new build that keeps crashing comes back on it at systemd's next automatic restart; one that hangs
+does not. Inside `tmux` none of this arises, and the script says so at the top of every run started outside it. After a
+drop: `tmux attach -t deploy`, or `tail -f` the log it named.
+
+**Why the migrations run with the new binary, before the restart.** A boot applies every embedded migration anyway
+(`db.Open`) and refuses to start when one fails — so until now a bad script was found by the restart, with the previous
+build already stopped and systemd restarting the new one into the same error every 2 s. `gameplay -migrate` is exactly the
+first half of a boot: the same `db.Open`, the same scripts embedded in the same binary, in the same order, under the same
+schema lock, `lock_timeout` and `PG_STATEMENT_TIMEOUT_MS`, with the same `.env` and `DATABASE_URL`/`PG_SCHEMA` — and nothing
+else (no Redis, no listener, no table catalogue, no background job). Run first, it moves the failure to a moment when the
+previous build is still serving and only the checkout has to be put back. Every script is idempotent and additive
+(CLAUDE.md §7.3): the previous build runs on the newer schema, as a rollback already requires (§5), and the boot that follows
+re-applies them all as a no-op. A script is one transaction, so a failing one leaves nothing of itself behind while the
+scripts before it stay applied (and harmless, being additive). The configuration is checked too: `-migrate` reads the
+`.env` through the same parser and production guards as the server, so a `.env` the new build would refuse to boot on
+stops the deploy here.
+
+**What running beside the live server costs.** Since 29 Sep 2026 a migration that changes nothing takes no lock a writer
+waits for: every index in the baseline is built behind a catalogue lookup, as `idx_users_last_login` always was, because a
+bare `CREATE INDEX IF NOT EXISTS` takes SHARE on its table BEFORE it looks — on twelve tables, `chip_ledger` among them —
+and SHARE waits for every open writer and makes every later one queue behind it (`TestABootThatChangesNothingWaitsForNoWriter`
+replays every script on an up-to-date schema and fails on any SHARE-or-stronger lock). Measured before that change on a
+throwaway schema: a settle write waited 2.3 s behind a waiting `-migrate`, and a purchase-shaped transaction (ledger row,
+then ownership row) deadlocked with it — the baseline reached `user_profile_pictures` before `chip_ledger`. What remains is
+a release whose scripts DO change the structure: a new index takes SHARE on its table for as long as it builds (on
+`chip_ledger`, seconds of frozen ledger writes), a new column or trigger a stronger lock for a moment. Each waits at most
+3 s (`lock_timeout`) for the locks it needs — and while it waits, every writer of that table waits behind it, so pack,
+leave and hand-end writes can stall up to 3 s, and one purchase can be aborted by a deadlock (its money is rolled back,
+the player sees an error and buys again). A migration that cannot get its lock in 3 s fails: exit 2, nothing restarted,
+run it again. **Deploy a release that changes the structure at a quiet hour** — the dry run's "changed since the
+checkout's HEAD" line says whether any script changed. Such a release ran all of this at its boot before, with the server down;
+the difference is only that the players are still playing.
+
+**Why never `psql -f` the migration files as `postgres`.** A table belongs to whoever creates it. Scripts run as
+`postgres` leave every new table, sequence and function owned by `postgres`: the server — which connects as its own role,
+from `DATABASE_URL` — cannot write to a table it holds no grant on, and its next boot cannot even run the scripts again
+(every boot does), since `CREATE OR REPLACE FUNCTION` on a function `postgres` owns is `must be owner` — a crash loop (§7 is
+the ownership story). `-migrate` connects with the server's own `DATABASE_URL`, as the
+service's own user, from the service's own directory, so everything is created exactly as a boot would create it. (That is
+also why `write` never needs to read the `.env`: the service's user does, through `sudo -u`.) A key the unit sets in
+`Environment=` and the `.env` sets too is left to the `.env`, as systemd does.
+
+**The detached HEAD it leaves.** The checkout ends on the tag, detached, on purpose: what runs is the tag, not a branch.
+`master` is kept at `origin/master` as a ref. So on the host `git pull origin master` is replaced by the script — a pull on a
+detached HEAD fails — and step 2 is what keeps the checkout rebuildable. The `deploy.sh` that runs is the checkout's,
+i.e. the previously deployed tag's; to run a newer one than that, check the newer commit out first:
+`git fetch origin && git checkout --detach origin/master && bash go-server/ops/deploy.sh`.
+
+**Rollback.** Automatic when the new build never answers `/health`, or falls over while it is watched (exit 3). By hand a
+rollback is a deploy of the older tag with **`--allow-downgrade`** — `bash go-server/ops/deploy.sh go-server/v<previous>
+--allow-downgrade` — after reading §5 for what that tag needs; without the flag the script refuses any tag older than what
+runs, and no flag deploys one older than `go-server/v1.7.0` (the oldest this database can run; §5, §8). The newer tag's
+migrations stay (they are additive, and the older build ignores what it does not know). A tag from before `-migrate`
+existed is built and restarted without the migrate step: its migrations run at its own boot, as they always did.
+`bin/gameplay.prev` is the build the last deploy replaced — the build that was running then.
+
+**First time.** The script arrives with the first checkout that contains it. The host has sat on a detached HEAD at
+the tag it runs since the by-hand v1.10.2 deploy (29 Sep 2026), so the first run fetches and checks master out detached,
+then runs the script:
+
+```bash
+tmux new -A -s deploy
+cd /var/www/gameplay/king-teenpatti && git fetch origin && git checkout --detach origin/master && bash go-server/ops/deploy.sh --dry-run
+bash go-server/ops/deploy.sh
+```
+
+Every later run is the last line alone, inside `tmux` — the fetch is the script's. The unit must already be the Go one
+(`install-go-server.sh`, above), with `EnvironmentFile=` pointing at `go-server/.env`.
+
 ### Every later deploy
 
-Once the unit points at the Go binary, every deploy is of a TAG — `go-server/vX.Y.Z`, cut on master
-after the release is merged (`ops/release.sh`) — never of "whatever master is now" (this is `steps.txt`;
-29 Sep 2026, owner: deploy a specific tag):
+`deploy.sh` (above) does this, with its checks, the migration before the restart and the automatic rollback.
+By hand — a fallback, or on a host where the script cannot run — every deploy is still of a TAG,
+`go-server/vX.Y.Z`, cut on master after the release is merged (`ops/release.sh`), never of "whatever master
+is now" (`steps.txt`; 29 Sep 2026, owner: deploy a specific tag):
 
 ```bash
 cd /var/www/gameplay/king-teenpatti
@@ -152,6 +323,7 @@ git status --short --untracked-files=no           # must print nothing
 git checkout --detach "$TAG"
 bash go-server/ops/build.sh
 ./go-server/bin/gameplay -version                 # names the tag
+cd go-server && sudo -u deploy ./bin/gameplay -migrate && cd ..   # the tag's migrations first (the unit's User=)
 sudo systemctl restart gameplay
 sudo systemctl status gameplay --no-pager
 sudo journalctl -u gameplay -n 20 --no-pager

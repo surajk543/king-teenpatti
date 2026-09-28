@@ -73,6 +73,18 @@
 -- EXECUTE because PL/pgSQL plans a statement before it evaluates the branch
 -- guarding it.
 --
+-- EVERY INDEX BEHIND A CATALOGUE LOOKUP TOO (29 Sep 2026), for the same kind
+-- of reason: `CREATE INDEX IF NOT EXISTS` takes SHARE on its table BEFORE it
+-- looks for the index, and SHARE waits for every open writer and makes every
+-- later one wait behind it. ops/deploy.sh runs these scripts (`gameplay
+-- -migrate`) while the previous build is still serving, so a bare one froze
+-- the ledger's writes for up to lock_timeout at a deploy, and — the baseline
+-- reaching user_profile_pictures before chip_ledger, a purchase writing them
+-- the other way round — could deadlock a purchase. A to_regclass lookup on
+-- this schema takes no lock; only a database that lacks the index builds it
+-- (TestABootThatChangesNothingWaitsForNoWriter). A NEW index on a busy table
+-- still holds SHARE while it builds, once, on the first deploy that carries it.
+--
 -- Declared from scratch: every table is written once, in full, with its
 -- columns, checks and foreign keys in place. The file describes the shape the
 -- database should have, not the steps some older database takes to reach it —
@@ -442,8 +454,14 @@ CREATE TABLE IF NOT EXISTS user_profile_pictures (
 );
 
 -- Finds the rentals that have run out, for the sweep at login.
-CREATE INDEX IF NOT EXISTS idx_owned_pictures_expiry
-  ON user_profile_pictures (expires_at) WHERE expires_at > 0;
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'idx_owned_pictures_expiry')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_owned_pictures_expiry
+      ON user_profile_pictures (expires_at) WHERE expires_at > 0;
+  END IF;
+END;
+$$;
 
 
 -- ---------------------------------------------------------- table pictures
@@ -528,8 +546,14 @@ CREATE TABLE IF NOT EXISTS user_table_pictures (
   PRIMARY KEY (user_id, table_picture_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_owned_table_pictures_expiry
-  ON user_table_pictures (expires_at) WHERE expires_at > 0;
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'idx_owned_table_pictures_expiry')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_owned_table_pictures_expiry
+      ON user_table_pictures (expires_at) WHERE expires_at > 0;
+  END IF;
+END;
+$$;
 
 -- The table picture each player has laid: one row per player, or none for
 -- the table as it comes. This is users.active_picture_id for the table,
@@ -816,7 +840,13 @@ BEGIN
 END;
 $$;
 
-CREATE INDEX IF NOT EXISTS idx_ledger_hand ON chip_ledger (hand_id);
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'idx_ledger_hand')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_ledger_hand ON chip_ledger (hand_id);
+  END IF;
+END;
+$$;
 
 -- Backs db.PurgeLedger's WHERE (reason IN (...) AND created_at < cutoff).
 -- Partial and narrow on purpose: it covers only the four checkpoint reasons
@@ -832,8 +862,14 @@ CREATE INDEX IF NOT EXISTS idx_ledger_hand ON chip_ledger (hand_id);
 -- what pushed production past its 128 MB shared_buffers. The reconciliation
 -- query (SUM(delta) GROUP BY user_id) is a full scan either way. Do not add it
 -- back on a hunch.
-CREATE INDEX IF NOT EXISTS idx_ledger_purge ON chip_ledger (created_at)
-  WHERE reason IN ('hand_win', 'hand_loss', 'hand_packed', 'hand_left');
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'idx_ledger_purge')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_ledger_purge ON chip_ledger (created_at)
+      WHERE reason IN ('hand_win', 'hand_loss', 'hand_packed', 'hand_left');
+  END IF;
+END;
+$$;
 
 -- The ledger is append-only. An UPDATE or DELETE is a bug or an intrusion,
 -- and either way the database refuses it — with ONE deliberate exception: a
@@ -896,7 +932,13 @@ CREATE TABLE IF NOT EXISTS diamond_purchases (
 );
 
 -- A player's purchase history, newest first, for support.
-CREATE INDEX IF NOT EXISTS diamond_purchases_user_idx ON diamond_purchases (user_id, created_at);
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'diamond_purchases_user_idx')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS diamond_purchases_user_idx ON diamond_purchases (user_id, created_at);
+  END IF;
+END;
+$$;
 
 
 -- ---------------------------------------------------------------- hammers
@@ -915,7 +957,13 @@ CREATE TABLE IF NOT EXISTS hammer_purchases (
   created_at     BIGINT  NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS hammer_purchases_user_idx ON hammer_purchases (user_id, created_at);
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'hammer_purchases_user_idx')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS hammer_purchases_user_idx ON hammer_purchases (user_id, created_at);
+  END IF;
+END;
+$$;
 
 -- One row per Force Sideshow paid for. action_id is the spend's idempotency key,
 -- "<handId>:force:<userId>:<client actionId>" (game.ForceSideshowSpendID):
@@ -932,7 +980,13 @@ CREATE TABLE IF NOT EXISTS hammer_spends (
   created_at BIGINT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS hammer_spends_user_idx ON hammer_spends (user_id, created_at);
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'hammer_spends_user_idx')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS hammer_spends_user_idx ON hammer_spends (user_id, created_at);
+  END IF;
+END;
+$$;
 
 
 -- ---------------------------------------------------------------- missiles
@@ -954,7 +1008,13 @@ CREATE TABLE IF NOT EXISTS missile_purchases (
 );
 
 -- A player's trade history, for support.
-CREATE INDEX IF NOT EXISTS missile_purchases_user_idx ON missile_purchases (user_id, created_at);
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'missile_purchases_user_idx')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS missile_purchases_user_idx ON missile_purchases (user_id, created_at);
+  END IF;
+END;
+$$;
 
 -- One row per missile fired. action_id is the spend's idempotency key,
 -- "<handId>:missile:<userId>:<client actionId>" (game.MissileSpendID):
@@ -971,7 +1031,13 @@ CREATE TABLE IF NOT EXISTS missile_spends (
   created_at BIGINT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS missile_spends_user_idx ON missile_spends (user_id, created_at);
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'missile_spends_user_idx')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS missile_spends_user_idx ON missile_spends (user_id, created_at);
+  END IF;
+END;
+$$;
 
 
 -- -------------------------------------------------------------- lucky draw
@@ -1072,8 +1138,14 @@ CREATE TABLE IF NOT EXISTS user_lucky_draws (
 );
 
 -- A player's latest spin of a draw, for the cooldown; newest first.
-CREATE INDEX IF NOT EXISTS user_lucky_draws_last_idx
-  ON user_lucky_draws (user_id, lucky_draw_id, created_at DESC);
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'user_lucky_draws_last_idx')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS user_lucky_draws_last_idx
+      ON user_lucky_draws (user_id, lucky_draw_id, created_at DESC);
+  END IF;
+END;
+$$;
 
 
 -- ----------------------------------------------------------------- friends
@@ -1110,11 +1182,25 @@ CREATE TABLE IF NOT EXISTS friend_requests (
 -- A→B beside B→A. This index is what decides two requests sent at the same
 -- instant — the second insert fails 23505 and db.Friends.Send reads the
 -- winner back and answers with the refusal that fits it.
-CREATE UNIQUE INDEX IF NOT EXISTS friend_requests_one_pending_per_pair
-  ON friend_requests (LEAST(requester_id, recipient_id), GREATEST(requester_id, recipient_id)) WHERE status = 'PENDING';
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'friend_requests_one_pending_per_pair')) IS NULL THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS friend_requests_one_pending_per_pair
+      ON friend_requests (LEAST(requester_id, recipient_id), GREATEST(requester_id, recipient_id)) WHERE status = 'PENDING';
+  END IF;
+END;
+$$;
 -- A player's pending requests, received and sent (GET /api/friends/requests).
-CREATE INDEX IF NOT EXISTS friend_requests_incoming ON friend_requests (recipient_id) WHERE status = 'PENDING';
-CREATE INDEX IF NOT EXISTS friend_requests_outgoing ON friend_requests (requester_id) WHERE status = 'PENDING';
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'friend_requests_incoming')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS friend_requests_incoming ON friend_requests (recipient_id) WHERE status = 'PENDING';
+  END IF;
+  IF to_regclass(format('%I.%I', current_schema(), 'friend_requests_outgoing')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS friend_requests_outgoing ON friend_requests (requester_id) WHERE status = 'PENDING';
+  END IF;
+END;
+$$;
 
 -- Who is friends with whom: one row per DIRECTION, so a friendship is a pair
 -- of rows (A→B and B→A) written together when a request is accepted and
@@ -1195,14 +1281,30 @@ CREATE TABLE IF NOT EXISTS player_reports (
 -- A player's history as the one reported and as the reporter — the second is
 -- also what the per-reporter limit counts (the reports filed in the last
 -- REPORT_WINDOW_MS, db.Reports.Submit) — and the moderation queue by status.
-CREATE INDEX IF NOT EXISTS player_reports_reported_idx ON player_reports (reported_user_id, created_at);
-CREATE INDEX IF NOT EXISTS player_reports_reporter_idx ON player_reports (reporter_user_id, created_at);
-CREATE INDEX IF NOT EXISTS player_reports_status_idx ON player_reports (status, created_at);
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'player_reports_reported_idx')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS player_reports_reported_idx ON player_reports (reported_user_id, created_at);
+  END IF;
+  IF to_regclass(format('%I.%I', current_schema(), 'player_reports_reporter_idx')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS player_reports_reporter_idx ON player_reports (reporter_user_id, created_at);
+  END IF;
+  IF to_regclass(format('%I.%I', current_schema(), 'player_reports_status_idx')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS player_reports_status_idx ON player_reports (status, created_at);
+  END IF;
+END;
+$$;
 -- The reports about one hand (a moderator's, and the ledger purge's look for a
 -- hand to keep) — and, being UNIQUE, the guarantee under the server's own
 -- check that one reporter reports one player once per hand.
-CREATE UNIQUE INDEX IF NOT EXISTS player_reports_one_per_hand
-  ON player_reports (hand_id, reporter_user_id, reported_user_id) WHERE hand_id IS NOT NULL;
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'player_reports_one_per_hand')) IS NULL THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS player_reports_one_per_hand
+      ON player_reports (hand_id, reporter_user_id, reported_user_id) WHERE hand_id IS NOT NULL;
+  END IF;
+END;
+$$;
 
 
 -- --------------------------------------------------------- player levels
@@ -1470,7 +1572,13 @@ CREATE TABLE IF NOT EXISTS badge_purchases (
 );
 
 -- A player's badge purchases, newest first, for support.
-CREATE INDEX IF NOT EXISTS badge_purchases_user_idx ON badge_purchases (user_id, created_at);
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'badge_purchases_user_idx')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS badge_purchases_user_idx ON badge_purchases (user_id, created_at);
+  END IF;
+END;
+$$;
 
 -- One row per daily XP source. code is its name for the app and the claims;
 -- name is the owner's label (the app names the kinds it knows in its own
