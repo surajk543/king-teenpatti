@@ -144,8 +144,35 @@ type Options struct {
 	// which may run against production beside a live server. A server never
 	// sets it: every boot runs every script.
 	SkipMigrations bool
-	Logger         *slog.Logger
+	// Applied, when set, is called once for each migration script as it
+	// commits, in version order, with how long it ran — the report
+	// `gameplay -migrate` prints (cmd/gameplay/migrate.go). Never for a script
+	// that failed, never with SkipMigrations. It runs between two scripts on
+	// the bootstrap's connection, under the schema lock, so it must be quick.
+	// The server leaves it nil.
+	Applied func(m Migration, took time.Duration)
+	Logger  *slog.Logger
 }
+
+// MigrationError is Open's error when a migration script fails: which script,
+// and why. Each script runs as one multi-statement simple-protocol query with
+// no transaction control of its own, which PostgreSQL runs as ONE implicit
+// transaction — so the failing script left nothing behind, the scripts before
+// it are committed, and the scripts after it did not run. Error() is the text
+// Open has always returned: "run <file>: <cause>", plus what holds the lock
+// when a lock is the cause.
+type MigrationError struct {
+	Migration Migration
+	Err       error
+	blocking  string // blockingActivity's suffix; empty unless a lock explains the failure
+}
+
+func (e *MigrationError) Error() string {
+	return fmt.Sprintf("run %s: %v%s", e.Migration.File, e.Err, e.blocking)
+}
+
+// Unwrap exposes the cause (a *pgconn.PgError, a context error) to errors.As.
+func (e *MigrationError) Unwrap() error { return e.Err }
 
 // DB is the open pool plus the schema it was opened on.
 type DB struct {
@@ -210,7 +237,7 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 		log.Info("database ready", "url", Redact(opts.URL), "schema", opts.Schema, "migrations", "skipped")
 		return &DB{Pool: pool, Schema: opts.Schema, log: log}, nil
 	}
-	if err := bootstrap(ctx, pool, opts.Schema, quoted); err != nil {
+	if err := bootstrap(ctx, pool, opts.Schema, quoted, opts.Applied); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -233,8 +260,9 @@ func schemaExists(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 }
 
 // bootstrap creates the schema and runs schema.sql on one connection under
-// the advisory lock described in Open.
-func bootstrap(ctx context.Context, pool *pgxpool.Pool, schema, quoted string) (err error) {
+// the advisory lock described in Open, telling applied (when set) of each
+// script that commits.
+func bootstrap(ctx context.Context, pool *pgxpool.Pool, schema, quoted string, applied func(Migration, time.Duration)) (err error) {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
@@ -275,8 +303,12 @@ func bootstrap(ctx context.Context, pool *pgxpool.Pool, schema, quoted string) (
 	// One Exec per script, in version order. No arguments → simple protocol →
 	// each file runs as one multi-statement query, $$ bodies included.
 	for _, migration := range Migrations() {
+		began := time.Now()
 		if _, err := conn.Exec(ctx, migration.SQL); err != nil {
-			return fmt.Errorf("run %s: %w%s", migration.File, err, blockingActivity(ctx, conn, err))
+			return &MigrationError{Migration: migration, Err: err, blocking: blockingActivity(ctx, conn, err)}
+		}
+		if applied != nil {
+			applied(migration, time.Since(began))
 		}
 	}
 	return nil

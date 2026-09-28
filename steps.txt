@@ -9,10 +9,21 @@ git checkout master && git pull origin master
 bash go-server/ops/release.sh minor               # or patch / major / vX.Y.Z ; --current just reports
 git push origin go-server/vX.Y.Z
 
-# 1. Then on the host:
+# 1. Then on the host, as the checkout's owner (write) — ONE command since 29 Sep 2026 (DEPLOY.md §3 "One-command deploy"):
+bash /var/www/gameplay/king-teenpatti/go-server/ops/deploy.sh --dry-run     # what it would do; changes nothing
+bash /var/www/gameplay/king-teenpatti/go-server/ops/deploy.sh               # the newest go-server/v* tag (or name one: … deploy.sh go-server/vX.Y.Z)
+#   It fetches (branches + tags), fast-forwards master, checks the tag out DETACHED, builds it, runs the NEW binary's
+#   `gameplay -migrate` as the service's user BEFORE the restart (a failing script stops it with nothing restarted),
+#   restarts gameplay, waits for /health to report the tag, and rolls back by itself when it never does.
+#   Never `sudo bash …` it (it asks sudo itself), never `psql -f` the migration files as postgres (DEPLOY.md says why),
+#   and no more `git pull origin master` on the host: the checkout is left detached at the tag, and the script fetches.
+#   FIRST TIME the script is on the host — it arrives with that pull:
+#     cd /var/www/gameplay/king-teenpatti && git pull origin master && bash go-server/ops/deploy.sh
+#
+# By hand (what the script does, without its checks; and the one-time unit install):
 cd /var/www/gameplay/king-teenpatti
-git pull origin master
-bash go-server/ops/build.sh                       # as deploy, no sudo: installs Go if missing, builds go-server/bin/gameplay
+git fetch origin --tags && git checkout --detach go-server/vX.Y.Z
+bash go-server/ops/build.sh                       # as the checkout's owner, no sudo: installs Go if missing, builds go-server/bin/gameplay
 sudo bash go-server/ops/install-go-server.sh      # FIRST TIME ONLY: swaps gameplay.service to the Go binary, copies .env, removes server/
 sudo systemctl restart gameplay                   # every later deploy (after build.sh)
 sudo systemctl status gameplay --no-pager
