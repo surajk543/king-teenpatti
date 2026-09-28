@@ -844,7 +844,9 @@ house), **`five_card_draw`**, **`texas_holdem`** and **`omaha`**. `Category.Game
 
 ### 6.6 The winning tax, player levels, badges and the daily XP (table-tax branch; owner, 26–27 Sep 2026)
 **Fresh deployment, no migration logic** (owner: "we will do fresh deploymnet, so we don't need migration logic"): every table
-and column below is in `V1.0.0__baseline.sql`'s CREATE TABLEs and every row in `V1.0.1__seed.sql`; nothing ALTERs anything.
+and column below is in `V1.0.0__baseline.sql`'s CREATE TABLEs and every row in `V1.0.1__seed.sql`; nothing ALTERs anything — but
+the one-time missions' three `xp_sources` columns (28 Sep 2026), which a database already holding the daily XP lacks, each have a
+catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF NOT EXISTS.
 - **The tax** (`game/tabletax.go`): at a table that TAXES ITS WINNERS (`TableConfig.WinnerTax`; `table_configs.winner_tax`, a
   `LOBBY_TABLES` entry's `tax=1`) — **every public Seen, Blind and Variation table** (owner: "Apply this tax rule on all the
   tables, blind, seen, variation"); never a private table or a poker room — the ONE winner of a hand pays their rate of their
@@ -890,8 +892,39 @@ and column below is in `V1.0.0__baseline.sql`'s CREATE TABLEs and every row in `
   or Variation table; the hand-end settle awards it and opens/rolls every finisher's window. Play time lives in the LIVE store
   (`live.PlayClock`, `xpplay:<userId>`), and `xp.Tracker` asks `db.XP.AwardPlayTime` when a hand crosses a 15/60/120-minute mark.
   `db.awardXP` is the only writer. A player whose XP changed is told on the socket: **`player:level`** (a `db.Standing`).
+- **The one-time missions** (owner, 28 Sep 2026: "Add a new mission type: ONE_TIME … permanent missions that a player can
+  complete only once … Do not remove or modify the existing DAILY behavior"; branch `one-time-missions`). `xp_sources` gains
+  **`mission_type`** (`DAILY` — the DEFAULT, every source before it — | `ONE_TIME`, a CHECK), **`target`** (≥ 1) and **`scope`**
+  (NULL any table, an engine `teen_patti`/`poker`, or a category `seen`…`omaha`; checked by the server) — each in the CREATE TABLE
+  AND a catalogue-guarded block, as `is_bot` (§7.3; seven guarded ALTERs now). ONE_TIME kinds (`db.XPKind*`): `HANDS_PLAYED`,
+  `HANDS_WON`, `CATEGORIES_PLAYED` (different categories) and `VARIATIONS_PLAYED` (different variations); a DAILY source keeps
+  `PLAY_TIME`/`WIN_HAND`, and a row of a kind outside its type's is left out. **`player_xp_missions`** (PK `user_id, source_code`,
+  → `users`/`xp_sources` CASCADE): `progress`, `seen TEXT[]` (the distinct values counted), `completed_at` (0 = open; frozen once
+  set), `xp_awarded`, `CHECK (completed_at > 0 OR xp_awarded = 0)`. **Progress is moved in the hand-end settle's transaction**
+  (`advanceMissions`, before `awardXP`) for every player it resolves as having COMPLETED the hand (the daily window's rule: an
+  outcome row not `LeftMidHand` — a leaver's hand never counts), by the existing definitions: played = `DidChaal` (requirement 16,
+  `player_stats.hands_played`'s rule: a chaal/raise/show, at poker chips beyond the forced ones), won = `IsWinner` (3-Card Poker:
+  beating the dealer or a dealer that does not qualify; a push is neither), category = **`SettleRequest.Category`** (new; the
+  table's, set by `game.Table` and `poker.Table`), variation = the hand's `HandStats.Variation`. **Completion is inside `awardXP`**:
+  one `UPDATE player_xp_missions SET completed_at = now … WHERE completed_at = 0 AND progress >= target`; only the statement that
+  changed the row adds the XP — to LIFETIME XP only, never `window_xp`, never limited by a daily cap — and the whole settle (progress,
+  completion, XP) rolls back with a replay's `duplicate_action` (§5.1), so neither a retry, a concurrent settle (other pool, other
+  process) nor a restart gives it twice (`missions_test.go`, `missions_internal_test.go`: worker A completes, worker B waits on the
+  row and grants 0). Nothing at a window's end touches the table. XP off (no `xp_settings` row) moves nothing. Bots are not special:
+  as for the daily XP, an `is_bot` account earns them. Account deletion keeps the rows (as `player_xp`). **The owner's twelve**
+  (V1.0.1, `ON CONFLICT (code) DO NOTHING`, sort_order 110–220, 3,650 XP in all): First Hand 1 played +50 · First Win 1 won +100 ·
+  Getting Started 10 played +150 · First 5 Wins 5 won +300 · Card Player 50 played +500 · Winning Streak 10 won +750 (ten wins in all,
+  not consecutive — the owner's name) · First Poker Hand 1 played `poker` +100 · First Poker Win 1 won `poker` +200 · Texas Hold'em
+  Debut 1 played `texas_holdem` +150 · Poker Regular 50 played `poker` +750 · Variation Explorer 1 played `variation` +100 (the other
+  reading, different variations, is one UPDATE: `kind = 'VARIATIONS_PLAYED', scope = NULL`) · Game Explorer 5 `CATEGORIES_PLAYED`
+  +500. Progress counts from the deploy (no backfill from `player_stats`). The seeded missions alone lift a player to Level 9.
+  **Wire**: `user.playerLevel.missions` — `[{code, type:"ONE_TIME", progress, target, completed, completedAt?, xpAwarded?}]` for every
+  ACTIVE mission the player has moved or completed (absent when none; no reset or expiry field) — on every account read and in
+  `player:level`, which the settle now also pushes when only a mission's progress moved (`SettledHand.Levels`).
 - **`GET /api/levels`** (public, no-cache): every level, every active badge (price, validity, product, art), the sources (code,
-  name, icon, kind, `playMinutes`/`hand`, xp, times) and the cap.
+  name, icon, kind, `type` (DAILY), `playMinutes`/`hand`, xp, times) and the cap — and since 28 Sep 2026 **`missions`**, the active
+  ONE_TIME ones with a target (`type` ONE_TIME, `target`, `scope`), NEVER among `xpSources`: an older app sums every `xpSources`
+  entry into the day's "108 XP" and files an unknown kind under "More ways to earn XP".
 - **The app** (`widgets/table_tax.dart`): on a taxing table's felt, under the tag, a pill — the level's title over the badge the
   player holds that brings their rate lowest (`User.shownBadge`) and the rate: "🌱 Newbie" over "Regular · 20% TAX", with that
   badge's Lottie as the pill's EMBLEM at its left, from the plate's top edge to its bottom (`WinningTaxTag.emblemSize`: both lines
@@ -931,7 +964,13 @@ and column below is in `V1.0.0__baseline.sql`'s CREATE TABLEs and every row in `
   the track green as far as the last one — completion green, progress gold) under the line "Each milestone gives its XP once a day as your active play reaches it, and they add up" — the server grants
   EVERY rung the window's play has reached (`xpRules.played` → `AwardPlayTime`: 73 XP at 120 minutes), so the screen never says
   "the highest milestone only"; the winning hands as tiles (`HandSourceTile`; only `WIN_HAND` sources — a kind the build has no heading for goes under "More
-  ways to earn XP"). **All levels**: a fixed head — the first column's name (Level, or Badges once their own heading has scrolled
+  ways to earn XP"); then, since 28 Sep 2026, **One-Time missions** (`OneTimeMissionTile`, 230dp tiles in the hand tiles' style,
+  outside the tab's `LevelClock` — no window touches them): the server's title, what it asks in the player's words (`missionTask`,
+  `missionGameName`: "Play 10 hands", "Win 1 Poker hand", "Play 5 different games"), "+XP", "7 / 10" beside a 6dp `LevelBar` while
+  open, the green tick and "Completed" once done (the tile edged green), never a countdown, the heading "n / 12 completed"; nothing
+  from a server without missions (`LevelLadder.missions`/`sourceOf`, `LadderSource.type/target/scope`, `PlayerLevel.missions` →
+  `MissionProgress`; `dailyMax` sums the daily sources alone, `levelSignatureOf` includes the missions; 15 strings in all five
+  languages; `test/one_time_missions_test.dart`, scene `daily_one_time` in `test/level_shots.dart`). **All levels**: a fixed head — the first column's name (Level, or Badges once their own heading has scrolled
   under it), an outlined capsule key beside it down to the badges (↑ back to the viewer's rung once there), Tax at the right —
   the 50 rungs (`LevelRow`: the number on a disc — solid gold for the viewer's, tinted for a rung passed — the mark at ONE size in a
   42dp slot (two emoji fit whole), title, threshold, "You" / "Next", the rate), scrolled to the viewer's, then the catalogue
@@ -1161,8 +1200,8 @@ table (`db.Keyset`, `(created_at, id) < (at, id)`, one row over the limit to kno
 reports: a row added at the top while the player scrolls neither repeats one nor hides one). The requests' first answer is
 both boxes' first pages with `incomingTotal`/`outgoingTotal`/`nextIncoming`/`nextOutgoing`; the next page of a box is
 `?box=incoming|outgoing&cursor=…` → `{requests, total, nextCursor}` (a cursor with no box, or an unknown box, is
-`invalid_page`). The catalogues — `/api/profiles`, `/api/emojis`, `/api/table-pictures`, `/api/levels`, `/api/tables` — are
-fixed sets the app needs whole and stay one answer. An installed app from before reads only the first page of each (20).
+`invalid_page`). The catalogues — `/api/profiles`, `/api/emojis`, `/api/table-pictures`, `/api/levels` (since 28 Sep 2026 with
+the one-time `missions` beside `xpSources`, §6.6), `/api/tables` — are fixed sets the app needs whole and stay one answer. An installed app from before reads only the first page of each (20).
 `internal/auth/pagination_test.go`, `internal/db/friends_test.go` (`TestPendingRequestsComeAPageAtATimeNewestFirst`),
 `internal/db/reports_test.go`, `internal/app/pagination_test.go` (25 requests, friends and reports, 20 then 5, every refusal);
 **`GET /api/tables`** (Go only, 23 Sep 2026; `app/tableconfig.go` `tablesHandler`) — **the table catalogue this
@@ -1397,7 +1436,7 @@ fail the first time — it fails on the next restart, in production.
 `table_configs`). The seed was `V1.0.1__seed_profile_pictures.sql` until then; nothing records a script's name, so the
 rename changed nothing for any database. `TestMigrationsAreVersionedOrderedAndSplitByKind` (`db_test.go`) pins the pair:
 two files, no CREATE/ALTER/INDEX in the seed, and in the baseline an `ALTER TABLE` only as an `EXECUTE` string inside a
-catalogue-guarded block (exactly four: `users.is_bot`, `users.is_active` (26 Sep 2026, written straight into the baseline the same way), `chip_ledger.game`, `chip_ledger.variant`). How it got here: the 14 Sep 2026 consolidation (owner, for a
+catalogue-guarded block (exactly seven: `users.is_bot`, `users.is_active` (26 Sep 2026, written straight into the baseline the same way), `chip_ledger.game`, `chip_ledger.variant`, and since 28 Sep 2026 the one-time missions' `xp_sources.mission_type`, `.target` and `.scope`, §6.6). How it got here: the 14 Sep 2026 consolidation (owner, for a
 production deploy onto an EMPTY database) folded V1.0.2–V1.0.5 in and dropped the blocks that brought older databases
 forward (git history, `ccff445`); later that day `duration_hours`, `V1.0.2__timed_bonus_milestone.sql`,
 `V1.0.3__seed_new_pictures.sql`, the 9-diamond default and the HAMMER currency were folded in too, so a database built
@@ -1431,7 +1470,7 @@ owns `users`.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly thirty-seven, and none of them is game state** (`user_sessions` since 28 Sep 2026, the sign-in each token must carry, in its own paragraph after the player reports) (Report Player's `player_reports` since 27 Sep 2026, moderation audit, in its own paragraph after the friends graph) (Player stats v2's `player_variation_stats` and
+Tables — **there are exactly thirty-eight, and none of them is game state** (`player_xp_missions` since 28 Sep 2026, each player's one-time XP missions, §6.6) (`user_sessions` since 28 Sep 2026, the sign-in each token must carry, in its own paragraph after the player reports) (Report Player's `player_reports` since 27 Sep 2026, moderation audit, in its own paragraph after the friends graph) (Player stats v2's `player_variation_stats` and
 `stats_flushes` since 27 Sep 2026, in the statistics paragraph below) (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph; `player_stats`, `friend_requests` and `friendships` since the same day, Friends V1, §7.2; and eight of levels, badges and the daily XP since 27 Sep 2026 — `player_levels`, `badges`, `user_badges`, `badge_purchases`, `xp_sources`, `xp_settings`, `player_xp`, `player_xp_claims`, §6.6): ten of accounts, money and the picture
 catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`, `user_table_choice` — the paragraph after the
 `users` trigger below; merged 23 Sep 2026) (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
@@ -1917,6 +1956,15 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
     **`tools/node_modules`** — `cd tools && npm install`. `internal/game/interop_test.go` (every hand ranking and every
     sanitising result vs the Node engine) needs **`NODE_REFERENCE_DIR`** = a checkout of the removed `server/` tree with
     `node_modules` (`git worktree add /tmp/node-ref c19963b && (cd /tmp/node-ref/server && npm ci)`).
+  - **The one-time XP missions** (§6.6; 28 Sep 2026): `internal/db/missions_test.go` (the owner's twelve as seeded; partial
+    progress to completion; nothing again after it — 24 h, a week, a new login, a restart; a replayed settle; eight concurrent
+    settles through two pools and one hand from both; the daily XP beside the missions exactly as alone, a daily cap limiting the
+    daily XP only; poker missions only from poker hands, Texas Hold'em Debut only from Texas Hold'em; different categories and
+    variations; leavers and money-only rows; misconfigured or switched-off missions; the ladder's two lists; a database from before
+    them brought forward by one boot), `missions_internal_test.go` (worker A completes, worker B waits on the row and grants 0;
+    twelve racing transactions grant once), `game/missions_category_test.go` and `poker/missions_category_test.go` (the settle names
+    the table's category), `app/tabletax_test.go` (First Win over a real socket and its `player:level`; `GET /api/levels`'
+    `missions`). The daily tests in `levels_test.go` switch the missions off (`f.dailyXPOnly()`) to keep their exact totals.
   - **The Lucky Draw** (§7.3; 24 Sep 2026): `internal/db/luckydraw_test.go` on the seeded beginner draw (six prizes in wheel
     order, no weight on the wire; the first active draw in `sort_order` is the lobby's; every prize into its wallet, chips through the
     ledger; the empty slot pays nothing and starts the cooldown; a picture unlocked for its shop term and never put on; owned left
@@ -2436,7 +2484,9 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   never is one. It compares against `GameState._xpSeen` — the standing the last push, or the session's start (a sign-in, a cold
   start's `me()`, `session:ready`: `_seeStanding`), left — NOT the account, because the `/api/auth/me` refresh every showdown
   starts can land the award's figures before the push that announces them; a login, `me()` or `session:ready` therefore never
-  raises a bar. `_xpSeen` only moves FORWARD (lifetime XP never falls): the play-time tracker pushes from its own goroutine and a
+  raises a bar. A ONE_TIME mission (28 Sep 2026, §6.6) is one too: completed in the new standing and not in the baseline — no
+  window needed — after the award's daily ones, named by its title, with the XP the server says it gave (`xpAwarded`); a push
+  that only moved a mission's progress (the XP did not rise) raises none. `_xpSeen` only moves FORWARD (lifetime XP never falls): the play-time tracker pushes from its own goroutine and a
   hand's settle from the table's, so an older standing can be heard after a newer one, and compared against it would announce a
   mission again. **One bar per mission, queued** (not one bar listing them): each is its own achievement, one line fits the slim
   bar, and a screen reader hears one at a time; several in one award come in the ladder's order with running totals, and a level
@@ -3938,7 +3988,7 @@ deploy runbook; `steps.txt` the six-line routine.
   unchanged. Every shipped client is websocket-only.
 - **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, exactly two since 23 Sep 2026 —
   `V1.0.0__baseline.sql` all DDL, `V1.0.1__seed.sql` all DML — applied in version order, idempotent, run at
-  every start: thirty-seven tables (§7.3) — money, accounts, the sign-in each token must carry, gameplay stats, the friends graph, the player reports, the levels and badges, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
+  every start: thirty-eight tables (§7.3) — money, accounts, the sign-in each token must carry, gameplay stats, the friends graph, the player reports, the levels and badges, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
   state — §7.3), `TableConfigs.Load`/`ExportTableConfigSQL` (the table catalogue), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table

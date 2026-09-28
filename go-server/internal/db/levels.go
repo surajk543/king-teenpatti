@@ -761,29 +761,30 @@ type missionHand struct {
 	variation string
 }
 
-// The two progress statements. Each inserts the player's row on the first
-// hand that moves the mission, adds this hand otherwise, and — the WHERE of
-// ON CONFLICT DO UPDATE — never touches a completed row, whose progress is
-// frozen at its completion. RETURNING gives the progress now; no row comes
-// back when nothing moved.
-const (
-	// missionCountSQL adds one hand ($1 user, $2 mission, $3 now).
-	missionCountSQL = `INSERT INTO player_xp_missions AS m (user_id, source_code, progress, created_at, updated_at)
-	     VALUES ($1, $2, 1, $3, $3)
-	     ON CONFLICT (user_id, source_code) DO UPDATE
-	        SET progress = m.progress + 1, updated_at = EXCLUDED.updated_at
-	      WHERE m.completed_at = 0
-	  RETURNING progress`
-	// missionDistinctSQL adds one DIFFERENT value — a category, a variation
-	// ($3) — and counts the different values seen; a value seen before moves
-	// nothing ($1 user, $2 mission, $4 now).
-	missionDistinctSQL = `INSERT INTO player_xp_missions AS m (user_id, source_code, progress, seen, created_at, updated_at)
-	     VALUES ($1, $2, 1, ARRAY[$3::text], $4, $4)
-	     ON CONFLICT (user_id, source_code) DO UPDATE
-	        SET seen = m.seen || EXCLUDED.seen, progress = cardinality(m.seen) + 1, updated_at = EXCLUDED.updated_at
-	      WHERE m.completed_at = 0 AND NOT (EXCLUDED.seen[1] = ANY (m.seen))
-	  RETURNING progress`
-)
+// missionProgressSQL moves one player's missions on by one hand, in ONE
+// statement however many missions the hand counts for — a settle runs it once
+// per player who completed the hand, whatever they have completed already.
+// $1 is the player, $2 the missions' codes and $3 what each counts: "" for a
+// count (a hand played, a hand won), else the DIFFERENT value — a category, a
+// variation — to add to what it has seen; $4 is now. A mission's row is
+// inserted by the first hand that moves it and moved on otherwise, and — the
+// WHERE of ON CONFLICT DO UPDATE — a completed row is never touched (its
+// progress is frozen at its completion), nor a different-value mission's row
+// by a value it has already counted. RETURNING names only the rows that
+// moved, with their progress now. The codes come in order, so two statements
+// lock one player's rows in one order (the settle holds the player's wallet
+// lock besides).
+const missionProgressSQL = `INSERT INTO player_xp_missions AS m (user_id, source_code, progress, seen, created_at, updated_at)
+     SELECT $1, d.code, 1, CASE WHEN d.value = '' THEN '{}'::text[] ELSE ARRAY[d.value] END, $4, $4
+       FROM unnest($2::text[], $3::text[]) AS d(code, value)
+      ORDER BY d.code
+     ON CONFLICT (user_id, source_code) DO UPDATE
+        SET progress   = CASE WHEN cardinality(EXCLUDED.seen) = 0 THEN m.progress + 1 ELSE cardinality(m.seen) + 1 END,
+            seen       = m.seen || EXCLUDED.seen,
+            updated_at = EXCLUDED.updated_at
+      WHERE m.completed_at = 0
+        AND (cardinality(EXCLUDED.seen) = 0 OR NOT (EXCLUDED.seen[1] = ANY (m.seen)))
+  RETURNING source_code, progress`
 
 // advanceMissions moves userID's ONE_TIME missions on by one hand they
 // completed, in the caller's transaction (the hand-end settle's, under the
@@ -797,47 +798,70 @@ func advanceMissions(ctx context.Context, tx pgx.Tx, rules xpRules, userID strin
 	if !rules.on {
 		return nil, false, nil
 	}
+	// What this hand counts for: a hand for the count kinds it satisfies, a
+	// value for the different-value kinds.
+	counts := map[string]xpSourceRow{}
+	var codes, values []string
 	for _, m := range rules.missions {
 		if !m.inScope(hand.category) {
 			continue
 		}
-		var row pgx.Row
+		value := ""
 		switch m.kind {
 		case XPKindHandsPlayed:
 			if !hand.played {
 				continue
 			}
-			row = tx.QueryRow(ctx, missionCountSQL, userID, m.code, at)
 		case XPKindHandsWon:
 			if !hand.won {
 				continue
 			}
-			row = tx.QueryRow(ctx, missionCountSQL, userID, m.code, at)
 		case XPKindCategoriesPlayed:
 			if !hand.played || !hand.category.Known() {
 				continue
 			}
-			row = tx.QueryRow(ctx, missionDistinctSQL, userID, m.code, string(hand.category), at)
+			value = string(hand.category)
 		case XPKindVariationsPlayed:
 			if !hand.played || hand.variation == "" {
 				continue
 			}
-			row = tx.QueryRow(ctx, missionDistinctSQL, userID, m.code, hand.variation, at)
+			value = hand.variation
 		default:
 			continue
 		}
+		counts[m.code] = m
+		codes = append(codes, m.code)
+		values = append(values, value)
+	}
+	if len(codes) == 0 {
+		return nil, false, nil
+	}
+	rows, err := tx.Query(ctx, missionProgressSQL, userID, codes, values, at)
+	if err != nil {
+		return nil, false, fmt.Errorf("move missions for %s: %w", userID, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var code string
 		var progress int
-		switch err := row.Scan(&progress); {
-		case errors.Is(err, pgx.ErrNoRows):
-			continue // completed before, or a value already counted
-		case err != nil:
-			return nil, false, fmt.Errorf("move mission %s for %s: %w", m.code, userID, err)
+		if err := rows.Scan(&code, &progress); err != nil {
+			return nil, false, fmt.Errorf("move missions for %s: %w", userID, err)
 		}
 		moved = true
-		if progress >= m.target {
+		if m := counts[code]; progress >= m.target {
 			reached = append(reached, m)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, false, fmt.Errorf("move missions for %s: %w", userID, err)
+	}
+	// In the missions' order, as awardXP is asked.
+	sort.SliceStable(reached, func(i, j int) bool {
+		if reached[i].sortOrder != reached[j].sortOrder {
+			return reached[i].sortOrder < reached[j].sortOrder
+		}
+		return reached[i].code < reached[j].code
+	})
 	return reached, moved, nil
 }
 
