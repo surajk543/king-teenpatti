@@ -188,6 +188,8 @@ var catalogue = []struct {
 	{NameRestoredSeats, "counter", "Seats held for the reconnect grace period after a restart since the process started.", nil},
 	{NameStatsFlushes, "counter", "Batches of player statistics flushed from the live store to PostgreSQL, by outcome (ok, duplicate: already committed, error: retried with the same id).", []string{"result"}},
 	{NameStatsFlushPlayers, "histogram", "Players whose statistics one committed batch added to PostgreSQL (one transaction each).", nil},
+	{NameAppVersionChecks, "counter", "App version checks (GET /api/app-config), by declared platform and the state it was given.", []string{"platform", "status"}},
+	{NameAppVersionRejections, "counter", "Signed-in REST calls and socket handshakes the app version gate refused, by declared platform, state (force_update, maintenance) and door (rest, socket).", []string{"platform", "status", "via"}},
 	{NameHTTPRequestsTotal, "counter", "HTTP requests served, by method, route pattern and status code.", []string{"method", "route", "status_code"}},
 	{NameHTTPRequestDuration, "histogram", "HTTP request duration, by method, route pattern and status code.", []string{"method", "route", "status_code"}},
 }
@@ -224,6 +226,41 @@ func touch(m *Metrics) {
 	m.RestoredTablesTotal.Inc()
 	m.StatsFlushes.WithLabelValues(StatsFlushOK).Inc()
 	m.StatsFlushPlayers.Observe(12)
+	m.AppVersionChecked("android", "SOFT_UPDATE")
+	m.AppVersionRejected("android", "FORCE_UPDATE", "socket")
+}
+
+// The app version gate's counters (28 Sep 2026) carry a platform, a state and
+// a door from closed sets — never the version a client sent, nor anything it
+// typed as its platform.
+func TestTheAppVersionCountersFoldAnythingOutsideTheirSets(t *testing.T) {
+	m := newMetrics(t)
+	m.AppVersionChecked("android", "NORMAL")
+	m.AppVersionChecked("1.4.2", "FORCE_UPDATE")
+	m.AppVersionRejected("ios", "MAINTENANCE", "rest")
+	m.AppVersionRejected("windows", "BANANA", "carrier-pigeon")
+	var nilMetrics *Metrics
+	nilMetrics.AppVersionChecked("android", "NORMAL")
+	nilMetrics.AppVersionRejected("android", "NORMAL", "rest")
+	_, e := scrape(t, m, Guard{}, nil)
+	for _, want := range []struct {
+		name   string
+		labels map[string]string
+	}{
+		{NameAppVersionChecks, map[string]string{"platform": "android", "status": "normal"}},
+		{NameAppVersionChecks, map[string]string{"platform": OtherLabel, "status": "force_update"}},
+		{NameAppVersionRejections, map[string]string{"platform": "ios", "status": "maintenance", "via": "rest"}},
+		{NameAppVersionRejections, map[string]string{"platform": OtherLabel, "status": OtherLabel, "via": OtherLabel}},
+	} {
+		if v, ok := e.value(want.name, want.labels); !ok || v != 1 {
+			t.Errorf("%s%v = %v %v, want 1", want.name, want.labels, v, ok)
+		}
+	}
+	for _, v := range e.labelValues("platform") {
+		if _, ok := AppPlatforms[v]; !ok {
+			t.Errorf("platform label %q is outside the set", v)
+		}
+	}
 }
 
 // TestCatalogueCoversEveryGameFamily: every game_* family the registry
@@ -242,8 +279,8 @@ func TestCatalogueCoversEveryGameFamily(t *testing.T) {
 			t.Errorf("%s is exposed but not catalogued", name)
 		}
 	}
-	if len(catalogue) != 44 {
-		t.Errorf("catalogue has %d entries, want 44 (35 from Node + 6 live-state + the winning tax + 2 player-stats flush)", len(catalogue))
+	if len(catalogue) != 46 {
+		t.Errorf("catalogue has %d entries, want 46 (35 from Node + 6 live-state + the winning tax + 2 player-stats flush + 2 app version gate)", len(catalogue))
 	}
 }
 

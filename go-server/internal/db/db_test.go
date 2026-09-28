@@ -621,8 +621,9 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	// they have earned of the daily XP), and Report Player's player_reports
 	// (27 Sep 2026: moderation audit, which names a room and a hand by id and
 	// copies nothing of either), and user_sessions (28 Sep 2026: the sign-in a
-	// token must carry, one signed-in device per account) — thirty-seven, and
-	// no game state (the baseline's header).
+	// token must carry, one signed-in device per account), and app_versions
+	// (28 Sep 2026: the app version gate's configuration, a row per platform)
+	// — thirty-eight, and no game state (the baseline's header).
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
 	if err != nil {
@@ -640,7 +641,7 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends",
+	want := []string{"app_versions", "badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends",
 		"lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends",
 		"player_levels", "player_reports", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims",
 		"profile_pictures", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",

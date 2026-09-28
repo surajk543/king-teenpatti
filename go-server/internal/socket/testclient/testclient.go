@@ -32,9 +32,12 @@ type Event struct {
 
 // ConnectError is the CONNECT_ERROR the server answered the handshake with;
 // Message is the auth code (missing_token, invalid_session, unknown_user,
-// unauthorized).
+// unauthorized, and the app version gate's update_required and maintenance),
+// Data what the refusal carried beside it (the gate's {message, storeUrl?,
+// minimumVersion?}; nil for every other refusal).
 type ConnectError struct {
-	Message string `json:"message"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 func (e *ConnectError) Error() string { return "connect_error: " + e.Message }

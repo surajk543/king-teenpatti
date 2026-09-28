@@ -114,11 +114,26 @@ type ConnectAck struct {
 // io.use middleware produces {"message":"<code>"} — the Flutter client shows
 // `message`, the protocol test matches it against
 // /invalid_session|unauthorized|unknown_user/. Data is present only when the
-// middleware attached `err.data` (the game never does).
+// middleware refused with a *ConnectRefusal (the app version gate's
+// update_required and maintenance).
 type ConnectError struct {
 	Message string `json:"message"`
 	Data    any    `json:"data,omitempty"`
 }
+
+// ConnectRefusal is a middleware error whose CONNECT_ERROR carries data beside
+// its message — Node's `const err = new Error(code); err.data = {…};
+// next(err)`, which socket.io-client hands the app as `err.data` (the Dart
+// client as the map's `data`): {"message": Message, "data": Data}. Any other
+// middleware error still sends {"message"} alone. The app version gate is its
+// one user (update_required and maintenance carry the store link and the
+// words to show).
+type ConnectRefusal struct {
+	Message string
+	Data    any
+}
+
+func (e *ConnectRefusal) Error() string { return e.Message }
 
 // MsgInvalidNamespace is socket.io's CONNECT_ERROR message for a CONNECT to a
 // namespace the server does not serve (socket.io/dist/client.js `connect`).
