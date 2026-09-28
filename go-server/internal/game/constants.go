@@ -25,8 +25,11 @@ package game
 // CategoryVariation (Go only; owner, 18 Sep 2026) is the one Teen Patti
 // category that does change the game: every hand opens with a window in which
 // the player to act first chooses the rules it is decided by
-// (table_variation.go, variation.go). Everything else about it is a seen
-// table's — the same capped ladder — with a blind table's secrecy.
+// (table_variation.go, variation.go). Everything else about it is a blind
+// table's: its secrecy and, for a public one since 28 Sep 2026
+// (config.TableRules), its betting — the ladder to the stack, no round cap,
+// no per-bet ceiling — with no pot cap by default. Until then it bet as a
+// seen table.
 //
 // The four POKER categories (Go only; owner, 19 Sep 2026 — POKER_PLAN.md) name
 // a different game family altogether: a table of one of them is not a
@@ -94,12 +97,13 @@ func (c Category) Known() bool {
 }
 
 // HidesChips reports whether other players' stacks are withheld from a viewer:
-// on a blind table, and on a variation one (owner, 18 Sep 2026 — "keep the same
-// thing as blind table that no one can see other player amount"). A variation
-// table takes its BETTING from the seen table (the two-rung ladder, the rounds,
-// a pot cap) and its SECRECY from the blind one; only a seen table shows every
-// stack. Every poker table shows every stack: a stack is public information in
-// poker, and the pot maths (all-ins, side pots) depend on everyone seeing it.
+// on a blind table, on a variation one (owner, 18 Sep 2026 — "keep the same
+// thing as blind table that no one can see other player amount") and at every
+// poker room (below); only a seen table shows every stack. A variation table
+// takes its SECRECY from the blind one and, since 28 Sep 2026, a public one its
+// BETTING too — no raise limit, no round cap, no per-bet ceiling
+// (config.TableRules; until then it bet as a seen table, chaal or one raise
+// for 7 rounds) — with no pot cap of its own by default.
 func (c Category) HidesChips() bool {
 	// Blind and Variation Teen Patti, and every poker room (owner, 19 Sep
 	// 2026: "in poker do not show opponent chips"): a viewer is told their

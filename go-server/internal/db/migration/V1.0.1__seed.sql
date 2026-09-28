@@ -545,9 +545,14 @@ SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost,
 -- Every figure is resolved as TableRules and the poker knobs resolved it. Seen:
 -- two rungs, seven rounds, a per-bet ceiling of 1024 boots and a 20 Lakh pot
 -- cap, unless the table has its own (seen 50,000: 5 Crore). Blind: no limit
--- anywhere. Variation: seen's ladder, no pot cap, the 10 s chooser's window and
--- the 8 s 5-Card pick. Poker: a 25 s clock, a buy-in of ten boots, three cards
--- to exchange (only 5-Card Draw reads it), and none of Teen Patti's figures.
+-- anywhere. Variation: at a public table a blind table's betting — no raise
+-- limit, no round cap, no per-bet ceiling (owner, 28 Sep 2026: "no limit on
+-- chaal if a player has money"; seen's two rungs and seven rounds before, which
+-- a database seeded before then keeps until its rows are changed by hand,
+-- ops/DEPLOY.md) — and no pot cap; the private template keeps two rungs. Every
+-- variation table: the 10 s chooser's window and the 8 s 5-Card pick. Poker: a
+-- 25 s clock, a buy-in of ten boots, three cards to exchange (only 5-Card Draw
+-- reads it), and none of Teen Patti's figures.
 -- Every table: three missed turns before the idle kick, a 4 s pause between
 -- hands, 30 s to buy chips before a short seat is kicked; every Teen Patti
 -- table, four blind moves and 3 s more after a missile. Every public Seen,

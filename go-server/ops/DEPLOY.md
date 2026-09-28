@@ -308,6 +308,35 @@ LOBBY_TABLES=seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=10000000
 Rolling back past this release with `variation:` still in `.env` stops the older binary at boot
 (it rejects an unknown `LOBBY_TABLES` category at load) — take the entry out first.
 
+### Variation bets as blind (28 Sep 2026) — a catalogue seeded before keeps the old ladder
+
+*(Owner, 28 Sep 2026: "no limit on chaal if a player has money" — "the bug is that i am only able to raise one time in
+variation 50000".)* From this release a PUBLIC variation table bets as a blind one: no raise limit (the ladder doubles
+until the stack stops it), no round cap, no per-bet ceiling; a PRIVATE one keeps `PRIVATE_MAX_RAISE_STEPS`' two rungs,
+with no round cap and no per-bet ceiling. In env mode that is code (`config.TableRules`, read from neither `SEEN_*` nor
+`BLIND_*`) and the restart applies it. In db mode the figures are the `table_configs` rows, and **the seed never rewrites
+a row a database already has**: a deployment whose catalogue was seeded before 28 Sep 2026 — preprod, a dev box — keeps
+the seen ladder on its variation rows (2 rungs, 7 rounds, 1024 boots a bet) until they are changed by hand. Production's
+were changed on 28 Sep 2026 with exactly these two statements and a restart:
+
+```bash
+cd /var/www/gameplay/king-teenpatti/go-server && DB="$(sed -n 's/^DATABASE_URL=//p' .env)"
+psql "$DB" -c "UPDATE table_configs SET max_bet_rounds = 0, pot_limit_multiplier = 0 WHERE category = 'variation'"
+psql "$DB" -c "UPDATE table_configs SET max_raise_steps = 0 WHERE category = 'variation' AND NOT is_private"
+./bin/gameplay -check-table-config; echo "exit $?"                  # must be exit 0
+sudo systemctl restart gameplay                                     # nothing applies before this
+curl -s 127.0.0.1:3000/api/tables | python3 -c 'import json,sys; b=json.load(sys.stdin); [print(e["key"], e["maxRaiseSteps"], e["maxBetRounds"], e["potLimitMultiplier"], e["maxPot"]) for e in b["tables"] + b["privateTables"] if e["category"] == "variation"]'
+#   variation:50000 0 0 0 0
+#   variation:2000000 0 0 0 0
+#   private:variation 2 0 0 500000
+```
+
+(On a dev box the same two statements go through the local `psql` — `PGPASSWORD=postgres psql -h localhost -U postgres
+-d gameplay -c "…"` — followed by a restart of the dev server.) **Verify with `GET /api/tables`, never with a `SELECT`**: the
+rows say what the NEXT boot will play, the endpoint what the running process plays, and until the restart they differ. A
+variation table restored from Redis across that restart keeps the ladder it was opened with and is drained (above, "A
+restart applies it"): its players play on at the old rules while quick-join opens a fresh table at the new ones.
+
 ### The app version gate (28 Sep 2026) — minimum, latest and maintenance, per platform, with no restart
 
 *(`CLAUDE.md` §7.2 "The app version gate" is the reference; `internal/appversion`.)* The server decides, per app platform,

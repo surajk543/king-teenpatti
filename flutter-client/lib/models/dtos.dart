@@ -60,10 +60,13 @@ class TableCategory {
   static const seen = 'seen';
   static const blind = 'blind';
 
-  /// Variation Teen Patti: a table that bets as a seen one does, hides other
-  /// players' stacks as a blind one does (owner, 18 Sep 2026), and whose every
-  /// hand opens with one player choosing the rules it is decided by
-  /// ([Variation], [VariationState]).
+  /// Variation Teen Patti: a table that hides other players' stacks as a
+  /// blind one does (owner, 18 Sep 2026), bets as one does too since 28 Sep
+  /// 2026 — a public one raises as far as the chips go, with no round cap and
+  /// no per-bet ceiling, where it took the seen table's two rungs and seven
+  /// rounds until then — has no pot limit, and opens every hand with one
+  /// player choosing the rules it is decided by ([Variation],
+  /// [VariationState]).
   static const variation = 'variation';
 
   /// The POKER family (server side: go-server/internal/poker). Four wire

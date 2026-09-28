@@ -324,24 +324,37 @@ class _VariationCountdownState extends State<VariationCountdown>
 /// **It stands in the upper part of the felt**, never over the foot: the
 /// chooser may look at their cards before choosing (the server allows `see`
 /// during the window), and their hand and its "See cards" key are down there.
-/// The table gives it the top 64% of the felt; the heights below fit inside
-/// that on the tightest screen there is. At 640x360, text scale 1.25, the felt
-/// is about 354dp tall, so the box is 226dp and the panel is
+/// The table gives it the top 64% of the felt, centred in that box; the
+/// heights below fit inside it on the tightest screen there is. Its edge is a
+/// hairline PAINTED inside it ([_PickerGlass]) and each key's the same way
+/// ([_VariationKey]), so no border adds a dp to anything. On a compact screen
+/// (shorter than [Breaks.shortHeight] or narrower than [Breaks.compact]; the
+/// 640x360 phone) the panel is
 ///
-///   border 2x1.5 + padding 2x10 + header 30 + 6 + bar 6 + 10
-///   + two rows of 44 + the 6 between them  =  169dp,
+///   padding 2x10 + header 30 + 6 + bar 6 + 10
+///   + two rows of 44 + the 6 between them  =  166dp.
 ///
-/// with 57 to spare. Nothing in it grows with the text scale — every label is
-/// fitted into a box of fixed height — so 1.25, or 2.0, changes how large the
-/// words are drawn and never how tall the panel is. A screen that is not
-/// short (411 and up) gets 62dp keys — the variation's mark over its name and
-/// a line saying what it does — and a 40dp header: 28 + 40 + 6 + 6 + 10 + 130
-/// = 220dp into a box of at least 259. (Since the glass pass of 28 Sep 2026
-/// the edge is a painted hairline inside the panel rather than a 1.5dp
-/// border, so the compact panel is 3dp under the 169 above too.)
+/// At 640x360 the felt is 358dp tall (the screen less the felt's 2dp top
+/// margin), so the box is 229dp: 63 to spare, and centred the panel ends 200dp
+/// down, 47 above the viewer's hand. Nothing in it grows with the text scale —
+/// every label is fitted into a box of fixed height — so 1.25, or 2.0, changes
+/// how large the words are drawn and never how tall the panel is. A roomy
+/// screen (380dp tall and 700 wide, and up) gets 64dp keys, which have room
+/// for a line under the name saying what the variation does, and a 40dp
+/// header:
+///
+///   padding 2x14 + header 40 + 6 + bar 6 + 10
+///   + two rows of 64 + the 6 between them  =  224dp,
+///
+/// into a box of at least 242 (0.64 of the 378dp felt a 380dp screen leaves
+/// with no inset at its foot): 248 at 844x390, the shortest phone the table
+/// is laid out for, where the panel ends 29 above the hand, and 262 at
+/// 891x411 (37 above it). The table's test holds both sums, and the hand and
+/// "See cards" clear of the panel, at 592x360 to 1280x800, text x1.0 and
+/// x1.25.
 ///
 /// **Always two rows** (owner, 18 Sep 2026, when 5-Card made the menu seven).
-/// A third row of 44 + 6 would still have fitted the 640x360 box (219 of 226)
+/// A third row of 44 + 6 would still have fitted the 640x360 box (216 of 229)
 /// but with nothing to spare for a felt a few dp shorter, and it would put the
 /// last key on a line of its own. So the panel grows SIDEWAYS instead, where a
 /// landscape felt has room: up to six keys stand three to a row in a panel
@@ -404,7 +417,9 @@ class _VariationPromptState extends State<VariationPrompt> {
     // second line in a key, and a narrow one no width for the sentence.
     final roomy =
         !Breaks.isShort(screen.height) && !Breaks.isCompact(screen.width);
-    final keyH = roomy ? 62.0 : Dim.minTouch;
+    final keyH = roomy
+        ? _VariationKey.roomyHeight
+        : _VariationKey.compactHeight;
     final headerH = roomy ? 40.0 : 30.0;
     final pad = roomy ? Space.lg : Space.md;
 
@@ -682,17 +697,32 @@ class _TitleMark extends StatelessWidget {
 /// A box of fixed height with its words fitted inside, rather than a Material
 /// button that sizes itself from its label: the panel's height is arithmetic
 /// the table depends on (see [VariationPrompt]), and a key that grew with the
-/// text scale would push the panel down over the player's own cards. The mark
-/// stands OVER the name, not beside it: a long name ("Highest Joker", and
-/// longer in Hindi) is already as wide as the key, so a mark beside it would
-/// only shrink it further.
+/// text scale would push the panel down over the player's own cards. The key
+/// is exactly [height] tall: its hairline is painted over the face by a box
+/// that pads nothing, where an [Ink] border had padded the face by its width
+/// and made every key 2dp taller (and narrower) than the arithmetic said.
+///
+/// The mark stands OVER the name, not beside it: a long name ("Highest
+/// Joker", and longer in Hindi) is already as wide as the key, so a mark
+/// beside it would only shrink it further. And it takes no room the words
+/// need. Inside [padY] above and below, a compact key's 40dp hold the mark's
+/// [markCompact] 15 and a 25dp name; a roomy key's 60 hold the mark's
+/// [markRoomy] 16 and 44 shared 3:2, a 26.4dp name over a 17.6dp note. The
+/// tallest lines the five languages set at text x1.25 — a Devanagari or
+/// Bengali name 21dp, its note 17, measured with the Noto fonts a phone falls
+/// back to — fit those boxes, so only a key's WIDTH ever sets its words
+/// smaller, exactly as in the 44 and 56dp keys without a mark before 28 Sep
+/// 2026 (the same scales, key for key, in all five languages). The first cut
+/// of the mark (15 and 18 in 4dp of padding) left a roomy key's words 36dp,
+/// and drew the Hindi and Bengali notes some 15% smaller at x1.25.
 ///
 /// Its depth is the ladder's: a key on the panel casts the raised key's small
 /// shadow round itself ([OuterShadow], so the translucent face keeps its
-/// colour) and catches the raised light along its top ([DepthFace]); pressed,
-/// a third of the light; once a choice is sent, the others sit flush and
-/// step back, and the chosen one is struck gold.
-class _VariationKey extends StatelessWidget {
+/// colour) and catches the raised light along its top ([DepthFace]) — all of
+/// it at rest, [pressedLight] of it while a finger holds it down, as a
+/// Material key does ([raisedKeyFace]); once a choice is sent, the others sit
+/// flush and step back, and the chosen one is struck gold.
+class _VariationKey extends StatefulWidget {
   const _VariationKey({
     super.key,
     required this.icon,
@@ -707,43 +737,94 @@ class _VariationKey extends StatelessWidget {
   final IconData icon;
   final String name;
   final String note;
+
+  /// The key's whole height, edge to edge: [compactHeight] or [roomyHeight].
   final double height;
   final bool chosen;
   final bool enabled;
   final VoidCallback onTap;
 
+  /// A key where the screen has no room for a note: the touch floor, and not
+  /// a dp more — the 640x360 panel's arithmetic in [VariationPrompt] is built
+  /// on it.
+  static const double compactHeight = Dim.minTouch;
+
+  /// A key that carries a note under its name.
+  static const double roomyHeight = 64;
+
+  /// The room above and below the key's column, inside its edge. Only the
+  /// sides get [Space.sm]: the column is centred, so a line that fits never
+  /// meets this, and every dp given here is a dp the words cannot have.
+  static const double padY = Space.xxs;
+
+  /// The mark over the name: [markRoomy] on a key with a note, [markCompact]
+  /// on one without. Fixed, as the key's height is.
+  static const double markCompact = 15;
+  static const double markRoomy = 16;
+
+  /// How much of the raised light a key takes while a finger holds it down —
+  /// the third [raisedKeyFace] gives every Material key.
+  static const double pressedLight = 1 / 3;
+
+  @override
+  State<_VariationKey> createState() => _VariationKeyState();
+}
+
+class _VariationKeyState extends State<_VariationKey> {
   static const double _radius = Radii.md;
+
+  /// What the key's [InkWell] reports — pressed, above all — for the one
+  /// piece of the key that follows it: the light on its face. Read through a
+  /// [ValueListenableBuilder] round that light alone, so a press repaints the
+  /// face's light and rebuilds none of the words or the mark under it.
+  final _states = WidgetStatesController();
+
+  @override
+  void dispose() {
+    _states.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final corner = BorderRadius.circular(_radius);
+    final chosen = widget.chosen;
+    final enabled = widget.enabled;
+    final note = widget.note;
     final ink = chosen ? AppTheme.ink900 : AppTheme.boneInk;
     final mark = chosen ? AppTheme.ink900 : AppTheme.goldBright;
     final lifted = enabled || chosen;
     final depth = Depth.forBrightness(Brightness.dark);
-    // The mark's size is fixed, as the key's height is: 15 of a 44dp key's
-    // 36 inside, the name the rest; 18 of a 62dp key's 54, beside a name and
-    // a note that keep the room they had in a 56dp key.
-    final iconSize = note.isEmpty ? 15.0 : 18.0;
+    // The mark's size is fixed, as the key's height is; the words share what
+    // it leaves, 3:2 between name and note ([_VariationKey]).
+    final iconSize = note.isEmpty
+        ? _VariationKey.markCompact
+        : _VariationKey.markRoomy;
+    // The raised light, on a key that can be pressed: all of it at rest, a
+    // third while held down. A key struck gold has its own face, and one that
+    // has stepped back sits flush — neither takes any. One tree shape whatever
+    // the key is doing, so a choice updates the face in place rather than
+    // tearing it down and building it again.
+    final restingLight = lifted && !chosen ? 1.0 : 0.0;
 
     final face = SizedBox(
-      height: height,
+      height: widget.height,
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: Space.sm,
-          vertical: Space.xs,
+          vertical: _VariationKey.padY,
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: mark, size: iconSize),
+            Icon(widget.icon, color: mark, size: iconSize),
             Flexible(
               flex: 3,
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(
-                  name,
+                  widget.name,
                   maxLines: 1,
                   style: AppTheme.label(
                     theme.textTheme.labelLarge ?? const TextStyle(),
@@ -796,6 +877,10 @@ class _VariationKey extends StatelessWidget {
             ),
             child: Material(
               type: MaterialType.transparency,
+              // The face alone: an [Ink] pads its child by its decoration's
+              // padding, which for a bordered box is the border's width, so a
+              // hairline here made every key 2dp taller and narrower than the
+              // [SizedBox] in it says — 46 not 44 — until 29 Sep 2026.
               child: Ink(
                 decoration: BoxDecoration(
                   borderRadius: corner,
@@ -809,25 +894,39 @@ class _VariationKey extends StatelessWidget {
                             AppTheme.ink700.withValues(alpha: 0.92),
                           ],
                         ),
-                  border: Border.all(
-                    color: AppTheme.goldBright.withValues(
-                      alpha: chosen ? 0.9 : 0.30,
-                    ),
-                    width: Dim.hairline,
-                  ),
                 ),
-                child: InkWell(
-                  onTap: enabled ? onTap : null,
-                  borderRadius: corner,
-                  splashColor: AppTheme.goldBright.withValues(alpha: 0.16),
-                  highlightColor: AppTheme.goldBright.withValues(alpha: 0.08),
-                  child: lifted && !chosen
-                      ? DepthFace(
-                          radius: _radius,
-                          brightness: Brightness.dark,
-                          child: face,
-                        )
-                      : face,
+                // …and the hairline over it, drawn inside the edge by a box
+                // that pads nothing, so the key is exactly [widget.height].
+                child: DecoratedBox(
+                  position: DecorationPosition.foreground,
+                  decoration: BoxDecoration(
+                    borderRadius: corner,
+                    border: Border.all(
+                      color: AppTheme.goldBright.withValues(
+                        alpha: chosen ? 0.9 : 0.30,
+                      ),
+                      width: Dim.hairline,
+                    ),
+                  ),
+                  child: InkWell(
+                    onTap: enabled ? widget.onTap : null,
+                    statesController: _states,
+                    borderRadius: corner,
+                    splashColor: AppTheme.goldBright.withValues(alpha: 0.16),
+                    highlightColor: AppTheme.goldBright.withValues(alpha: 0.08),
+                    child: ValueListenableBuilder<Set<WidgetState>>(
+                      valueListenable: _states,
+                      child: face,
+                      builder: (context, states, face) => DepthFace(
+                        radius: _radius,
+                        brightness: Brightness.dark,
+                        strength: states.contains(WidgetState.pressed)
+                            ? restingLight * _VariationKey.pressedLight
+                            : restingLight,
+                        child: face!,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),

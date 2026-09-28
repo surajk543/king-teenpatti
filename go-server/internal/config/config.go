@@ -49,9 +49,14 @@ const (
 	CategorySeen  = "seen"
 	CategoryBlind = "blind"
 	// CategoryVariation is Variation Teen Patti (Go only; owner, 18 Sep 2026):
-	// a seen table in every rule this package composes — open stacks, the same
-	// capped ladder and pot — whose hands open with a window in which one
-	// player chooses the variation they are decided by (game/variation.go).
+	// a table whose hands open with a window in which one player chooses the
+	// variation they are decided by (game/variation.go). A public one bets as
+	// a blind table does — no raise limit, no round cap, no per-bet ceiling
+	// (TableRules; owner, 28 Sep 2026) — has no pot cap by default
+	// (VariationMaxPotBoots, or a menu entry's own pot=N, can set one), and
+	// hides other stacks as a blind table
+	// does (game.Category.HidesChips). Until 28 Sep 2026 it took the seen
+	// table's ladder and rounds.
 	CategoryVariation = "variation"
 
 	// The poker family (Go only; owner, 19 Sep 2026 — POKER_PLAN.md): four
@@ -492,12 +497,18 @@ type GameConfig struct {
 	// 2026: "in all variation tables, do not keep any pot limit"): a public
 	// variation table's pot cap, counted in BOOTS of that table, 0 = UNCAPPED,
 	// which is the default. It is a count of boots and not a figure because a
-	// variation table is offered at four stakes: a deployment that does want a
-	// cap cannot use one number for them — the seen table's fixed 20 Lakh is
-	// a single boot at the 20 Lakh table, and every hand there would be dealt
-	// straight into the POT_LIMIT showdown. A variation table still takes the
-	// seen table's ladder and its rounds (SeenMaxRaiseSteps, SeenMaxBetRounds),
-	// so a hand ends at the forced showdown whatever the pot has grown to.
+	// variation table can be offered at several stakes: a deployment that does
+	// want a cap cannot use one number for them — the seen table's fixed 20
+	// Lakh is a single boot at the 20 Lakh table, and every hand there would
+	// be dealt straight into the POT_LIMIT showdown. A public variation table
+	// bets as a blind one does (TableRules; owner, 28 Sep 2026: "no limit on
+	// chaal if a player has money") — no raise limit, no round cap, no per-bet
+	// ceiling — so with no cap a hand ends only when all but one have packed
+	// (a sideshow's loser, a timed-out turn and a leaver pack too), at a show
+	// or at a missile. Until then it took the seen table's ladder and rounds
+	// (SeenMaxRaiseSteps, SeenMaxBetRounds) and every long hand ended at the
+	// forced showdown. A private variation table keeps PrivateMaxPot and
+	// PrivateMaxRaiseSteps.
 	VariationMaxPotBoots int64
 	// WinnerTaxMinWinnings is WINNER_TAX_MIN_WINNINGS 5000000 (Go only; owner,
 	// 27 Sep 2026: "30 lakh is the limit on winning amount not on pot limit",
@@ -1172,11 +1183,17 @@ func IsPokerCategory(category string) bool {
 //   - blind: {MaxRaiseSteps: BlindMaxRaiseSteps, MaxBetRounds:
 //     BlindMaxBetRounds, PotLimitMultiplier: BlindPotLimitMultiplier} and NO
 //     maxPot key → the Table reads `config.maxPot ?? 0` → 0 (uncapped);
-//   - private (either category) then overrides MaxPot = PrivateMaxPot and
+//   - variation (Go only): {MaxRaiseSteps: 0, MaxBetRounds: 0,
+//     PotLimitMultiplier: 0} — a blind table's betting, fixed here and read
+//     from neither SEEN_* nor BLIND_* (owner, 28 Sep 2026) — and MaxPot =
+//     VariationMaxPot(boot), 0 by default;
+//   - a menu entry's own pot cap ("pot=N") then wins over its category's;
+//   - private (any category) then overrides MaxPot = PrivateMaxPot and
 //     MaxRaiseSteps = PrivateMaxRaiseSteps.
 //
-// With defaults: public seen 2/7/1024/1.2M, public blind 0/0/0/0, private
-// seen 200 boot 2/7/1024/500k, private blind 200 boot 2/0/0/500k.
+// With defaults: public seen 2/7/1024/2M, public blind and public variation
+// 0/0/0/0, private seen 200 boot 2/7/1024/500k, private blind and private
+// variation 200 boot 2/0/0/500k.
 func (g GameConfig) TableRules(category string, bootAmount int64, isPrivate bool) TableRules {
 	rules := TableRules{
 		BootAmount:         bootAmount,

@@ -645,9 +645,10 @@ sideshow was not asked of you" → `_resolveSideshow(accept, accept ? 'accepted'
 
 ### 6.2.1 `game:selectVariation` (Go only — owner, 18 Sep 2026; DECISIONS.md §2)
 
-The chooser's answer on a **variation table** — category `variation`, a seen table in every betting
-rule whose every hand opens with a window in which the player to the dealer's left chooses the
-variation the hand is decided by. Rules: `internal/game/variation.go`; the window:
+The chooser's answer on a **variation table** — category `variation`, a table whose every hand opens
+with a window in which the player to the dealer's left chooses the variation the hand is decided by
+(it bet as a seen table until 28 Sep 2026; a public one bets as a blind table since — the ladder to the
+stack, no round cap, no per-bet ceiling, `config.TableRules`). Rules: `internal/game/variation.go`; the window:
 `internal/game/table_variation.go`; this handler: `internal/socket/handler.go` `selectVariation`.
 
 ```

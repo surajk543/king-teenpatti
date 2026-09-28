@@ -2510,9 +2510,11 @@ class _TableCard extends StatelessWidget {
     final t = state.t;
     final blind = category == TableCategory.blind;
     // A third category, not "the one that is not blind": a variation table
-    // bets as a seen table does and keeps stacks hidden as a blind one does
-    // (owner, 18 Sep 2026), and it is a card of its own with its own name and
-    // its own line about what happens there.
+    // keeps stacks hidden as a blind one does (owner, 18 Sep 2026) — and since
+    // 28 Sep 2026 bets as one too, a public one raising as far as the chips
+    // go (it bet as a seen table did until then) — has no pot limit, and is a
+    // card of its own with its own name and its own line about what happens
+    // there.
     final variation = category == TableCategory.variation;
     // Whether the winner of each hand here pays winning tax (owner, 26–27 Sep
     // 2026: every public Seen, Blind and Variation table) — the menu's word.

@@ -1,12 +1,15 @@
 /**
  * Variation Teen Patti over the socket (Go only; owner, 18 Sep 2026): the
- * third table category. It bets exactly as a seen table does; the one
- * difference is that every hand opens with a server-timed window in which the
- * player who would have acted first picks one of seven variations, and the
- * server picks MUFLIS if they do not. The seventh, FIVE_CARD (5-Card Teen
- * Patti), is the one that changes how many cards a player HOLDS: every hand is
- * still dealt three, the server tops each up to five the moment it is chosen,
- * and the server — never the player, never the client — finds the best three.
+ * third table category. It hides stacks as a blind table does, and since
+ * 28 Sep 2026 a public one bets as a blind table does too — the ladder to the
+ * stack, no round cap, no per-bet ceiling (it took the seen table's two rungs
+ * and seven rounds before). What is its own is that every hand opens with a
+ * server-timed window in which the player who would have acted first picks one
+ * of seven variations, and the server picks MUFLIS if they do not. The
+ * seventh, FIVE_CARD (5-Card Teen Patti), is the one that changes how many
+ * cards a player HOLDS: every hand is still dealt three, the server tops each
+ * up to five the moment it is chosen, and the server — never the player, never
+ * the client — finds the best three.
  *
  * What is pinned here is the wire: the `variation` block on room:state (the
  * source of truth — a reconnect has nothing else), the two announcements that
@@ -348,6 +351,14 @@ test('the pick is acked, announced, then the state has it and the chooser is on 
   }
   assertOrder(chooser.client.eventsSince(marks.get(chooser.client)), ['game:variationSelected', 'game:yourTurn', 'room:state']);
   assertKeys(chooser.client.state().you.options, OPTIONS_KEYS, 'the chooser has ordinary options');
+  // A public variation table bets as a blind one (owner, 28 Sep 2026: "the bug
+  // is that i am only able to raise one time in variation 50000"): the ladder
+  // doubles until the stack stops it, where a seen table offers two rungs.
+  const options = chooser.client.state().you.options;
+  const ladder = [];
+  for (let rung = options.raiseSteps[0]; rung <= options.chips; rung *= 2) ladder.push(rung);
+  assert.deepEqual(options.raiseSteps, ladder, 'every doubling the stack covers, with no rung limit');
+  assert.ok(ladder.length > 2, `more than the seen table's two rungs: ${JSON.stringify(options.raiseSteps)}`);
   assert.equal(other.client.state().you.options, null);
   assert.equal(other.client.count('game:yourTurn'), 0);
 

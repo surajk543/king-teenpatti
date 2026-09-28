@@ -163,9 +163,15 @@ type rules struct {
 	hidesChips                                 bool
 }
 
+// rulesFor is config.TableRules at the defaults for a public table: a seen
+// table's two rungs, seven rounds and a per-bet ceiling of 1024 boots; a blind
+// table's ladder to the stack with no round cap and no per-bet ceiling; and a
+// variation table's the same as a blind one's (owner, 28 Sep 2026: "no limit
+// on chaal if a player has money" — it took the seen table's until then). The
+// pot cap is the menu entry's.
 func rulesFor(e protocol.TableEntry) rules {
-	r := rules{maxRaiseSteps: 2, maxBetRounds: 7, potLimitMul: 1024} // seen and variation
-	if e.Category == protocol.CategoryBlind {
+	r := rules{maxRaiseSteps: 2, maxBetRounds: 7, potLimitMul: 1024} // seen
+	if e.Category == protocol.CategoryBlind || e.Category == protocol.CategoryVariation {
 		r = rules{} // unlimited ladder, no round cap, no per-bet ceiling
 	}
 	r.hidesChips = e.Category != protocol.CategorySeen

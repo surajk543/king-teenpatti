@@ -44,8 +44,10 @@ const MENU = [
   // Variation Teen Patti (Go only; owner, 18 Sep 2026). Last on the menu, so
   // the five rows above keep the places they always had. Two tables only —
   // 50,000 and 20 Lakh — behind the bands blind's tables of those stakes have.
-  // It bets as a seen table does, but has NO pot limit (owner, 18 Sep 2026;
-  // VARIATION_MAX_POT_BOOTS=0).
+  // It has NO pot limit (owner, 18 Sep 2026; VARIATION_MAX_POT_BOOTS=0) and,
+  // since 28 Sep 2026, bets as a blind table does — the ladder to the stack,
+  // no round cap, no per-bet ceiling — where it took the seen table's ladder
+  // and rounds before.
   { category: 'variation', bootAmount: 50000, maxPot: 0, maxBlindMoves: 4, minChips: 0, maxChips: 2000000000, ...TAX },
   { category: 'variation', bootAmount: 2000000, maxPot: 0, maxBlindMoves: 4, minChips: 500000000, maxChips: 0, ...TAX },
   // A second seen table (owner, 19 Sep 2026): open to all, its own 5 Crore pot limit.
@@ -137,9 +139,9 @@ test('every room on the menu can be joined, and the ceiling a card advertises is
       assert.equal('game' in joined, false, 'a Teen Patti snapshot names no family');
       assert.equal(joined.maxPot, entry.maxPot, `${entry.category} ${entry.bootAmount} maxPot`);
       assert.equal(joined.you.blindMovesLeft, entry.maxBlindMoves);
-      // Only a seen table shows every stack. A variation table BETS as a seen
-      // one does, but keeps stacks to their owners as a blind one does (owner,
-      // 18 Sep 2026).
+      // Only a seen table shows every stack. A variation table keeps stacks to
+      // their owners as a blind one does (owner, 18 Sep 2026), and since
+      // 28 Sep 2026 bets as one too.
       assert.equal(joined.chipsHidden, entry.category !== 'seen');
     }
     clients.push(client);

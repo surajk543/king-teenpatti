@@ -10,8 +10,12 @@
 ///   and its term; a locked tile asks first ([unlockEmoji]);
 /// * the table's emoji page ([EmojiDrawer]) — a page of the table's left
 ///   drawer, never a route: the player's own emojis playing, one tap to send
-///   one to everyone at the table; the rest dimmed with their price, a tap
-///   away from the store.
+///   one to everyone at the table; the rest dimmed with their price, bought
+///   right there ([unlockEmoji]).
+///
+/// The app buys one emoji at a time ([GameState.buyEmoji]), so in both
+/// places, while one is being bought, its tile wears the game's ring and
+/// every locked tile is dead until the answer comes back.
 library;
 
 import 'dart:async';
@@ -120,6 +124,9 @@ Widget emojiShelf({
       ),
     );
   }
+  // One emoji is bought at a time, so while one is with the server no locked
+  // tile may start another — the table's emoji page keeps the same rule.
+  final purchasing = state.buyingEmoji != null;
   return Padding(
     padding: const EdgeInsets.only(bottom: Space.md),
     child: ShelfGrid(
@@ -133,11 +140,14 @@ Widget emojiShelf({
               emoji: e,
               side: side,
               busy: state.buyingEmoji == e.id,
-              // A locked emoji asks to be bought. One the player owns is sent
-              // from the table's emoji key, not from here, and a tap says so.
-              onTap: () => e.locked
-                  ? unlockEmoji(context, e, openStore: openStore)
-                  : state.say(state.t.emojiOwnedNote),
+              // A locked emoji asks to be bought — unless another is being
+              // bought. One the player owns is sent from the table's emoji
+              // key, not from here, and a tap says so.
+              onTap: !e.locked
+                  ? () => state.say(state.t.emojiOwnedNote)
+                  : purchasing
+                  ? null
+                  : () => unlockEmoji(context, e, openStore: openStore),
             ),
           ),
       ],
@@ -167,9 +177,14 @@ class EmojiChoice extends StatelessWidget {
   /// name ([widthFor]).
   final double side;
 
-  /// This emoji is being bought right now.
+  /// This emoji is being bought right now: its well wears the game's ring,
+  /// and the tile takes no tap.
   final bool busy;
-  final VoidCallback onTap;
+
+  /// Null for a locked emoji while any emoji is being bought, this one or
+  /// another: one purchase at a time, so no locked tile takes a tap until
+  /// that one is answered.
+  final VoidCallback? onTap;
 
   /// How wide a tile with a well of [side] stands on the shelf.
   static double widthFor(double side) => side + Space.lg;
@@ -191,12 +206,13 @@ class EmojiChoice extends StatelessWidget {
         ? t.rentalTerm(emoji.durationDays, emoji.durationHours)
         : null;
     final bool counting = !locked && emoji.expiresAt > 0;
+    final live = !busy && onTap != null;
 
     return PressScale(
-      enabled: !busy,
+      enabled: live,
       child: InkWell(
         enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
-        onTap: busy ? null : onTap,
+        onTap: live ? onTap : null,
         borderRadius: BorderRadius.circular(Radii.md),
         child: SizedBox(
           width: widthFor(side),
@@ -327,12 +343,26 @@ Widget emojiPricePill(EmojiItem emoji) => KeyedSubtree(
   child: walletPricePill(cost: emoji.cost, currency: emoji.currency),
 );
 
+/// Whether an emoji is already being bought, and if so the player is told to
+/// wait: [GameState.buyEmoji] buys one at a time and refuses a second
+/// without a word, so a question whose Unlock could only be refused is
+/// never asked, nor its answer dropped (review, 28 Sep 2026).
+bool _stillBuyingEmoji(GameState state) {
+  if (state.buyingEmoji == null) return false;
+  state.say(state.t.pleaseWait);
+  return true;
+}
+
 /// Asks before spending on a premium emoji, then buys it — [unlockPicture]
 /// for the emoji shelf, with the same two answers before the question: a
 /// chip-priced emoji tapped at a table is refused on the spot
 /// ([emojiSellsHere]), and one whose hammer or diamond wallet is short is
 /// offered that wallet's shelf ([offerWalletShelf]), which is also what
 /// follows the server's own shortage when this phone's count was out of date.
+///
+/// Both tiles that lead here are dead while an emoji is being bought; should
+/// it be entered then all the same, the player is told to wait, both before
+/// the question and after its Unlock ([_stillBuyingEmoji]).
 Future<void> unlockEmoji(
   BuildContext context,
   EmojiItem emoji, {
@@ -342,6 +372,7 @@ Future<void> unlockEmoji(
   final t = state.t;
   final theme = Theme.of(context);
 
+  if (_stillBuyingEmoji(state)) return;
   if (!emojiSellsHere(emoji, atTable: state.screen == Screen.table)) {
     state.say(t.emojiChipsLobbyOnly);
     return;
@@ -415,7 +446,7 @@ Future<void> unlockEmoji(
     ),
   );
 
-  if (confirmed != true) return;
+  if (confirmed != true || _stillBuyingEmoji(state)) return;
   final result = await state.buyEmoji(emoji.id);
   if (result == PictureBuyResult.notEnough && context.mounted) {
     await offerWalletShelf(
@@ -448,7 +479,10 @@ Future<void> unlockEmoji(
 /// store, he buy emoji there itself"): the unlock question over the drawer
 /// ([unlockEmoji]) and, once bought, the emoji moves up among the player's
 /// own, ready to send. Only a wallet too short for it leads to the store —
-/// to that wallet's shelf, which is what the player then needs.
+/// to that wallet's shelf, which is what the player then needs. While one is
+/// being bought it wears the game's ring and every locked tile is dead, as on
+/// the store's shelf: a second tap used to ask the question again, and its
+/// Unlock was refused without a word (review, 28 Sep 2026).
 class EmojiDrawer extends StatelessWidget {
   const EmojiDrawer({super.key});
 
@@ -473,6 +507,7 @@ class EmojiDrawer extends StatelessWidget {
     ];
     final canSend = state.canChat;
     final left = state.chatCooldownLeft;
+    final purchasing = state.buyingEmoji != null;
 
     return GlassDrawerPanel(
       width: TableSpace.drawerW(MediaQuery.sizeOf(context).width),
@@ -588,7 +623,10 @@ class EmojiDrawer extends StatelessWidget {
                               _LockedTile(
                                 key: ValueKey('emoji-locked-${e.id}'),
                                 emoji: e,
-                                onTap: () => unlockEmoji(context, e),
+                                busy: state.buyingEmoji == e.id,
+                                onTap: purchasing
+                                    ? null
+                                    : () => unlockEmoji(context, e),
                               ),
                           ],
                         ),
@@ -685,20 +723,38 @@ class _SendTile extends StatelessWidget {
 /// An emoji the player does not own, on the table's page: dimmed in its
 /// well, with its price under it; a tap asks to buy it there and then.
 class _LockedTile extends StatelessWidget {
-  const _LockedTile({super.key, required this.emoji, required this.onTap});
+  const _LockedTile({
+    super.key,
+    required this.emoji,
+    required this.busy,
+    required this.onTap,
+  });
 
   final EmojiItem emoji;
-  final VoidCallback onTap;
+
+  /// This emoji is being bought right now: its well wears the game's ring,
+  /// as the store's tile does ([EmojiChoice.busy]), and a screen reader
+  /// hears it is being waited on.
+  final bool busy;
+
+  /// Null while any emoji is being bought, this one or another: one purchase
+  /// at a time, so the tile takes no tap, presses nothing and is announced as
+  /// disabled until that one is answered.
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final state = context.read<GameState>();
+    final t = state.t;
+    final live = onTap != null;
     return Semantics(
       button: true,
-      label: '${emoji.name}, ${state.t.unlock}',
+      enabled: live,
+      label: '${emoji.name}, ${busy ? t.pleaseWait : t.unlock}',
       excludeSemantics: true,
       child: PressScale(
+        enabled: live,
         child: InkWell(
           enableFeedback: context.select<FeedbackSettings, bool>(
             (f) => f.sound,
@@ -716,6 +772,7 @@ class _LockedTile extends StatelessWidget {
                   side: EmojiDrawer.wellSide,
                   line: AppTheme.hairlineColour(theme.brightness),
                   dim: true,
+                  busy: busy,
                 ),
                 const SizedBox(height: Space.xs),
                 PriceTag(cost: emoji.cost, currency: emoji.currency),
