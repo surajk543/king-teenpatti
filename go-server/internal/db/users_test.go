@@ -1015,7 +1015,8 @@ func TestAShortHammerWalletIsRefusedAndNothingMoves(t *testing.T) {
 // chips (two of them free) and four animated pictures priced in chips, two of
 // them rented by the hour, then 16 animated pictures priced in hammers and five
 // in diamonds, at the owner's figures, 40 rows — and after them the five the
-// owner sent that evening, appended to the seed. A picture added later is a line
+// owner sent that evening, appended to the seed, and Festive Capybara, the first
+// row of V1.0.2__seed.sql (owner, 28 Sep 2026). A picture added later is a line
 // in one of the price maps below and one in added; the counts follow.
 func TestTheSeededCatalogueHoldsEveryPictureAtTheOwnersPrices(t *testing.T) {
 	f := newFixture(t)
@@ -1036,7 +1037,9 @@ func TestTheSeededCatalogueHoldsEveryPictureAtTheOwnersPrices(t *testing.T) {
 		"Bodybuilder": {500_000_000, 50, 0}, "Butterfly": {1_000_000_000, 100, 0},
 	}
 	// The pictures appended to the seed after launch, at their own sort_orders.
-	added := map[string]int{"Bodybuilder": 195, "Butterfly": 197, "Dog Dancing": 352, "Dance": 354, "Cockroach": 356}
+	added := map[string]int{"Bodybuilder": 195, "Butterfly": 197, "Dog Dancing": 352, "Dance": 354, "Cockroach": 356,
+		// V1.0.2__seed.sql (owner, 28 Sep 2026).
+		"Festive Capybara": 358}
 	hammerPrices := map[string]int64{
 		"Orange Ballerina": 10, "Toucan Flying": 30, "Live Chatbot": 10,
 		"Paper Plane": 10, "Bouncing Dots": 10, "Monarch Butterfly": 40, "Lovestruck Cat": 50,
@@ -1046,6 +1049,8 @@ func TestTheSeededCatalogueHoldsEveryPictureAtTheOwnersPrices(t *testing.T) {
 		"Love and Kiss": 25,
 		// Appended to the seed after launch (owner, 14 Sep 2026).
 		"Dog Dancing": 30, "Dance": 20, "Cockroach": 10,
+		// V1.0.2__seed.sql (owner, 28 Sep 2026).
+		"Festive Capybara": 1,
 	}
 	diamondPrices := map[string]int64{
 		"Butterfly Flapping": 4, "Waving Tiger Cub": 3, "Indian Flag": 5, "Jolly King": 5, "Jolly Queen": 5,
@@ -1084,7 +1089,7 @@ func TestTheSeededCatalogueHoldsEveryPictureAtTheOwnersPrices(t *testing.T) {
 			delete(hammerPrices, p.Name)
 			// Rented for as many days as it costs hammers, but for Swirling
 			// Dots (30 hammers for 50 days), Love and Kiss (25 for 10), Dance
-			// (20 for 10) and Cockroach (10 for 15).
+			// (20 for 10), Cockroach (10 for 15) and Festive Capybara (1 for 3).
 			wantDays := want
 			switch p.Name {
 			case "Swirling Dots":
@@ -1093,6 +1098,8 @@ func TestTheSeededCatalogueHoldsEveryPictureAtTheOwnersPrices(t *testing.T) {
 				wantDays = 10
 			case "Cockroach":
 				wantDays = 15
+			case "Festive Capybara":
+				wantDays = 3
 			}
 			if p.Cost != want || p.Type != db.PicturePremium || p.AssetFormat != "LOTTIE" || int64(p.DurationDays) != wantDays {
 				t.Errorf("%q = %d hammers, %s %s for %d days; want %d hammers, a PREMIUM LOTTIE for %d days",
