@@ -954,6 +954,12 @@ class Strings {
   /// games", {game} a game's name. A mission's title ("First Hand") is the
   /// server's, shown as it wrote it, as a level's title is.
   String get xpOneTimeTitle => _('xpOneTimeTitle');
+
+  /// The level screen's fourth tab, beside Daily XP (owner, 28 Sep 2026: "the
+  /// tab in UI one Time XP, on the side of Daily XP"), and what it says when
+  /// the server offers no one-time mission (an older one, or all retired).
+  String get xpOneTimeTab => _('xpOneTimeTab');
+  String get xpOneTimeNone => _('xpOneTimeNone');
   String get xpOneTimeNote => _('xpOneTimeNote');
   String xpOneTimeDone(int n, int of) =>
       _('xpOneTimeDone').replaceFirst('{n}', '$n').replaceFirst('{of}', '$of');
@@ -2107,6 +2113,8 @@ class Strings {
       'xpOneTimeTitle': 'One-Time missions',
       'xpOneTimeNote': 'Each gives its XP once, for good. They never reset.',
       'xpOneTimeDone': '{n} / {of} completed',
+      'xpOneTimeTab': 'One-Time XP',
+      'xpOneTimeNone': 'No one-time missions right now.',
       'xpMissionCompleted': 'Completed',
       'xpMissionPlayHand1': 'Play 1 hand',
       'xpMissionPlayHands': 'Play {n} hands',
@@ -3002,6 +3010,8 @@ class Strings {
       'xpOneTimeNote':
           'हर मिशन अपना XP एक ही बार देता है। ये कभी रीसेट नहीं होते।',
       'xpOneTimeDone': '{n} / {of} पूरे',
+      'xpOneTimeTab': 'एक बार का XP',
+      'xpOneTimeNone': 'अभी कोई एक बार का मिशन नहीं है।',
       'xpMissionCompleted': 'पूरा हुआ',
       'xpMissionPlayHand1': '1 हाथ खेलें',
       'xpMissionPlayHands': '{n} हाथ खेलें',
@@ -3878,6 +3888,8 @@ class Strings {
       'xpOneTimeNote':
           'প্রতিটি মিশন তার XP একবারই দেয়। এগুলো কখনো রিসেট হয় না।',
       'xpOneTimeDone': '{n} / {of} সম্পূর্ণ',
+      'xpOneTimeTab': 'একবারের XP',
+      'xpOneTimeNone': 'এখন কোনো একবারের মিশন নেই।',
       'xpMissionCompleted': 'সম্পূর্ণ',
       'xpMissionPlayHand1': '1টি হাত খেলুন',
       'xpMissionPlayHands': '{n}টি হাত খেলুন',
@@ -4759,6 +4771,8 @@ class Strings {
       'xpOneTimeNote':
           'દરેક મિશન પોતાનું XP એક જ વાર આપે છે. તે ક્યારેય રીસેટ થતા નથી.',
       'xpOneTimeDone': '{n} / {of} પૂર્ણ',
+      'xpOneTimeTab': 'એક વારનું XP',
+      'xpOneTimeNone': 'હાલમાં કોઈ એક વારનું મિશન નથી.',
       'xpMissionCompleted': 'પૂર્ણ',
       'xpMissionPlayHand1': '1 હાથ રમો',
       'xpMissionPlayHands': '{n} હાથ રમો',
@@ -5639,6 +5653,8 @@ class Strings {
       'xpOneTimeNote':
           'ਹਰ ਮਿਸ਼ਨ ਆਪਣਾ XP ਇੱਕੋ ਵਾਰ ਦਿੰਦਾ ਹੈ। ਇਹ ਕਦੇ ਰੀਸੈੱਟ ਨਹੀਂ ਹੁੰਦੇ।',
       'xpOneTimeDone': '{n} / {of} ਪੂਰੇ',
+      'xpOneTimeTab': 'ਇੱਕ ਵਾਰ ਦਾ XP',
+      'xpOneTimeNone': 'ਹੁਣ ਕੋਈ ਇੱਕ ਵਾਰ ਦਾ ਮਿਸ਼ਨ ਨਹੀਂ ਹੈ।',
       'xpMissionCompleted': 'ਪੂਰਾ ਹੋਇਆ',
       'xpMissionPlayHand1': '1 ਹੱਥ ਖੇਡੋ',
       'xpMissionPlayHands': '{n} ਹੱਥ ਖੇਡੋ',

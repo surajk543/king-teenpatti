@@ -940,8 +940,9 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   felt: going back is the pill's one line (`showWinningTaxInfo`). It takes the level screen's round close key, its countdowns,
   its badges' time left and its daily ticks following the clock by themselves (`LevelClock`), and "Winning Tax" capitalised. The lobby's **level key** (`LevelKey`, beside Friends, the level number on it) opens
   the **level screen** (`widgets/level_screen.dart` `LevelScreen`, polished 27 Sep 2026 — UI only; `showLevelInfo` →
-  `WinningTaxInfo(fromLobby: true)` → `LevelScreen`) in **three tabs**, `LevelTabs`: a glyph and a word each, the active one gold,
-  the others muted, over a hairline with a gold underline that SLIDES to the tab tapped (`levelTabSlide` 220 ms, ease-out, no
+  `WinningTaxInfo(fromLobby: true)` → `LevelScreen`) in **four tabs** (three until 28 Sep 2026), `LevelTabs`: a glyph and a word each, the active one gold,
+  the others muted, sharing the row equally while every word fits its share and by each word's own width once one does not
+  (`LevelTabs.widthsFor`: "One-Time XP" beside "My level" at 640dp and text x1.25 — every label ≥ 0.89 with real Indic fonts), over a hairline with a gold underline that SLIDES to the tab tapped (`levelTabSlide` 220 ms, ease-out, no
   bounce) while the content cross-fades and slides 3.5% the same way; title, tabs and a round glass close key (`LevelCloseKey`, a
   34dp disc in a 44dp target) share one line from 560dp of content, two lines below. **My level**: a hero (`LevelHero`) — the
   level's mark in a struck-gold medal with its number (`LevelEmblem`), "Level 10" over the title (MAX LEVEL at Level 50), and at
@@ -966,13 +967,16 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   the track green as far as the last one — completion green, progress gold) under the line "Each milestone gives its XP once a day as your active play reaches it, and they add up" — the server grants
   EVERY rung the window's play has reached (`xpRules.played` → `AwardPlayTime`: 73 XP at 120 minutes), so the screen never says
   "the highest milestone only"; the winning hands as tiles (`HandSourceTile`; only `WIN_HAND` sources — a kind the build has no heading for goes under "More
-  ways to earn XP"); then, since 28 Sep 2026, **One-Time missions** (`OneTimeMissionTile`, 230dp tiles in the hand tiles' style,
-  outside the tab's `LevelClock` — no window touches them): the server's title, what it asks in the player's words (`missionTask`,
+  ways to earn XP"). **One-Time XP** (28 Sep 2026; a tab of its own beside Daily XP since the owner asked the same day — "the
+  tab in UI one Time XP, on the side of Daily XP" — it was a section under the daily list for its first hours; `LevelInfoTab.oneTime`,
+  `Icons.task_alt_rounded`, pane key `winning-tax-one-time`): the **One-Time missions** (`OneTimeMissionTile`, 230dp tiles in the
+  hand tiles' style, no `LevelClock` — no window touches them): the server's title, what it asks in the player's words (`missionTask`,
   `missionGameName`: "Play 10 hands", "Win 1 Poker hand", "Play 5 different games"), "+XP", "7 / 10" beside a 6dp `LevelBar` while
-  open, the green tick and "Completed" once done (the tile edged green), never a countdown, the heading "n / 12 completed"; nothing
-  from a server without missions (`LevelLadder.missions`/`sourceOf`, `LadderSource.type/target/scope`, `PlayerLevel.missions` →
+  open, the green tick and "Completed" once done (the tile edged green), never a countdown, the heading "n / 12 completed"; from a
+  server without missions the tab says there are none (`xpOneTimeNone`, key `one-time-none`) (`LevelLadder.missions`/`sourceOf`, `LadderSource.type/target/scope`, `PlayerLevel.missions` →
   `MissionProgress`; `dailyMax` sums the daily sources alone, `levelSignatureOf` includes the missions; 15 strings in all five
-  languages; `test/one_time_missions_test.dart`, scene `daily_one_time` in `test/level_shots.dart`). **All levels**: a fixed head — the first column's name (Level, or Badges once their own heading has scrolled
+  languages, and the tab's `xpOneTimeTab`/`xpOneTimeNone`; `test/one_time_missions_test.dart`, scenes `one_time` and `one_time_end` in
+  `test/level_shots.dart`). **All levels**: a fixed head — the first column's name (Level, or Badges once their own heading has scrolled
   under it), an outlined capsule key beside it down to the badges (↑ back to the viewer's rung once there), Tax at the right —
   the 50 rungs (`LevelRow`: the number on a disc — solid gold for the viewer's, tinted for a rung passed — the mark at ONE size in a
   42dp slot (two emoji fit whole), title, threshold, "You" / "Next", the rate), scrolled to the viewer's, then the catalogue

@@ -64,6 +64,22 @@ class _Scene {
   final String? scrollTo;
 }
 
+/// Level 10 with some one-time missions done, some part-way, the rest
+/// untouched.
+Map<String, Object?> _someMissions() => levelAt(
+  10,
+  into: 180,
+  claimed: ['PLAY_15_MIN', 'WIN_PAIR'],
+  missions: [
+    missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 5),
+    missionAt('FIRST_WIN', 1, 1, completed: true, xpAwarded: 10),
+    missionAt('GETTING_STARTED', 7, 10),
+    missionAt('FIRST_5_WINS', 3, 5),
+    missionAt('CARD_PLAYER', 12, 50),
+    missionAt('GAME_EXPLORER', 3, 5),
+  ],
+);
+
 final _scenes = [
   _Scene('mine_L1', level: () => levelAt(1, xp: 23)),
   _Scene(
@@ -110,25 +126,14 @@ final _scenes = [
     tab: 'daily',
   ),
   // The one-time missions (28 Sep 2026): some done, some part-way, the rest
-  // untouched, under the daily XP.
+  // untouched, on the One-Time XP tab beside Daily XP — its top, and its end.
+  _Scene('one_time', level: _someMissions, tab: 'oneTime', missions: true),
   _Scene(
-    'daily_one_time',
-    level: () => levelAt(
-      10,
-      into: 180,
-      claimed: ['PLAY_15_MIN', 'WIN_PAIR'],
-      missions: [
-        missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 5),
-        missionAt('FIRST_WIN', 1, 1, completed: true, xpAwarded: 10),
-        missionAt('GETTING_STARTED', 7, 10),
-        missionAt('FIRST_5_WINS', 3, 5),
-        missionAt('CARD_PLAYER', 12, 50),
-        missionAt('GAME_EXPLORER', 3, 5),
-      ],
-    ),
-    tab: 'daily',
+    'one_time_end',
+    level: _someMissions,
+    tab: 'oneTime',
     missions: true,
-    scrollTo: 'one-time-missions',
+    scrollTo: 'xp-mission-GAME_EXPLORER',
   ),
   _Scene('ladder_you', level: () => levelAt(10, into: 180), tab: 'ladder'),
   _Scene(

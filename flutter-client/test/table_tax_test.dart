@@ -2124,7 +2124,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.text(t.yourLevelTitle), findsOneWidget);
-      for (final tab in ['mine', 'daily', 'ladder']) {
+      for (final tab in ['mine', 'daily', 'oneTime', 'ladder']) {
         expect(find.byKey(ValueKey('level-tab-$tab')), findsOneWidget);
       }
       // My level: the rate and what sets it and the level — and neither the
@@ -2224,7 +2224,7 @@ void main() {
           await tester.tap(find.byType(WinningTaxTag));
           await tester.pump(const Duration(milliseconds: 500));
           expect(find.byType(LevelScreen), findsOneWidget);
-          for (final tab in ['mine', 'daily', 'ladder']) {
+          for (final tab in ['mine', 'daily', 'oneTime', 'ladder']) {
             await tester.tap(find.byKey(ValueKey('level-tab-$tab')));
             await tester.pump(const Duration(milliseconds: 300));
             expect(
@@ -2246,7 +2246,7 @@ void main() {
         expect(tester.takeException(), isNull);
         await tester.tap(find.byKey(const ValueKey('level-key')));
         await tester.pump(const Duration(milliseconds: 500));
-        for (final tab in ['mine', 'daily', 'ladder']) {
+        for (final tab in ['mine', 'daily', 'oneTime', 'ladder']) {
           await tester.tap(find.byKey(ValueKey('level-tab-$tab')));
           await tester.pump(const Duration(milliseconds: 300));
           expect(

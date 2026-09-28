@@ -632,11 +632,12 @@ class WinningTaxTag extends StatelessWidget {
   }
 }
 
-/// The level popup's three tabs (owner, 27 Sep 2026: "in that pop up add one
-/// tab also for daily xp, one tab for ladder … for all levels with tax
-/// rate"): the viewer's own level and what they pay, the daily XP, and every
-/// level with its rate.
-enum LevelInfoTab { mine, daily, ladder }
+/// The level popup's tabs (owner, 27 Sep 2026: "in that pop up add one tab
+/// also for daily xp, one tab for ladder … for all levels with tax rate"): the
+/// viewer's own level and what they pay, the daily XP, the one-time missions
+/// in a tab of their own beside it (owner, 28 Sep 2026: "the tab in UI one
+/// Time XP, on the side of Daily XP"), and every level with its rate.
+enum LevelInfoTab { mine, daily, oneTime, ladder }
 
 /// What the winning tax is and where the viewer stands, over the table (the
 /// felt pill's tap; owner, 27 Sep 2026: "when user click on it, it will show
@@ -648,7 +649,7 @@ enum LevelInfoTab { mine, daily, ladder }
 /// viewer's own row lit and scrolled to, then every badge with its rate,
 /// validity and price. A badge is never shown as an XP goal (owner, 26 Sep
 /// 2026: "VIP Tag is not granted by XP"). The lobby's level key opens the same
-/// content in three tabs ([showLevelInfo]).
+/// content in four tabs ([showLevelInfo]).
 ///
 /// Nothing on the felt opens this two-pane popup any more: since 27 Sep 2026
 /// the pill opens the lobby's level screen ([showTableLevelInfo]; owner: "when
@@ -667,7 +668,7 @@ Future<void> showWinningTaxInfo(
 /// The level screen over the table — the pill's tap ([WinningTaxTag]; owner,
 /// 27 Sep 2026: "when i click the text on my level in gametable, it should
 /// pop the same UI which it shows in Lobby about player level, daily xp and
-/// levels"): the lobby's [LevelScreen], its three tabs and everything on
+/// levels"): the lobby's [LevelScreen], its four tabs and everything on
 /// them, behind the table's own dialog scrim ([showTableDialog]).
 Future<void> showTableLevelInfo(
   BuildContext context, {
@@ -679,7 +680,7 @@ Future<void> showTableLevelInfo(
 
 /// The same content from the lobby's level key ([LevelKey]; owner, 27 Sep
 /// 2026: "Add one icon in lobby so that user can see his level, and in that
-/// pop up add one tab also for daily xp, one tab for ladder"), in three tabs
+/// pop up add one tab also for daily xp, one tab for ladder"), in four tabs
 /// ([LevelInfoTab]) and titled with the level rather than the tax.
 Future<void> showLevelInfo(
   BuildContext context, {
@@ -928,7 +929,7 @@ class LevelCloseKey extends StatelessWidget {
 }
 
 /// The popup [showWinningTaxInfo] and [showLevelInfo] open. From the lobby
-/// it is the level screen ([LevelScreen]: three tabs); over the table, the
+/// it is the level screen ([LevelScreen]: four tabs); over the table, the
 /// winning tax in two panes. Either follows the account ([levelViewOf]), so a
 /// level reached at the hand's end — or a badge run out — is shown the moment
 /// the server says so.

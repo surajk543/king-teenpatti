@@ -18,14 +18,16 @@ import 'table_chrome.dart';
 import 'table_tax.dart';
 
 // The level screen (owner, 27 Sep 2026: the lobby's level key's popup,
-// polished — "UI/UX only"): the same three tabs the key opened before — My
-// level, Daily XP, All levels — with a hero for the level and the winning tax
-// it sets, an XP bar that fills once, the badges as cards with their Lotties,
-// the daily XP as a play-time track and a grid of winning hands, and the whole
-// ladder with the viewer's rung lit and scrolled to. Everything on it is the
-// server's: the level, XP and rate from the account, the ladder, the badges
-// and the daily sources from `GET /api/levels`, what today's window has
-// earned from its claims. Nothing here decides a level, a rate or an award.
+// polished — "UI/UX only"): the tabs the key opened before — My level,
+// Daily XP, All levels, and since 28 Sep 2026 One-Time XP beside Daily XP —
+// with a hero for the level and the winning tax it sets, an XP bar that fills
+// once, the badges as cards with their Lotties, the daily XP as a play-time
+// track and a grid of winning hands, the one-time missions as tiles, and the
+// whole ladder with the viewer's rung lit and scrolled to. Everything on it
+// is the server's: the level, XP and rate from the account, the ladder, the
+// badges, the daily sources and the missions from `GET /api/levels`, what
+// today's window has earned from its claims. Nothing here decides a level, a
+// rate or an award.
 //
 // The table's tax pill opens this screen too, since 27 Sep 2026
 // ([showTableLevelInfo], table_tax.dart; owner: "it should pop the same UI
@@ -333,6 +335,7 @@ class _LevelScreenState extends State<LevelScreen> {
       labels: {
         LevelInfoTab.mine: t.levelTabMine,
         LevelInfoTab.daily: t.xpDailyTitle,
+        LevelInfoTab.oneTime: t.xpOneTimeTab,
         LevelInfoTab.ladder: t.allLevelsTitle,
       },
       onChanged: _select,
@@ -448,6 +451,7 @@ class _LevelScreenState extends State<LevelScreen> {
                     children: switch (_tab) {
                       LevelInfoTab.mine => _mine(context, state),
                       LevelInfoTab.daily => _daily(context, state),
+                      LevelInfoTab.oneTime => _oneTimeTab(context, state),
                       LevelInfoTab.ladder => _ladder(context, state),
                     },
                   ),
@@ -463,6 +467,7 @@ class _LevelScreenState extends State<LevelScreen> {
   static ValueKey<String> _paneKey(LevelInfoTab tab) => ValueKey(switch (tab) {
     LevelInfoTab.mine => 'winning-tax-standing',
     LevelInfoTab.daily => 'winning-tax-daily',
+    LevelInfoTab.oneTime => 'winning-tax-one-time',
     LevelInfoTab.ladder => 'winning-tax-ladder',
   });
 
@@ -573,8 +578,7 @@ class _LevelScreenState extends State<LevelScreen> {
     final level = state.user?.playerLevel;
     // Whether the window is still running follows the clock: one that ends
     // while the tab is open clears its ticks and its XP and says the day
-    // starts with the next hand, as the server now counts it. The one-time
-    // missions stand outside it: no window touches them.
+    // starts with the next hand, as the server now counts it.
     return [
       LevelClock<bool>(
         key: const ValueKey('daily-window'),
@@ -589,16 +593,42 @@ class _LevelScreenState extends State<LevelScreen> {
           ),
         ),
       ),
-      ..._oneTime(context, state, ladder, level),
       Text(state.t.xpNeverExpires, style: levelQuiet(Theme.of(context))),
     ];
   }
 
-  /// The ONE_TIME missions (owner, 28 Sep 2026), under the daily XP: a
-  /// heading with how many are done, the line that says they never reset,
-  /// and a tile each — "7 / 10" over its bar while it is open, "✓ Completed"
-  /// once it is, and no countdown either way. Nothing where the server
-  /// offers none (an older one).
+  // ------------------------------------------------------------- One-Time XP
+
+  /// The One-Time XP tab, beside Daily XP (owner, 28 Sep 2026: "the tab in UI
+  /// one Time XP, on the side of Daily XP"). No window touches a one-time
+  /// mission, so nothing here follows the clock. A server that offers none
+  /// (an older one, or every mission retired) gets a line saying so.
+  List<Widget> _oneTimeTab(BuildContext context, GameState state) {
+    final ladder = state.levelLadder;
+    if (ladder == null) return _unread(context, state);
+    final theme = Theme.of(context);
+    final missions = _oneTime(context, state, ladder, state.user?.playerLevel);
+    if (missions.isEmpty) {
+      return [
+        const SizedBox(height: Space.xl),
+        Text(
+          state.t.xpOneTimeNone,
+          key: const ValueKey('one-time-none'),
+          textAlign: TextAlign.center,
+          style: levelQuiet(theme),
+        ),
+      ];
+    }
+    return [
+      ...missions,
+      Text(state.t.xpNeverExpires, style: levelQuiet(theme)),
+    ];
+  }
+
+  /// The ONE_TIME missions (owner, 28 Sep 2026): a heading with how many are
+  /// done, the line that says they never reset, and a tile each — "7 / 10"
+  /// over its bar while it is open, "✓ Completed" once it is, and no
+  /// countdown either way. Nothing where the server offers none.
   List<Widget> _oneTime(
     BuildContext context,
     GameState state,
@@ -764,11 +794,15 @@ class _LevelScreenState extends State<LevelScreen> {
 
 // ------------------------------------------------------------------- the tabs
 
-/// The level screen's three tabs: a glyph and a word each, the one showing
+/// The level screen's four tabs: a glyph and a word each, the one showing
 /// in gold and the others quiet, over one hairline, with a gold underline
 /// that slides to the tab tapped ([levelTabSlide], easing out, no bounce).
 /// Each tab is a full [Dim.minTouch] target; a word runs smaller rather than
-/// being cut where a language runs long.
+/// being cut where a language runs long. The tabs share the row equally
+/// while every word fits its share, and by their words' own widths once one
+/// does not ([widthsFor]) — "One-Time XP" beside "My level" on a 640dp phone
+/// at text x1.25 — so a long word is not set smaller while a short one
+/// leaves its share unused.
 class LevelTabs extends StatelessWidget {
   const LevelTabs({
     super.key,
@@ -784,11 +818,29 @@ class LevelTabs extends StatelessWidget {
   static const Map<LevelInfoTab, IconData> icons = {
     LevelInfoTab.mine: Icons.military_tech_rounded,
     LevelInfoTab.daily: Icons.bolt_rounded,
+    LevelInfoTab.oneTime: Icons.task_alt_rounded,
     LevelInfoTab.ladder: Icons.format_list_numbered_rounded,
   };
 
   /// The underline's thickness.
   static const double line = 2.5;
+
+  /// What a tab holds besides its word: the glyph, the gap after it and the
+  /// padding either side ([_Tab]).
+  static const double _chrome = 16 + Space.xs + 2 * Space.xs;
+
+  /// Each tab's width in a row [width] wide, given the width each needs
+  /// whole ([natural]): equal shares while every tab fits one, else shares
+  /// in proportion to what each needs, so that every word is set at the one
+  /// scale the row allows.
+  static List<double> widthsFor(double width, List<double> natural) {
+    final equal = width / natural.length;
+    if (natural.every((w) => w <= equal)) {
+      return List.filled(natural.length, equal);
+    }
+    final total = natural.fold<double>(0, (sum, w) => sum + w);
+    return [for (final w in natural) width * w / total];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -797,9 +849,34 @@ class LevelTabs extends StatelessWidget {
     final gold = goldInk(theme.brightness);
     final quiet = levelQuietInk(theme);
     const tabs = LevelInfoTab.values;
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    // Measured in the bold the tab showing is set in, so no word grows past
+    // its share when it is tapped.
+    final style = TableType.label(theme, weight: FontWeight.w700);
+    double measure(String word) {
+      final painter = TextPainter(
+        text: TextSpan(text: word, style: style),
+        textDirection: direction,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final width = painter.width;
+      painter.dispose();
+      return width;
+    }
+
+    final natural = [
+      for (final tab in tabs) _chrome + measure(labels[tab] ?? ''),
+    ];
     return LayoutBuilder(
       builder: (context, box) {
-        final w = box.maxWidth / tabs.length;
+        final widths = widthsFor(box.maxWidth, natural);
+        final lefts = [0.0];
+        for (final w in widths.take(widths.length - 1)) {
+          lefts.add(lefts.last + w);
+        }
+        final w = widths[value.index];
         final inset = math.min(Space.lg, w * 0.14);
         return SizedBox(
           height: Dim.minTouch,
@@ -818,7 +895,7 @@ class LevelTabs extends StatelessWidget {
                 key: const ValueKey('level-tab-indicator'),
                 duration: levelTabSlide,
                 curve: Curves.easeOutCubic,
-                left: value.index * w + inset,
+                left: lefts[value.index] + inset,
                 width: w - 2 * inset,
                 bottom: 0,
                 height: line,
@@ -838,7 +915,8 @@ class LevelTabs extends StatelessWidget {
               Row(
                 children: [
                   for (final tab in tabs)
-                    Expanded(
+                    SizedBox(
+                      width: widths[tab.index],
                       child: _Tab(
                         key: ValueKey('level-tab-${tab.name}'),
                         icon: icons[tab]!,

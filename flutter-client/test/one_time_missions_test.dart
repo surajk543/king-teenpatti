@@ -6,13 +6,14 @@
 // Held here: the wire — the ladder's missions apart from its daily sources
 // (so the day's "108 XP" is never inflated), a ONE_TIME entry filed with the
 // missions wherever a server lists it, a player's progress; what each mission
-// asks, in the player's words; the Daily XP tab's One-Time section — "7 / 10"
+// asks, in the player's words; the One-Time XP tab beside Daily XP (owner,
+// 28 Sep 2026: "the tab in UI one Time XP, on the side of Daily XP") — "7 / 10"
 // over a bar while open, "✓ Completed" once done, no countdown on any of
-// them, how many are done — and nothing of it from a server before the
-// missions; the XP mission bar announcing a completion as it announces a
-// daily one, and never a mission already completed or a push that moved
-// progress alone; and the tab at 640x360 x1.25 in all five languages and both
-// themes, nothing overflowing, nothing cut.
+// them, how many are done — Daily XP without them, and a line saying there
+// are none from a server before the missions; the XP mission bar announcing a
+// completion as it announces a daily one, and never a mission already
+// completed or a push that moved progress alone; and the tab at 640x360 x1.25
+// in all five languages and both themes, nothing overflowing, nothing cut.
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -44,9 +45,12 @@ final List<Map<String, Object?>> _someDone = [
   missionAt('VARIATION_EXPLORER', 1, 1, completed: true, xpAwarded: 10),
 ];
 
-Future<GameState> _openDaily(
+/// The level screen from the lobby, on [tab] — the One-Time XP tab unless
+/// told otherwise.
+Future<GameState> _openTab(
   WidgetTester tester, {
   required Map<String, Object?> level,
+  String tab = 'oneTime',
   bool withMissions = true,
   Size screen = const Size(891, 411),
   double scale = 1.0,
@@ -60,7 +64,7 @@ Future<GameState> _openDaily(
   );
   await pumpLevelLobby(tester, state, screen: screen, scale: scale, dark: dark);
   await openLevelScreen(tester);
-  await showLevelTab(tester, 'daily');
+  await showLevelTab(tester, tab);
   return state;
 }
 
@@ -247,17 +251,60 @@ void main() {
     });
   });
 
-  group('the Daily XP tab', () {
-    testWidgets('a One-Time section under the daily XP: "7 / 10" over a bar '
-        'while open, "✓ Completed" once done, how many are done — and the '
-        'day\'s figure untouched', (tester) async {
-      final state = await _openDaily(
+  group('the One-Time XP tab', () {
+    testWidgets('a tab of its own, right of Daily XP, left of All levels, '
+        'named in every language', (tester) async {
+      expect(LevelInfoTab.values, [
+        LevelInfoTab.mine,
+        LevelInfoTab.daily,
+        LevelInfoTab.oneTime,
+        LevelInfoTab.ladder,
+      ]);
+      final state = await _openTab(
         tester,
         level: _level(missions: _someDone),
+        tab: 'mine',
       );
+      double left(String tab) =>
+          tester.getRect(find.byKey(ValueKey('level-tab-$tab'))).left;
+      expect(left('daily'), lessThan(left('oneTime')));
+      expect(left('oneTime'), lessThan(left('ladder')));
+      final oneTime = find.byKey(const ValueKey('level-tab-oneTime'));
+      expect(
+        find.descendant(of: oneTime, matching: find.text('One-Time XP')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: oneTime,
+          matching: find.byIcon(Icons.task_alt_rounded),
+        ),
+        findsOneWidget,
+      );
+      await unmountLevel(tester, state);
+      final english = Strings(AppLang.english);
+      for (final lang in AppLang.values) {
+        final t = Strings(lang);
+        expect(t.xpOneTimeTab, isNotEmpty, reason: lang.code);
+        expect(t.xpOneTimeNone, isNotEmpty, reason: lang.code);
+        if (lang == AppLang.english) continue;
+        expect(t.xpOneTimeTab, isNot(english.xpOneTimeTab), reason: lang.code);
+        expect(
+          t.xpOneTimeNone,
+          isNot(english.xpOneTimeNone),
+          reason: lang.code,
+        );
+      }
+    });
+
+    testWidgets('the missions: "7 / 10" over a bar while open, "✓ Completed" '
+        'once done, how many are done', (tester) async {
+      final state = await _openTab(tester, level: _level(missions: _someDone));
       final t = state.t;
-      // The daily summary is the daily sources' alone.
-      expect(_textOf(tester, const ValueKey('daily-xp-earned')), '24 / 108 XP');
+      expect(
+        find.byKey(const ValueKey('winning-tax-one-time')),
+        findsOneWidget,
+      );
       expect(
         find.byKey(const ValueKey('one-time-missions'), skipOffstage: false),
         findsOneWidget,
@@ -358,13 +405,31 @@ void main() {
       await unmountLevel(tester, state);
     });
 
+    testWidgets('Daily XP is the daily XP alone now: its figure the daily '
+        'sources\' and no mission on it', (tester) async {
+      final state = await _openTab(
+        tester,
+        level: _level(missions: _someDone),
+        tab: 'daily',
+      );
+      expect(_textOf(tester, const ValueKey('daily-xp-earned')), '24 / 108 XP');
+      expect(
+        find.byKey(const ValueKey('one-time-missions'), skipOffstage: false),
+        findsNothing,
+      );
+      expect(
+        find.byType(OneTimeMissionTile, skipOffstage: false),
+        findsNothing,
+      );
+      await unmountLevel(tester, state);
+    });
+
     testWidgets('a completed mission keeps its tick when the daily window '
         'has run out: no window touches it', (tester) async {
-      final state = await _openDaily(
+      final state = await _openTab(
         tester,
         level: levelAt(10, xp: 4180, resetsIn: null, missions: _someDone),
       );
-      expect(_textOf(tester, const ValueKey('daily-xp-earned')), '0 / 108 XP');
       expect(
         find.byKey(
           const ValueKey('xp-mission-done-FIRST_HAND'),
@@ -376,15 +441,22 @@ void main() {
         _textOf(tester, const ValueKey('xp-mission-progress-GETTING_STARTED')),
         '7 / 10',
       );
+      // The window really is over: the daily figure is back at nothing.
+      await showLevelTab(tester, 'daily');
+      expect(_textOf(tester, const ValueKey('daily-xp-earned')), '0 / 108 XP');
       await unmountLevel(tester, state);
     });
 
-    testWidgets('a server from before the missions: the tab is the daily XP '
-        'alone', (tester) async {
-      final state = await _openDaily(
+    testWidgets('a server from before the missions: the tab says there are '
+        'none, and Daily XP is as it was', (tester) async {
+      final state = await _openTab(
         tester,
         level: _level(),
         withMissions: false,
+      );
+      expect(
+        _textOf(tester, const ValueKey('one-time-none')),
+        state.t.xpOneTimeNone,
       );
       expect(
         find.byKey(const ValueKey('one-time-missions'), skipOffstage: false),
@@ -394,15 +466,13 @@ void main() {
         find.byType(OneTimeMissionTile, skipOffstage: false),
         findsNothing,
       );
+      await showLevelTab(tester, 'daily');
       expect(_textOf(tester, const ValueKey('daily-xp-earned')), '24 / 108 XP');
       await unmountLevel(tester, state);
     });
 
     testWidgets('a hand that moves a mission on redraws it', (tester) async {
-      final state = await _openDaily(
-        tester,
-        level: _level(missions: _someDone),
-      );
+      final state = await _openTab(tester, level: _level(missions: _someDone));
       expect(
         _textOf(tester, const ValueKey('xp-mission-progress-GETTING_STARTED')),
         '7 / 10',
@@ -570,11 +640,11 @@ void main() {
 
   group('layout', () {
     for (final dark in [true, false]) {
-      testWidgets('640x360 x1.25 ${dark ? 'dark' : 'light'}: the One-Time '
-          'section in every language, nothing overflowing, nothing cut, every '
+      testWidgets('640x360 x1.25 ${dark ? 'dark' : 'light'}: the One-Time XP '
+          'tab in every language, nothing overflowing, nothing cut, every '
           'tile inside the panel', (tester) async {
         for (final lang in AppLang.values) {
-          final state = await _openDaily(
+          final state = await _openTab(
             tester,
             level: _level(missions: _someDone),
             screen: const Size(640, 360),
