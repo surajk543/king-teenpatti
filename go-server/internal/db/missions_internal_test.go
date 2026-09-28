@@ -97,7 +97,7 @@ func award(t *testing.T, d *DB, rules xpRules, userID string, m xpSourceRow) (in
 // TestWorkerBFindsTheMissionWorkerACompleted is the owner's example, in that
 // order: worker A completes the mission and has not yet committed; worker B
 // asks for the same completion meanwhile and waits on the row; A commits;
-// B finds it completed and grants 0. The XP is A's 50, once.
+// B finds it completed and grants 0. The XP is A's 5, once.
 func TestWorkerBFindsTheMissionWorkerACompleted(t *testing.T) {
 	d := openMissionsSchema(t)
 	ctx := context.Background()
@@ -108,8 +108,8 @@ func TestWorkerBFindsTheMissionWorkerACompleted(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, err := awardXP(ctx, txA, rules, userID, time.Now().UnixMilli(), []xpSourceRow{firstHand})
-	if err != nil || a.granted != 50 || len(a.completed) != 1 {
-		t.Fatalf("worker A: %+v %v, want First Hand's 50", a, err)
+	if err != nil || a.granted != 5 || len(a.completed) != 1 {
+		t.Fatalf("worker A: %+v %v, want First Hand's 5", a, err)
 	}
 	b := make(chan int, 1)
 	go func() {
@@ -133,11 +133,11 @@ func TestWorkerBFindsTheMissionWorkerACompleted(t *testing.T) {
 	var xp int64
 	var completions int
 	if err := d.Pool.QueryRow(ctx, `SELECT (SELECT xp FROM player_xp WHERE user_id = $1),
-	       (SELECT count(*) FROM player_xp_missions WHERE user_id = $1 AND completed_at > 0 AND xp_awarded = 50)`, userID).Scan(&xp, &completions); err != nil {
+	       (SELECT count(*) FROM player_xp_missions WHERE user_id = $1 AND completed_at > 0 AND xp_awarded = 5)`, userID).Scan(&xp, &completions); err != nil {
 		t.Fatal(err)
 	}
-	if xp != 50 || completions != 1 {
-		t.Fatalf("XP %d and %d completions, want 50 once", xp, completions)
+	if xp != 5 || completions != 1 {
+		t.Fatalf("XP %d and %d completions, want 5 once", xp, completions)
 	}
 }
 
@@ -153,7 +153,7 @@ func TestACompletionIsWrittenOnceWhoeverAsks(t *testing.T) {
 
 	// A worker that completes and then fails: nothing of it stays.
 	rolledBack := d.WithTx(ctx, func(tx pgx.Tx) error {
-		if a, err := awardXP(ctx, tx, rules, userID, time.Now().UnixMilli(), []xpSourceRow{firstHand}); err != nil || a.granted != 50 {
+		if a, err := awardXP(ctx, tx, rules, userID, time.Now().UnixMilli(), []xpSourceRow{firstHand}); err != nil || a.granted != 5 {
 			t.Fatalf("the failing worker: %+v %v", a, err)
 		}
 		return context.Canceled
@@ -188,11 +188,11 @@ func TestACompletionIsWrittenOnceWhoeverAsks(t *testing.T) {
 			winners++
 		}
 	}
-	if total != 50 || winners != 1 {
-		t.Fatalf("%d workers granted %d XP between them, want one worker and 50", winners, total)
+	if total != 5 || winners != 1 {
+		t.Fatalf("%d workers granted %d XP between them, want one worker and 5", winners, total)
 	}
 	var xp int64
-	if err := d.Pool.QueryRow(ctx, `SELECT xp FROM player_xp WHERE user_id = $1`, userID).Scan(&xp); err != nil || xp != 50 {
-		t.Fatalf("the lifetime XP %d %v, want 50", xp, err)
+	if err := d.Pool.QueryRow(ctx, `SELECT xp FROM player_xp WHERE user_id = $1`, userID).Scan(&xp); err != nil || xp != 5 {
+		t.Fatalf("the lifetime XP %d %v, want 5", xp, err)
 	}
 }

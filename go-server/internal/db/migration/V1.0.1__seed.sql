@@ -1059,23 +1059,26 @@ VALUES ('PLAY_15_MIN',       'Play 15 active minutes',  '🎮', 'PLAY_TIME', 15,
 
 -- The ONE-TIME missions (owner, 28 Sep 2026: "Add a new mission type:
 -- ONE_TIME. One-time missions are permanent missions that a player can
--- complete only once"), the owner's twelve, exactly as given — each once in a
--- player's life, never reset:
+-- complete only once"), the owner's twelve — each once in a player's life,
+-- never reset — at a TENTH of the XP first given (owner, the same day: "reduce
+-- the XP Granted value", ÷10), so the missions alone lift a player to Level 3
+-- (250 XP) rather than Level 9:
 --
---   First Hand            play 1 hand                +50    FIRST_HAND
---   First Win             win 1 hand                 +100   FIRST_WIN
---   Getting Started       play 10 hands              +150   GETTING_STARTED
---   First 5 Wins          win 5 hands                +300   FIRST_5_WINS
---   Card Player           play 50 hands              +500   CARD_PLAYER
---   Winning Streak        win 10 hands               +750   WINNING_STREAK
---   First Poker Hand      play 1 Poker hand          +100   FIRST_POKER_HAND
---   First Poker Win       win 1 Poker hand           +200   FIRST_POKER_WIN
---   Texas Hold'em Debut   play 1 Texas Hold'em hand  +150   TEXAS_HOLDEM_DEBUT
---   Poker Regular         play 50 Poker hands        +750   POKER_REGULAR
---   Variation Explorer    play 1 Variation hand      +100   VARIATION_EXPLORER
---   Game Explorer         play 5 different games     +500   GAME_EXPLORER
+--   First Hand            play 1 hand                +5     FIRST_HAND
+--   First Win             win 1 hand                 +10    FIRST_WIN
+--   Getting Started       play 10 hands              +15    GETTING_STARTED
+--   First 5 Wins          win 5 hands                +30    FIRST_5_WINS
+--   Card Player           play 50 hands              +50    CARD_PLAYER
+--   Winning Streak        win 10 hands               +75    WINNING_STREAK
+--   First Poker Hand      play 1 Poker hand          +10    FIRST_POKER_HAND
+--   First Poker Win       win 1 Poker hand           +20    FIRST_POKER_WIN
+--   Texas Hold'em Debut   play 1 Texas Hold'em hand  +15    TEXAS_HOLDEM_DEBUT
+--   Poker Regular         play 50 Poker hands        +75    POKER_REGULAR
+--   Variation Explorer    play 1 Variation hand      +10    VARIATION_EXPLORER
+--   Game Explorer         play 5 different games     +50    GAME_EXPLORER
 --
--- 3,650 XP in all, and none of it counted in a daily window. A hand is
+-- 365 XP in all (3,650 as first given), and none of it counted in a daily
+-- window. A hand is
 -- PLAYED as requirement 16 and player_stats say — the player put chips in
 -- beyond the boot (a chaal, raise or show; at poker any chips beyond the
 -- forced blinds or ante) — and WON when the hand-end settle names them its
@@ -1097,18 +1100,18 @@ VALUES ('PLAY_15_MIN',       'Play 15 active minutes',  '🎮', 'PLAY_TIME', 15,
 -- re-targeted or switched off — survives every restart, and a completed
 -- mission stays completed whatever becomes of its row.
 INSERT INTO xp_sources (code, name, icon, kind, mission_type, target, scope, xp, times_per_window, is_active, sort_order)
-VALUES ('FIRST_HAND',         'First Hand',          '🎴', 'HANDS_PLAYED',      'ONE_TIME', 1,  NULL,           50,  1, TRUE, 110),
-       ('FIRST_WIN',          'First Win',           '🏆', 'HANDS_WON',         'ONE_TIME', 1,  NULL,           100, 1, TRUE, 120),
-       ('GETTING_STARTED',    'Getting Started',     '🚀', 'HANDS_PLAYED',      'ONE_TIME', 10, NULL,           150, 1, TRUE, 130),
-       ('FIRST_5_WINS',       'First 5 Wins',        '🥇', 'HANDS_WON',         'ONE_TIME', 5,  NULL,           300, 1, TRUE, 140),
-       ('CARD_PLAYER',        'Card Player',         '♠️', 'HANDS_PLAYED',      'ONE_TIME', 50, NULL,           500, 1, TRUE, 150),
-       ('WINNING_STREAK',     'Winning Streak',      '⚡', 'HANDS_WON',         'ONE_TIME', 10, NULL,           750, 1, TRUE, 160),
-       ('FIRST_POKER_HAND',   'First Poker Hand',    '♦️', 'HANDS_PLAYED',      'ONE_TIME', 1,  'poker',        100, 1, TRUE, 170),
-       ('FIRST_POKER_WIN',    'First Poker Win',     '💰', 'HANDS_WON',         'ONE_TIME', 1,  'poker',        200, 1, TRUE, 180),
-       ('TEXAS_HOLDEM_DEBUT', 'Texas Hold''em Debut', '🤠', 'HANDS_PLAYED',      'ONE_TIME', 1,  'texas_holdem', 150, 1, TRUE, 190),
-       ('POKER_REGULAR',      'Poker Regular',       '🎩', 'HANDS_PLAYED',      'ONE_TIME', 50, 'poker',        750, 1, TRUE, 200),
-       ('VARIATION_EXPLORER', 'Variation Explorer',  '🔀', 'HANDS_PLAYED',      'ONE_TIME', 1,  'variation',    100, 1, TRUE, 210),
-       ('GAME_EXPLORER',      'Game Explorer',       '🧭', 'CATEGORIES_PLAYED', 'ONE_TIME', 5,  NULL,           500, 1, TRUE, 220)
+VALUES ('FIRST_HAND',         'First Hand',          '🎴', 'HANDS_PLAYED',      'ONE_TIME', 1,  NULL,           5,  1, TRUE, 110),
+       ('FIRST_WIN',          'First Win',           '🏆', 'HANDS_WON',         'ONE_TIME', 1,  NULL,           10, 1, TRUE, 120),
+       ('GETTING_STARTED',    'Getting Started',     '🚀', 'HANDS_PLAYED',      'ONE_TIME', 10, NULL,           15, 1, TRUE, 130),
+       ('FIRST_5_WINS',       'First 5 Wins',        '🥇', 'HANDS_WON',         'ONE_TIME', 5,  NULL,           30, 1, TRUE, 140),
+       ('CARD_PLAYER',        'Card Player',         '♠️', 'HANDS_PLAYED',      'ONE_TIME', 50, NULL,           50, 1, TRUE, 150),
+       ('WINNING_STREAK',     'Winning Streak',      '⚡', 'HANDS_WON',         'ONE_TIME', 10, NULL,           75, 1, TRUE, 160),
+       ('FIRST_POKER_HAND',   'First Poker Hand',    '♦️', 'HANDS_PLAYED',      'ONE_TIME', 1,  'poker',        10, 1, TRUE, 170),
+       ('FIRST_POKER_WIN',    'First Poker Win',     '💰', 'HANDS_WON',         'ONE_TIME', 1,  'poker',        20, 1, TRUE, 180),
+       ('TEXAS_HOLDEM_DEBUT', 'Texas Hold''em Debut', '🤠', 'HANDS_PLAYED',      'ONE_TIME', 1,  'texas_holdem', 15, 1, TRUE, 190),
+       ('POKER_REGULAR',      'Poker Regular',       '🎩', 'HANDS_PLAYED',      'ONE_TIME', 50, 'poker',        75, 1, TRUE, 200),
+       ('VARIATION_EXPLORER', 'Variation Explorer',  '🔀', 'HANDS_PLAYED',      'ONE_TIME', 1,  'variation',    10, 1, TRUE, 210),
+       ('GAME_EXPLORER',      'Game Explorer',       '🧭', 'CATEGORIES_PLAYED', 'ONE_TIME', 5,  NULL,           50, 1, TRUE, 220)
     ON CONFLICT (code) DO NOTHING;
 
 -- The window (owner: "it will be reset after 24 hours", "After 24 hours this

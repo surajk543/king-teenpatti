@@ -912,12 +912,14 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   process) nor a restart gives it twice (`missions_test.go`, `missions_internal_test.go`: worker A completes, worker B waits on the
   row and grants 0). Nothing at a window's end touches the table. XP off (no `xp_settings` row) moves nothing. Bots are not special:
   as for the daily XP, an `is_bot` account earns them. Account deletion keeps the rows (as `player_xp`). **The owner's twelve**
-  (V1.0.1, `ON CONFLICT (code) DO NOTHING`, sort_order 110–220, 3,650 XP in all): First Hand 1 played +50 · First Win 1 won +100 ·
-  Getting Started 10 played +150 · First 5 Wins 5 won +300 · Card Player 50 played +500 · Winning Streak 10 won +750 (ten wins in all,
-  not consecutive — the owner's name) · First Poker Hand 1 played `poker` +100 · First Poker Win 1 won `poker` +200 · Texas Hold'em
-  Debut 1 played `texas_holdem` +150 · Poker Regular 50 played `poker` +750 · Variation Explorer 1 played `variation` +100 (the other
+  (V1.0.1, `ON CONFLICT (code) DO NOTHING`, sort_order 110–220, **365 XP in all** — a tenth of the 3,650 first given; owner, 28 Sep
+  2026: "reduce the XP Granted value"): First Hand 1 played +5 · First Win 1 won +10 ·
+  Getting Started 10 played +15 · First 5 Wins 5 won +30 · Card Player 50 played +50 · Winning Streak 10 won +75 (ten wins in all,
+  not consecutive — the owner's name) · First Poker Hand 1 played `poker` +10 · First Poker Win 1 won `poker` +20 · Texas Hold'em
+  Debut 1 played `texas_holdem` +15 · Poker Regular 50 played `poker` +75 · Variation Explorer 1 played `variation` +10 (the other
   reading, different variations, is one UPDATE: `kind = 'VARIATIONS_PLAYED', scope = NULL`) · Game Explorer 5 `CATEGORIES_PLAYED`
-  +500. Progress counts from the deploy (no backfill from `player_stats`). The seeded missions alone lift a player to Level 9.
+  +50. Progress counts from the deploy (no backfill from `player_stats`). The seeded missions alone lift a player to Level 3 (250 XP;
+  19.43%), where the first figures reached Level 9.
   **Wire**: `user.playerLevel.missions` — `[{code, type:"ONE_TIME", progress, target, completed, completedAt?, xpAwarded?}]` for every
   ACTIVE mission the player has moved or completed (absent when none; no reset or expiry field) — on every account read and in
   `player:level`, which the settle now also pushes when only a mission's progress moved (`SettledHand.Levels`).

@@ -263,7 +263,7 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 		winner.id).Scan(&completed); err != nil {
 		t.Fatal(err)
 	}
-	if loserXP != 0 || opened != 2 || completed != 100 || claimed+completed != winnerXP ||
+	if loserXP != 0 || opened != 2 || completed != 10 || claimed+completed != winnerXP ||
 		(claimed != 0 && claimed != 1 && claimed != 2 && claimed != 4 && claimed != 8 && claimed != 20) {
 		t.Fatalf("the hand's XP: winner %d (daily claims worth %d, missions %d), loser %d, %d windows open", winnerXP, claimed, completed, loserXP, opened)
 	}
@@ -281,17 +281,18 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 		}
 	}
 	if firstWin == nil || firstWin["type"] != "ONE_TIME" || firstWin["completed"] != true || firstWin["progress"] != 1.0 ||
-		firstWin["target"] != 1.0 || firstWin["xpAwarded"] != 100.0 || firstWin["completedAt"].(float64) <= 0 || firstWin["resetsAt"] != nil {
+		firstWin["target"] != 1.0 || firstWin["xpAwarded"] != 10.0 || firstWin["completedAt"].(float64) <= 0 || firstWin["resetsAt"] != nil {
 		t.Errorf("the winner's player:level missions %v, want First Win completed", lv["missions"])
 	}
 	// /api/auth/me: each player's XP, badges and the rate they pay. First
-	// Win's 100 XP is Level 2's threshold: the winner is Rookie now, at
-	// Rookie's 19.71% where no badge sets a lower rate.
+	// Win's 10 XP (owner, 28 Sep 2026: "reduce the XP Granted value") and at
+	// most 20 of daily "Win by" XP stay under Level 2's 100: the winner is
+	// still Newbie, at Newbie's 20% where no badge sets a lower rate.
 	for _, p := range []taxPlayer{rookie, gold} {
 		wantXP, wantLevel := int64(0), 1
 		wantCodes, wantRate := "REGULAR", 2000
 		if p.id == winner.id {
-			wantXP, wantLevel, wantRate = winnerXP, 2, 1971
+			wantXP = winnerXP
 		}
 		if p.id == gold.id {
 			wantCodes, wantRate = "REGULAR,GOLD", 500
@@ -468,7 +469,7 @@ func TestTheLevelLadderIsPublicAndWhole(t *testing.T) {
 		}
 	}
 	if len(body.Missions) != 12 || body.Missions[0].Code != "FIRST_HAND" || body.Missions[0].Type != "ONE_TIME" ||
-		body.Missions[0].Target != 1 || body.Missions[0].XP != 50 || body.Missions[8].Scope != "texas_holdem" ||
+		body.Missions[0].Target != 1 || body.Missions[0].XP != 5 || body.Missions[8].Scope != "texas_holdem" ||
 		body.Missions[11].Kind != "CATEGORIES_PLAYED" || body.Missions[11].Target != 5 {
 		t.Errorf("the missions = %+v", body.Missions)
 	}

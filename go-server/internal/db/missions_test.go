@@ -132,20 +132,21 @@ func (f *fixture) onlyMissions(codes ...string) {
 }
 
 // ownersMissions is the owner's twelve (28 Sep 2026), exactly: code, title,
-// kind, target, scope and XP, in their order.
+// kind, target, scope and XP, in their order — the XP a tenth of the first
+// figures (owner, the same day: "reduce the XP Granted value").
 var ownersMissions = []string{
-	"FIRST_HAND|First Hand|HANDS_PLAYED|1||50",
-	"FIRST_WIN|First Win|HANDS_WON|1||100",
-	"GETTING_STARTED|Getting Started|HANDS_PLAYED|10||150",
-	"FIRST_5_WINS|First 5 Wins|HANDS_WON|5||300",
-	"CARD_PLAYER|Card Player|HANDS_PLAYED|50||500",
-	"WINNING_STREAK|Winning Streak|HANDS_WON|10||750",
-	"FIRST_POKER_HAND|First Poker Hand|HANDS_PLAYED|1|poker|100",
-	"FIRST_POKER_WIN|First Poker Win|HANDS_WON|1|poker|200",
-	"TEXAS_HOLDEM_DEBUT|Texas Hold'em Debut|HANDS_PLAYED|1|texas_holdem|150",
-	"POKER_REGULAR|Poker Regular|HANDS_PLAYED|50|poker|750",
-	"VARIATION_EXPLORER|Variation Explorer|HANDS_PLAYED|1|variation|100",
-	"GAME_EXPLORER|Game Explorer|CATEGORIES_PLAYED|5||500",
+	"FIRST_HAND|First Hand|HANDS_PLAYED|1||5",
+	"FIRST_WIN|First Win|HANDS_WON|1||10",
+	"GETTING_STARTED|Getting Started|HANDS_PLAYED|10||15",
+	"FIRST_5_WINS|First 5 Wins|HANDS_WON|5||30",
+	"CARD_PLAYER|Card Player|HANDS_PLAYED|50||50",
+	"WINNING_STREAK|Winning Streak|HANDS_WON|10||75",
+	"FIRST_POKER_HAND|First Poker Hand|HANDS_PLAYED|1|poker|10",
+	"FIRST_POKER_WIN|First Poker Win|HANDS_WON|1|poker|20",
+	"TEXAS_HOLDEM_DEBUT|Texas Hold'em Debut|HANDS_PLAYED|1|texas_holdem|15",
+	"POKER_REGULAR|Poker Regular|HANDS_PLAYED|50|poker|75",
+	"VARIATION_EXPLORER|Variation Explorer|HANDS_PLAYED|1|variation|10",
+	"GAME_EXPLORER|Game Explorer|CATEGORIES_PLAYED|5||50",
 }
 
 // TestTheSeededOneTimeMissionsAreTheOwnersTwelve: a fresh database holds the
@@ -177,8 +178,8 @@ func TestTheSeededOneTimeMissionsAreTheOwnersTwelve(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(ownersMissions, "\n") {
 		t.Errorf("the one-time missions:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(ownersMissions, "\n"))
 	}
-	if total != 3650 {
-		t.Errorf("the missions give %d XP in all, want 3,650", total)
+	if total != 365 {
+		t.Errorf("the missions give %d XP in all, want 365", total)
 	}
 	if n := f.count(`SELECT count(*) FROM xp_sources WHERE mission_type = 'DAILY'`); n != 8 {
 		t.Errorf("%d daily sources, want the eight", n)
@@ -233,7 +234,7 @@ func TestAOneTimeMissionMovesOnAndCompletesOnce(t *testing.T) {
 		t.Errorf("the wire: %s", raw)
 	}
 
-	// The tenth completes it: 150 XP, lifetime only — the window's XP is the
+	// The tenth completes it: 15 XP, lifetime only — the window's XP is the
 	// daily sources' alone.
 	for i := 8; i <= 10; i++ {
 		clock.Advance(time.Minute)
@@ -241,12 +242,12 @@ func TestAOneTimeMissionMovesOnAndCompletesOnce(t *testing.T) {
 	}
 	completedAt := clock.Now().UnixMilli()
 	want := db.MissionProgress{Code: "GETTING_STARTED", Type: db.MissionOneTime, Progress: 10, Target: 10,
-		Completed: true, CompletedAt: completedAt, XPAwarded: 150}
+		Completed: true, CompletedAt: completedAt, XPAwarded: 15}
 	if got := f.mission(a.ID, "GETTING_STARTED"); got != want {
 		t.Fatalf("after ten hands: %+v, want %+v", got, want)
 	}
-	if xp := f.xpOf(a.ID); xp != 150 {
-		t.Fatalf("the completion gave %d XP, want 150", xp)
+	if xp := f.xpOf(a.ID); xp != 15 {
+		t.Fatalf("the completion gave %d XP, want 15", xp)
 	}
 	if n := f.count(`SELECT window_xp FROM player_xp WHERE user_id = $1`, a.ID); n != 0 {
 		t.Errorf("the window counted %d XP of a one-time mission", n)
@@ -274,8 +275,8 @@ func TestAOneTimeMissionMovesOnAndCompletesOnce(t *testing.T) {
 			t.Fatalf("%v on, before a hand: %+v, want %+v", wait, got, want)
 		}
 		f.settleAt(ledger, game.CategorySeen, "", seat{user: b, won: true}, seat{user: a, played: true})
-		if got := f.mission(a.ID, "GETTING_STARTED"); got != want || f.xpOf(a.ID) != 150 {
-			t.Fatalf("%v on, after a hand: %+v and %d XP, want it untouched at 150", wait, got, f.xpOf(a.ID))
+		if got := f.mission(a.ID, "GETTING_STARTED"); got != want || f.xpOf(a.ID) != 15 {
+			t.Fatalf("%v on, after a hand: %+v and %d XP, want it untouched at 15", wait, got, f.xpOf(a.ID))
 		}
 	}
 	// Signing out and in again changes nothing of it (a login is the same
@@ -289,11 +290,11 @@ func TestAOneTimeMissionMovesOnAndCompletesOnce(t *testing.T) {
 		t.Fatalf("after a new login: %+v", got)
 	}
 	reboot(t, f.d)
-	if got := f.mission(a.ID, "GETTING_STARTED"); got != want || f.xpOf(a.ID) != 150 {
+	if got := f.mission(a.ID, "GETTING_STARTED"); got != want || f.xpOf(a.ID) != 15 {
 		t.Fatalf("after a restart: %+v and %d XP", got, f.xpOf(a.ID))
 	}
 	f.settleAt(ledger, game.CategorySeen, "", seat{user: b, won: true}, seat{user: a, played: true})
-	if f.xpOf(a.ID) != 150 || f.count(`SELECT count(*) FROM player_xp_missions WHERE user_id = $1`, a.ID) != 1 {
+	if f.xpOf(a.ID) != 15 || f.count(`SELECT count(*) FROM player_xp_missions WHERE user_id = $1`, a.ID) != 1 {
 		t.Fatal("a hand after the restart gave the mission again")
 	}
 }
@@ -319,8 +320,8 @@ func TestAReplayedSettleAwardsAMissionOnce(t *testing.T) {
 			t.Fatalf("replay %d: %v, want duplicate_action", i, err)
 		}
 	}
-	if f.xpOf(a.ID) != wantA || f.xpOf(b.ID) != 50 {
-		t.Fatalf("after the replays: %d and %d XP, want %d and 50", f.xpOf(a.ID), f.xpOf(b.ID), wantA)
+	if f.xpOf(a.ID) != wantA || f.xpOf(b.ID) != 5 {
+		t.Fatalf("after the replays: %d and %d XP, want %d and 5", f.xpOf(a.ID), f.xpOf(b.ID), wantA)
 	}
 	if got := f.mission(a.ID, "GETTING_STARTED"); got.Progress != 1 {
 		t.Fatalf("the replays moved Getting Started to %d", got.Progress)
@@ -334,7 +335,7 @@ func TestAReplayedSettleAwardsAMissionOnce(t *testing.T) {
 // TestConcurrentSettlesCompleteAMissionOnce: eight hands settled at once for
 // one player — through two separate pools, as two server processes would —
 // each of which alone would complete First Hand: one completes it, the others
-// find it completed, and its 50 XP is given exactly once. The same hand
+// find it completed, and its 5 XP is given exactly once. The same hand
 // settled from both pools at once lands once and is duplicate_action on the
 // other.
 func TestConcurrentSettlesCompleteAMissionOnce(t *testing.T) {
@@ -375,10 +376,10 @@ func TestConcurrentSettlesCompleteAMissionOnce(t *testing.T) {
 	for err := range errs {
 		t.Fatalf("a concurrent settle failed: %v", err)
 	}
-	if xp := f.xpOf(a.ID); xp != 50 {
-		t.Fatalf("eight concurrent first hands gave %d XP, want First Hand's 50 once", xp)
+	if xp := f.xpOf(a.ID); xp != 5 {
+		t.Fatalf("eight concurrent first hands gave %d XP, want First Hand's 5 once", xp)
 	}
-	if n := f.count(`SELECT count(*) FROM player_xp_missions WHERE user_id = $1 AND source_code = 'FIRST_HAND' AND completed_at > 0 AND xp_awarded = 50`, a.ID); n != 1 {
+	if n := f.count(`SELECT count(*) FROM player_xp_missions WHERE user_id = $1 AND source_code = 'FIRST_HAND' AND completed_at > 0 AND xp_awarded = 5`, a.ID); n != 1 {
 		t.Fatalf("%d completions of First Hand", n)
 	}
 	// Every hand counted once for the mission still open: 8 of 10.
@@ -411,7 +412,7 @@ func TestConcurrentSettlesCompleteAMissionOnce(t *testing.T) {
 			t.Fatalf("the twin settle: %v", err)
 		}
 	}
-	if landed != 1 || duplicates != 1 || f.xpOf(c.ID) != 50 || f.xpOf(d.ID) != 50 {
+	if landed != 1 || duplicates != 1 || f.xpOf(c.ID) != 5 || f.xpOf(d.ID) != 5 {
 		t.Fatalf("the twin settle: %d landed, %d duplicates, XP %d and %d", landed, duplicates, f.xpOf(c.ID), f.xpOf(d.ID))
 	}
 	f.reconcile()
@@ -442,12 +443,12 @@ func TestTheDailyXPEarnsBesideTheMissionsExactlyAsAlone(t *testing.T) {
 	}
 
 	// A pair won and played: the daily WIN_PAIR (+1) as ever, and First Hand
-	// (+50) and First Win (+100) beside it.
+	// (+5) and First Win (+10) beside it.
 	win("PAIR")
 	lvl := f.find(a.ID).PlayerLevel
-	if lvl.XP != 5000+1+50+100 || lvl.Daily == nil || !reflect.DeepEqual(lvl.Daily.Claimed, map[string]int{"WIN_PAIR": 1}) ||
+	if lvl.XP != 5000+1+5+10 || lvl.Daily == nil || !reflect.DeepEqual(lvl.Daily.Claimed, map[string]int{"WIN_PAIR": 1}) ||
 		lvl.Daily.ResetsAt != opened+86_400_000 {
-		t.Fatalf("the daily pair beside the missions: %d XP, daily %+v, want 5,151 and WIN_PAIR once", lvl.XP, lvl.Daily)
+		t.Fatalf("the daily pair beside the missions: %d XP, daily %+v, want 5,016 and WIN_PAIR once", lvl.XP, lvl.Daily)
 	}
 	if n := f.count(`SELECT window_xp FROM player_xp WHERE user_id = $1`, a.ID); n != 1 {
 		t.Fatalf("the window's XP is %d, want the pair's 1 alone", n)
@@ -458,8 +459,8 @@ func TestTheDailyXPEarnsBesideTheMissionsExactlyAsAlone(t *testing.T) {
 	// A second pair in the window: nothing daily (once a window), nothing
 	// one-time (First Win is done); First 5 Wins moves on.
 	win("PAIR")
-	if xp := f.xpOf(a.ID); xp != 5151 {
-		t.Fatalf("a second pair: %d XP, want 5,151", xp)
+	if xp := f.xpOf(a.ID); xp != 5016 {
+		t.Fatalf("a second pair: %d XP, want 5,016", xp)
 	}
 	if got := f.mission(a.ID, "FIRST_5_WINS"); got.Progress != 2 || got.Completed {
 		t.Fatalf("First 5 Wins: %+v", got)
@@ -470,7 +471,7 @@ func TestTheDailyXPEarnsBesideTheMissionsExactlyAsAlone(t *testing.T) {
 	clock.Advance(24 * time.Hour)
 	win("PAIR")
 	lvl = f.find(a.ID).PlayerLevel
-	if lvl.XP != 5152 || !reflect.DeepEqual(lvl.Daily.Claimed, map[string]int{"WIN_PAIR": 1}) || lvl.Daily.ResetsAt != clock.Now().UnixMilli()+86_400_000 {
+	if lvl.XP != 5017 || !reflect.DeepEqual(lvl.Daily.Claimed, map[string]int{"WIN_PAIR": 1}) || lvl.Daily.ResetsAt != clock.Now().UnixMilli()+86_400_000 {
 		t.Fatalf("a new window: %d XP, daily %+v", lvl.XP, lvl.Daily)
 	}
 	if f.completedMissions(a.ID) != "FIRST_HAND,FIRST_WIN" || f.mission(a.ID, "FIRST_5_WINS").Progress != 3 {
@@ -479,7 +480,7 @@ func TestTheDailyXPEarnsBesideTheMissionsExactlyAsAlone(t *testing.T) {
 
 	// An owner's cap limits the daily XP and never a mission's: with a cap of
 	// 1, already reached by the pair, the fifth win completes First 5 Wins'
-	// 300 in full, a trail gives nothing today, and the window's XP stays
+	// 30 in full, a trail gives nothing today, and the window's XP stays
 	// the pair's 1.
 	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE xp_settings SET daily_cap = 1`); err != nil {
 		t.Fatal(err)
@@ -487,10 +488,10 @@ func TestTheDailyXPEarnsBesideTheMissionsExactlyAsAlone(t *testing.T) {
 	win("")
 	win("TRAIL")
 	lvl = f.find(a.ID).PlayerLevel
-	if lvl.XP != 5152+300 || lvl.Today == nil || lvl.Today.XP != 1 || lvl.Today.Cap != 1 || lvl.Daily.Claimed["WIN_TRAIL"] != 0 {
-		t.Fatalf("a capped window: %d XP, today %+v, daily %+v, want First 5 Wins' 300 past a cap of 1", lvl.XP, lvl.Today, lvl.Daily)
+	if lvl.XP != 5017+30 || lvl.Today == nil || lvl.Today.XP != 1 || lvl.Today.Cap != 1 || lvl.Daily.Claimed["WIN_TRAIL"] != 0 {
+		t.Fatalf("a capped window: %d XP, today %+v, daily %+v, want First 5 Wins' 30 past a cap of 1", lvl.XP, lvl.Today, lvl.Daily)
 	}
-	if got := f.mission(a.ID, "FIRST_5_WINS"); !got.Completed || got.XPAwarded != 300 {
+	if got := f.mission(a.ID, "FIRST_5_WINS"); !got.Completed || got.XPAwarded != 30 {
 		t.Fatalf("First 5 Wins: %+v", got)
 	}
 }
@@ -532,7 +533,7 @@ func TestPokerMissionsCountOnlyTheirGames(t *testing.T) {
 	// Texas Hold'em: the debut, once.
 	before := f.xpOf(a.ID)
 	f.settleAt(f.ledger, game.CategoryTexasHoldem, "", seat{user: b, won: true, played: true}, seat{user: a, played: true})
-	if got := f.mission(a.ID, "TEXAS_HOLDEM_DEBUT"); !got.Completed || got.XPAwarded != 150 || f.xpOf(a.ID) != before+150 {
+	if got := f.mission(a.ID, "TEXAS_HOLDEM_DEBUT"); !got.Completed || got.XPAwarded != 15 || f.xpOf(a.ID) != before+15 {
 		t.Fatalf("Texas Hold'em Debut: %+v, XP %d → %d", got, before, f.xpOf(a.ID))
 	}
 	// A poker hand the player did not play (folded before any voluntary bet)
@@ -580,7 +581,7 @@ func TestExplorerMissionsCountDifferentGames(t *testing.T) {
 	if got := f.mission(a.ID, "GAME_EXPLORER"); got.Progress != 3 || got.Completed {
 		t.Fatalf("Seen, Blind, Variation: %+v, want 3 of 5", got)
 	}
-	if got := f.mission(a.ID, "VARIATION_EXPLORER"); !got.Completed || got.XPAwarded != 100 {
+	if got := f.mission(a.ID, "VARIATION_EXPLORER"); !got.Completed || got.XPAwarded != 10 {
 		t.Fatalf("Variation Explorer after a Variation hand: %+v", got)
 	}
 	f.settleAt(f.ledger, game.CategoryOmaha, "", seat{user: a, played: true}, seat{user: b, won: true, played: true})
@@ -591,13 +592,13 @@ func TestExplorerMissionsCountDifferentGames(t *testing.T) {
 	before := f.xpOf(a.ID)
 	f.settleAt(f.ledger, game.CategoryFiveCardDraw, "", seat{user: a, played: true}, seat{user: b, won: true, played: true})
 	got := f.mission(a.ID, "GAME_EXPLORER")
-	if !got.Completed || got.Progress != 5 || got.XPAwarded != 500 {
+	if !got.Completed || got.Progress != 5 || got.XPAwarded != 50 {
 		t.Fatalf("the fifth game: %+v", got)
 	}
 	// First Poker Hand came with the first Omaha hand, and Getting Started
-	// is at 9 of 10: this hand gave Game Explorer's 500 alone.
-	if f.xpOf(a.ID) != before+500 {
-		t.Fatalf("the fifth game gave %d XP, want Game Explorer's 500", f.xpOf(a.ID)-before)
+	// is at 9 of 10: this hand gave Game Explorer's 50 alone.
+	if f.xpOf(a.ID) != before+50 {
+		t.Fatalf("the fifth game gave %d XP, want Game Explorer's 50", f.xpOf(a.ID)-before)
 	}
 	var seen []string
 	if err := f.d.Pool.QueryRow(f.ctx, `SELECT seen FROM player_xp_missions WHERE user_id = $1 AND source_code = 'GAME_EXPLORER'`, a.ID).Scan(&seen); err != nil {
@@ -710,7 +711,7 @@ func TestAMissionOffOrMisconfiguredEarnsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.settleAt(f.ledger, game.CategorySeen, "", seat{user: a, played: true}, seat{user: b, won: true, played: true})
-	if got := f.mission(a.ID, "CARD_PLAYER"); !got.Completed || got.Target != 2 || f.xpOf(a.ID) != 500 {
+	if got := f.mission(a.ID, "CARD_PLAYER"); !got.Completed || got.Target != 2 || f.xpOf(a.ID) != 50 {
 		t.Fatalf("a lowered target: %+v, %d XP", got, f.xpOf(a.ID))
 	}
 	// Switched off: no longer on the account (nor the ladder), and moved no
@@ -718,7 +719,7 @@ func TestAMissionOffOrMisconfiguredEarnsNothing(t *testing.T) {
 	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE xp_sources SET is_active = FALSE WHERE code = 'CARD_PLAYER'`); err != nil {
 		t.Fatal(err)
 	}
-	if got := f.find(a.ID).PlayerLevel.Missions; got != nil || f.xpOf(a.ID) != 500 {
+	if got := f.find(a.ID).PlayerLevel.Missions; got != nil || f.xpOf(a.ID) != 50 {
 		t.Fatalf("a mission switched off: %+v, %d XP", got, f.xpOf(a.ID))
 	}
 	if n := f.count(`SELECT count(*) FROM player_xp_missions WHERE user_id = $1 AND completed_at > 0`, a.ID); n != 1 {
@@ -758,7 +759,7 @@ func TestTheLadderListsTheMissionsApartFromTheDailySources(t *testing.T) {
 		t.Errorf("the ladder's missions:\n%s", strings.Join(got, "\n"))
 	}
 	raw, _ := json.Marshal(ladder)
-	for _, want := range []string{`"type":"DAILY"`, `"missions":[{"code":"FIRST_HAND","name":"First Hand","icon":"🎴","kind":"HANDS_PLAYED","type":"ONE_TIME","target":1,"xp":50,"times":1}`,
+	for _, want := range []string{`"type":"DAILY"`, `"missions":[{"code":"FIRST_HAND","name":"First Hand","icon":"🎴","kind":"HANDS_PLAYED","type":"ONE_TIME","target":1,"xp":5,"times":1}`,
 		`"scope":"texas_holdem"`} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("the ladder's JSON lacks %s:\n%s", want, raw)
@@ -839,7 +840,7 @@ func TestABootBringsTheXPSourcesForwardForMissions(t *testing.T) {
 		t.Fatalf("a settle after the upgrade: %v", err)
 	}
 	got, _ = upgraded.FindByID(ctx, a.ID)
-	if got.PlayerLevel.XP != 20+1+50+100 || !reflect.DeepEqual(got.PlayerLevel.Daily.Claimed, map[string]int{"WIN_TRAIL": 1, "WIN_PAIR": 1}) {
+	if got.PlayerLevel.XP != 20+1+5+10 || !reflect.DeepEqual(got.PlayerLevel.Daily.Claimed, map[string]int{"WIN_TRAIL": 1, "WIN_PAIR": 1}) {
 		t.Fatalf("after a hand: %d XP, claims %+v", got.PlayerLevel.XP, got.PlayerLevel.Daily.Claimed)
 	}
 	// A second boot is a no-op.

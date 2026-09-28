@@ -118,8 +118,8 @@ final _scenes = [
       into: 180,
       claimed: ['PLAY_15_MIN', 'WIN_PAIR'],
       missions: [
-        missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 50),
-        missionAt('FIRST_WIN', 1, 1, completed: true, xpAwarded: 100),
+        missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 5),
+        missionAt('FIRST_WIN', 1, 1, completed: true, xpAwarded: 10),
         missionAt('GETTING_STARTED', 7, 10),
         missionAt('FIRST_5_WINS', 3, 5),
         missionAt('CARD_PLAYER', 12, 50),

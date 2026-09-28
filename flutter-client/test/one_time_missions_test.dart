@@ -37,11 +37,11 @@ Map<String, Object?> _level({
 
 /// Three done, two part-way, the rest untouched.
 final List<Map<String, Object?>> _someDone = [
-  missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 50),
-  missionAt('FIRST_WIN', 1, 1, completed: true, xpAwarded: 100),
+  missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 5),
+  missionAt('FIRST_WIN', 1, 1, completed: true, xpAwarded: 10),
   missionAt('GETTING_STARTED', 7, 10),
   missionAt('FIRST_5_WINS', 3, 5),
-  missionAt('VARIATION_EXPLORER', 1, 1, completed: true, xpAwarded: 100),
+  missionAt('VARIATION_EXPLORER', 1, 1, completed: true, xpAwarded: 10),
 ];
 
 Future<GameState> _openDaily(
@@ -103,7 +103,7 @@ void main() {
       expect(texas.oneTime, isTrue);
       expect(texas.target, 1);
       expect(texas.scope, 'texas_holdem');
-      expect(texas.xp, 150);
+      expect(texas.xp, 15);
       expect(l.sourceOf('WIN_PAIR')!.oneTime, isFalse);
     });
 
@@ -152,7 +152,7 @@ void main() {
       expect(level.missionOf('GETTING_STARTED')!.completed, isFalse);
       final first = level.missionOf('FIRST_WIN')!;
       expect(first.completed, isTrue);
-      expect(first.xpAwarded, 100);
+      expect(first.xpAwarded, 10);
       expect(first.completedAt, greaterThan(0));
       expect(level.missionOf('CARD_PLAYER'), isNull);
       expect(_pl(_level()).missions, isEmpty);
@@ -328,7 +328,7 @@ void main() {
       for (final words in [
         "Texas Hold'em Debut",
         "Play 1 Texas Hold'em hand",
-        '+150 XP',
+        '+15 XP',
         '0 / 1',
       ]) {
         expect(
@@ -417,7 +417,7 @@ void main() {
               10,
               10,
               completed: true,
-              xpAwarded: 150,
+              xpAwarded: 15,
             ),
             ..._someDone.skip(3),
           ],
@@ -468,7 +468,7 @@ void main() {
                 10,
                 10,
                 completed: true,
-                xpAwarded: 150,
+                xpAwarded: 15,
               ),
             ],
           ),
@@ -476,7 +476,7 @@ void main() {
         l,
       );
       expect(news.map((n) => n.code), ['GETTING_STARTED']);
-      expect(news.single.xp, 150);
+      expect(news.single.xp, 15);
       expect(news.single.total, 4330);
       final lines = XpMissionBar.linesFor(
         Strings(AppLang.english),
@@ -484,7 +484,7 @@ void main() {
         l,
       );
       expect(lines.title, 'Getting Started completed');
-      expect(lines.gained, '+150 XP');
+      expect(lines.gained, '+15 XP');
       expect(lines.mark, '🚀');
     });
 
@@ -494,25 +494,25 @@ void main() {
         _pl(at(10, claimed: {'PLAY_15_MIN': 1})),
         _pl(
           at(
-            161,
+            26,
             claimed: {'PLAY_15_MIN': 1, 'WIN_PAIR': 1},
             missions: [
-              missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 50),
-              missionAt('FIRST_WIN', 1, 1, completed: true, xpAwarded: 100),
+              missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 5),
+              missionAt('FIRST_WIN', 1, 1, completed: true, xpAwarded: 10),
             ],
           ),
         ),
         l,
       );
       expect(news.map((n) => n.code), ['WIN_PAIR', 'FIRST_HAND', 'FIRST_WIN']);
-      expect(news.map((n) => n.xp), [1, 50, 100]);
-      expect(news.map((n) => n.total), [11, 61, 161]);
+      expect(news.map((n) => n.xp), [1, 5, 10]);
+      expect(news.map((n) => n.total), [11, 16, 26]);
     });
 
     test('never a mission completed before, a push that moved progress '
         'alone, or a window rolling over', () {
       final done = [
-        missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 50),
+        missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 5),
       ];
       // Progress alone: no XP, no bar.
       expect(
@@ -554,9 +554,9 @@ void main() {
       state.handlePlayerLevel(
         Standing.maybe({
           'playerLevel': at(
-            4230,
+            4185,
             missions: [
-              missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 50),
+              missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 5),
             ],
           ),
           'badges': [regularBadge()],
