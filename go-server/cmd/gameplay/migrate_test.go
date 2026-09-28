@@ -3,10 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -249,5 +253,122 @@ func TestMigrateNamesTheScriptThatFailsAndStopsThere(t *testing.T) {
 	var bears int
 	if err := reference.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM `+pgx.Identifier{fresh, "profile_pictures"}.Sanitize()+` WHERE name = 'Bear'`).Scan(&bears); err != nil || bears != 0 {
 		t.Errorf("%d Bear rows after the failed seed (%v): the script was not rolled back as a whole", bears, err)
+	}
+}
+
+// TestMigrateHonoursTheStatementTimeoutAndNamesTheHolder: PG_STATEMENT_TIMEOUT_MS
+// reaches db.Open as the server's does. A transaction holds the seed's first
+// table while -migrate runs with a statement timeout well under the 3 s
+// lock_timeout, so the seed is cancelled by the STATEMENT timeout (57014), not
+// the lock's (55P03) — which is what it would be if the key were dropped on
+// the way. The error names the script and, on one legible line, the session
+// holding the table; an idle session, which holds nothing, is not named.
+func TestMigrateHonoursTheStatementTimeoutAndNamesTheHolder(t *testing.T) {
+	reference, fresh := freshSchema(t)
+	env := map[string]string{"DATABASE_URL": testDatabaseURL(), "PG_SCHEMA": fresh}
+	if code, stdout, stderr := migrated(t, env); code != exitMigrated {
+		t.Fatalf("first run: exit %d\n%s\n%s", code, stdout, stderr)
+	}
+	ctx := context.Background()
+
+	idle, err := reference.Pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := idle.Exec(ctx, `SELECT 'an idle session holds nothing'`); err != nil {
+		t.Fatal(err)
+	}
+	defer idle.Release()
+
+	holder, err := reference.Pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Release()
+	tx, err := holder.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	lock := `LOCK TABLE ` + pgx.Identifier{fresh, "profile_pictures"}.Sanitize() + ` IN ACCESS EXCLUSIVE MODE`
+	if _, err := tx.Exec(ctx, lock); err != nil {
+		t.Fatal(err)
+	}
+
+	env["PG_STATEMENT_TIMEOUT_MS"] = "700"
+	began := time.Now()
+	code, stdout, stderr := migrated(t, env)
+	if code != exitMigrateFailed {
+		t.Fatalf("exit %d, want %d\nstdout:\n%s\nstderr:\n%s", code, exitMigrateFailed, stdout, stderr)
+	}
+	if took := time.Since(began); took > 2500*time.Millisecond {
+		t.Errorf("-migrate took %v: the 700 ms statement timeout did not bound it", took)
+	}
+	for _, want := range []string{
+		"error: V1.0.1__seed.sql failed: ERROR: canceling statement due to statement timeout (SQLSTATE 57014)",
+		"possibly blocking: pid=",
+		"state=idle in transaction",
+		// The holder's query exactly, every letter s in place.
+		strconv.Quote(lock),
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr does not say %q:\n%s", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "an idle session holds nothing") {
+		t.Errorf("an idle session is named as possibly blocking:\n%s", stderr)
+	}
+}
+
+// mainArgsEnv makes the test binary run main() itself (TestMain), with these
+// arguments — how a test reaches the flag wiring and ./.env the way the
+// installed binary does.
+const mainArgsEnv = "GAMEPLAY_TEST_MAIN_ARGS"
+
+func TestMain(m *testing.M) {
+	if args, ok := os.LookupEnv(mainArgsEnv); ok {
+		os.Args = append([]string{"gameplay"}, strings.Fields(args)...)
+		main()
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
+// TestMigrateRunsFromMainOnTheDotEnvOfItsDirectory: `gameplay -migrate` is
+// wired in main and reads ./.env as the server does — so the binary run from
+// the service's working directory (ops/deploy.sh) migrates the database and
+// schema of the service's own .env, not the defaults (localhost, public).
+func TestMigrateRunsFromMainOnTheDotEnvOfItsDirectory(t *testing.T) {
+	reference, fresh := freshSchema(t)
+	dir := t.TempDir()
+	dotEnv := "DATABASE_URL=" + testDatabaseURL() + "\nPG_SCHEMA=" + fresh + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(dotEnv), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Bounded: were the flag's wiring ever lost, the child would boot a
+	// whole server instead of migrating and exiting.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0])
+	cmd.Dir = dir
+	// Nothing of the test's own environment that the server reads: the .env
+	// alone names the database and the schema.
+	cmd.Env = []string{mainArgsEnv + "=-migrate", "PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}
+	var out, errs bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errs
+	err := cmd.Run()
+	if err != nil {
+		t.Fatalf("gameplay -migrate: %v\nstdout:\n%s\nstderr:\n%s", err, out.String(), errs.String())
+	}
+	for _, want := range []string{"schema " + fresh + " on ", "migrated schema " + fresh + ": "} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("stdout does not say %q:\n%s", want, out.String())
+		}
+	}
+	if !strings.Contains(errs.String(), "read ") || !strings.Contains(errs.String(), string(filepath.Separator)+".env") {
+		t.Errorf("stderr does not say the .env was read:\n%s", errs.String())
+	}
+	if got := tablesOf(t, reference, fresh); len(got) != 39 {
+		t.Errorf("schema %s has %d tables after the run, want thirty-nine", fresh, len(got))
 	}
 }

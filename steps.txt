@@ -9,14 +9,22 @@ git checkout master && git pull origin master
 bash go-server/ops/release.sh minor               # or patch / major / vX.Y.Z ; --current just reports
 git push origin go-server/vX.Y.Z
 
-# 1. Then on the host, as the checkout's owner (write) — ONE command since 29 Sep 2026 (DEPLOY.md §3 "One-command deploy"):
+# 1. Then on the host, as the checkout's owner (write) — ONE command since 29 Sep 2026 (DEPLOY.md §3 "One-command deploy"),
+#    INSIDE tmux (or screen): a dropped ssh session must not end a deploy half way.
+tmux new -A -s deploy                                                       # after a drop: tmux attach -t deploy
 bash /var/www/gameplay/king-teenpatti/go-server/ops/deploy.sh --dry-run     # what it would do; changes nothing
 bash /var/www/gameplay/king-teenpatti/go-server/ops/deploy.sh               # the newest go-server/v* tag (or name one: … deploy.sh go-server/vX.Y.Z)
 #   It fetches (branches + tags), fast-forwards master, checks the tag out DETACHED, builds it, runs the NEW binary's
 #   `gameplay -migrate` as the service's user BEFORE the restart (a failing script stops it with nothing restarted),
-#   restarts gameplay, waits for /health to report the tag, and rolls back by itself when it never does.
-#   Never `sudo bash …` it (it asks sudo itself), never `psql -f` the migration files as postgres (DEPLOY.md says why),
-#   and no more `git pull origin master` on the host: the checkout is left detached at the tag, and the script fetches.
+#   restarts gameplay, waits for /health to report the tag, watches it 30 s more, and rolls back by itself when it
+#   never comes up or falls over. Every run is logged in .git/deploy-logs/ (it names the file).
+#   Never `sudo bash …` it (it asks sudo itself — and may ask again after a long first build), never `psql -f` the
+#   migration files as postgres (DEPLOY.md says why), and no more `git pull origin master` on the host: the checkout is
+#   left detached at the tag, and the script fetches.
+#   A ROLLBACK is a deploy of the older tag with --allow-downgrade, after reading DEPLOY.md §5; it refuses an older tag
+#   without it, and any tag older than go-server/v1.7.0 always (this database cannot run one).
+#   Deploy a release whose migrations change the structure (the dry run lists the changed scripts) at a quiet hour:
+#   while its new DDL waits for a lock (3 s at most), the writes to that table wait behind it.
 #   FIRST TIME the script is on the host — it arrives with that pull:
 #     cd /var/www/gameplay/king-teenpatti && git pull origin master && bash go-server/ops/deploy.sh
 #

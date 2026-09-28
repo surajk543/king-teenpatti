@@ -321,7 +321,16 @@ func bootstrap(ctx context.Context, pool *pgxpool.Pool, schema, quoted string, a
 //
 // It exists because the answer to "why will the server not start" was once a
 // fifteen-minute hunt through pg_stat_activity, and it is the first thing
-// anyone would have asked for.
+// anyone would have asked for. Since 29 Sep 2026 `gameplay -migrate` prints it
+// too, at the moment a deploy stops on it (ops/deploy.sh's exit 2).
+//
+// The failed statement no longer waits by the time this runs, so
+// pg_blocking_pids cannot name the holder; what can is the other sessions
+// still inside a transaction (an idle session holds no relation lock) that
+// hold a lock on a table of this schema — the oldest transaction first, its
+// age in seconds, and its latest query on one line. The pattern is a standard
+// string: E'\s+' would read as the regex `s+` and turn every letter s of the
+// query into a space.
 func blockingActivity(ctx context.Context, conn *pgxpool.Conn, cause error) string {
 	// 55P03 lock_not_available (lock_timeout) and 57014 query_canceled
 	// (statement_timeout) are the two failures a lock holder explains. Any
@@ -331,13 +340,19 @@ func blockingActivity(ctx context.Context, conn *pgxpool.Conn, cause error) stri
 		return ""
 	}
 	rows, err := conn.Query(context.WithoutCancel(ctx), `
-		SELECT pid, state, EXTRACT(epoch FROM now() - query_start)::bigint,
-		       left(regexp_replace(query, E'\s+', ' ', 'g'), 120)
-		  FROM pg_stat_activity
-		 WHERE datname = current_database()
-		   AND pid <> pg_backend_pid()
-		   AND query_start < now() - interval '3 seconds'
-		 ORDER BY query_start
+		SELECT a.pid, a.state, EXTRACT(epoch FROM now() - a.xact_start)::bigint,
+		       left(regexp_replace(a.query, '\s+', ' ', 'g'), 120)
+		  FROM pg_stat_activity a
+		 WHERE a.datname = current_database()
+		   AND a.pid <> pg_backend_pid()
+		   AND a.xact_start IS NOT NULL
+		   AND EXISTS (SELECT 1
+		                 FROM pg_locks l
+		                 JOIN pg_class c ON c.oid = l.relation
+		                 JOIN pg_namespace n ON n.oid = c.relnamespace
+		                WHERE l.pid = a.pid AND l.locktype = 'relation' AND l.granted
+		                  AND n.nspname = current_schema())
+		 ORDER BY a.xact_start
 		 LIMIT 3`)
 	if err != nil {
 		return ""
