@@ -946,6 +946,41 @@ class Strings {
   /// A daily XP source that is neither play time nor a winning hand.
   String get xpOtherTitle => _('xpOtherTitle');
 
+  /// The ONE_TIME missions (owner, 28 Sep 2026: "One-time missions are
+  /// permanent missions that a player can complete only once"), under the
+  /// daily XP: the section, its line, how many are done ("3 / 12
+  /// completed"), a completed mission's tag, and what each asks in the
+  /// player's words — "Play 10 hands", "Win 1 Poker hand", "Play 5 different
+  /// games", {game} a game's name. A mission's title ("First Hand") is the
+  /// server's, shown as it wrote it, as a level's title is.
+  String get xpOneTimeTitle => _('xpOneTimeTitle');
+  String get xpOneTimeNote => _('xpOneTimeNote');
+  String xpOneTimeDone(int n, int of) =>
+      _('xpOneTimeDone').replaceFirst('{n}', '$n').replaceFirst('{of}', '$of');
+  String get xpMissionCompleted => _('xpMissionCompleted');
+  String xpMissionPlayHands(int n) => n == 1
+      ? _('xpMissionPlayHand1')
+      : _('xpMissionPlayHands').replaceFirst('{n}', '$n');
+  String xpMissionWinHands(int n) => n == 1
+      ? _('xpMissionWinHand1')
+      : _('xpMissionWinHands').replaceFirst('{n}', '$n');
+  String xpMissionPlayGameHands(int n, String game) =>
+      (n == 1
+              ? _('xpMissionPlayGameHand1')
+              : _('xpMissionPlayGameHands').replaceFirst('{n}', '$n'))
+          .replaceFirst('{game}', game);
+  String xpMissionWinGameHands(int n, String game) =>
+      (n == 1
+              ? _('xpMissionWinGameHand1')
+              : _('xpMissionWinGameHands').replaceFirst('{n}', '$n'))
+          .replaceFirst('{game}', game);
+  String xpMissionGames(int n) => _('xpMissionGames').replaceFirst('{n}', '$n');
+  String xpMissionGamesIn(int n, String game) => _(
+    'xpMissionGamesIn',
+  ).replaceFirst('{n}', '$n').replaceFirst('{game}', game);
+  String xpMissionVariations(int n) =>
+      _('xpMissionVariations').replaceFirst('{n}', '$n');
+
   /// A badge in the catalogue: Standard is everyone's; the others last a
   /// validity from the grant — in years where it is whole years ("Lasts 5
   /// years", owner, 27 Sep 2026: "validity keep 5 years"), else in days.
@@ -2069,6 +2104,21 @@ class Strings {
       'unitDayShort': 'd',
       'badgeAvailable': 'Available',
       'xpOtherTitle': 'More ways to earn XP',
+      'xpOneTimeTitle': 'One-Time missions',
+      'xpOneTimeNote': 'Each gives its XP once, for good. They never reset.',
+      'xpOneTimeDone': '{n} / {of} completed',
+      'xpMissionCompleted': 'Completed',
+      'xpMissionPlayHand1': 'Play 1 hand',
+      'xpMissionPlayHands': 'Play {n} hands',
+      'xpMissionWinHand1': 'Win 1 hand',
+      'xpMissionWinHands': 'Win {n} hands',
+      'xpMissionPlayGameHand1': 'Play 1 {game} hand',
+      'xpMissionPlayGameHands': 'Play {n} {game} hands',
+      'xpMissionWinGameHand1': 'Win 1 {game} hand',
+      'xpMissionWinGameHands': 'Win {n} {game} hands',
+      'xpMissionGames': 'Play {n} different games',
+      'xpMissionGamesIn': 'Play {n} different {game} games',
+      'xpMissionVariations': 'Play {n} different variations',
       'badgeUntil': 'Until {date}',
       'badgeEveryone': 'Everyone',
       'badgeLasts': 'Lasts {time}',
@@ -2948,6 +2998,22 @@ class Strings {
       'unitDayShort': 'दि',
       'badgeAvailable': 'उपलब्ध',
       'xpOtherTitle': 'XP पाने के और तरीके',
+      'xpOneTimeTitle': 'एक बार के मिशन',
+      'xpOneTimeNote':
+          'हर मिशन अपना XP एक ही बार देता है। ये कभी रीसेट नहीं होते।',
+      'xpOneTimeDone': '{n} / {of} पूरे',
+      'xpMissionCompleted': 'पूरा हुआ',
+      'xpMissionPlayHand1': '1 हाथ खेलें',
+      'xpMissionPlayHands': '{n} हाथ खेलें',
+      'xpMissionWinHand1': '1 हाथ जीतें',
+      'xpMissionWinHands': '{n} हाथ जीतें',
+      'xpMissionPlayGameHand1': '{game} का 1 हाथ खेलें',
+      'xpMissionPlayGameHands': '{game} के {n} हाथ खेलें',
+      'xpMissionWinGameHand1': '{game} का 1 हाथ जीतें',
+      'xpMissionWinGameHands': '{game} के {n} हाथ जीतें',
+      'xpMissionGames': '{n} अलग-अलग गेम खेलें',
+      'xpMissionGamesIn': '{game} के {n} अलग-अलग गेम खेलें',
+      'xpMissionVariations': '{n} अलग-अलग वेरिएशन खेलें',
       'badgeUntil': '{date} तक',
       'badgeEveryone': 'सभी के लिए',
       'badgeLasts': '{time} तक',
@@ -3808,6 +3874,22 @@ class Strings {
       'unitDayShort': 'দি',
       'badgeAvailable': 'উপলব্ধ',
       'xpOtherTitle': 'XP পাওয়ার আরও উপায়',
+      'xpOneTimeTitle': 'একবারের মিশন',
+      'xpOneTimeNote':
+          'প্রতিটি মিশন তার XP একবারই দেয়। এগুলো কখনো রিসেট হয় না।',
+      'xpOneTimeDone': '{n} / {of} সম্পূর্ণ',
+      'xpMissionCompleted': 'সম্পূর্ণ',
+      'xpMissionPlayHand1': '1টি হাত খেলুন',
+      'xpMissionPlayHands': '{n}টি হাত খেলুন',
+      'xpMissionWinHand1': '1টি হাত জিতুন',
+      'xpMissionWinHands': '{n}টি হাত জিতুন',
+      'xpMissionPlayGameHand1': '{game}-এর 1টি হাত খেলুন',
+      'xpMissionPlayGameHands': '{game}-এর {n}টি হাত খেলুন',
+      'xpMissionWinGameHand1': '{game}-এর 1টি হাত জিতুন',
+      'xpMissionWinGameHands': '{game}-এর {n}টি হাত জিতুন',
+      'xpMissionGames': '{n}টি আলাদা গেম খেলুন',
+      'xpMissionGamesIn': '{game}-এর {n}টি আলাদা গেম খেলুন',
+      'xpMissionVariations': '{n}টি আলাদা ভেরিয়েশন খেলুন',
       'badgeUntil': '{date} পর্যন্ত',
       'badgeEveryone': 'সবার জন্য',
       'badgeLasts': 'মেয়াদ {time}',
@@ -4673,6 +4755,22 @@ class Strings {
       'unitDayShort': 'દિ',
       'badgeAvailable': 'ઉપલબ્ધ',
       'xpOtherTitle': 'XP મેળવવાની વધુ રીતો',
+      'xpOneTimeTitle': 'એક વારના મિશન',
+      'xpOneTimeNote':
+          'દરેક મિશન પોતાનું XP એક જ વાર આપે છે. તે ક્યારેય રીસેટ થતા નથી.',
+      'xpOneTimeDone': '{n} / {of} પૂર્ણ',
+      'xpMissionCompleted': 'પૂર્ણ',
+      'xpMissionPlayHand1': '1 હાથ રમો',
+      'xpMissionPlayHands': '{n} હાથ રમો',
+      'xpMissionWinHand1': '1 હાથ જીતો',
+      'xpMissionWinHands': '{n} હાથ જીતો',
+      'xpMissionPlayGameHand1': '{game}નો 1 હાથ રમો',
+      'xpMissionPlayGameHands': '{game}ના {n} હાથ રમો',
+      'xpMissionWinGameHand1': '{game}નો 1 હાથ જીતો',
+      'xpMissionWinGameHands': '{game}ના {n} હાથ જીતો',
+      'xpMissionGames': '{n} અલગ અલગ ગેમ રમો',
+      'xpMissionGamesIn': '{game}ની {n} અલગ અલગ ગેમ રમો',
+      'xpMissionVariations': '{n} અલગ અલગ વેરિએશન રમો',
       'badgeUntil': '{date} સુધી',
       'badgeEveryone': 'બધા માટે',
       'badgeLasts': '{time} સુધી',
@@ -5537,6 +5635,22 @@ class Strings {
       'unitDayShort': 'ਦਿ',
       'badgeAvailable': 'ਉਪਲਬਧ',
       'xpOtherTitle': 'XP ਹਾਸਲ ਕਰਨ ਦੇ ਹੋਰ ਤਰੀਕੇ',
+      'xpOneTimeTitle': 'ਇੱਕ ਵਾਰ ਦੇ ਮਿਸ਼ਨ',
+      'xpOneTimeNote':
+          'ਹਰ ਮਿਸ਼ਨ ਆਪਣਾ XP ਇੱਕੋ ਵਾਰ ਦਿੰਦਾ ਹੈ। ਇਹ ਕਦੇ ਰੀਸੈੱਟ ਨਹੀਂ ਹੁੰਦੇ।',
+      'xpOneTimeDone': '{n} / {of} ਪੂਰੇ',
+      'xpMissionCompleted': 'ਪੂਰਾ ਹੋਇਆ',
+      'xpMissionPlayHand1': '1 ਹੱਥ ਖੇਡੋ',
+      'xpMissionPlayHands': '{n} ਹੱਥ ਖੇਡੋ',
+      'xpMissionWinHand1': '1 ਹੱਥ ਜਿੱਤੋ',
+      'xpMissionWinHands': '{n} ਹੱਥ ਜਿੱਤੋ',
+      'xpMissionPlayGameHand1': '{game} ਦਾ 1 ਹੱਥ ਖੇਡੋ',
+      'xpMissionPlayGameHands': '{game} ਦੇ {n} ਹੱਥ ਖੇਡੋ',
+      'xpMissionWinGameHand1': '{game} ਦਾ 1 ਹੱਥ ਜਿੱਤੋ',
+      'xpMissionWinGameHands': '{game} ਦੇ {n} ਹੱਥ ਜਿੱਤੋ',
+      'xpMissionGames': '{n} ਵੱਖ-ਵੱਖ ਗੇਮਾਂ ਖੇਡੋ',
+      'xpMissionGamesIn': '{game} ਦੀਆਂ {n} ਵੱਖ-ਵੱਖ ਗੇਮਾਂ ਖੇਡੋ',
+      'xpMissionVariations': '{n} ਵੱਖ-ਵੱਖ ਵੇਰੀਏਸ਼ਨ ਖੇਡੋ',
       'badgeUntil': '{date} ਤੱਕ',
       'badgeEveryone': 'ਸਭ ਲਈ',
       'badgeLasts': '{time} ਤੱਕ',

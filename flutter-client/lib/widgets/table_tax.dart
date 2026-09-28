@@ -174,16 +174,65 @@ const Map<String, String> handNames = {
 
 /// A daily XP source named in the player's language by what earns it —
 /// "Play 15 active minutes", "Win by Trail" — for the kinds this build knows;
-/// any other by the server's own name for it.
-String xpSourceName(Strings t, LadderSource source) => switch ((
-  source.kind,
-  source.playMinutes,
-  handNames[source.hand],
-)) {
-  (LadderSource.kindPlayTime, final int minutes, _) => t.xpPlayMinutes(minutes),
-  (LadderSource.kindWinHand, _, final String hand) => t.xpWinBy(hand),
-  _ => source.name.isNotEmpty ? source.name : source.code,
-};
+/// any other by the server's own name for it. A ONE_TIME mission is named by
+/// its title ("First Hand", the server's, as a level's title is), else by
+/// what it asks ([missionTask]).
+String xpSourceName(Strings t, LadderSource source) {
+  if (source.oneTime) {
+    return source.name.trim().isNotEmpty ? source.name : missionTask(t, source);
+  }
+  return switch ((source.kind, source.playMinutes, handNames[source.hand])) {
+    (LadderSource.kindPlayTime, final int minutes, _) => t.xpPlayMinutes(
+      minutes,
+    ),
+    (LadderSource.kindWinHand, _, final String hand) => t.xpWinBy(hand),
+    _ => source.name.isNotEmpty ? source.name : source.code,
+  };
+}
+
+/// The game a ONE_TIME mission's scope names, in the player's language and
+/// as a name ("Poker", "Texas Hold'em", "Variation"): an engine's or a
+/// category's; the code itself for one this build does not know.
+String missionGameName(Strings t, String scope) => friendlyName(switch (scope) {
+  'teen_patti' => t.teenPatti,
+  'poker' => t.poker,
+  'seen' ||
+  'blind' ||
+  'variation' ||
+  'texas_holdem' ||
+  'omaha' ||
+  'five_card_draw' ||
+  'three_card_poker' => t.variationOrCategory(scope),
+  _ => scope,
+});
+
+/// What a ONE_TIME mission asks, in the player's language, from its kind,
+/// target and scope — "Play 10 hands", "Win 1 Poker hand", "Play 5 different
+/// games", "Play 1 Texas Hold'em hand"; empty for a kind this build does not
+/// know (its title then says all there is).
+String missionTask(Strings t, LadderSource m) {
+  final n = m.target ?? 1;
+  final game = m.scope.isEmpty ? null : missionGameName(t, m.scope);
+  return switch (m.kind) {
+    LadderSource.kindHandsPlayed =>
+      game == null
+          ? t.xpMissionPlayHands(n)
+          : t.xpMissionPlayGameHands(n, game),
+    LadderSource.kindHandsWon =>
+      game == null ? t.xpMissionWinHands(n) : t.xpMissionWinGameHands(n, game),
+    LadderSource.kindCategoriesPlayed =>
+      n == 1
+          ? (game == null
+                ? t.xpMissionPlayHands(1)
+                : t.xpMissionPlayGameHands(1, game))
+          : (game == null ? t.xpMissionGames(n) : t.xpMissionGamesIn(n, game)),
+    LadderSource.kindVariationsPlayed =>
+      n == 1
+          ? t.xpMissionPlayGameHands(1, missionGameName(t, 'variation'))
+          : t.xpMissionVariations(n),
+    _ => '',
+  };
+}
 
 /// Today's XP against its cap, and when the day's window ends: "Today 23 /
 /// 50 XP · resets in 5h 12m 3s" — or without the second half while no window
@@ -694,6 +743,13 @@ String levelSignatureOf(User? u) {
       for (final code in daily.claimed.keys.toList()..sort()) {
         b.write(',$code=${daily.claimed[code]}');
       }
+    }
+    // The one-time missions: a hand that moves one on changes the screen
+    // as a daily claim does.
+    for (final m in l.missions) {
+      b.write(
+        '|M${m.code}=${m.progress}/${m.target},${m.completedAt},${m.xpAwarded}',
+      );
     }
   }
   for (final x in u.badges) {

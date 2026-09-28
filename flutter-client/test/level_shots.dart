@@ -45,6 +45,8 @@ class _Scene {
     this.tab = 'mine',
     this.jumpToBadges = false,
     this.table = false,
+    this.missions = false,
+    this.scrollTo,
   });
 
   final String name;
@@ -54,6 +56,12 @@ class _Scene {
   final String tab;
   final bool jumpToBadges;
   final bool table;
+
+  /// The ladder of a server with the one-time missions (28 Sep 2026).
+  final bool missions;
+
+  /// A key to bring into view before the picture.
+  final String? scrollTo;
 }
 
 final _scenes = [
@@ -100,6 +108,27 @@ final _scenes = [
     'daily_idle',
     level: () => levelAt(3, into: 40, resetsIn: null),
     tab: 'daily',
+  ),
+  // The one-time missions (28 Sep 2026): some done, some part-way, the rest
+  // untouched, under the daily XP.
+  _Scene(
+    'daily_one_time',
+    level: () => levelAt(
+      10,
+      into: 180,
+      claimed: ['PLAY_15_MIN', 'WIN_PAIR'],
+      missions: [
+        missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 50),
+        missionAt('FIRST_WIN', 1, 1, completed: true, xpAwarded: 100),
+        missionAt('GETTING_STARTED', 7, 10),
+        missionAt('FIRST_5_WINS', 3, 5),
+        missionAt('CARD_PLAYER', 12, 50),
+        missionAt('GAME_EXPLORER', 3, 5),
+      ],
+    ),
+    tab: 'daily',
+    missions: true,
+    scrollTo: 'one-time-missions',
   ),
   _Scene('ladder_you', level: () => levelAt(10, into: 180), tab: 'ladder'),
   _Scene(
@@ -202,6 +231,7 @@ Future<void> _shoot(
     badges: scene.badges?.call(),
     taxBps: scene.taxBps,
     lang: shot.lang,
+    ladderRead: ladder(withMissions: scene.missions),
   );
   final boundary = GlobalKey();
   Widget wrap(Widget child) => RepaintBoundary(key: boundary, child: child);
@@ -257,6 +287,12 @@ Future<void> _shoot(
     if (scene.jumpToBadges) {
       await tester.tap(find.byKey(const ValueKey('ladder-jump-badges')));
       await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+    if (scene.scrollTo case final key?) {
+      await tester.ensureVisible(
+        find.byKey(ValueKey(key), skipOffstage: false),
+      );
       await tester.pump(const Duration(milliseconds: 400));
     }
   }

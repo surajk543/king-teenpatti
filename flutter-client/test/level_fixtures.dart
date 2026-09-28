@@ -116,12 +116,75 @@ ownersSources = [
 /// Every source's code.
 List<String> get allSourceCodes => [for (final s in ownersSources) s.$1];
 
+/// The owner's one-time missions (28 Sep 2026) as the server seeds them:
+/// code, title, mark, kind, target, scope, XP.
+const List<(String, String, String, String, int, String?, int)>
+ownersMissions = [
+  ('FIRST_HAND', 'First Hand', '🎴', 'HANDS_PLAYED', 1, null, 50),
+  ('FIRST_WIN', 'First Win', '🏆', 'HANDS_WON', 1, null, 100),
+  ('GETTING_STARTED', 'Getting Started', '🚀', 'HANDS_PLAYED', 10, null, 150),
+  ('FIRST_5_WINS', 'First 5 Wins', '🥇', 'HANDS_WON', 5, null, 300),
+  ('CARD_PLAYER', 'Card Player', '♠️', 'HANDS_PLAYED', 50, null, 500),
+  ('WINNING_STREAK', 'Winning Streak', '⚡', 'HANDS_WON', 10, null, 750),
+  (
+    'FIRST_POKER_HAND',
+    'First Poker Hand',
+    '♦️',
+    'HANDS_PLAYED',
+    1,
+    'poker',
+    100,
+  ),
+  ('FIRST_POKER_WIN', 'First Poker Win', '💰', 'HANDS_WON', 1, 'poker', 200),
+  (
+    'TEXAS_HOLDEM_DEBUT',
+    "Texas Hold'em Debut",
+    '🤠',
+    'HANDS_PLAYED',
+    1,
+    'texas_holdem',
+    150,
+  ),
+  ('POKER_REGULAR', 'Poker Regular', '🎩', 'HANDS_PLAYED', 50, 'poker', 750),
+  (
+    'VARIATION_EXPLORER',
+    'Variation Explorer',
+    '🔀',
+    'HANDS_PLAYED',
+    1,
+    'variation',
+    100,
+  ),
+  ('GAME_EXPLORER', 'Game Explorer', '🧭', 'CATEGORIES_PLAYED', 5, null, 500),
+];
+
+/// One mission as `user.playerLevel.missions[]` carries it: [progress] of
+/// [target], completed (with the XP it gave) where [completed].
+Map<String, Object?> missionAt(
+  String code,
+  int progress,
+  int target, {
+  bool completed = false,
+  int xpAwarded = 0,
+}) => {
+  'code': code,
+  'type': 'ONE_TIME',
+  'progress': progress,
+  'target': target,
+  'completed': completed,
+  if (completed) 'completedAt': nowMs - hourMs,
+  if (completed && xpAwarded > 0) 'xpAwarded': xpAwarded,
+};
+
 String badgeUrl(String code) => 'https://drive.test/badges/$code.json';
 
 /// The whole ladder as `GET /api/levels` sends it; [levels] replaces the
-/// owner's titles (a long name).
+/// owner's titles (a long name). [withMissions] adds the one-time missions
+/// (a server of 28 Sep 2026 or later); without, it is a server from before
+/// them.
 Map<String, Object?> ladderJson({
   List<(int, int, String, String, int)> levels = ownersLevels,
+  bool withMissions = false,
 }) => {
   'levels': [
     for (final (level, minXp, title, icon, taxBps) in levels)
@@ -165,19 +228,37 @@ Map<String, Object?> ladderJson({
         'name': name,
         'icon': icon,
         'kind': kind,
+        if (withMissions) 'type': 'DAILY',
         'playMinutes': ?minutes,
         'hand': ?hand,
         'xp': xp,
         'times': 1,
       },
   ],
+  if (withMissions)
+    'missions': [
+      for (final (code, name, icon, kind, target, scope, xp) in ownersMissions)
+        {
+          'code': code,
+          'name': name,
+          'icon': icon,
+          'kind': kind,
+          'type': 'ONE_TIME',
+          'target': target,
+          'scope': ?scope,
+          'xp': xp,
+          'times': 1,
+        },
+    ],
   'dailyCap': null,
   'windowMs': 86400000,
 };
 
 LevelLadder ladder({
   List<(int, int, String, String, int)> levels = ownersLevels,
-}) => LevelLadder.maybe(ladderJson(levels: levels))!;
+  bool withMissions = false,
+}) =>
+    LevelLadder.maybe(ladderJson(levels: levels, withMissions: withMissions))!;
 
 /// A player at [level] of the owner's ladder with [xp] (the level's own
 /// threshold plus [into] by default), the daily window's [claimed] sources
@@ -189,6 +270,7 @@ Map<String, Object?> levelAt(
   List<String> claimed = const [],
   Duration? resetsIn = const Duration(hours: 23, minutes: 45, seconds: 19),
   List<(int, int, String, String, int)> levels = ownersLevels,
+  List<Map<String, Object?>> missions = const [],
 }) {
   final (n, minXp, title, icon, taxBps) = levels[level - 1];
   final next = level < levels.length ? levels[level] : null;
@@ -211,6 +293,7 @@ Map<String, Object?> levelAt(
         'claimed': {for (final c in claimed) c: 1},
         'resetsAt': nowMs + resetsIn.inMilliseconds,
       },
+    if (missions.isNotEmpty) 'missions': missions,
   };
 }
 

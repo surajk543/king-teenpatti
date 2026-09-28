@@ -703,6 +703,61 @@ class XpDaily {
   }
 }
 
+/// Where the viewer stands on one ONE_TIME mission (owner, 28 Sep 2026:
+/// "One-time missions are permanent missions that a player can complete only
+/// once"): `user.playerLevel.missions[]` — how far they have come against
+/// its target and, once completed, when and the XP it gave. The server
+/// counts it and awards it (in the same hand-end write); the app only shows
+/// it. There is no reset and no expiry: a completed mission stays completed.
+class MissionProgress {
+  const MissionProgress({
+    required this.code,
+    required this.progress,
+    required this.target,
+    this.completed = false,
+    this.completedAt = 0,
+    this.xpAwarded = 0,
+  });
+
+  final String code;
+  final int progress;
+
+  /// The mission's target as the server read it with the progress; 0 where
+  /// it did not say (the ladder's own figure is used then).
+  final int target;
+  final bool completed;
+
+  /// When it was completed, epoch ms; 0 until it is.
+  final int completedAt;
+
+  /// The XP the completion gave; 0 until it is.
+  final int xpAwarded;
+
+  /// The server's list, tolerant: anything without a code is dropped, and a
+  /// list that is not a list is none.
+  static List<MissionProgress> listOf(Object? raw) {
+    if (raw is! List) return const [];
+    final out = <MissionProgress>[];
+    for (final e in raw) {
+      if (e is! Map) continue;
+      final j = Map<String, dynamic>.from(e);
+      final code = _str(j['code']).trim();
+      if (code.isEmpty) continue;
+      out.add(
+        MissionProgress(
+          code: code,
+          progress: math.max(0, _int(j['progress'])),
+          target: math.max(0, _int(j['target'])),
+          completed: j['completed'] == true,
+          completedAt: math.max(0, _int(j['completedAt'])),
+          xpAwarded: math.max(0, _int(j['xpAwarded'])),
+        ),
+      );
+    }
+    return List.unmodifiable(out);
+  }
+}
+
 /// The viewer's own level (owner, 26 Sep 2026: "create table which stores
 /// every player xp and ac to their level, tax will be applied"): the level
 /// their XP has reached, its name and mark, the XP itself, and the winning tax
@@ -720,6 +775,7 @@ class PlayerLevel {
     this.next,
     this.today,
     this.daily,
+    this.missions = const [],
   });
 
   final int level;
@@ -747,6 +803,20 @@ class PlayerLevel {
   /// while none is running.
   final XpDaily? daily;
 
+  /// Where the player stands on the ONE_TIME missions they have moved on or
+  /// completed (28 Sep 2026); a mission not listed is at 0 of its target.
+  /// Never reset by a window: [daily] going away leaves these as they are.
+  final List<MissionProgress> missions;
+
+  /// The player's progress on mission [code], or null where they have not
+  /// moved it.
+  MissionProgress? missionOf(String code) {
+    for (final m in missions) {
+      if (m.code == code) return m;
+    }
+    return null;
+  }
+
   /// Null unless the server sent a level worth showing: a level number above
   /// 0 and a rate in 0..10000.
   static PlayerLevel? maybe(Object? raw) {
@@ -764,6 +834,7 @@ class PlayerLevel {
       next: LevelStep.maybe(j['next']),
       today: XpToday.maybe(j['today']),
       daily: XpDaily.maybe(j['daily']),
+      missions: MissionProgress.listOf(j['missions']),
     );
   }
 }
@@ -887,6 +958,7 @@ class LevelLadder {
     required this.levels,
     this.badges = const [],
     this.sources = const [],
+    this.missions = const [],
     this.dailyCap = 0,
     this.windowMs = 0,
   });
@@ -894,7 +966,26 @@ class LevelLadder {
   /// Levels 1 up, in order.
   final List<LadderLevel> levels;
   final List<LadderBadge> badges;
+
+  /// The DAILY sources: earned again every window.
   final List<LadderSource> sources;
+
+  /// The ONE_TIME missions (owner, 28 Sep 2026): each earned once in a
+  /// player's life, never reset — the server's `missions`, beside its
+  /// `xpSources` and never among them, so an older app's daily sum (the
+  /// "108 XP a window") never counted one.
+  final List<LadderSource> missions;
+
+  /// The source or mission [code], or null.
+  LadderSource? sourceOf(String code) {
+    for (final s in sources) {
+      if (s.code == code) return s;
+    }
+    for (final m in missions) {
+      if (m.code == code) return m;
+    }
+    return null;
+  }
 
   /// The most XP a player earns in one window; 0 where the server sets no
   /// daily cap (owner, 27 Sep 2026: "Don't set any daily limit to xp").
@@ -931,16 +1022,30 @@ class LevelLadder {
         ?LadderLevel.maybe(e),
     ]..sort((a, b) => a.level.compareTo(b.level));
     if (levels.isEmpty) return null;
+    // Every source by its type, wherever the server listed it: a ONE_TIME
+    // one among the daily sources would otherwise be summed into the day's
+    // most and listed as a daily way to earn XP.
+    final all = <LadderSource>[
+      for (final e
+          in (j['xpSources'] is List ? j['xpSources'] as List : const []))
+        ?LadderSource.maybe(e),
+      for (final e
+          in (j['missions'] is List ? j['missions'] as List : const []))
+        ?LadderSource.maybe(e, type: LadderSource.typeOneTime),
+    ];
     return LevelLadder(
       levels: List.unmodifiable(levels),
       badges: List.unmodifiable(<LadderBadge>[
         for (final e in (j['badges'] is List ? j['badges'] as List : const []))
           ?LadderBadge.maybe(e),
       ]),
-      sources: List.unmodifiable(<LadderSource>[
-        for (final e
-            in (j['xpSources'] is List ? j['xpSources'] as List : const []))
-          ?LadderSource.maybe(e),
+      sources: List.unmodifiable([
+        for (final s in all)
+          if (!s.oneTime) s,
+      ]),
+      missions: List.unmodifiable([
+        for (final s in all)
+          if (s.oneTime && (s.target ?? 0) > 0) s,
       ]),
       dailyCap: math.max(0, _int(j['dailyCap'])),
       windowMs: math.max(0, _int(j['windowMs'])),
@@ -1062,6 +1167,15 @@ class LadderBadge {
 /// the XP it gives and how many times a window it can be earned. The app
 /// names the kinds it knows in its own five languages, and any other by the
 /// server's admin [name].
+///
+/// Since 28 Sep 2026 a source has a [type]: DAILY (every source before it,
+/// and what a server that sends none means) or ONE_TIME — a mission earned
+/// once in a player's life when their progress reaches its [target], counted
+/// in hands played or won, or different games or variations played, at the
+/// tables its [scope] names (an engine — `poker` — or a category —
+/// `texas_holdem`; empty for any). A one-time mission's [name] is its title
+/// ("First Hand"), shown as the server wrote it, as a level's title is; what
+/// it asks is the app's own words (`missionTask`, table_tax.dart).
 class LadderSource {
   const LadderSource({
     required this.code,
@@ -1069,13 +1183,25 @@ class LadderSource {
     this.name = '',
     this.icon = '',
     this.kind = '',
+    this.type = typeDaily,
     this.playMinutes,
     this.hand = '',
+    this.target,
+    this.scope = '',
     this.times = 1,
   });
 
   static const String kindPlayTime = 'PLAY_TIME';
   static const String kindWinHand = 'WIN_HAND';
+
+  /// The one-time kinds.
+  static const String kindHandsPlayed = 'HANDS_PLAYED';
+  static const String kindHandsWon = 'HANDS_WON';
+  static const String kindCategoriesPlayed = 'CATEGORIES_PLAYED';
+  static const String kindVariationsPlayed = 'VARIATIONS_PLAYED';
+
+  static const String typeDaily = 'DAILY';
+  static const String typeOneTime = 'ONE_TIME';
 
   final String code;
   final String name;
@@ -1084,6 +1210,20 @@ class LadderSource {
   /// none.
   final String icon;
   final String kind;
+
+  /// DAILY or ONE_TIME.
+  final String type;
+
+  /// A ONE_TIME mission's target: the hands, or the different games or
+  /// variations, that complete it; null on a daily source.
+  final int? target;
+
+  /// A ONE_TIME mission's tables: an engine or a category code; empty for
+  /// any table.
+  final String scope;
+
+  /// Whether this is a ONE_TIME mission.
+  bool get oneTime => type == typeOneTime;
 
   /// PLAY_TIME: the minutes of active play in the window that earn it.
   final int? playMinutes;
@@ -1097,19 +1237,26 @@ class LadderSource {
   /// How many times a window it can be earned (1 as seeded).
   final int times;
 
-  static LadderSource? maybe(Object? raw) {
+  /// The server's source, tolerant; [type] is what a source that names none
+  /// is (a daily source from a server before one-time missions).
+  static LadderSource? maybe(Object? raw, {String type = typeDaily}) {
     if (raw is! Map) return null;
     final j = Map<String, dynamic>.from(raw);
     final code = _str(j['code']).trim();
     if (code.isEmpty) return null;
     final minutes = _intOrNull(j['playMinutes']);
+    final target = _intOrNull(j['target']);
+    final sent = _str(j['type']).trim();
     return LadderSource(
       code: code,
       name: _str(j['name']),
       icon: _str(j['icon']).trim(),
       kind: _str(j['kind']).trim(),
+      type: sent == typeOneTime || sent == typeDaily ? sent : type,
       playMinutes: minutes != null && minutes > 0 ? minutes : null,
       hand: _str(j['hand']).trim(),
+      target: target != null && target > 0 ? target : null,
+      scope: _str(j['scope']).trim(),
       xp: math.max(0, _int(j['xp'])),
       times: math.max(1, _int(j['times'])),
     );
@@ -2073,8 +2220,9 @@ class PokerResult {
   }
 
   /// This player's reveal, if their hand was turned over.
-  PokerReveal? revealOf(String? userId) =>
-      userId == null ? null : reveals.where((r) => r.userId == userId).firstOrNull;
+  PokerReveal? revealOf(String? userId) => userId == null
+      ? null
+      : reveals.where((r) => r.userId == userId).firstOrNull;
 
   factory PokerResult.fromJson(Map<String, dynamic> j) => PokerResult(
     handId: _str(j['handId']),
@@ -2167,8 +2315,12 @@ class PokerState {
 }
 
 /// A list of whole numbers off the wire; anything else reads as empty.
-List<int> _ints(Object? raw) =>
-    raw is List ? [for (final e in raw) if (e is num) e.toInt()] : const [];
+List<int> _ints(Object? raw) => raw is List
+    ? [
+        for (final e in raw)
+          if (e is num) e.toInt(),
+      ]
+    : const [];
 
 /// A list of objects off the wire, each parsed by [parse]; anything that is
 /// not an object is dropped, and anything that is not a list is empty.
@@ -2556,8 +2708,10 @@ class OwnHand {
   bool get pickedTheBest =>
       bestPossible.isEmpty ||
       (best.length == bestPossible.length &&
-          List.generate(best.length, (i) => best[i] == bestPossible[i])
-              .every((same) => same));
+          List.generate(
+            best.length,
+            (i) => best[i] == bestPossible[i],
+          ).every((same) => same));
 
   /// The card [code] (one of `you.cards`, at [index]) stood for, or null when
   /// it is not wild, the server said nothing usable, or it stood for itself.
@@ -3089,14 +3243,13 @@ class LaidTablePicture {
   String forBrightness(Brightness brightness) =>
       brightness == Brightness.dark ? nightUrl : dayUrl;
 
-  factory LaidTablePicture.fromJson(Map<String, dynamic> j) =>
-      LaidTablePicture(
-        id: _int(j['id']),
-        dayUrl: _str(j['dayUrl']),
-        nightUrl: _str(j['nightUrl']),
-        assetFormat: _str(j['assetFormat'] ?? 'IMAGE'),
-        userId: _str(j['userId']),
-      );
+  factory LaidTablePicture.fromJson(Map<String, dynamic> j) => LaidTablePicture(
+    id: _int(j['id']),
+    dayUrl: _str(j['dayUrl']),
+    nightUrl: _str(j['nightUrl']),
+    assetFormat: _str(j['assetFormat'] ?? 'IMAGE'),
+    userId: _str(j['userId']),
+  );
 }
 
 /// One row of the server's table-picture catalogue (GET /api/table-pictures,

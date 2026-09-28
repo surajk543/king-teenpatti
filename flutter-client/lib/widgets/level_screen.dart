@@ -573,7 +573,8 @@ class _LevelScreenState extends State<LevelScreen> {
     final level = state.user?.playerLevel;
     // Whether the window is still running follows the clock: one that ends
     // while the tab is open clears its ticks and its XP and says the day
-    // starts with the next hand, as the server now counts it.
+    // starts with the next hand, as the server now counts it. The one-time
+    // missions stand outside it: no window touches them.
     return [
       LevelClock<bool>(
         key: const ValueKey('daily-window'),
@@ -588,6 +589,49 @@ class _LevelScreenState extends State<LevelScreen> {
           ),
         ),
       ),
+      ..._oneTime(context, state, ladder, level),
+      Text(state.t.xpNeverExpires, style: levelQuiet(Theme.of(context))),
+    ];
+  }
+
+  /// The ONE_TIME missions (owner, 28 Sep 2026), under the daily XP: a
+  /// heading with how many are done, the line that says they never reset,
+  /// and a tile each — "7 / 10" over its bar while it is open, "✓ Completed"
+  /// once it is, and no countdown either way. Nothing where the server
+  /// offers none (an older one).
+  List<Widget> _oneTime(
+    BuildContext context,
+    GameState state,
+    LevelLadder ladder,
+    PlayerLevel? level,
+  ) {
+    final missions = ladder.missions;
+    if (missions.isEmpty) return const [];
+    final t = state.t;
+    final done = [
+      for (final m in missions)
+        if (level?.missionOf(m.code)?.completed ?? false) m,
+    ].length;
+    return [
+      LevelSection(
+        t.xpOneTimeTitle,
+        key: const ValueKey('one-time-missions'),
+        mark: '🎯',
+        column: t.xpOneTimeDone(done, missions.length),
+      ),
+      LevelGrid(
+        minTile: 230,
+        children: [
+          for (final m in missions)
+            OneTimeMissionTile(
+              key: ValueKey('xp-mission-${m.code}'),
+              mission: m,
+              progress: level?.missionOf(m.code),
+            ),
+        ],
+      ),
+      _Note(t.xpOneTimeNote),
+      const SizedBox(height: Space.sm),
     ];
   }
 
@@ -649,7 +693,6 @@ class _LevelScreenState extends State<LevelScreen> {
       Text(t.xpListResets(hours), style: levelQuiet(theme)),
       if (ladder.dailyCap > 0)
         Text(t.xpDailyCap(ladder.dailyCap, hours), style: levelQuiet(theme)),
-      Text(t.xpNeverExpires, style: levelQuiet(theme)),
     ];
   }
 
@@ -2141,6 +2184,157 @@ class HandSourceTile extends StatelessWidget {
                 size: 20,
                 color: theme.colorScheme.primary,
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A ONE_TIME mission (owner, 28 Sep 2026) as a tile in the daily sources'
+/// style: its mark, its title (the server's, "Getting Started") and the XP
+/// it gives, what it asks in the player's words ("Play 10 hands"), and —
+/// while it is open — the progress, "7 / 10", beside a bar that fills to
+/// it; once completed, "✓ Completed" in the completion green the daily
+/// ticks wear, the tile's edge green with it. No countdown: nothing about a
+/// one-time mission resets. The progress is the server's
+/// (user.playerLevel.missions); the app counts nothing.
+class OneTimeMissionTile extends StatelessWidget {
+  const OneTimeMissionTile({
+    super.key,
+    required this.mission,
+    required this.progress,
+  });
+
+  /// The mission as the ladder describes it.
+  final LadderSource mission;
+
+  /// Where the viewer stands on it; null where they have not moved it.
+  final MissionProgress? progress;
+
+  bool get completed => progress?.completed ?? false;
+
+  /// The target: the ladder's, else what the progress was read against.
+  int get target => math.max(1, mission.target ?? progress?.target ?? 1);
+
+  /// How far, never past the target.
+  int get done => math.min(progress?.progress ?? 0, target);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final t = Strings(context.select<GameState, AppLang>((s) => s.lang));
+    final gold = goldInk(theme.brightness);
+    final green = theme.colorScheme.primary;
+    final title = xpSourceName(t, mission);
+    final task = missionTask(t, mission);
+    final xp = completed && (progress?.xpAwarded ?? 0) > 0
+        ? progress!.xpAwarded
+        : mission.xp;
+    final nameStyle = TableType.info(
+      theme,
+      colour: theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed),
+    ).copyWith(fontWeight: FontWeight.w600);
+    return Semantics(
+      label: [
+        title,
+        if (task.isNotEmpty && task != title) task,
+        '+$xp XP',
+        completed ? t.xpMissionCompleted : '$done / $target',
+      ].join(', '),
+      excludeSemantics: true,
+      child: LevelCard(
+        accent: completed ? green : null,
+        padding: const EdgeInsets.symmetric(
+          horizontal: Space.sm,
+          vertical: Space.sm,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 26,
+              child: mission.icon.isEmpty
+                  ? Icon(Icons.flag_rounded, size: 18, color: gold)
+                  : FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        mission.icon,
+                        style: const TextStyle(fontSize: 20, height: 1),
+                      ),
+                    ),
+            ),
+            const SizedBox(width: Space.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(title, maxLines: 3, style: nameStyle),
+                      ),
+                      const SizedBox(width: Space.sm),
+                      Text(
+                        '+$xp XP',
+                        maxLines: 1,
+                        style: TableType.chips(
+                          theme,
+                          colour: completed ? green : gold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (task.isNotEmpty && task != title)
+                    Text(task, maxLines: 3, style: levelQuiet(theme)),
+                  const SizedBox(height: Space.xs),
+                  if (completed)
+                    Row(
+                      key: ValueKey('xp-mission-done-${mission.code}'),
+                      children: [
+                        Icon(
+                          Icons.check_circle_rounded,
+                          size: 16,
+                          color: green,
+                        ),
+                        const SizedBox(width: Space.xs),
+                        Flexible(
+                          child: Text(
+                            t.xpMissionCompleted,
+                            maxLines: 2,
+                            style: TableType.label(
+                              theme,
+                              colour: green,
+                              weight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: LevelBar(
+                            key: ValueKey('xp-mission-bar-${mission.code}'),
+                            fraction: done / target,
+                            height: 6,
+                          ),
+                        ),
+                        const SizedBox(width: Space.sm),
+                        Text(
+                          '$done / $target',
+                          key: ValueKey('xp-mission-progress-${mission.code}'),
+                          maxLines: 1,
+                          style: levelQuiet(theme, figures: true),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
