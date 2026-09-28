@@ -203,10 +203,11 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	// friendships, which reference users twice each — and Report Player's
 	// player_reports (27 Sep 2026), twice as well: the reporter and the
 	// reported player — and user_sessions (28 Sep 2026), the sign-in each
-	// token must carry, which every login writes.
+	// token must carry, which every login writes — and player_xp_missions
+	// (28 Sep 2026), each player's one-time missions.
 	referencing := []string{"diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends",
 		"user_table_pictures", "user_table_choice", "user_lucky_draws", "user_emojis",
-		"player_stats", "friend_requests", "friendships", "player_reports", "user_sessions"}
+		"player_stats", "friend_requests", "friendships", "player_reports", "user_sessions", "player_xp_missions"}
 	for _, table := range referencing {
 		if _, err := admin.Exec(ctx, `DROP TABLE `+qualified(table)); err != nil {
 			t.Fatal(err)

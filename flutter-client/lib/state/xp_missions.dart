@@ -1,8 +1,9 @@
-// The daily XP missions the player has just completed (owner, 27 Sep 2026:
+// The XP missions the player has just completed (owner, 27 Sep 2026:
 // "whenever xp mission completed, show top notification bar for 5 seconds
-// showing this is completed and xp increased"). Pure bookkeeping: which
-// sources a `player:level` shows earned that the standing before it had not,
-// queued one bar each for [XpMissionHost] to show in turn.
+// showing this is completed and xp increased") — the daily sources, and
+// since 28 Sep 2026 the one-time missions beside them. Pure bookkeeping:
+// which a `player:level` shows earned or completed that the standing before
+// it had not, queued one bar each for [XpMissionHost] to show in turn.
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -67,13 +68,10 @@ class XpMissionNews {
   /// bar but the one with [levelUp].
   final int? levelUpTaxBps;
 
-  /// The source as [ladder] describes it now, else as it did.
-  LadderSource? sourceIn(LevelLadder? ladder) {
-    for (final s in ladder?.sources ?? const <LadderSource>[]) {
-      if (s.code == code) return s;
-    }
-    return source;
-  }
+  /// The source — a daily one or a one-time mission — as [ladder] describes
+  /// it now, else as it did.
+  LadderSource? sourceIn(LevelLadder? ladder) =>
+      ladder?.sourceOf(code) ?? source;
 
   /// The XP to show: this mission's, else the ladder's figure for it.
   int? xpIn(LevelLadder? ladder) {
@@ -158,7 +156,12 @@ class XpMissions extends ChangeNotifier {
   ///    says how the rest divides, and they carry none — and the running
   ///    total after it (none once a mission before it gave an XP nothing
   ///    says). The last carries the award's own total and the level it
-  ///    reached, when it reached one, with [levelUpTaxBps].
+  ///    reached, when it reached one, with [levelUpTaxBps];
+  ///  * a ONE_TIME mission (28 Sep 2026) is completed when [after] shows it
+  ///    completed and [before] did not — no window in it, so a window
+  ///    rolling over never makes or unmakes one — announced on the same bar
+  ///    as a daily one, after the daily ones, with the XP the server says it
+  ///    gave.
   static List<XpMissionNews> completions(
     PlayerLevel? before,
     PlayerLevel after,
@@ -166,27 +169,40 @@ class XpMissions extends ChangeNotifier {
     int firstId = 1,
     int? levelUpTaxBps,
   }) {
-    final daily = after.daily;
-    if (before == null || daily == null) return const [];
+    if (before == null) return const [];
     final gained = after.xp - before.xp;
     if (gained <= 0) return const [];
-    final old = before.daily;
-    // The same window within a minute: the server says when a window ends
-    // as its start plus its length, the same figure every time, and a new
-    // window ends a whole window later (it opens at the first hand after
-    // the old one ended) — the margin only forgives a clock's rounding.
-    final sameWindow =
-        old != null && (old.resetsAt - daily.resetsAt).abs() < sameWindowMs;
-    final baseline = sameWindow ? old.claimed : const <String, int>{};
 
     final earned = <String, int>{};
-    for (final MapEntry(key: code, value: n) in daily.claimed.entries) {
-      final up = n - (baseline[code] ?? 0);
-      if (up > 0) earned[code] = up;
+    final daily = after.daily;
+    if (daily != null) {
+      final old = before.daily;
+      // The same window within a minute: the server says when a window ends
+      // as its start plus its length, the same figure every time, and a new
+      // window ends a whole window later (it opens at the first hand after
+      // the old one ended) — the margin only forgives a clock's rounding.
+      final sameWindow =
+          old != null && (old.resetsAt - daily.resetsAt).abs() < sameWindowMs;
+      final baseline = sameWindow ? old.claimed : const <String, int>{};
+      for (final MapEntry(key: code, value: n) in daily.claimed.entries) {
+        final up = n - (baseline[code] ?? 0);
+        if (up > 0) earned[code] = up;
+      }
+    }
+    // The one-time missions this award completed: completed now, and not
+    // before. Their XP is the server's own record of what each gave.
+    final oneTimeXp = <String, int>{};
+    for (final m in after.missions) {
+      if (!m.completed || (before.missionOf(m.code)?.completed ?? false)) {
+        continue;
+      }
+      earned[m.code] = 1;
+      if (m.xpAwarded > 0) oneTimeXp[m.code] = m.xpAwarded;
     }
     if (earned.isEmpty) return const [];
 
-    final sources = ladder?.sources ?? const <LadderSource>[];
+    // The daily sources in their order, then the missions in theirs.
+    final sources = [...?ladder?.sources, ...?ladder?.missions];
     LadderSource? sourceOf(String code) {
       for (final s in sources) {
         if (s.code == code) return s;
@@ -196,7 +212,10 @@ class XpMissions extends ChangeNotifier {
 
     int rank(String code) {
       final i = sources.indexWhere((s) => s.code == code);
-      return i < 0 ? sources.length : i;
+      if (i >= 0) return i;
+      // A code the ladder cannot name: a one-time mission's after every
+      // daily one.
+      return sources.length + (oneTimeXp.containsKey(code) ? 1 : 0);
     }
 
     final codes = earned.keys.toList()
@@ -205,15 +224,23 @@ class XpMissions extends ChangeNotifier {
         return r != 0 ? r : a.compareTo(b);
       });
 
-    // What the ladder accounts for, and what is left for the rest.
+    // What each mission gave where something says: a one-time mission's
+    // record, else the ladder's figure.
+    int? xpOf(String code) {
+      if (oneTimeXp[code] case final xp?) return xp;
+      final s = sourceOf(code);
+      return s == null ? null : s.xp * earned[code]!;
+    }
+
+    // What is accounted for, and what is left for the rest.
     var known = 0;
     final unknown = <String>[];
     for (final code in codes) {
-      final s = sourceOf(code);
-      if (s == null) {
+      final xp = xpOf(code);
+      if (xp == null) {
         unknown.add(code);
       } else {
-        known += s.xp * earned[code]!;
+        known += xp;
       }
     }
     final rest = math.max(0, gained - known);
@@ -238,8 +265,8 @@ class XpMissions extends ChangeNotifier {
       final last = i == codes.length - 1;
       final s = sourceOf(code);
       final int? xp;
-      if (s != null) {
-        xp = s.xp * earned[code]!;
+      if (xpOf(code) case final known?) {
+        xp = known;
       } else if (unknown.length == 1 && rest > 0) {
         xp = rest;
       } else {

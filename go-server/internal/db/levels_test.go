@@ -123,9 +123,11 @@ func TestTheSeededLevelsAreTheOwnersTable(t *testing.T) {
 	if i != len(ownersLevels) || i != 50 {
 		t.Fatalf("%d levels, want the owner's 50", i)
 	}
-	// The daily XP, as the owner gave it (27 Sep 2026): each once a window.
+	// The daily XP, as the owner gave it (27 Sep 2026): each once a window —
+	// every one of them DAILY. The one-time missions seeded beside them (28 Sep
+	// 2026) are TestTheSeededOneTimeMissionsAreTheOwnersEight's.
 	srcRows, err := f.d.Pool.Query(f.ctx, `SELECT code, name, icon, kind, COALESCE(play_minutes, 0), COALESCE(hand_rank, ''),
-	       xp, times_per_window, is_active FROM xp_sources ORDER BY sort_order`)
+	       xp, times_per_window, is_active FROM xp_sources WHERE mission_type = 'DAILY' ORDER BY sort_order`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,6 +219,18 @@ func TestTheSeededBadgesAreTheOwners(t *testing.T) {
 	}
 	if f.count(`SELECT count(*) FROM user_badges`) != 0 {
 		t.Error("the seed gives nobody a badge")
+	}
+}
+
+// dailyXPOnly switches the ONE_TIME missions off (28 Sep 2026), for a test
+// of the DAILY XP alone: a first hand and a first win complete missions too,
+// and their XP would stand in every total the daily rules are checked by.
+// missions_test.go checks the two together — the daily sources earning
+// exactly what they do here beside the missions' XP.
+func (f *fixture) dailyXPOnly() {
+	f.t.Helper()
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE xp_sources SET is_active = FALSE WHERE mission_type = 'ONE_TIME'`); err != nil {
+		f.t.Fatal(err)
 	}
 }
 
@@ -605,6 +619,7 @@ func (f *fixture) playHand(ledger *db.Ledger, winner, loser, wonWith string) db.
 // on, every source is there to be earned again.
 func TestEachDailyXPSourceIsEarnedOnceAWindow(t *testing.T) {
 	f := newFixture(t)
+	f.dailyXPOnly()
 	clock := &testClock{now: time.UnixMilli(1_800_000_000_000)}
 	ledger := db.NewLedger(f.d, nil, clock.Now)
 	xp := db.NewXP(f.d, clock.Now)
@@ -724,6 +739,7 @@ func TestEachDailyXPSourceIsEarnedOnceAWindow(t *testing.T) {
 // all.
 func TestAnOwnersDailyCapHoldsTheWindow(t *testing.T) {
 	f := newFixture(t)
+	f.dailyXPOnly()
 	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE xp_settings SET daily_cap = 50`); err != nil {
 		t.Fatal(err)
 	}
@@ -800,6 +816,7 @@ func (s *settledHands) all() []db.SettledHand {
 // the settlement changes nothing: no row, no chip and no XP twice.
 func TestATaxedWinIsTheWinGrossAndTheTaxAsItsOwnRow(t *testing.T) {
 	f := newFixture(t)
+	f.dailyXPOnly()
 	seen := &settledHands{}
 	f.ledger.OnSettled(seen.hook)
 	a, b := f.user("Winner"), f.user("Loser")
@@ -902,6 +919,7 @@ func TestATaxedWinIsTheWinGrossAndTheTaxAsItsOwnRow(t *testing.T) {
 // earns no "Win by …" XP.
 func TestTheSettleOpensTheWindowOfThoseWhoCompletedTheHand(t *testing.T) {
 	f := newFixture(t)
+	f.dailyXPOnly()
 	seen := &settledHands{}
 	f.ledger.OnSettled(seen.hook)
 	win, lose, push, leaver, money := f.user("W"), f.user("L"), f.user("P"), f.user("Gone"), f.user("Money")
@@ -978,7 +996,7 @@ func TestAnAccountReadSurvivesAnEmptyLadder(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := f.find(u.ID)
-	if got.PlayerLevel != (db.PlayerLevel{}) || got.TaxBps != 0 || got.Badges == nil || len(got.Badges) != 0 {
+	if !reflect.DeepEqual(got.PlayerLevel, db.PlayerLevel{}) || got.TaxBps != 0 || got.Badges == nil || len(got.Badges) != 0 {
 		t.Fatalf("no ladder: %+v, want the zero level and an empty badge list", got.Standing)
 	}
 }

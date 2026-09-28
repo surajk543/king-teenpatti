@@ -148,6 +148,7 @@ Future<GameState> _open(
   bool dark = true,
   AppLang lang = AppLang.english,
   bool withLadder = true,
+  bool withMissions = false,
   List<(int, int, String, String, int)> levels = ownersLevels,
 }) async {
   final state = levelState(
@@ -156,7 +157,7 @@ Future<GameState> _open(
     taxBps: taxBps,
     lang: lang,
     withLadder: withLadder,
-    ladderRead: ladder(levels: levels),
+    ladderRead: ladder(levels: levels, withMissions: withMissions),
   );
   await pumpLevelLobby(tester, state, screen: screen, scale: scale, dark: dark);
   await openLevelScreen(tester);
@@ -860,7 +861,7 @@ void main() {
       final bar = tester.getRect(
         find.ancestor(of: indicator, matching: find.byType(LevelTabs)),
       );
-      final w = bar.width / 3;
+      final w = bar.width / LevelInfoTab.values.length;
       final start = tester.getRect(indicator);
       expect(start.center.dx, moreOrLessEquals(bar.left + w / 2, epsilon: 1));
 
@@ -876,7 +877,7 @@ void main() {
       expect(find.byKey(const ValueKey('winning-tax-daily')), findsOneWidget);
       expect(find.byKey(const ValueKey('winning-tax-standing')), findsNothing);
       // Each tab a full touch target; the close key too.
-      for (final tab in ['mine', 'daily', 'ladder']) {
+      for (final tab in ['mine', 'daily', 'oneTime', 'ladder']) {
         expect(
           tester.getSize(find.byKey(ValueKey('level-tab-$tab'))).height,
           greaterThanOrEqualTo(44),
@@ -895,16 +896,72 @@ void main() {
       await unmountLevel(tester, state);
     });
 
+    test('the tabs share the row equally while every word fits its share, '
+        'and by what each word needs once one does not', () {
+      expect(LevelTabs.widthsFor(400, [80, 90, 100, 70]), [100, 100, 100, 100]);
+      const need = [100.0, 96.0, 124.0, 100.0];
+      final shared = LevelTabs.widthsFor(360, need);
+      expect(shared.fold<double>(0, (a, b) => a + b), moreOrLessEquals(360));
+      // One scale for every word: each share the same part of its need.
+      for (var i = 0; i < need.length; i++) {
+        expect(shared[i] / need[i], moreOrLessEquals(360 / 420), reason: '$i');
+      }
+    });
+
+    testWidgets('640x360 at text x1.25: "One-Time XP" keeps its size beside '
+        'three shorter words, and the underline stands under it', (
+      tester,
+    ) async {
+      final state = await _open(
+        tester,
+        level: levelAt(10, xp: 4180),
+        screen: const Size(640, 360),
+        scale: 1.25,
+        withMissions: true,
+      );
+      final oneTime = find.byKey(const ValueKey('level-tab-oneTime'));
+      for (final e in _fitScales(tester, oneTime).entries) {
+        expect(e.value, greaterThanOrEqualTo(0.85), reason: e.key);
+      }
+      expect(
+        tester.getSize(oneTime).width,
+        greaterThan(
+          tester.getSize(find.byKey(const ValueKey('level-tab-mine'))).width,
+        ),
+      );
+      await showLevelTab(tester, 'oneTime');
+      final under = tester.getRect(
+        find.byKey(const ValueKey('level-tab-indicator')),
+      );
+      final tab = tester.getRect(oneTime);
+      expect(under.left, greaterThanOrEqualTo(tab.left));
+      expect(under.right, lessThanOrEqualTo(tab.right));
+      expect(
+        find.byKey(const ValueKey('winning-tax-one-time')),
+        findsOneWidget,
+      );
+      await unmountLevel(tester, state);
+    });
+
     testWidgets("the lobby's one-second tick rebuilds nothing on any tab: "
         'no rung, no card, no Lottie, not the bar', (tester) async {
       final state = await _open(
         tester,
-        level: levelAt(10, xp: 4180, claimed: ['PLAY_15_MIN', 'WIN_PAIR']),
+        level: levelAt(
+          10,
+          xp: 4180,
+          claimed: ['PLAY_15_MIN', 'WIN_PAIR'],
+          missions: [
+            missionAt('FIRST_HAND', 1, 1, completed: true, xpAwarded: 5),
+            missionAt('GETTING_STARTED', 7, 10),
+          ],
+        ),
         badges: [
           regularBadge(),
           royalBadge('ROYAL_KING', const Duration(days: 12)),
         ],
         taxBps: 0,
+        withMissions: true,
       );
       final lottie = find.descendant(
         of: find.byKey(const ValueKey('badge-art-ROYAL_KING')),
@@ -923,10 +980,11 @@ void main() {
         DailySummary,
         PlayTrack,
         HandSourceTile,
+        OneTimeMissionTile,
         LevelRow,
         CatalogueBadgeRow,
       };
-      for (final tab in ['mine', 'daily', 'ladder']) {
+      for (final tab in ['mine', 'daily', 'oneTime', 'ladder']) {
         if (tab != 'mine') await showLevelTab(tester, tab);
         final rebuilt = await _rebuiltDuring(() async {
           for (var i = 0; i < 3; i++) {
@@ -1391,7 +1449,19 @@ void main() {
                   25,
                   xp: 94400,
                   claimed: ['PLAY_15_MIN', 'WIN_PAIR'],
+                  missions: [
+                    missionAt(
+                      'FIRST_HAND',
+                      1,
+                      1,
+                      completed: true,
+                      xpAwarded: 5,
+                    ),
+                    missionAt('GETTING_STARTED', 7, 10),
+                    missionAt('GAME_EXPLORER', 2, 3),
+                  ],
                 ),
+                withMissions: true,
                 badges: [
                   regularBadge(),
                   royalBadge('ROYAL_KING', const Duration(days: 12)),
@@ -1412,7 +1482,7 @@ void main() {
                   matching: find.byType(PremiumGlassPanel),
                 ),
               );
-              for (final tab in ['mine', 'daily', 'ladder']) {
+              for (final tab in ['mine', 'daily', 'oneTime', 'ladder']) {
                 if (tab != 'mine') await showLevelTab(tester, tab);
                 expect(tester.takeException(), isNull, reason: '$where $tab');
                 expect(
@@ -1424,6 +1494,7 @@ void main() {
                 for (final key in [
                   'level-tab-mine',
                   'level-tab-daily',
+                  'level-tab-oneTime',
                   'level-tab-ladder',
                 ]) {
                   for (final e in _fitScales(
@@ -1456,6 +1527,7 @@ void main() {
                   'level-screen-title',
                   'level-tab-mine',
                   'level-tab-daily',
+                  'level-tab-oneTime',
                   'level-tab-ladder',
                   'winning-tax-close',
                 ]) {

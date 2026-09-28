@@ -3406,7 +3406,7 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 	// still here, and are recorded once it has committed — here, or by the
 	// retry that lands it.
 	settleReq := SettleRequest{RoomID: t.id, HandID: h.id, Entries: entries,
-		PlayedMs: max(0, h.endedAt.Sub(h.startedAt).Milliseconds()), Stats: t.handStats(entries)}
+		PlayedMs: max(0, h.endedAt.Sub(h.startedAt).Milliseconds()), Stats: t.handStats(entries), Category: t.cfg.Category}
 	settled, err := t.ledger.Settle(t.Context(), settleReq)
 	if err != nil {
 		t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: "settle", HandID: h.id, Err: err})

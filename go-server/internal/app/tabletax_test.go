@@ -250,30 +250,50 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 		winner.id, packer.id).Scan(&winnerXP, &loserXP, &opened); err != nil {
 		t.Fatal(err)
 	}
-	var claimed int64
+	var claimed, completed int64
 	if err := database.Pool.QueryRow(ctx, `SELECT COALESCE(SUM(s.xp), 0) FROM player_xp_claims c
 	       JOIN xp_sources s ON s.code = c.source_code WHERE c.user_id = $1`, winner.id).Scan(&claimed); err != nil {
 		t.Fatal(err)
 	}
-	if loserXP != 0 || opened != 2 || claimed != winnerXP ||
-		(winnerXP != 0 && winnerXP != 1 && winnerXP != 2 && winnerXP != 4 && winnerXP != 8 && winnerXP != 20) {
-		t.Fatalf("the hand's XP: winner %d (claims worth %d), loser %d, %d windows open", winnerXP, claimed, loserXP, opened)
+	// The one-time missions (28 Sep 2026) the same hand completed: the winner
+	// won without a bet of their own (the other packed first), so First Win —
+	// a hand WON — and not First Hand, which needs a hand PLAYED; the packer,
+	// who put in nothing beyond the boot, neither.
+	if err := database.Pool.QueryRow(ctx, `SELECT COALESCE(SUM(xp_awarded), 0) FROM player_xp_missions WHERE user_id = $1`,
+		winner.id).Scan(&completed); err != nil {
+		t.Fatal(err)
 	}
-	if winnerXP > 0 {
-		standing := decodeMap(t, winner.frame(t, marks[winner.id], socket.EvPlayerLevel, nil))
-		lv, _ := standing["playerLevel"].(map[string]any)
-		daily, _ := lv["daily"].(map[string]any)
-		if _, has := lv["today"]; lv["xp"] != float64(winnerXP) || has || daily == nil || daily["resetsAt"].(float64) <= 0 {
-			t.Errorf("the winner's player:level %v, want %d XP, no today, a daily window", standing, winnerXP)
+	if loserXP != 0 || opened != 2 || completed != 10 || claimed+completed != winnerXP ||
+		(claimed != 0 && claimed != 1 && claimed != 2 && claimed != 4 && claimed != 8 && claimed != 20) {
+		t.Fatalf("the hand's XP: winner %d (daily claims worth %d, missions %d), loser %d, %d windows open", winnerXP, claimed, completed, loserXP, opened)
+	}
+	standing := decodeMap(t, winner.frame(t, marks[winner.id], socket.EvPlayerLevel, nil))
+	lv, _ := standing["playerLevel"].(map[string]any)
+	daily, _ := lv["daily"].(map[string]any)
+	if _, has := lv["today"]; lv["xp"] != float64(winnerXP) || has || daily == nil || daily["resetsAt"].(float64) <= 0 {
+		t.Errorf("the winner's player:level %v, want %d XP, no today, a daily window", standing, winnerXP)
+	}
+	// …and the push says so: First Win completed, with no reset of any kind.
+	var firstWin map[string]any
+	for _, m := range lv["missions"].([]any) {
+		if mission, _ := m.(map[string]any); mission["code"] == "FIRST_WIN" {
+			firstWin = mission
 		}
 	}
-	// /api/auth/me: each player's XP, badges and the rate they pay.
+	if firstWin == nil || firstWin["type"] != "ONE_TIME" || firstWin["completed"] != true || firstWin["progress"] != 1.0 ||
+		firstWin["target"] != 1.0 || firstWin["xpAwarded"] != 10.0 || firstWin["completedAt"].(float64) <= 0 || firstWin["resetsAt"] != nil {
+		t.Errorf("the winner's player:level missions %v, want First Win completed", lv["missions"])
+	}
+	// /api/auth/me: each player's XP, badges and the rate they pay. First
+	// Win's 10 XP (owner, 28 Sep 2026: "reduce the XP Granted value") and at
+	// most 20 of daily "Win by" XP stay under Level 2's 100: the winner is
+	// still Newbie, at Newbie's 20% where no badge sets a lower rate.
 	for _, p := range []taxPlayer{rookie, gold} {
-		wantXP := int64(0)
+		wantXP, wantLevel := int64(0), 1
+		wantCodes, wantRate := "REGULAR", 2000
 		if p.id == winner.id {
 			wantXP = winnerXP
 		}
-		wantCodes, wantRate := "REGULAR", 2000
 		if p.id == gold.id {
 			wantCodes, wantRate = "REGULAR,GOLD", 500
 		}
@@ -287,7 +307,7 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 			User db.User `json:"user"`
 		}
 		if err := json.NewDecoder(res.Body).Decode(&me); err != nil || me.User.PlayerLevel.XP != wantXP ||
-			me.User.PlayerLevel.Daily == nil || me.User.TaxBps != wantRate || me.User.PlayerLevel.Level != 1 {
+			me.User.PlayerLevel.Daily == nil || me.User.TaxBps != wantRate || me.User.PlayerLevel.Level != wantLevel {
 			t.Errorf("/api/auth/me for %s: %+v %v", p.id, me.User.Standing, err)
 		}
 		codes := make([]string, len(me.User.Badges))
@@ -402,7 +422,17 @@ func TestTheLevelLadderIsPublicAndWhole(t *testing.T) {
 			Code string `json:"code"`
 			Name string `json:"name"`
 			XP   int    `json:"xp"`
+			Type string `json:"type"`
 		} `json:"xpSources"`
+		Missions []struct {
+			Code   string `json:"code"`
+			Name   string `json:"name"`
+			Kind   string `json:"kind"`
+			Type   string `json:"type"`
+			Target int    `json:"target"`
+			Scope  string `json:"scope"`
+			XP     int    `json:"xp"`
+		} `json:"missions"`
 		DailyCap *int `json:"dailyCap"`
 	}
 	raw, _ := io.ReadAll(res.Body)
@@ -429,6 +459,19 @@ func TestTheLevelLadderIsPublicAndWhole(t *testing.T) {
 	}
 	if len(body.XPSources) != 8 || body.DailyCap != nil || body.XPSources[0].Code != "PLAY_15_MIN" || body.XPSources[0].XP != 3 {
 		t.Errorf("%d sources, cap %v, want no daily cap", len(body.XPSources), body.DailyCap)
+	}
+	// The one-time missions (28 Sep 2026) beside the daily sources, never
+	// among them: xpSources stays the eight DAILY ones an older app sums to
+	// its "108 XP a window".
+	for _, s := range body.XPSources {
+		if s.Type != "DAILY" {
+			t.Errorf("a daily source typed %q: %+v", s.Type, s)
+		}
+	}
+	if len(body.Missions) != 8 || body.Missions[0].Code != "FIRST_HAND" || body.Missions[0].Type != "ONE_TIME" ||
+		body.Missions[0].Target != 1 || body.Missions[0].XP != 5 || body.Missions[6].Scope != "variation" ||
+		body.Missions[7].Kind != "CATEGORIES_PLAYED" || body.Missions[7].Target != 3 {
+		t.Errorf("the missions = %+v", body.Missions)
 	}
 	for _, word := range []string{"userId", "chips", "\"xp\":0,\"window"} {
 		if strings.Contains(string(raw), word) {

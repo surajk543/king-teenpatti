@@ -245,8 +245,11 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   // purchase record, as diamond_purchases is). No table reads any of them to play a hand — a seat takes its rate
   // with the account when its player sits down, and from each hand-end
   // settle's answer — and the play TIME that earns XP is kept in the live
-  // store, never here. The list is exact rather than a minimum, so a new table
-  // has to be argued for here first.
+  // store, never here. player_xp_missions (28 Sep 2026) is an account fact
+  // too: each player's progress on the one-time missions and when each was
+  // completed, moved on by the same hand-end settle's transaction after a hand
+  // has ENDED — never a hand in play. The list is exact rather than a minimum,
+  // so a new table has to be argued for here first.
   //
   // table_engines, table_categories, table_settings and table_configs (owner,
   // 23 Sep 2026: "all table related config store in database") are
@@ -273,7 +276,7 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   assert.deepEqual(tables, [
     'app_versions', 'badge_purchases', 'badges', 'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships',
     'hammer_purchases', 'hammer_spends', 'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends',
-    'player_levels', 'player_reports', 'player_stats', 'player_variation_stats', 'player_xp', 'player_xp_claims', 'profile_pictures',
+    'player_levels', 'player_reports', 'player_stats', 'player_variation_stats', 'player_xp', 'player_xp_claims', 'player_xp_missions', 'profile_pictures',
     'stats_flushes', 'table_categories', 'table_configs', 'table_engines', 'table_pictures', 'table_settings',
     'user_badges', 'user_emojis', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures', 'user_sessions', 'user_table_choice',
     'user_table_pictures', 'users', 'xp_settings', 'xp_sources',

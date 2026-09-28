@@ -96,6 +96,8 @@ type books struct {
 	// acknowledgement lost (a statement timeout after the commit, a dropped
 	// connection).
 	lost bool
+	// settles are the hand-end requests that reached the ledger, in order.
+	settles []game.SettleRequest
 }
 
 func (b *books) ledger() *game.MemoryLedger {
@@ -130,6 +132,7 @@ func (b *books) ledger() *game.MemoryLedger {
 		Settle: func(req game.SettleRequest, entries []game.SettleEntry) (map[string]int64, error) {
 			b.mu.Lock()
 			defer b.mu.Unlock()
+			b.settles = append(b.settles, req)
 			out := map[string]int64{}
 			for _, e := range entries {
 				out[e.UserID] = b.wallets[e.UserID]

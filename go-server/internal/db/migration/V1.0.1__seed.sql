@@ -25,7 +25,8 @@
 --                 title, icon and winning tax (player_levels); the badges a
 --                 player may hold beside their level (badges; owner, 27 Sep
 --                 2026: "Vip is not a level, it is badge"); what earns XP and
---                 how much (xp_sources); and the 24-hour window, with no
+--                 how much (xp_sources: the daily sources and, since 28 Sep
+--                 2026, the one-time missions); and the 24-hour window, with no
 --                 daily cap (xp_settings). No player_xp or user_badges row is
 --                 ever seeded. Levels and XP never expire — XP is only ever
 --                 added to, and the window resets what may still be EARNED
@@ -1054,6 +1055,64 @@ VALUES ('PLAY_15_MIN',       'Play 15 active minutes',  '🎮', 'PLAY_TIME', 15,
        ('WIN_SEQUENCE',      'Win by Sequence',         '🃏', 'WIN_HAND',  NULL, 'SEQUENCE',      4,  1, TRUE, 60),
        ('WIN_PURE_SEQUENCE', 'Win by Pure Sequence',    '💎', 'WIN_HAND',  NULL, 'PURE_SEQUENCE', 8,  1, TRUE, 70),
        ('WIN_TRAIL',         'Win by Trail',            '🔥', 'WIN_HAND',  NULL, 'TRAIL',         20, 1, TRUE, 80)
+    ON CONFLICT (code) DO NOTHING;
+
+-- The ONE-TIME missions (owner, 28 Sep 2026: "Add a new mission type:
+-- ONE_TIME. One-time missions are permanent missions that a player can
+-- complete only once"), the owner's eight — each once in a player's life,
+-- never reset — at a TENTH of the XP first given (owner, the same day: "reduce
+-- the XP Granted value", ÷10), so the missions alone lift a player to Level 2
+-- (100 XP). The four Poker missions first given with them (First Poker Hand,
+-- First Poker Win, Texas Hold'em Debut, Poker Regular) were taken out the same
+-- day (owner: "Remove Poker and texas related one time XP from DB, we don't
+-- need"):
+--
+--   First Hand            play 1 hand                +5     FIRST_HAND
+--   First Win             win 1 hand                 +10    FIRST_WIN
+--   Getting Started       play 10 hands              +15    GETTING_STARTED
+--   First 5 Wins          win 5 hands                +30    FIRST_5_WINS
+--   Card Player           play 50 hands              +50    CARD_PLAYER
+--   Winning Streak        win 10 hands               +75    WINNING_STREAK
+--   Variation Explorer    play 1 Variation hand      +10    VARIATION_EXPLORER
+--   Game Explorer         play 3 different games     +50    GAME_EXPLORER
+--
+-- 245 XP in all (2,450 as first given), and none of it counted in a daily
+-- window. A hand is
+-- PLAYED as requirement 16 and player_stats say — the player put chips in
+-- beyond the boot (a chaal, raise or show; at poker any chips beyond the
+-- forced blinds or ante) — and WON when the hand-end settle names them its
+-- winner (at 3-Card Poker, beating the dealer or a dealer that does not
+-- qualify; a push is neither); only hands the player COMPLETES count, never
+-- one they walked out of. Winning Streak is ten wins in all, not ten in a row
+-- (the owner's name, the owner's requirement). Variation Explorer is a hand
+-- played at a Variation table (scope 'variation'); to have it count the
+-- variations instead (MUFLIS, AK47 …), it is one UPDATE:
+--
+--   UPDATE xp_sources SET kind = 'VARIATIONS_PLAYED', scope = NULL
+--    WHERE code = 'VARIATION_EXPLORER';
+--
+-- Game Explorer counts the seven table categories (seen, blind, variation,
+-- three_card_poker, five_card_draw, texas_holdem, omaha) a player has played
+-- a hand at, and wants three of them (owner, 28 Sep 2026: "make it 3 instead
+-- of 5" — 5 at first; the app offers Seen, Blind and Variation alone since
+-- Poker was hidden, so five could never be reached). A target lowered by hand
+-- on a database where a player is already at or past it completes at the next
+-- hand that MOVES the mission, and a different-games mission moves only for a
+-- game it has not counted: such a player is left at "3 / 3" until they play a
+-- fourth kind of table. Nothing like them was seeded before (the daily sources above are
+-- play time and "Win by …"), so every one is new. ON CONFLICT (code) DO
+-- NOTHING, like the daily sources: an owner's UPDATE — a mission re-valued,
+-- re-targeted or switched off — survives every restart, and a completed
+-- mission stays completed whatever becomes of its row.
+INSERT INTO xp_sources (code, name, icon, kind, mission_type, target, scope, xp, times_per_window, is_active, sort_order)
+VALUES ('FIRST_HAND',         'First Hand',          '🎴', 'HANDS_PLAYED',      'ONE_TIME', 1,  NULL,           5,  1, TRUE, 110),
+       ('FIRST_WIN',          'First Win',           '🏆', 'HANDS_WON',         'ONE_TIME', 1,  NULL,           10, 1, TRUE, 120),
+       ('GETTING_STARTED',    'Getting Started',     '🚀', 'HANDS_PLAYED',      'ONE_TIME', 10, NULL,           15, 1, TRUE, 130),
+       ('FIRST_5_WINS',       'First 5 Wins',        '🥇', 'HANDS_WON',         'ONE_TIME', 5,  NULL,           30, 1, TRUE, 140),
+       ('CARD_PLAYER',        'Card Player',         '♠️', 'HANDS_PLAYED',      'ONE_TIME', 50, NULL,           50, 1, TRUE, 150),
+       ('WINNING_STREAK',     'Winning Streak',      '⚡', 'HANDS_WON',         'ONE_TIME', 10, NULL,           75, 1, TRUE, 160),
+       ('VARIATION_EXPLORER', 'Variation Explorer',  '🔀', 'HANDS_PLAYED',      'ONE_TIME', 1,  'variation',    10, 1, TRUE, 210),
+       ('GAME_EXPLORER',      'Game Explorer',       '🧭', 'CATEGORIES_PLAYED', 'ONE_TIME', 3,  NULL,           50, 1, TRUE, 220)
     ON CONFLICT (code) DO NOTHING;
 
 -- The window (owner: "it will be reset after 24 hours", "After 24 hours this

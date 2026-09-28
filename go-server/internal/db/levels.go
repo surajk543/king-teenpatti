@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/surajk543/king-teenpatti/go-server/internal/game"
 )
 
 // Player levels, badges and XP (owner, 26 Sep 2026: "create table which
@@ -49,6 +51,50 @@ const (
 	XPKindWinHand = "WIN_HAND"
 )
 
+// The mission types a source can have (xp_sources.mission_type; owner,
+// 28 Sep 2026: "Add a new mission type: ONE_TIME … The system should now
+// support DAILY and ONE_TIME. Do not remove or modify the existing DAILY
+// behavior").
+const (
+	// MissionDaily is earned times_per_window in each rolling window, the
+	// window resetting what may be earned — every source before one-time
+	// missions, and the column's DEFAULT. Its kinds are XPKindPlayTime and
+	// XPKindWinHand.
+	MissionDaily = "DAILY"
+	// MissionOneTime is earned ONCE in a player's life: when the hands they
+	// complete bring its progress to its target (player_xp_missions). No
+	// window resets it, its XP is never counted in a window's, and a daily
+	// cap never limits it. Its kinds are the four below.
+	MissionOneTime = "ONE_TIME"
+)
+
+// The kinds of ONE_TIME mission this build knows. Each counts the hands a
+// player COMPLETES — the players a hand-end settle resolves as at the table
+// when the hand ended, as the daily window counts them — within the source's
+// scope (xpSourceRow.inScope). A ONE_TIME source of any other kind, or with
+// no target, earns nothing, as a DAILY source of an unknown kind does.
+const (
+	// XPKindHandsPlayed counts the hands the player PLAYED: made a voluntary
+	// bet — a chaal, raise or show at Teen Patti, any chips beyond the forced
+	// blinds or ante at poker — requirement 16's "played", the rule
+	// player_stats.hands_played and the HANDS_PLAYED milestone count by
+	// (game.SettleEntry.DidChaal).
+	XPKindHandsPlayed = "HANDS_PLAYED"
+	// XPKindHandsWon counts the hands the player WON (game.SettleEntry.IsWinner,
+	// player_stats.hands_won's rule): the winner of a Teen Patti hand, a
+	// winner of a poker pot, and at 3-Card Poker a player who beat the dealer
+	// or whose dealer did not qualify — a push is no win.
+	XPKindHandsWon = "HANDS_WON"
+	// XPKindCategoriesPlayed counts the DIFFERENT table categories (seen,
+	// blind, variation and the four poker ones — the table catalogue's own
+	// taxonomy) the player has played a hand at.
+	XPKindCategoriesPlayed = "CATEGORIES_PLAYED"
+	// XPKindVariationsPlayed counts the DIFFERENT variations (MUFLIS, AK47,
+	// JOKER, HUKAM, LOWEST_JOKER, HIGHEST_JOKER, FIVE_CARD) the player has
+	// played a Variation hand under.
+	XPKindVariationsPlayed = "VARIATIONS_PLAYED"
+)
+
 // PlayerLevel is user.playerLevel on the wire — the viewer's OWN level, never
 // another player's. A level is XP alone: it never expires, and no badge is
 // one.
@@ -78,6 +124,29 @@ type PlayerLevel struct {
 	// to be earned (owner, 27 Sep 2026: "After 24 hours this will be reset,
 	// so user can claim this again").
 	Daily *XPDaily `json:"daily,omitempty"`
+	// Missions are where the player stands on the ONE_TIME missions (owner,
+	// 28 Sep 2026): every active one they have made progress on or
+	// completed, in the missions' order — a mission not listed is at 0 of
+	// its target (GET /api/levels' missions say which there are). ABSENT
+	// while there is none. No window touches them, so nothing here resets.
+	Missions []MissionProgress `json:"missions,omitempty"`
+}
+
+// MissionProgress is one ONE_TIME mission as its player stands on it
+// (player_xp_missions): its code, its type (always ONE_TIME), how far they
+// have come against the source's target, and — once completed, which is for
+// good — when, and the XP it gave. It carries no reset or expiry: a one-time
+// mission has none. Completed and awarded are one moment (the settle that
+// reached the target gave the XP in the same transaction), so there is no
+// separate claim.
+type MissionProgress struct {
+	Code        string `json:"code"`
+	Type        string `json:"type"`
+	Progress    int    `json:"progress"`
+	Target      int    `json:"target"`
+	Completed   bool   `json:"completed"`
+	CompletedAt int64  `json:"completedAt,omitempty"`
+	XPAwarded   int    `json:"xpAwarded,omitempty"`
 }
 
 // XPDaily is PlayerLevel.Daily: the running window's claims per source code
@@ -166,7 +235,10 @@ type Standing struct {
 //     one), and the rate the player pays is the lower of it and the level's
 //     (levelRow.standing);
 //   - dc.claimed is how many times the player has earned each daily XP
-//     source in their window (player_xp_claims of that window_start).
+//     source in their window (player_xp_claims of that window_start);
+//   - om.list is where they stand on each active ONE_TIME mission they have
+//     moved on or completed (player_xp_missions) — no window in it: nothing
+//     about a one-time mission resets.
 const playerLevelJoins = `
   LEFT JOIN player_xp px ON px.user_id = u.id
   LEFT JOIN LATERAL (
@@ -198,14 +270,22 @@ const playerLevelJoins = `
   LEFT JOIN LATERAL (
        SELECT json_object_agg(c.source_code, c.claims) AS claimed
          FROM player_xp_claims c
-        WHERE c.user_id = u.id AND c.window_start = px.window_start AND c.claims > 0) dc ON TRUE `
+        WHERE c.user_id = u.id AND c.window_start = px.window_start AND c.claims > 0) dc ON TRUE
+  LEFT JOIN LATERAL (
+       SELECT json_agg(json_build_array(m.source_code, m.progress, s.target, m.completed_at, m.xp_awarded)
+                ORDER BY s.sort_order, s.code) AS list
+         FROM player_xp_missions m
+         JOIN xp_sources s ON s.code = m.source_code
+        WHERE m.user_id = u.id AND s.is_active AND s.mission_type = 'ONE_TIME' AND s.target IS NOT NULL
+          AND (m.progress > 0 OR m.completed_at > 0)) om ON TRUE `
 
 // playerLevelColumns are what playerLevelJoins resolve, in levelRow's order.
 const playerLevelColumns = `COALESCE(px.xp, 0), COALESCE(px.window_start, 0), COALESCE(px.window_xp, 0),
        lv.level, lv.title, lv.icon, lv.tax_bps,
        nx.level, nx.title, nx.icon, nx.min_xp, nx.tax_bps,
        xs.daily_cap, COALESCE(xs.window_ms, 0),
-       bd.tax_bps, COALESCE(bd.list, '[]'::json), COALESCE(dc.claimed, '{}'::json)`
+       bd.tax_bps, COALESCE(bd.list, '[]'::json), COALESCE(dc.claimed, '{}'::json),
+       COALESCE(om.list, '[]'::json)`
 
 // levelRow is one player's playerLevelColumns as scanned.
 type levelRow struct {
@@ -224,6 +304,7 @@ type levelRow struct {
 	badgeTaxBps     *int
 	badges          []byte
 	claimed         []byte
+	missions        []byte
 }
 
 // targets are levelRow's Scan destinations, in playerLevelColumns' order.
@@ -232,7 +313,39 @@ func (r *levelRow) targets() []any {
 		&r.level, &r.title, &r.icon, &r.taxBps,
 		&r.nextLevel, &r.nextTitle, &r.nextIcon, &r.nextMinXP, &r.nextTaxBps,
 		&r.dailyCap, &r.windowMs,
-		&r.badgeTaxBps, &r.badges, &r.claimed}
+		&r.badgeTaxBps, &r.badges, &r.claimed, &r.missions}
+}
+
+// oneTimeMissions reads om.list — [code, progress, target, completed_at,
+// xp_awarded] per mission — into the wire's list; nil for none, and nil for a
+// list that somehow does not decode, which shows no progress rather than
+// failing the account read.
+func (r levelRow) oneTimeMissions() []MissionProgress {
+	if len(r.missions) == 0 {
+		return nil
+	}
+	var rows [][]json.RawMessage
+	if err := json.Unmarshal(r.missions, &rows); err != nil {
+		return nil
+	}
+	var out []MissionProgress
+	for _, row := range rows {
+		if len(row) != 5 {
+			return nil
+		}
+		m := MissionProgress{Type: MissionOneTime}
+		var completedAt int64
+		if json.Unmarshal(row[0], &m.Code) != nil || json.Unmarshal(row[1], &m.Progress) != nil ||
+			json.Unmarshal(row[2], &m.Target) != nil || json.Unmarshal(row[3], &completedAt) != nil ||
+			json.Unmarshal(row[4], &m.XPAwarded) != nil {
+			return nil
+		}
+		if completedAt > 0 {
+			m.Completed, m.CompletedAt = true, completedAt
+		}
+		out = append(out, m)
+	}
+	return out
 }
 
 // playerLevel is the level at nowMs. A ladder with no level at all (every row
@@ -284,6 +397,9 @@ func (r levelRow) playerLevel(nowMs int64) PlayerLevel {
 		}
 		p.Daily = daily
 	}
+	// The one-time missions whatever the window says: a window that has run
+	// out resets the daily claims above and never these.
+	p.Missions = r.oneTimeMissions()
 	return p
 }
 
@@ -345,23 +461,56 @@ type xpRules struct {
 	on       bool
 	dailyCap *int
 	windowMs int64
-	sources  []xpSourceRow // active sources this build knows, in sort_order
+	sources  []xpSourceRow // active DAILY sources this build knows, in sort_order
+	missions []xpSourceRow // active ONE_TIME missions this build knows, in sort_order
 }
 
-// xpSourceRow is one active daily XP source of a kind this build knows.
+// xpSourceRow is one active XP source of a kind this build knows: a DAILY
+// source or a ONE_TIME mission (missionType).
 type xpSourceRow struct {
 	code        string
 	kind        string
+	missionType string // MissionDaily or MissionOneTime
 	playMinutes int    // XPKindPlayTime: the minutes of play that earn it
 	handRank    string // XPKindWinHand: the hand a win must be held with
+	target      int    // ONE_TIME: the progress that completes it (>= 1)
+	scope       string // ONE_TIME: "" any table, an engine code, or a category code
 	xp          int
-	times       int // times_per_window
+	times       int // times_per_window (DAILY)
 	sortOrder   int
 }
 
+// oneTime reports whether s is a ONE_TIME mission.
+func (s xpSourceRow) oneTime() bool { return s.missionType == MissionOneTime }
+
+// validMissionScope reports whether scope is one a ONE_TIME mission may
+// name: none (""), an engine (teen_patti, poker — game.Game) or one of the
+// seven categories this build knows.
+func validMissionScope(scope string) bool {
+	return scope == "" || scope == string(game.GameTeenPatti) || scope == string(game.GamePoker) || game.Category(scope).Known()
+}
+
+// inScope reports whether a hand at a table of category c counts for the
+// mission: every hand for no scope; a hand at that engine's tables for an
+// engine's code; a hand at that category's tables for a category's. A hand
+// whose category is not known counts only where there is no scope.
+func (s xpSourceRow) inScope(c game.Category) bool {
+	switch {
+	case s.scope == "":
+		return true
+	case !c.Known():
+		return false
+	case s.scope == string(c):
+		return true
+	default:
+		return s.scope == string(c.Game())
+	}
+}
+
 // loadXPRules reads the rules in q's transaction. A source of a kind this
-// build does not know, or missing what its kind needs, is left out: it earns
-// nothing.
+// build does not know, missing what its kind needs, or of a mission type its
+// kind does not belong to, is left out: it earns nothing. So is a ONE_TIME
+// mission with no target, or a scope this build does not know.
 func loadXPRules(ctx context.Context, q queryer) (xpRules, error) {
 	var r xpRules
 	err := q.QueryRow(ctx, `SELECT daily_cap, window_ms FROM xp_settings WHERE id = 1`).Scan(&r.dailyCap, &r.windowMs)
@@ -372,7 +521,7 @@ func loadXPRules(ctx context.Context, q queryer) (xpRules, error) {
 		return xpRules{}, fmt.Errorf("read xp_settings: %w", err)
 	}
 	r.on = true
-	rows, err := q.Query(ctx, `SELECT code, kind, play_minutes, hand_rank, xp, times_per_window, sort_order
+	rows, err := q.Query(ctx, `SELECT code, kind, mission_type, play_minutes, hand_rank, target, scope, xp, times_per_window, sort_order
 	     FROM xp_sources WHERE is_active ORDER BY sort_order, code`)
 	if err != nil {
 		return xpRules{}, fmt.Errorf("read xp_sources: %w", err)
@@ -380,10 +529,32 @@ func loadXPRules(ctx context.Context, q queryer) (xpRules, error) {
 	defer rows.Close()
 	for rows.Next() {
 		var s xpSourceRow
-		var minutes *int
-		var hand *string
-		if err := rows.Scan(&s.code, &s.kind, &minutes, &hand, &s.xp, &s.times, &s.sortOrder); err != nil {
+		var minutes, target *int
+		var hand, scope *string
+		if err := rows.Scan(&s.code, &s.kind, &s.missionType, &minutes, &hand, &target, &scope, &s.xp, &s.times, &s.sortOrder); err != nil {
 			return xpRules{}, fmt.Errorf("read xp_sources: %w", err)
+		}
+		if s.missionType == MissionOneTime {
+			switch s.kind {
+			case XPKindHandsPlayed, XPKindHandsWon, XPKindCategoriesPlayed, XPKindVariationsPlayed:
+			default:
+				continue
+			}
+			if target == nil || *target < 1 {
+				continue
+			}
+			s.target = *target
+			if scope != nil {
+				s.scope = *scope
+			}
+			if !validMissionScope(s.scope) {
+				continue
+			}
+			r.missions = append(r.missions, s)
+			continue
+		}
+		if s.missionType != MissionDaily {
+			continue
 		}
 		switch s.kind {
 		case XPKindPlayTime:
@@ -453,8 +624,12 @@ func (r xpRules) playMarks() []time.Duration {
 // xpAward is what one award did.
 type xpAward struct {
 	// granted is the XP added (0: every source asked for was already earned
-	// its times in the window, or a cap left nothing, or none was asked for).
+	// its times in the window, or a cap left nothing, or none was asked for),
+	// the one-time missions' included.
 	granted int
+	// completed are the ONE_TIME missions this award completed — the ones
+	// whose completion THIS call wrote — in the order asked.
+	completed []string
 	// windowStart is the window the award counted in (epoch ms).
 	windowStart int64
 	// newWindow says this award opened the player's window.
@@ -462,18 +637,28 @@ type xpAward struct {
 }
 
 // awardXP is THE ONE WAY XP IS EARNED (owner, 26–27 Sep 2026), whatever the
-// source — the hand-end settle's WIN_HAND and the live store's PLAY_TIME
-// alike — in the caller's transaction:
+// source — the hand-end settle's WIN_HAND and ONE_TIME missions and the live
+// store's PLAY_TIME alike — in the caller's transaction:
 //
 //  1. the player's player_xp row is created if missing and LOCKED;
 //  2. if no window is running (none yet, or window_start + window_ms has
 //     passed) a new one opens now, with nothing earned in it — "After 24
 //     hours this will be reset, so user can claim this again";
-//  3. each source asked for (in sort_order) that the player has earned fewer
-//     than its times_per_window in the window (player_xp_claims) is granted
-//     its xp — or, where an owner has set a daily cap, what the cap leaves of
-//     it — and its claim counted;
-//  4. what was granted is added to the lifetime xp and the window's xp.
+//  3. each DAILY source asked for (in sort_order) that the player has
+//     earned fewer than its times_per_window in the window
+//     (player_xp_claims) is granted its xp — or, where an owner has set a
+//     daily cap, what the cap leaves of it — and its claim counted;
+//  4. each ONE_TIME mission asked for is COMPLETED, once, if its progress
+//     has reached its target (advanceMissions) and it is not complete yet:
+//     one conditional UPDATE of its player_xp_missions row
+//     (completed_at 0 → now) under the row's lock, and only when that
+//     statement changed the row is the mission's xp granted — a second call,
+//     in this transaction or any other, finds it completed and grants
+//     nothing (owner, 28 Sep 2026: "If already completed: award nothing, and
+//     do not create another XP transaction");
+//  5. what was granted is added to the lifetime xp; what the DAILY sources
+//     granted to the window's xp too — a one-time mission's XP is never the
+//     window's, so it neither fills a daily cap nor is limited by one.
 //
 // Asked for nothing, it only opens (or rolls) the window: the hand-end settle
 // does that for every player who completed the hand, so the window a player's
@@ -502,6 +687,25 @@ func awardXP(ctx context.Context, tx pgx.Tx, rules xpRules, userID string, at in
 	}
 	award.windowStart = windowStart
 	for _, source := range sources {
+		if source.oneTime() {
+			// The completion IS the claim: the row changes from not
+			// completed to completed exactly once, whoever asks, however
+			// often. The XP rides on that change and nothing else.
+			tag, err := tx.Exec(ctx, `UPDATE player_xp_missions
+			    SET completed_at = $3, xp_awarded = $4, updated_at = $3
+			  WHERE user_id = $1 AND source_code = $2 AND completed_at = 0 AND progress >= $5`,
+				userID, source.code, at, source.xp, source.target)
+			if err != nil {
+				return award, fmt.Errorf("complete mission %s for %s: %w", source.code, userID, err)
+			}
+			if tag.RowsAffected() == 0 {
+				continue // completed before, or not reached: nothing
+			}
+			award.completed = append(award.completed, source.code)
+			xp += int64(source.xp)
+			award.granted += source.xp
+			continue
+		}
 		var claims int
 		var claimedIn int64
 		err := tx.QueryRow(ctx, `SELECT claims, window_start FROM player_xp_claims WHERE user_id = $1 AND source_code = $2`,
@@ -543,6 +747,122 @@ func awardXP(ctx context.Context, tx pgx.Tx, rules xpRules, userID string, at in
 		return award, fmt.Errorf("award xp to %s: %w", userID, err)
 	}
 	return award, nil
+}
+
+// missionHand is what one hand a player COMPLETED says to their ONE_TIME
+// missions (the hand-end settle's outcome row for a player who did not leave
+// mid-hand): the category of the table it was played at, whether they played
+// it (a voluntary bet, requirement 16) and won it, and the variation it was
+// played under ("" at every table but a variation one).
+type missionHand struct {
+	category  game.Category
+	played    bool
+	won       bool
+	variation string
+}
+
+// missionProgressSQL moves one player's missions on by one hand, in ONE
+// statement however many missions the hand counts for — a settle runs it once
+// per player who completed the hand, whatever they have completed already.
+// $1 is the player, $2 the missions' codes and $3 what each counts: "" for a
+// count (a hand played, a hand won), else the DIFFERENT value — a category, a
+// variation — to add to what it has seen; $4 is now. A mission's row is
+// inserted by the first hand that moves it and moved on otherwise, and — the
+// WHERE of ON CONFLICT DO UPDATE — a completed row is never touched (its
+// progress is frozen at its completion), nor a different-value mission's row
+// by a value it has already counted. RETURNING names only the rows that
+// moved, with their progress now. The codes come in order, so two statements
+// lock one player's rows in one order (the settle holds the player's wallet
+// lock besides).
+const missionProgressSQL = `INSERT INTO player_xp_missions AS m (user_id, source_code, progress, seen, created_at, updated_at)
+     SELECT $1, d.code, 1, CASE WHEN d.value = '' THEN '{}'::text[] ELSE ARRAY[d.value] END, $4, $4
+       FROM unnest($2::text[], $3::text[]) AS d(code, value)
+      ORDER BY d.code
+     ON CONFLICT (user_id, source_code) DO UPDATE
+        SET progress   = CASE WHEN cardinality(EXCLUDED.seen) = 0 THEN m.progress + 1 ELSE cardinality(m.seen) + 1 END,
+            seen       = m.seen || EXCLUDED.seen,
+            updated_at = EXCLUDED.updated_at
+      WHERE m.completed_at = 0
+        AND (cardinality(EXCLUDED.seen) = 0 OR NOT (EXCLUDED.seen[1] = ANY (m.seen)))
+  RETURNING source_code, progress`
+
+// advanceMissions moves userID's ONE_TIME missions on by one hand they
+// completed, in the caller's transaction (the hand-end settle's, under the
+// player's wallet lock), and returns the missions whose progress has now
+// reached their target — for awardXP to complete, which it does once — and
+// whether any mission's progress moved. A mission already completed never
+// moves again (owner, 28 Sep 2026: "Once completed: the mission never
+// resets; the player can never receive XP from that mission again"). With
+// XP off (no settings row) nothing moves.
+func advanceMissions(ctx context.Context, tx pgx.Tx, rules xpRules, userID string, at int64, hand missionHand) (reached []xpSourceRow, moved bool, err error) {
+	if !rules.on {
+		return nil, false, nil
+	}
+	// What this hand counts for: a hand for the count kinds it satisfies, a
+	// value for the different-value kinds.
+	counts := map[string]xpSourceRow{}
+	var codes, values []string
+	for _, m := range rules.missions {
+		if !m.inScope(hand.category) {
+			continue
+		}
+		value := ""
+		switch m.kind {
+		case XPKindHandsPlayed:
+			if !hand.played {
+				continue
+			}
+		case XPKindHandsWon:
+			if !hand.won {
+				continue
+			}
+		case XPKindCategoriesPlayed:
+			if !hand.played || !hand.category.Known() {
+				continue
+			}
+			value = string(hand.category)
+		case XPKindVariationsPlayed:
+			if !hand.played || hand.variation == "" {
+				continue
+			}
+			value = hand.variation
+		default:
+			continue
+		}
+		counts[m.code] = m
+		codes = append(codes, m.code)
+		values = append(values, value)
+	}
+	if len(codes) == 0 {
+		return nil, false, nil
+	}
+	rows, err := tx.Query(ctx, missionProgressSQL, userID, codes, values, at)
+	if err != nil {
+		return nil, false, fmt.Errorf("move missions for %s: %w", userID, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var code string
+		var progress int
+		if err := rows.Scan(&code, &progress); err != nil {
+			return nil, false, fmt.Errorf("move missions for %s: %w", userID, err)
+		}
+		moved = true
+		if m := counts[code]; progress >= m.target {
+			reached = append(reached, m)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, fmt.Errorf("move missions for %s: %w", userID, err)
+	}
+	// In the missions' order, as awardXP is asked.
+	sort.SliceStable(reached, func(i, j int) bool {
+		if reached[i].sortOrder != reached[j].sortOrder {
+			return reached[i].sortOrder < reached[j].sortOrder
+		}
+		return reached[i].code < reached[j].code
+	})
+	return reached, moved, nil
 }
 
 // XP is the award door for the daily XP that is not a hand's — the PLAY_TIME
@@ -645,15 +965,25 @@ func (x *XP) StandingOf(ctx context.Context, userID string) (Standing, bool, err
 // and it also show all levels and taxes"): every level in order with its
 // title, icon, the XP that reaches it and the winning tax it carries; every
 // active badge with the rate it brings a holder's down to and how long a grant
-// of it lasts; the active XP sources in their order; the day's cap (null:
-// none, as seeded) and the window's length.
+// of it lasts; the active DAILY XP sources in their order; the active
+// ONE_TIME missions in theirs; the day's cap (null: none, as seeded) and the
+// window's length.
 // Configuration only: nothing about any player.
 type LevelLadder struct {
-	Levels    []LadderLevel  `json:"levels"`    // [] when the ladder is empty, never null
-	Badges    []LadderBadge  `json:"badges"`    // the active ones; [] when none
-	XPSources []LadderSource `json:"xpSources"` // the active ones; [] when none
-	DailyCap  *int           `json:"dailyCap"`  // null: no daily cap (as seeded), or no xp_settings row
-	WindowMs  int64          `json:"windowMs"`  // how long a day's window lasts
+	Levels []LadderLevel `json:"levels"` // [] when the ladder is empty, never null
+	Badges []LadderBadge `json:"badges"` // the active ones; [] when none
+	// XPSources are the active DAILY sources; [] when none. A ONE_TIME
+	// mission is never among them: an app from before them sums every
+	// source's xp × times as the most a window can earn (its "108 XP") and
+	// lists a kind it does not know under "More ways to earn XP" — a mission
+	// here would have been both.
+	XPSources []LadderSource `json:"xpSources"`
+	// Missions are the active ONE_TIME missions (owner, 28 Sep 2026), with a
+	// target, in their order; [] when none. Where a player stands on each is
+	// their own account's (user.playerLevel.missions).
+	Missions []LadderSource `json:"missions"`
+	DailyCap *int           `json:"dailyCap"` // null: no daily cap (as seeded), or no xp_settings row
+	WindowMs int64          `json:"windowMs"` // how long a day's window lasts
 }
 
 // LadderLevel is one rung of LevelLadder.
@@ -689,26 +1019,37 @@ type LadderBadge struct {
 	AssetFormat string `json:"assetFormat,omitempty"`
 }
 
-// LadderSource is one active daily XP source: its code, the owner's label
-// (the app names the kinds it knows in its own five languages and shows this
-// only for one it has never heard of), its icon, what earns it — its kind with
-// the play minutes or the hand it needs — the XP it gives and how many times a
-// window it can be earned.
+// LadderSource is one active XP source — a daily source or a one-time
+// mission: its code, the owner's label (the app names the daily kinds it
+// knows in its own five languages and shows this only for one it has never
+// heard of; a one-time mission's label is its TITLE, "First Hand", beside the
+// app's own words for what it asks), its icon, what earns it — its kind with
+// the play minutes or the hand it needs, or a one-time mission's target and
+// scope — its type, the XP it gives and how many times a window it can be
+// earned (1 for a one-time mission, which has no window).
 type LadderSource struct {
 	Code        string `json:"code"`
 	Name        string `json:"name"`
 	Icon        string `json:"icon"`
 	Kind        string `json:"kind"`
+	Type        string `json:"type"` // MissionDaily or MissionOneTime
 	PlayMinutes *int   `json:"playMinutes,omitempty"`
 	HandRank    string `json:"hand,omitempty"`
-	XP          int    `json:"xp"`
-	Times       int    `json:"times"`
+	// Target is a one-time mission's: the progress that completes it — hands,
+	// or different games or variations. ABSENT on a daily source.
+	Target *int `json:"target,omitempty"`
+	// Scope is a one-time mission's: the engine (teen_patti, poker) or the
+	// category (seen … omaha) its hands must be played at; ABSENT for any
+	// table, and on a daily source.
+	Scope string `json:"scope,omitempty"`
+	XP    int    `json:"xp"`
+	Times int    `json:"times"`
 }
 
 // Ladder reads the whole ladder now: an owner's UPDATE to a level, a badge, a
 // source or the cap is on it at the next read.
 func (x *XP) Ladder(ctx context.Context) (LevelLadder, error) {
-	out := LevelLadder{Levels: []LadderLevel{}, Badges: []LadderBadge{}, XPSources: []LadderSource{}}
+	out := LevelLadder{Levels: []LadderLevel{}, Badges: []LadderBadge{}, XPSources: []LadderSource{}, Missions: []LadderSource{}}
 	rows, err := x.db.Pool.Query(ctx,
 		`SELECT level, title, icon, min_xp, tax_bps FROM player_levels ORDER BY level`)
 	if err != nil {
@@ -747,20 +1088,34 @@ func (x *XP) Ladder(ctx context.Context) (LevelLadder, error) {
 		return LevelLadder{}, fmt.Errorf("read badges: %w", err)
 	}
 	rows, err = x.db.Pool.Query(ctx,
-		`SELECT code, name, icon, kind, play_minutes, hand_rank, xp, times_per_window
+		`SELECT code, name, icon, kind, mission_type, play_minutes, hand_rank, target, scope, xp, times_per_window
 		   FROM xp_sources WHERE is_active ORDER BY sort_order, code`)
 	if err != nil {
 		return LevelLadder{}, fmt.Errorf("read xp_sources: %w", err)
 	}
 	for rows.Next() {
 		var s LadderSource
-		var hand *string
-		if err := rows.Scan(&s.Code, &s.Name, &s.Icon, &s.Kind, &s.PlayMinutes, &hand, &s.XP, &s.Times); err != nil {
+		var hand, scope *string
+		var target *int
+		if err := rows.Scan(&s.Code, &s.Name, &s.Icon, &s.Kind, &s.Type, &s.PlayMinutes, &hand, &target, &scope, &s.XP, &s.Times); err != nil {
 			rows.Close()
 			return LevelLadder{}, fmt.Errorf("read xp_sources: %w", err)
 		}
 		if hand != nil {
 			s.HandRank = *hand
+		}
+		if s.Type == MissionOneTime {
+			// A mission with no target can never be completed: it is not
+			// offered (loadXPRules leaves it out too).
+			if target == nil || *target < 1 {
+				continue
+			}
+			s.Target, s.PlayMinutes, s.HandRank, s.Times = target, nil, "", 1
+			if scope != nil {
+				s.Scope = *scope
+			}
+			out.Missions = append(out.Missions, s)
+			continue
 		}
 		out.XPSources = append(out.XPSources, s)
 	}
