@@ -8,7 +8,10 @@ import 'package:flutter_test/flutter_test.dart';
 String _read(String path) => File(path).readAsStringSync();
 
 void main() {
-  test('the version is past the last tagged release, 1.4.0+12', () {
+  test('the version is past the last tagged release, 1.5.0+13', () {
+    // flutter-client/v1.5.0 is 1.5.0+13 (28 Sep 2026); 1.6.0+14 carries the app
+    // version gate (the first build that declares itself), the one-time XP
+    // missions, the depth pass and the game's loader.
     // flutter-client/v1.4.0 is 1.4.0+12 (27 Sep 2026); 1.5.0+13 carries one
     // signed-in device per account and the Google photo on the picture shelf.
     // flutter-client/v1.3.0 is 1.3.0+11 (27 Sep 2026); 1.4.0+12 carried Report
@@ -27,7 +30,7 @@ void main() {
     expect(line, isNotNull);
     final build = int.parse(line!.group(4)!);
     final name = [1, 2, 3].map((i) => int.parse(line.group(i)!)).toList();
-    expect(build, greaterThan(12));
+    expect(build, greaterThan(13));
     // The name moves with it: 1.2.2 is the tagged release.
     final isAfter122 =
         name[0] > 1 ||
