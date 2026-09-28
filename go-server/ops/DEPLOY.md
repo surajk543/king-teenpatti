@@ -155,8 +155,14 @@ bash go-server/ops/build.sh
 sudo systemctl restart gameplay
 sudo systemctl status gameplay --no-pager
 sudo journalctl -u gameplay -n 20 --no-pager
+for i in $(seq 60); do curl -sf -o /dev/null 127.0.0.1:3000/health && break; sleep 1; done
 curl -s 127.0.0.1:3000/health | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["ok"], d["version"])'
 ```
+
+Wait for `/health` before reading it: the restart first settles every live pot and closes the sockets
+(up to max(8 s, `PG_STATEMENT_TIMEOUT_MS` + 5 s) — 20 s by default), and a `curl` in that window gets
+no answer, which `json.load` reports as a traceback although nothing is wrong (29 Sep 2026, the
+v1.10.2 deploy).
 
 The host stays on a detached HEAD at the tag it runs, and the next deploy's fetch and checkout move
 it on. A `git pull origin master` there is no longer part of a deploy: master can be ahead of the last
