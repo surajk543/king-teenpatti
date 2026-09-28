@@ -30,10 +30,13 @@ import (
 
 // migrationFS holds the versioned scripts, named the Flyway way:
 // V<version>__<description>.sql, applied in ascending version order. Since
-// 23 Sep 2026 there are exactly two (owner): V1.0.0__baseline.sql, every
-// table, and V1.0.1__seed.sql, every row — the next change of structure goes
-// INTO the baseline, never into a V1.0.2, because the seed runs before any
-// later script and may depend on it (the baseline's header).
+// 23 Sep 2026 the pair at the head of it is fixed (owner): V1.0.0__baseline.sql,
+// every table, and V1.0.1__seed.sql, the rows — the next change of structure
+// goes INTO the baseline, never into a later script, because the seeds run
+// before any later script and may depend on it (the baseline's header). Since
+// 28 Sep 2026 (owner) later scripts may follow the pair, each a seed holding
+// rows only, every INSERT ON CONFLICT: V1.0.2__seed-festive-capybara.sql is the first
+// (TestMigrationsAreVersionedOrderedAndSplitByKind holds them to it).
 //
 // There is no schema history table. Flyway would keep one and skip what it has
 // already applied; this server instead applies EVERY script on EVERY boot and
