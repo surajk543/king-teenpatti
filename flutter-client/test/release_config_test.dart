@@ -8,7 +8,10 @@ import 'package:flutter_test/flutter_test.dart';
 String _read(String path) => File(path).readAsStringSync();
 
 void main() {
-  test('the version is past the last tagged release, 1.5.0+13', () {
+  test('the version is past the last tagged release, 1.6.0+14', () {
+    // flutter-client/v1.6.0 is 1.6.0+14 (28 Sep 2026); 1.6.1+15 carries the
+    // table fixes: raising at Variation, the picker's glass, emojis that never
+    // overlap, buying an emoji in the drawer and the price in unlock dialogs.
     // flutter-client/v1.5.0 is 1.5.0+13 (28 Sep 2026); 1.6.0+14 carries the app
     // version gate (the first build that declares itself), the one-time XP
     // missions, the depth pass and the game's loader.
@@ -30,7 +33,7 @@ void main() {
     expect(line, isNotNull);
     final build = int.parse(line!.group(4)!);
     final name = [1, 2, 3].map((i) => int.parse(line.group(i)!)).toList();
-    expect(build, greaterThan(13));
+    expect(build, greaterThan(14));
     // The name moves with it: 1.2.2 is the tagged release.
     final isAfter122 =
         name[0] > 1 ||
