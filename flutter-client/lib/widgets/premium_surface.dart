@@ -219,6 +219,7 @@ class PremiumGlassPanel extends StatefulWidget {
     this.clipBehavior = Clip.antiAlias,
     this.surface = GlassSurface.pane,
     this.edge,
+    this.shadow,
   });
 
   final Widget child;
@@ -263,6 +264,12 @@ class PremiumGlassPanel extends StatefulWidget {
 
   final bool elevated;
   final Clip clipBehavior;
+
+  /// What the panel casts while [elevated], in place of its surface's own
+  /// ([GlassColors.cardShadow] for a card, [AppTheme.glassShadow] for a
+  /// pane): a pane of rows standing on a page passes the theme's lighter
+  /// [GlassColors.paneShadow].
+  final List<BoxShadow>? shadow;
 
   @override
   State<PremiumGlassPanel> createState() => _PremiumGlassPanelState();
@@ -372,9 +379,10 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
         borderRadius: BorderRadius.circular(widget.radius),
         boxShadow: !widget.elevated
             ? null
-            : card
-            ? glass.cardShadow
-            : AppTheme.glassShadow(theme.brightness),
+            : widget.shadow ??
+                  (card
+                      ? glass.cardShadow
+                      : AppTheme.glassShadow(theme.brightness)),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(widget.radius),

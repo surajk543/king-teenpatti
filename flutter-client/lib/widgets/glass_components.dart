@@ -8,6 +8,10 @@
 /// re-skinned without touching what they do.
 library;
 
+import 'dart:math' as math;
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
@@ -410,6 +414,7 @@ class GlassTextField extends StatelessWidget {
     this.obscureText = false,
     this.readOnly = false,
     this.onTap,
+    this.raised = false,
   });
 
   final TextEditingController? controller;
@@ -446,9 +451,26 @@ class GlassTextField extends StatelessWidget {
   final bool readOnly;
   final GestureTapCallback? onTap;
 
+  /// Stands the field a little above the pane it is set on
+  /// ([RaisedFieldBorder]) — the Friends page's search — where every other
+  /// field is the theme's plain well. Its hairline is the theme's, resting
+  /// and live, so a raised field focuses exactly as the others do.
+  final bool raised;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final glass = GlassColors.of(context);
+    final b = theme.brightness;
+    RaisedFieldBorder raise({required bool live}) => RaisedFieldBorder(
+      borderRadius: BorderRadius.circular(Radii.md),
+      borderSide: BorderSide(
+        color: AppTheme.hairlineColour(b, live: live),
+        width: Dim.hairline,
+      ),
+      shadows: [...glass.nestedShadow, if (live) ...glass.focusGlow],
+      highlight: glass.cardHighlight,
+    );
 
     return TextField(
       controller: controller,
@@ -479,9 +501,170 @@ class GlassTextField extends StatelessWidget {
         prefixIcon: prefixIcon,
         suffixIcon: suffixIcon,
         counterText: counterText,
+        enabledBorder: raised ? raise(live: false) : null,
+        focusedBorder: raised ? raise(live: true) : null,
       ),
     );
   }
+}
+
+/// A field's outline that stands the field a little above the pane it is
+/// set on (the depth brief, 28 Sep 2026: "give the search field subtle
+/// depth: glass surface; inner highlight; soft shadow; focused
+/// border/accent"): the theme's own hairline, the contact shadow a thing on a
+/// pane casts ([GlassColors.nestedShadow]) drawn OUTSIDE the field alone —
+/// over the fill it would darken the well — and a lit line along the inside
+/// of its top ([highlight]). Focused, the hairline goes live as every field's
+/// does and the field's gold light ([GlassColors.focusGlow]) joins its
+/// shadow.
+///
+/// An [OutlineInputBorder] in every other way, so the label floats and its
+/// gap opens exactly as they did; and it keeps its kind, shadows and all,
+/// through the decorator's focus animation ([lerpFrom], [lerpTo]), which
+/// would otherwise hand back a plain outline for its 200ms.
+class RaisedFieldBorder extends OutlineInputBorder {
+  const RaisedFieldBorder({
+    super.borderSide,
+    super.borderRadius,
+    super.gapPadding,
+    this.shadows = const [],
+    this.highlight = const Color(0x00000000),
+  });
+
+  /// What the field casts, outside itself.
+  final List<BoxShadow> shadows;
+
+  /// The light along the inside of its top edge, fading over [lip].
+  final Color highlight;
+
+  /// How deep the lit line along the top runs.
+  static const double lip = 2.5;
+
+  @override
+  RaisedFieldBorder copyWith({
+    BorderSide? borderSide,
+    BorderRadius? borderRadius,
+    double? gapPadding,
+    List<BoxShadow>? shadows,
+    Color? highlight,
+  }) => RaisedFieldBorder(
+    borderSide: borderSide ?? this.borderSide,
+    borderRadius: borderRadius ?? this.borderRadius,
+    gapPadding: gapPadding ?? this.gapPadding,
+    shadows: shadows ?? this.shadows,
+    highlight: highlight ?? this.highlight,
+  );
+
+  @override
+  RaisedFieldBorder scale(double t) => RaisedFieldBorder(
+    borderSide: borderSide.scale(t),
+    borderRadius: borderRadius * t,
+    gapPadding: gapPadding * t,
+    shadows: [for (final s in shadows) s.scale(t)],
+    highlight: highlight,
+  );
+
+  /// [other] as one of these: a plain outline casts nothing and is unlit.
+  static RaisedFieldBorder _raised(OutlineInputBorder other) =>
+      other is RaisedFieldBorder
+      ? other
+      : RaisedFieldBorder(
+          borderSide: other.borderSide,
+          borderRadius: other.borderRadius,
+          gapPadding: other.gapPadding,
+        );
+
+  static RaisedFieldBorder _lerp(
+    RaisedFieldBorder a,
+    RaisedFieldBorder b,
+    double t,
+  ) => RaisedFieldBorder(
+    borderSide: BorderSide.lerp(a.borderSide, b.borderSide, t),
+    borderRadius: BorderRadius.lerp(a.borderRadius, b.borderRadius, t)!,
+    gapPadding: ui.lerpDouble(a.gapPadding, b.gapPadding, t)!,
+    shadows: BoxShadow.lerpList(a.shadows, b.shadows, t) ?? b.shadows,
+    highlight: Color.lerp(a.highlight, b.highlight, t)!,
+  );
+
+  @override
+  ShapeBorder? lerpFrom(ShapeBorder? a, double t) => a is OutlineInputBorder
+      ? _lerp(_raised(a), this, t)
+      : super.lerpFrom(a, t);
+
+  @override
+  ShapeBorder? lerpTo(ShapeBorder? b, double t) =>
+      b is OutlineInputBorder ? _lerp(this, _raised(b), t) : super.lerpTo(b, t);
+
+  @override
+  void paint(
+    Canvas canvas,
+    Rect rect, {
+    double? gapStart,
+    double gapExtent = 0.0,
+    double gapPercentage = 0.0,
+    TextDirection? textDirection,
+  }) {
+    final outer = borderRadius.toRRect(rect);
+    if (shadows.isNotEmpty) {
+      var reach = 0.0;
+      for (final s in shadows) {
+        reach = math.max(
+          reach,
+          s.offset.distance + s.spreadRadius + 2 * s.blurRadius,
+        );
+      }
+      canvas
+        ..save()
+        ..clipPath(
+          Path()
+            ..fillType = PathFillType.evenOdd
+            ..addRect(rect.inflate(reach))
+            ..addRRect(outer),
+        );
+      for (final s in shadows) {
+        canvas.drawRRect(
+          outer.shift(s.offset).inflate(s.spreadRadius),
+          s.toPaint(),
+        );
+      }
+      canvas.restore();
+    }
+    if (highlight.a > 0) {
+      final band = Rect.fromLTWH(rect.left, rect.top, rect.width, lip);
+      canvas
+        ..save()
+        ..clipRRect(outer)
+        ..drawRect(
+          band,
+          Paint()
+            ..shader = LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [highlight, highlight.withValues(alpha: 0)],
+            ).createShader(band),
+        )
+        ..restore();
+    }
+    super.paint(
+      canvas,
+      rect,
+      gapStart: gapStart,
+      gapExtent: gapExtent,
+      gapPercentage: gapPercentage,
+      textDirection: textDirection,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is RaisedFieldBorder &&
+      super == other &&
+      listEquals(other.shadows, shadows) &&
+      other.highlight == highlight;
+
+  @override
+  int get hashCode =>
+      Object.hash(super.hashCode, Object.hashAll(shadows), highlight);
 }
 
 /// Keeps a text field's soft keyboard to the times the player is typing in it.
