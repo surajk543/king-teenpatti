@@ -7,6 +7,7 @@ import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
 import '../widgets/drifting_chips.dart';
+import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
@@ -213,11 +214,8 @@ class _Working extends StatelessWidget {
   const _Working();
 
   @override
-  Widget build(BuildContext context) => const SizedBox(
-    height: 20,
-    width: 20,
-    child: CircularProgressIndicator(strokeWidth: 2.4),
-  );
+  Widget build(BuildContext context) =>
+      GameLoaderRing(size: 20, ink: Theme.of(context).colorScheme.onPrimary);
 }
 
 /// Soft Update: a newer version is announced (the server's latest_version,

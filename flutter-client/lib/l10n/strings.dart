@@ -1375,6 +1375,10 @@ class Strings {
   String get lastWarning => _('lastWarning');
   String get missOneMore => _('missOneMore');
   String get resumingTable => _('resumingTable');
+
+  /// Under the game's loader, wherever one is shown (owner, 28 Sep 2026:
+  /// "below text also please wait...").
+  String get pleaseWait => _('pleaseWait');
   String get welcomeBack => _('welcomeBack');
   String get appVersion => _('appVersion');
   String get tableLost => _('tableLost');
@@ -2223,6 +2227,7 @@ class Strings {
       'missOneMore': 'One more missed turn and you leave the table',
       'missedTurnsCount': 'Missed turns: {n} of {max}',
       'resumingTable': 'Returning to your table…',
+      'pleaseWait': 'Please wait...',
       'welcomeBack': "Welcome back — you're back at your table.",
       'appVersion': 'App version',
       'tableLost': 'You lost your seat while you were away.',
@@ -3110,6 +3115,7 @@ class Strings {
       'missOneMore': 'एक और बारी छूटी तो आप टेबल से बाहर हो जाएंगे',
       'missedTurnsCount': 'छूटी बारियाँ: {max} में से {n}',
       'resumingTable': 'आपकी टेबल पर वापस जा रहे हैं…',
+      'pleaseWait': 'कृपया प्रतीक्षा करें...',
       'welcomeBack': 'वापसी पर स्वागत है — आप अपनी टेबल पर वापस हैं।',
       'appVersion': 'ऐप संस्करण',
       'tableLost': 'आप दूर थे तब आपकी सीट छूट गई।',
@@ -3985,6 +3991,7 @@ class Strings {
       'missOneMore': 'আর একটি পালা ফসকালে আপনি টেবিল ছাড়বেন',
       'missedTurnsCount': 'ফসকানো পালা: {max}টির মধ্যে {n}টি',
       'resumingTable': 'আপনার টেবিলে ফিরছি…',
+      'pleaseWait': 'অনুগ্রহ করে অপেক্ষা করুন...',
       'welcomeBack': 'ফিরে আসায় স্বাগত — আপনি আপনার টেবিলে ফিরে এসেছেন।',
       'appVersion': 'অ্যাপ সংস্করণ',
       'tableLost': 'আপনি দূরে থাকাকালীন আপনার আসন চলে গেছে।',
@@ -4856,6 +4863,7 @@ class Strings {
       'missOneMore': 'હજી એક વારો ચૂકશો તો તમે ટેબલ છોડશો',
       'missedTurnsCount': 'ચૂકેલા વારા: {max} માંથી {n}',
       'resumingTable': 'તમારા ટેબલ પર પાછા જઈ રહ્યા છીએ…',
+      'pleaseWait': 'કૃપા કરીને રાહ જુઓ...',
       'welcomeBack': 'પરત સ્વાગત — તમે તમારા ટેબલ પર પાછા છો.',
       'unlock': 'અનલૉક કરો',
       'unlockTitle': 'આ ફોટો અનલૉક કરવો છે?',
@@ -5793,6 +5801,7 @@ class Strings {
       'wearing': 'ਲੱਗੀ ਹੋਈ ਹੈ',
       'missedTurnsCount': 'ਖੁੰਝੀਆਂ ਵਾਰੀਆਂ: {max} ਵਿੱਚੋਂ {n}',
       'resumingTable': 'ਤੁਹਾਡੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਜਾ ਰਹੇ ਹਾਂ…',
+      'pleaseWait': 'ਕਿਰਪਾ ਕਰਕੇ ਉਡੀਕ ਕਰੋ...',
       'welcomeBack': 'ਵਾਪਸੀ ਤੇ ਸਵਾਗਤ — ਤੁਸੀਂ ਆਪਣੇ ਟੇਬਲ ਤੇ ਵਾਪਸ ਹੋ।',
       'appVersion': 'ਐਪ ਵਰਜਨ',
       'tableLost': 'ਤੁਸੀਂ ਦੂਰ ਸੀ ਤਾਂ ਤੁਹਾਡੀ ਸੀਟ ਚਲੀ ਗਈ।',

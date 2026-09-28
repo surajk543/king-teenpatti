@@ -14,6 +14,7 @@ import '../theme/theme_colors.dart';
 import 'avatar.dart';
 import 'edge_fade.dart';
 import 'friend_presence.dart';
+import 'game_loader.dart';
 import 'glass_components.dart';
 import 'paged_scroll.dart';
 import 'own_record.dart';
@@ -280,10 +281,7 @@ class _FriendsTab extends StatelessWidget {
         if (!friends.loaded) {
           return const Center(
             key: ValueKey('own-friends-loading'),
-            child: SizedBox.square(
-              dimension: 22,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
+            child: GameLoader(size: 32),
           );
         }
         final list = friends.friends;

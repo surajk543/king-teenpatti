@@ -8,6 +8,7 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/lucky_prizes.dart';
 import '../widgets/lucky_reveal.dart';
@@ -524,7 +525,7 @@ class _Absent extends StatelessWidget {
     final t = context.read<GameState>().t;
     final theme = Theme.of(context);
     if (loading) {
-      return const Center(child: CircularProgressIndicator.adaptive());
+      return const Center(child: GameLoader());
     }
     return Center(
       child: Column(

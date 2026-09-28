@@ -17,6 +17,7 @@ import '../theme/theme_colors.dart';
 import '../widgets/avatar.dart';
 import '../widgets/edge_fade.dart';
 import '../widgets/friend_presence.dart';
+import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/paged_scroll.dart';
@@ -1922,10 +1923,7 @@ class _Spinner extends StatelessWidget {
   const _Spinner();
 
   @override
-  Widget build(BuildContext context) => const SizedBox.square(
-    dimension: 16,
-    child: CircularProgressIndicator(strokeWidth: 2),
-  );
+  Widget build(BuildContext context) => const GameLoaderRing(size: 16);
 }
 
 /// Still being read.
@@ -1933,8 +1931,7 @@ class _Waiting extends StatelessWidget {
   const _Waiting({super.key});
 
   @override
-  Widget build(BuildContext context) =>
-      const Center(child: CircularProgressIndicator.adaptive());
+  Widget build(BuildContext context) => const Center(child: GameLoader());
 }
 
 /// Something could not be read: what, and — where trying again could help —

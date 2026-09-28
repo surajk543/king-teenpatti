@@ -13,6 +13,7 @@ import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
 import 'edge_fade.dart';
 import 'emoji_art.dart';
+import 'game_loader.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
 import 'level_screen.dart';
@@ -1247,12 +1248,7 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
           ),
         ),
       ] else
-        const Center(
-          child: SizedBox.square(
-            dimension: 22,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
+        const Center(child: GameLoader(size: 32)),
     ];
   }
 
