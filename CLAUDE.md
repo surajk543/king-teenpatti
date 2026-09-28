@@ -2372,6 +2372,49 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   requests, 25 reports, 230 friends at a table; the scroll, the spinner, the fill rule, the totals).
   56 strings in five languages. Tests: `friends_{dtos,api,state,page,table}_test.dart` (204) on `friends_fixture.dart`, a fake
   server built from the contract; pictures by hand, `test/friends_shots.dart`.
+  **Depth** (owner's brief, 28 Sep 2026: "DO NOT redesign … I only want to add DEPTH and subtle visual hierarchy … Depth should be
+  felt more than seen"; presentation only — layout, colours, type, shapes, strings and every call as they were). Three layers, each
+  a step off the one under it, from tokens in `GlassColors` (per brightness, lerped with the theme) and `Dim`/`AppTheme`:
+  the PAGE is the ground — flat, casting nothing inside itself, lit from its top edge by the room's light (`CardLight` behind the
+  page's glass, `ambientLight`: the lamp's warm white at 0.07 by night, white at 0.5 by day, reaching `FriendsScreen.lampReach`
+  1.25); the PANES (`_Pane`, one a section, never a card a row) stand on it — `PremiumGlassPanel`'s new `shadow` override with
+  `paneShadow` (a 1dp contact shadow and a 16-blur one pulled in by a −6 spread and dropped 8, so it shows at the pane's foot and
+  not round its sides, where the list's clip would cut it: black 0.35/0.38 by night, the light theme's slate 0.08/0.14 by day), the
+  top of the hairline `paneEdge` (white 0.18 by night; the card's grey by day — a lit white edge vanished against the cream page),
+  the REQUESTS pane's the app's live hairline (`AppTheme.hairlineColour(live: true)`: something waits on the player), and rows
+  parted by a groove (`rowRule` black 0.35 / charcoal 0.08 with `rowRuleLight` white 0.05 / white one hairline under it, drawn as
+  a shadow so the rule stays one hairline tall); what stands ON a pane is layer three. **The portrait** (`_Portrait` → `_Lifted`,
+  also round the Reported rows' pictures): `avatarShadow` (black 0.45 / slate 0.14, blur 10, dropped 4) under the picture's own
+  ring and contact shadow, and `avatarHighlight` (white 0.14 / white) as a `Dim.avatarHalo` 0.75dp lit ring just outside the
+  champagne ring, which the ring's contact shadow leaves showing along the top — both outside the picture's box. Under a finger
+  (`_PressableRow`, the ink's `onHighlightChanged`) the portrait's shadow eases to `AppTheme.pressedShadow` — every offset, blur
+  and spread × `AppTheme.pressedLift` 0.35 — over `Motion.fast`, and back; the profile's picture opens from 0.9 to its size on
+  `Motion.settle` over `Motion.slow`, once per profile. **Presence** (`friend_presence.dart`, shared with the table's own drawer):
+  a lit dot is a bead — its green lit from the upper left, a `Dim.presenceRing` 1.25dp bezel of `presenceRing` (the pane's
+  charcoal by night, white by day) and outside it a `Dim.presenceHalo` 6-blur halo of its own green at `presenceGlow` (0.30 /
+  0.22), all outside its 8dp box; OFFLINE is the plain grey dot it was, no bezel, no halo (static — no dot ever breathed, so none
+  does now). **Playing** (`PlayingChip`, `ValueKey('friend-playing')`): "Playing now" and "Teen Patti • Seen" on a small chip
+  standing on the row — `wellFill` washed with the game's own accent at `chipTint` (0.12 / 0.09; `AppTheme.paletteFor` of the
+  variant — gold Seen, sapphire Blind, violet Variation, teal poker — `PlayingChip.paletteOf`), lit along its top with the pane's
+  `highlight`, a hairline of the accent at `PlayingChip.edgeAlpha` 0.36, `Radii.sm`, casting `nestedShadow` (a contact shadow,
+  black 0.30 / slate 0.08); "Playing now" in the accent's ink at w700, the game a half step smaller (`gameStep`) at w500 in the
+  body ink, "Online" above it as it was. Where the two will not share one line of the chip (a 640dp phone at ×1.25), "Playing now"
+  stays on the status line as before ("Online · Playing now", in the accent's ink) and the chip holds the game alone
+  (`PlayingChip.fitsTogether`, measured with a `TextPainter`), so a playing friend's row is never a line taller than it was.
+  **The search field** is `GlassTextField(raised: true)`: `RaisedFieldBorder` (glass_components.dart), an `OutlineInputBorder`
+  that also draws `nestedShadow` OUTSIDE the field (clipped off its fill) and a `RaisedFieldBorder.lip` 2.5dp lit band inside its
+  top (`cardHighlight`), with the theme's own hairline resting and live, `focusGlow` (gold 0.22 / 0.18, blur 8) joining the shadow
+  while typed in, and its kind kept through the decorator's focus lerp. **The player found** emerges under it: fades in and comes
+  down `_PlayerResult.rise` 6dp over `Motion.base`, once per player found. **The empty state's** glyph stands on a `_Medallion`
+  (a 40dp disc of the well, lit, `nestedShadow`) drawn round the glyph's own 28dp box, so nothing beside it moves. Flat by rule:
+  the page, the section heads and counts, the Player ID strip (its id now in the body ink — the least prominent words on the
+  page), "Online"/"Offline", the tags and the quiet lines. The keys were already the depth system (`liftElevation`: Accept rests at
+  3 over Reject's 1, pressed a third, disabled flush; `PressScale` on every key) and are unchanged. No blur was added (the page's
+  one lease is untouched), no per-row animation runs, and every shadow is a `BoxShadow`. `test/friends_depth_test.dart` (the
+  tokens by night and day and their lerp, the pressed shadow, no shadow on the ground or the metadata, the panes' shadow and
+  edges, bezel and halo on a lit dot and not an offline one, each game's accent on its chip, the portrait settling under a finger
+  and back, the raised field and its focus lerp, the result's entrance, the medallion — in both themes); `friends_shots.dart`
+  gained Request Sent, Accept, the Reported tab and 915x412.
 - **Report Player** (owner's brief, 27 Sep 2026; server side §7.2/§7.3; `widgets/report_player.dart`,
   `state/player_reports.dart`, `models/report.dart`, `ApiClient.reportPlayer`). The table's **player drawer** is the player
   menu: under the move the two players' standing offers sits a quiet line, `ReportPlayerRow` (`seat-report`: a flag and
@@ -3246,7 +3289,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   tokens per brightness — **Obsidian** dark (ground `#0D0E12`→`#08080A`, fill white 0.04/0.08, border
   white 0.12→0.04, blur 16, type white/white70/white38) and **Frosted ice** light (ground
   `#F4F5F7`→`#EAECEF`, fill white 0.62/0.70, white highlight + black 0.06 border, blur 20, type
-  `#121316`/`#4A4D55`). `GlassColors.of(context)`; it lerps with the 420 ms theme cross-fade. Typeface
+  `#121316`/`#4A4D55`). `GlassColors.of(context)`; it lerps with the 420 ms theme cross-fade. Since 28 Sep 2026 it also holds
+  the DEPTH tokens (`ambientLight`, `paneShadow`, `paneEdge`, `rowRule`/`rowRuleLight`, `avatarShadow`/`avatarHighlight`,
+  `nestedShadow`, `chipTint`, `presenceGlow`/`presenceRing`, `focusGlow`), with `Dim.avatarHalo`/`presenceRing`/`presenceHalo`
+  and `AppTheme.pressedLift`/`pressedShadow` beside them — first spent on the Friends page (its Depth paragraph). Typeface
   **Inter** (bundled, `assets/fonts/`, OFL; `AppTheme.fontFamily`), tabular figures on money.
   `PremiumGlassPanel` (the ONE glass primitive, `widgets/premium_surface.dart`) paints the spec: a
   near-transparent gradient body over the blur (or an opaque body when tinted), a 2dp sheen and a 1px
