@@ -159,6 +159,18 @@ class Dim {
   /// One hairline weight in the whole app.
   static const double hairline = 1;
 
+  /// The lit ring a portrait wears just outside its own champagne ring
+  /// ([GlassColors.avatarHighlight]): under a hairline, so it reads as the
+  /// edge catching the light rather than as a second ring.
+  static const double avatarHalo = 0.75;
+
+  /// The bezel round a lit presence dot ([GlassColors.presenceRing]), and
+  /// the blur of the halo outside it ([GlassColors.presenceGlow]). Both are
+  /// drawn outside the dot's own box, so the line it stands on keeps its
+  /// measure.
+  static const double presenceRing = 1.25;
+  static const double presenceHalo = 6;
+
   /// Vertical padding scales on the axis that is actually scarce.
   /// 360 -> 0.88 | 411 -> 1.00 | 800 -> 1.25
   static double vScale(double h) => (h / 411).clamp(0.82, 1.25);
@@ -748,6 +760,19 @@ class AppTheme {
         if (states.contains(WidgetState.hovered)) return rest * 2;
         return rest;
       });
+
+  /// How much of its lift a surface keeps while a finger holds it down —
+  /// the share [pressedShadow] scales a shadow to. Near to, not flush with,
+  /// what it stands on: [liftElevation]'s pressed third, for surfaces that
+  /// cast a shadow of their own rather than a button's elevation.
+  static const double pressedLift = 0.35;
+
+  /// [shadows] as they stand while pressed: every offset, blur and spread
+  /// scaled to [pressedLift], so the thing settles towards its surface. Eased
+  /// between the two over [Motion.fast] by whoever draws it.
+  static List<BoxShadow> pressedShadow(List<BoxShadow> shadows) => [
+    for (final s in shadows) s.scale(pressedLift),
+  ];
 
   /// Adds that lift to every button the app can raise.
   ///

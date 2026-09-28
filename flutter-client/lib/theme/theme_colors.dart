@@ -41,6 +41,18 @@ class GlassColors extends ThemeExtension<GlassColors> {
     required this.cardShadow,
     required this.glowStrength,
     required this.glowReach,
+    required this.ambientLight,
+    required this.paneShadow,
+    required this.paneEdge,
+    required this.rowRule,
+    required this.rowRuleLight,
+    required this.avatarShadow,
+    required this.avatarHighlight,
+    required this.nestedShadow,
+    required this.chipTint,
+    required this.presenceGlow,
+    required this.presenceRing,
+    required this.focusGlow,
   });
 
   /// The screen's ground, and the darker (or greyer) edge a vignette closes on.
@@ -118,6 +130,63 @@ class GlassColors extends ThemeExtension<GlassColors> {
   final double glowStrength;
   final double glowReach;
 
+  // The depth tokens (owner's brief, 28 Sep 2026: "add DEPTH and subtle
+  // visual hierarchy ... Depth should be felt more than seen"), first spent
+  // on the Friends page. Three layers, each a step off the one under it: the
+  // page (lit by [ambientLight], casting nothing), the panes standing on it
+  // ([paneShadow], [paneEdge]) and what stands on a pane — a portrait
+  // ([avatarShadow], [avatarHighlight]), a status chip, a field
+  // ([nestedShadow]). Every shadow here is a soft one tucked under what casts
+  // it, so it shows at its foot and not round its sides; none is a blur
+  // filter; and nothing flat — a section's name, a caption, the page itself —
+  // casts anything at all.
+
+  /// The room's light on a page's ground: a soft pool from the top of the
+  /// page, its colour with its peak alpha. The lamp's warm white at 0.07 by
+  /// night; white at 0.5 by day, which lifts the top of a cream page.
+  final Color ambientLight;
+
+  /// What a pane of rows casts on the page it stands on: a thin contact
+  /// shadow and a soft one pulled in under it (a negative spread), so the
+  /// pane floats a little without a halo round its sides. Lighter than
+  /// [cardShadow], which lifts a lobby card off the room itself.
+  final List<BoxShadow> paneShadow;
+
+  /// The top of a pane's hairline, fading down its sides to [cardBorder]:
+  /// by night the edge of the glass catching the light; by day the card's
+  /// own grey, since a lit white edge vanishes against a cream page.
+  final Color paneEdge;
+
+  /// The rule between two rows of a pane, and the lit line under it — one
+  /// groove pressed into the glass rather than a line drawn on it.
+  final Color rowRule;
+  final Color rowRuleLight;
+
+  /// What a portrait casts, beyond its own ring's contact shadow, so a face
+  /// stands a little nearer than the pane it is on; and the faint lit ring
+  /// just outside its champagne ring, strongest at its top.
+  final List<BoxShadow> avatarShadow;
+  final Color avatarHighlight;
+
+  /// What a small thing standing on a pane casts: a status chip, a field, a
+  /// medallion — a contact shadow and nothing more.
+  final List<BoxShadow> nestedShadow;
+
+  /// How much of a game's accent washes a status chip's well.
+  final double chipTint;
+
+  /// The halo round a lit presence dot, as an alpha of the dot's own green:
+  /// felt more than seen.
+  final double presenceGlow;
+
+  /// The bezel between a lit presence dot and its halo: the pane's own body,
+  /// so the dot reads as set into the surface rather than printed on it.
+  final Color presenceRing;
+
+  /// The gold light round a field while it is being typed in, beside its
+  /// live hairline.
+  final List<BoxShadow> focusGlow;
+
   /// Obsidian glass.
   static const GlassColors dark = GlassColors(
     ground: Color(0xFF0D0E12),
@@ -150,6 +219,36 @@ class GlassColors extends ThemeExtension<GlassColors> {
     ],
     glowStrength: 0.18,
     glowReach: 0.72,
+    ambientLight: Color(0x12FFF3DC), // the lamp's warm white at 0.07
+    paneShadow: [
+      BoxShadow(color: Color(0x59000000), blurRadius: 3, offset: Offset(0, 1)),
+      BoxShadow(
+        color: Color(0x61000000),
+        blurRadius: 16,
+        spreadRadius: -6,
+        offset: Offset(0, 8),
+      ),
+    ],
+    paneEdge: Color(0x2EFFFFFF), // white at 0.18, over cardBorder's 0.10
+    rowRule: Color(0x59000000), // black at 0.35
+    rowRuleLight: Color(0x0DFFFFFF), // white at 0.05
+    avatarShadow: [
+      BoxShadow(color: Color(0x73000000), blurRadius: 10, offset: Offset(0, 4)),
+    ],
+    avatarHighlight: Color(0x24FFFFFF), // white at 0.14
+    nestedShadow: [
+      BoxShadow(
+        color: Color(0x4D000000),
+        blurRadius: 4,
+        offset: Offset(0, 1.5),
+      ),
+    ],
+    chipTint: 0.12,
+    presenceGlow: 0.30,
+    presenceRing: Color(0xFF23262A), // the pane's charcoal, opaque
+    focusGlow: [
+      BoxShadow(color: Color(0x38C9A227), blurRadius: 8), // gold at 0.22
+    ],
   );
 
   /// Frosted ice glass.
@@ -184,6 +283,37 @@ class GlassColors extends ThemeExtension<GlassColors> {
     ],
     glowStrength: 0.05,
     glowReach: 0.56,
+    ambientLight: Color(0x80FFFFFF), // white at 0.50
+    // The light theme's slate (shadowFor), at alphas a white pane on a cream
+    // page needs and no more.
+    paneShadow: [
+      BoxShadow(color: Color(0x140E1220), blurRadius: 2, offset: Offset(0, 1)),
+      BoxShadow(
+        color: Color(0x240E1220),
+        blurRadius: 16,
+        spreadRadius: -6,
+        offset: Offset(0, 8),
+      ),
+    ],
+    // The card's own grey all round: by day a lit white top would lose the
+    // pane's edge against the cream page, where the edge is what separates
+    // them. The white sheen inside the top (cardHighlight) is the light.
+    paneEdge: Color(0xFFE2E4E7),
+    rowRule: Color(0x14121316), // charcoal at 0.08, the rule it always was
+    rowRuleLight: Color(0xFFFFFFFF),
+    avatarShadow: [
+      BoxShadow(color: Color(0x240E1220), blurRadius: 10, offset: Offset(0, 4)),
+    ],
+    avatarHighlight: Color(0xFFFFFFFF),
+    nestedShadow: [
+      BoxShadow(color: Color(0x140E1220), blurRadius: 3, offset: Offset(0, 1)),
+    ],
+    chipTint: 0.09,
+    presenceGlow: 0.22,
+    presenceRing: Color(0xFFFFFFFF),
+    focusGlow: [
+      BoxShadow(color: Color(0x2EC9A227), blurRadius: 8), // gold at 0.18
+    ],
   );
 
   /// The set for the theme in scope. Falls back by brightness if a theme was
@@ -231,6 +361,18 @@ class GlassColors extends ThemeExtension<GlassColors> {
     List<BoxShadow>? cardShadow,
     double? glowStrength,
     double? glowReach,
+    Color? ambientLight,
+    List<BoxShadow>? paneShadow,
+    Color? paneEdge,
+    Color? rowRule,
+    Color? rowRuleLight,
+    List<BoxShadow>? avatarShadow,
+    Color? avatarHighlight,
+    List<BoxShadow>? nestedShadow,
+    double? chipTint,
+    double? presenceGlow,
+    Color? presenceRing,
+    List<BoxShadow>? focusGlow,
   }) => GlassColors(
     ground: ground ?? this.ground,
     groundEdge: groundEdge ?? this.groundEdge,
@@ -253,6 +395,18 @@ class GlassColors extends ThemeExtension<GlassColors> {
     cardShadow: cardShadow ?? this.cardShadow,
     glowStrength: glowStrength ?? this.glowStrength,
     glowReach: glowReach ?? this.glowReach,
+    ambientLight: ambientLight ?? this.ambientLight,
+    paneShadow: paneShadow ?? this.paneShadow,
+    paneEdge: paneEdge ?? this.paneEdge,
+    rowRule: rowRule ?? this.rowRule,
+    rowRuleLight: rowRuleLight ?? this.rowRuleLight,
+    avatarShadow: avatarShadow ?? this.avatarShadow,
+    avatarHighlight: avatarHighlight ?? this.avatarHighlight,
+    nestedShadow: nestedShadow ?? this.nestedShadow,
+    chipTint: chipTint ?? this.chipTint,
+    presenceGlow: presenceGlow ?? this.presenceGlow,
+    presenceRing: presenceRing ?? this.presenceRing,
+    focusGlow: focusGlow ?? this.focusGlow,
   );
 
   /// What makes the theme toggle a cross-fade of every pane at once rather
@@ -289,6 +443,23 @@ class GlassColors extends ThemeExtension<GlassColors> {
           BoxShadow.lerpList(cardShadow, other.cardShadow, t) ?? cardShadow,
       glowStrength: lerpDouble(glowStrength, other.glowStrength, t)!,
       glowReach: lerpDouble(glowReach, other.glowReach, t)!,
+      ambientLight: c(ambientLight, other.ambientLight),
+      paneShadow:
+          BoxShadow.lerpList(paneShadow, other.paneShadow, t) ?? paneShadow,
+      paneEdge: c(paneEdge, other.paneEdge),
+      rowRule: c(rowRule, other.rowRule),
+      rowRuleLight: c(rowRuleLight, other.rowRuleLight),
+      avatarShadow:
+          BoxShadow.lerpList(avatarShadow, other.avatarShadow, t) ??
+          avatarShadow,
+      avatarHighlight: c(avatarHighlight, other.avatarHighlight),
+      nestedShadow:
+          BoxShadow.lerpList(nestedShadow, other.nestedShadow, t) ??
+          nestedShadow,
+      chipTint: lerpDouble(chipTint, other.chipTint, t)!,
+      presenceGlow: lerpDouble(presenceGlow, other.presenceGlow, t)!,
+      presenceRing: c(presenceRing, other.presenceRing),
+      focusGlow: BoxShadow.lerpList(focusGlow, other.focusGlow, t) ?? focusGlow,
     );
   }
 }
