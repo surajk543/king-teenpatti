@@ -1016,7 +1016,7 @@ func TestAShortHammerWalletIsRefusedAndNothingMoves(t *testing.T) {
 // them rented by the hour, then 16 animated pictures priced in hammers and five
 // in diamonds, at the owner's figures, 40 rows — and after them the five the
 // owner sent that evening, appended to the seed, and Festive Capybara, the first
-// row of V1.0.2__seed.sql (owner, 28 Sep 2026). A picture added later is a line
+// row of V1.0.2__seed-festive-capybara.sql (owner, 28 Sep 2026). A picture added later is a line
 // in one of the price maps below and one in added; the counts follow.
 func TestTheSeededCatalogueHoldsEveryPictureAtTheOwnersPrices(t *testing.T) {
 	f := newFixture(t)
@@ -1038,7 +1038,7 @@ func TestTheSeededCatalogueHoldsEveryPictureAtTheOwnersPrices(t *testing.T) {
 	}
 	// The pictures appended to the seed after launch, at their own sort_orders.
 	added := map[string]int{"Bodybuilder": 195, "Butterfly": 197, "Dog Dancing": 352, "Dance": 354, "Cockroach": 356,
-		// V1.0.2__seed.sql (owner, 28 Sep 2026).
+		// V1.0.2__seed-festive-capybara.sql (owner, 28 Sep 2026).
 		"Festive Capybara": 358}
 	hammerPrices := map[string]int64{
 		"Orange Ballerina": 10, "Toucan Flying": 30, "Live Chatbot": 10,
@@ -1049,7 +1049,7 @@ func TestTheSeededCatalogueHoldsEveryPictureAtTheOwnersPrices(t *testing.T) {
 		"Love and Kiss": 25,
 		// Appended to the seed after launch (owner, 14 Sep 2026).
 		"Dog Dancing": 30, "Dance": 20, "Cockroach": 10,
-		// V1.0.2__seed.sql (owner, 28 Sep 2026).
+		// V1.0.2__seed-festive-capybara.sql (owner, 28 Sep 2026).
 		"Festive Capybara": 1,
 	}
 	diamondPrices := map[string]int64{

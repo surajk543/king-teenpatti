@@ -1,7 +1,10 @@
 -- King Teen Patti — rows added after the two founding scripts (DML).
 --
 -- A third script, holding ROWS only (owner, 28 Sep 2026: "Create new file
--- V1.0.2__seed.sql and ADD a insert idempotent profile_pictures"). The server
+-- V1.0.2__seed.sql and ADD a insert idempotent profile_pictures"; renamed the
+-- same day, before any database had run it — "change seed file name
+-- seed-festive-capybara" — and a rename changes nothing for a database that
+-- has, since no schema history table records a script's name). The server
 -- applies every script on every boot in version order — V1.0.0__baseline.sql,
 -- which builds every table, then V1.0.1__seed.sql, then this — so anything a
 -- row here needs of the structure already exists when it runs. It creates,

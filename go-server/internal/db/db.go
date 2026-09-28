@@ -35,7 +35,7 @@ import (
 // goes INTO the baseline, never into a later script, because the seeds run
 // before any later script and may depend on it (the baseline's header). Since
 // 28 Sep 2026 (owner) later scripts may follow the pair, each a seed holding
-// rows only, every INSERT ON CONFLICT: V1.0.2__seed.sql is the first
+// rows only, every INSERT ON CONFLICT: V1.0.2__seed-festive-capybara.sql is the first
 // (TestMigrationsAreVersionedOrderedAndSplitByKind holds them to it).
 //
 // There is no schema history table. Flyway would keep one and skip what it has

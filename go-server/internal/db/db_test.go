@@ -35,10 +35,10 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	// ops/DEPLOY.md greps it.
 	//
 	// Since 28 Sep 2026 (owner: "Create new file V1.0.2__seed.sql and ADD a
-	// insert idempotent profile_pictures") later scripts may follow the pair —
-	// ROWS only, each named a seed: the baseline still holds every piece of
-	// structure, and runs first, so a later script can depend on it and never
-	// the other way round.
+	// insert idempotent profile_pictures"; it is V1.0.2__seed-festive-capybara.sql
+	// since the same day) later scripts may follow the pair — ROWS only, each
+	// named a seed: the baseline still holds every piece of structure, and runs
+	// first, so a later script can depend on it and never the other way round.
 	if len(migrations) < 2 {
 		t.Fatalf("expected the baseline and the seed at least, got %d scripts", len(migrations))
 	}
@@ -706,7 +706,7 @@ func TestBootstrapIsIdempotent(t *testing.T) {
 		t.Fatalf("expected exactly one append-only trigger, found %d", triggers)
 	}
 	// The seeds ran twice and wrote each row once: 46 pictures (45 of
-	// V1.0.1__seed.sql and V1.0.2__seed.sql's Festive Capybara), two engines and
+	// V1.0.1__seed.sql and V1.0.2__seed-festive-capybara.sql's Festive Capybara), two engines and
 	// seven categories, one settings row, the twelve default tables and seven
 	// private templates, all active.
 	if n := f.scalar(`SELECT COUNT(*) FROM profile_pictures`); n != 46 {
