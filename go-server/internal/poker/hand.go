@@ -1027,7 +1027,7 @@ func (t *Table) settle(reason WinReason, winners map[string]bool, pushes map[str
 	// or by the retry that lands it. A poker hand counts in the POKER bucket,
 	// with no held hand: poker hands are not ranked on the Teen Patti ladder.
 	req := game.SettleRequest{RoomID: t.id, HandID: h.id, Entries: entries,
-		PlayedMs: max(0, t.clock.Now().Sub(h.startedAt).Milliseconds()), Stats: handStats(entries)}
+		PlayedMs: max(0, t.clock.Now().Sub(h.startedAt).Milliseconds()), Stats: handStats(entries), Category: t.cfg.Category}
 	if _, err := t.ledger.Settle(t.Context(), req); err != nil {
 		t.hooks.OnRoomPersistError(t, game.PersistErrorEvent{Reason: "settle", HandID: h.id, Err: err})
 		t.Settler.Owe(req, true)

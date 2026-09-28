@@ -262,6 +262,14 @@ type SettleRequest struct {
 	// never on duplicate_action — Settler), so a hand is counted at most
 	// once, and only when its money moved.
 	Stats []HandStats
+	// Category is the category of the table the hand was played at (seen,
+	// blind, variation, or a poker one). The ledger reads it for the players'
+	// ONE_TIME XP missions (owner, 28 Sep 2026: "First Poker Hand", "Texas
+	// Hold'em Debut", "Game Explorer"), which the settle's transaction moves
+	// on for every player it resolves as having completed the hand. A retry
+	// resends it unchanged. "" names none: only a mission that asks for no
+	// particular game counts the hand then.
+	Category Category
 }
 
 // SettleResult is what a landed hand-end settlement reports.

@@ -60,8 +60,9 @@ type SettledHand struct {
 	// Window is how long an XP window lasts (xp_settings.window_ms, read in
 	// the settle's transaction); 0 when no XP is awarded at all.
 	Window time.Duration
-	// Levels are the players whose XP the settlement changed, each with the
-	// standing they now have — what each is told of in player:level.
+	// Levels are the players whose XP — or ONE_TIME mission progress — the
+	// settlement changed, each with the standing they now have: what each is
+	// told of in player:level.
 	Levels map[string]Standing
 }
 
@@ -209,11 +210,20 @@ var errAccountGone = errors.New("account gone")
 // completed the hand — an outcome row of a player who did not leave mid-hand —
 // and awards the winner the WIN_HAND source of the hand they won with
 // (SettleEntry.WonWith), once a window; a replay's rollback takes the XP with
-// it, so a hand is never counted twice either. It then reads the standing of
-// every player it wrote, AFTER that XP: SettleResult.TaxBps, the rate each
-// seat deals its next hand with — the lower of the level's and the badges',
-// so a badge that has run out since the last hand stops counting here. Only
-// once it has committed is OnSettled's hook told (SettledHand).
+// it, so a hand is never counted twice either. It also moves on each such
+// player's ONE_TIME missions (owner, 28 Sep 2026; advanceMissions) by the
+// hand — played (DidChaal), won (IsWinner), at the table's category
+// (SettleRequest.Category), under its variation — and completes, through
+// awardXP, every one whose target the hand reached: once, whatever retries or
+// concurrent settles ask again, because the completion is a single
+// conditional UPDATE of the mission's one row and this whole transaction —
+// progress, completion and XP — rolls back with a replay's duplicate_action.
+// It then reads the standing of every player it wrote, AFTER that XP:
+// SettleResult.TaxBps, the rate each seat deals its next hand with — the
+// lower of the level's and the badges', so a badge that has run out since the
+// last hand stops counting here. Only once it has committed is OnSettled's
+// hook told (SettledHand) — of every player whose XP or one-time progress it
+// changed.
 func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.SettleResult, error) {
 	var result game.SettleResult
 	var settled SettledHand
@@ -246,6 +256,7 @@ func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.Settl
 				return err
 			}
 			settled.Window = rules.window()
+			variations := handVariations(req.Stats)
 			var changed []string
 			written := make([]string, 0, len(ordered))
 			for _, entry := range ordered {
@@ -265,14 +276,27 @@ func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.Settl
 				if entry.IsWinner {
 					sources = rules.wonWith(entry.WonWith)
 				}
-				award, err := awardXP(ctx, tx, rules, entry.UserID, at, sources)
+				// The hand moves their one-time missions on, and the award
+				// completes every one it brought to its target (owner, 28 Sep
+				// 2026: "ONE_TIME mission → progress → complete → award XP
+				// once → permanently completed").
+				reached, moved, err := advanceMissions(ctx, tx, rules, entry.UserID, at, missionHand{
+					category:  handCategory(req, entry),
+					played:    entry.DidChaal,
+					won:       entry.IsWinner,
+					variation: variations[entry.UserID],
+				})
+				if err != nil {
+					return err
+				}
+				award, err := awardXP(ctx, tx, rules, entry.UserID, at, append(sources, reached...))
 				if err != nil {
 					return err
 				}
 				if rules.on {
 					settled.Windows[entry.UserID] = award.windowStart
 				}
-				if award.granted > 0 {
+				if award.granted > 0 || moved || len(award.completed) > 0 {
 					changed = append(changed, entry.UserID)
 				}
 			}
@@ -300,6 +324,32 @@ func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.Settl
 		l.onSettled(settled)
 	}
 	return result, nil
+}
+
+// handCategory is the category of the table a settled hand was played at:
+// the request's, else — a request that names none — the poker category its
+// entry was written under (SettleEntry.Variant), else none.
+func handCategory(req game.SettleRequest, entry game.SettleEntry) game.Category {
+	if req.Category != "" {
+		return req.Category
+	}
+	if entry.Game == game.GamePoker {
+		return entry.Variant
+	}
+	return ""
+}
+
+// handVariations is the variation each player's hand was played under, from
+// the counters the hand resolves (SettleRequest.Stats: set at a variation
+// table once one was chosen, "" everywhere else).
+func handVariations(stats []game.HandStats) map[string]string {
+	out := map[string]string{}
+	for _, h := range stats {
+		if h.Variation != "" {
+			out[h.UserID] = string(h.Variation)
+		}
+	}
+	return out
 }
 
 // transact runs one ledger operation under its metrics (ledger.js transact):

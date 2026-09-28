@@ -98,16 +98,26 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 			}
 		}
 	}
+	// Seven, deliberately: the four of 22–26 Sep 2026, and since 28 Sep 2026
+	// the one-time missions' three on xp_sources — mission_type (whose
+	// DEFAULT keeps every source a database already has DAILY), target and
+	// scope — which a database already holding the daily XP (production's)
+	// lacks. Each is a MISSING column a boot adds; none changes a column
+	// that is already there.
 	wantAlters := []string{
 		"EXECUTE 'ALTER TABLE users ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE';",
 		"EXECUTE 'ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN game TEXT';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN variant TEXT';",
+		"EXECUTE 'ALTER TABLE xp_sources ADD COLUMN mission_type TEXT NOT NULL DEFAULT ''DAILY'' CHECK (mission_type IN (''DAILY'', ''ONE_TIME''))';",
+		"EXECUTE 'ALTER TABLE xp_sources ADD COLUMN target INTEGER CHECK (target >= 1)';",
+		"EXECUTE 'ALTER TABLE xp_sources ADD COLUMN scope TEXT';",
 	}
 	if strings.Join(alters, "\n") != strings.Join(wantAlters, "\n") {
-		t.Errorf("the baseline brings forward exactly users.is_bot, users.is_active and chip_ledger.game/.variant, got:\n%s", strings.Join(alters, "\n"))
+		t.Errorf("the baseline brings forward exactly users.is_bot, users.is_active, chip_ledger.game/.variant and xp_sources.mission_type/.target/.scope, got:\n%s", strings.Join(alters, "\n"))
 	}
-	for _, want := range []string{"column_name = 'is_bot'", "column_name = 'is_active'", "column_name = 'game'", "column_name = 'variant'"} {
+	for _, want := range []string{"column_name = 'is_bot'", "column_name = 'is_active'", "column_name = 'game'", "column_name = 'variant'",
+		"column_name = 'mission_type'", "column_name = 'target'", "column_name = 'scope'"} {
 		if !strings.Contains(baseline, want) {
 			t.Errorf("%s lacks the lookup %q", migrations[0].File, want)
 		}
@@ -413,8 +423,8 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	if !inOrder(baseline, "CREATE TABLE IF NOT EXISTS user_lucky_draws", "CREATE TABLE IF NOT EXISTS player_levels",
 		"CREATE TABLE IF NOT EXISTS badges", "CREATE TABLE IF NOT EXISTS user_badges", "CREATE TABLE IF NOT EXISTS badge_purchases",
 		"CREATE TABLE IF NOT EXISTS xp_sources", "CREATE TABLE IF NOT EXISTS xp_settings", "CREATE TABLE IF NOT EXISTS player_xp",
-		"CREATE TABLE IF NOT EXISTS player_xp_claims", "CREATE TABLE IF NOT EXISTS table_engines") {
-		t.Error("the baseline must create player_levels, badges, user_badges, badge_purchases, xp_sources, xp_settings, player_xp and player_xp_claims in that order, after the Lucky Draw")
+		"CREATE TABLE IF NOT EXISTS player_xp_claims", "CREATE TABLE IF NOT EXISTS player_xp_missions", "CREATE TABLE IF NOT EXISTS table_engines") {
+		t.Error("the baseline must create player_levels, badges, user_badges, badge_purchases, xp_sources, xp_settings, player_xp, player_xp_claims and player_xp_missions in that order, after the Lucky Draw")
 	}
 	// The store's badges (owner, 27 Sep 2026): a price, always in rupees, and
 	// the Play product that makes a badge buyable; every purchase a receipt
@@ -436,10 +446,33 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	sources := squash(createTableBody(t, baseline, "xp_sources"))
 	for _, want := range []string{"code TEXT PRIMARY KEY", "icon TEXT NOT NULL DEFAULT ''", "kind TEXT NOT NULL",
 		"play_minutes INTEGER CHECK (play_minutes > 0)", "hand_rank TEXT", "xp INTEGER NOT NULL CHECK (xp >= 0)",
-		"times_per_window INTEGER NOT NULL DEFAULT 1 CHECK (times_per_window >= 1)"} {
+		"times_per_window INTEGER NOT NULL DEFAULT 1 CHECK (times_per_window >= 1)",
+		// The one-time missions (28 Sep 2026): the type a closed CHECK whose
+		// DEFAULT is the daily rule every source had, a target of at least 1,
+		// and a scope checked by the server — the same definitions the guarded
+		// blocks add, so a fresh database and an upgraded one agree.
+		"mission_type TEXT NOT NULL DEFAULT 'DAILY' CHECK (mission_type IN ('DAILY', 'ONE_TIME'))",
+		"target INTEGER CHECK (target >= 1)", "scope TEXT,"} {
 		if !strings.Contains(sources, want) {
 			t.Errorf("CREATE TABLE xp_sources must declare %q:\n%s", want, sources)
 		}
+	}
+	// A player's one-time missions: one row per player and mission, for ever
+	// (the primary key — what makes a completion the only one), no XP
+	// without a completion, and nothing that names a window.
+	missions := squash(createTableBody(t, baseline, "player_xp_missions"))
+	for _, want := range []string{"user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE",
+		"source_code TEXT NOT NULL REFERENCES xp_sources (code) ON DELETE CASCADE",
+		"progress INTEGER NOT NULL DEFAULT 0 CHECK (progress >= 0)", "seen TEXT[] NOT NULL DEFAULT '{}'",
+		"completed_at BIGINT NOT NULL DEFAULT 0 CHECK (completed_at >= 0)",
+		"xp_awarded INTEGER NOT NULL DEFAULT 0 CHECK (xp_awarded >= 0)",
+		"PRIMARY KEY (user_id, source_code)", "CHECK (completed_at > 0 OR xp_awarded = 0)"} {
+		if !strings.Contains(missions, want) {
+			t.Errorf("CREATE TABLE player_xp_missions must declare %q:\n%s", want, missions)
+		}
+	}
+	if strings.Contains(missions, "window") {
+		t.Errorf("a one-time mission has no window:\n%s", missions)
 	}
 	claims := squash(createTableBody(t, baseline, "player_xp_claims"))
 	for _, want := range []string{"user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE",
@@ -621,8 +654,9 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	// they have earned of the daily XP), and Report Player's player_reports
 	// (27 Sep 2026: moderation audit, which names a room and a hand by id and
 	// copies nothing of either), and user_sessions (28 Sep 2026: the sign-in a
-	// token must carry, one signed-in device per account) — thirty-seven, and
-	// no game state (the baseline's header).
+	// token must carry, one signed-in device per account), and
+	// player_xp_missions (28 Sep 2026: each player's one-time missions) —
+	// thirty-eight, and no game state (the baseline's header).
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
 	if err != nil {
@@ -642,7 +676,7 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	}
 	want := []string{"badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends",
 		"lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends",
-		"player_levels", "player_reports", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims",
+		"player_levels", "player_reports", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims", "player_xp_missions",
 		"profile_pictures", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
 		"user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_sessions", "user_table_choice", "user_table_pictures", "users",
 		"xp_settings", "xp_sources"}

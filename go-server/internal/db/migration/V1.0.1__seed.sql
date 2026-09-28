@@ -25,7 +25,8 @@
 --                 title, icon and winning tax (player_levels); the badges a
 --                 player may hold beside their level (badges; owner, 27 Sep
 --                 2026: "Vip is not a level, it is badge"); what earns XP and
---                 how much (xp_sources); and the 24-hour window, with no
+--                 how much (xp_sources: the daily sources and, since 28 Sep
+--                 2026, the one-time missions); and the 24-hour window, with no
 --                 daily cap (xp_settings). No player_xp or user_badges row is
 --                 ever seeded. Levels and XP never expire — XP is only ever
 --                 added to, and the window resets what may still be EARNED
@@ -1054,6 +1055,60 @@ VALUES ('PLAY_15_MIN',       'Play 15 active minutes',  '🎮', 'PLAY_TIME', 15,
        ('WIN_SEQUENCE',      'Win by Sequence',         '🃏', 'WIN_HAND',  NULL, 'SEQUENCE',      4,  1, TRUE, 60),
        ('WIN_PURE_SEQUENCE', 'Win by Pure Sequence',    '💎', 'WIN_HAND',  NULL, 'PURE_SEQUENCE', 8,  1, TRUE, 70),
        ('WIN_TRAIL',         'Win by Trail',            '🔥', 'WIN_HAND',  NULL, 'TRAIL',         20, 1, TRUE, 80)
+    ON CONFLICT (code) DO NOTHING;
+
+-- The ONE-TIME missions (owner, 28 Sep 2026: "Add a new mission type:
+-- ONE_TIME. One-time missions are permanent missions that a player can
+-- complete only once"), the owner's twelve, exactly as given — each once in a
+-- player's life, never reset:
+--
+--   First Hand            play 1 hand                +50    FIRST_HAND
+--   First Win             win 1 hand                 +100   FIRST_WIN
+--   Getting Started       play 10 hands              +150   GETTING_STARTED
+--   First 5 Wins          win 5 hands                +300   FIRST_5_WINS
+--   Card Player           play 50 hands              +500   CARD_PLAYER
+--   Winning Streak        win 10 hands               +750   WINNING_STREAK
+--   First Poker Hand      play 1 Poker hand          +100   FIRST_POKER_HAND
+--   First Poker Win       win 1 Poker hand           +200   FIRST_POKER_WIN
+--   Texas Hold'em Debut   play 1 Texas Hold'em hand  +150   TEXAS_HOLDEM_DEBUT
+--   Poker Regular         play 50 Poker hands        +750   POKER_REGULAR
+--   Variation Explorer    play 1 Variation hand      +100   VARIATION_EXPLORER
+--   Game Explorer         play 5 different games     +500   GAME_EXPLORER
+--
+-- 3,650 XP in all, and none of it counted in a daily window. A hand is
+-- PLAYED as requirement 16 and player_stats say — the player put chips in
+-- beyond the boot (a chaal, raise or show; at poker any chips beyond the
+-- forced blinds or ante) — and WON when the hand-end settle names them its
+-- winner (at 3-Card Poker, beating the dealer or a dealer that does not
+-- qualify; a push is neither); only hands the player COMPLETES count, never
+-- one they walked out of. Winning Streak is ten wins in all, not ten in a row
+-- (the owner's name, the owner's requirement). Variation Explorer is a hand
+-- played at a Variation table (scope 'variation'); to have it count the
+-- variations instead (MUFLIS, AK47 …), it is one UPDATE:
+--
+--   UPDATE xp_sources SET kind = 'VARIATIONS_PLAYED', scope = NULL
+--    WHERE code = 'VARIATION_EXPLORER';
+--
+-- Game Explorer counts the seven table categories (seen, blind, variation,
+-- three_card_poker, five_card_draw, texas_holdem, omaha) a player has played
+-- a hand at. Nothing like them was seeded before (the daily sources above are
+-- play time and "Win by …"), so every one is new. ON CONFLICT (code) DO
+-- NOTHING, like the daily sources: an owner's UPDATE — a mission re-valued,
+-- re-targeted or switched off — survives every restart, and a completed
+-- mission stays completed whatever becomes of its row.
+INSERT INTO xp_sources (code, name, icon, kind, mission_type, target, scope, xp, times_per_window, is_active, sort_order)
+VALUES ('FIRST_HAND',         'First Hand',          '🎴', 'HANDS_PLAYED',      'ONE_TIME', 1,  NULL,           50,  1, TRUE, 110),
+       ('FIRST_WIN',          'First Win',           '🏆', 'HANDS_WON',         'ONE_TIME', 1,  NULL,           100, 1, TRUE, 120),
+       ('GETTING_STARTED',    'Getting Started',     '🚀', 'HANDS_PLAYED',      'ONE_TIME', 10, NULL,           150, 1, TRUE, 130),
+       ('FIRST_5_WINS',       'First 5 Wins',        '🥇', 'HANDS_WON',         'ONE_TIME', 5,  NULL,           300, 1, TRUE, 140),
+       ('CARD_PLAYER',        'Card Player',         '♠️', 'HANDS_PLAYED',      'ONE_TIME', 50, NULL,           500, 1, TRUE, 150),
+       ('WINNING_STREAK',     'Winning Streak',      '⚡', 'HANDS_WON',         'ONE_TIME', 10, NULL,           750, 1, TRUE, 160),
+       ('FIRST_POKER_HAND',   'First Poker Hand',    '♦️', 'HANDS_PLAYED',      'ONE_TIME', 1,  'poker',        100, 1, TRUE, 170),
+       ('FIRST_POKER_WIN',    'First Poker Win',     '💰', 'HANDS_WON',         'ONE_TIME', 1,  'poker',        200, 1, TRUE, 180),
+       ('TEXAS_HOLDEM_DEBUT', 'Texas Hold''em Debut', '🤠', 'HANDS_PLAYED',      'ONE_TIME', 1,  'texas_holdem', 150, 1, TRUE, 190),
+       ('POKER_REGULAR',      'Poker Regular',       '🎩', 'HANDS_PLAYED',      'ONE_TIME', 50, 'poker',        750, 1, TRUE, 200),
+       ('VARIATION_EXPLORER', 'Variation Explorer',  '🔀', 'HANDS_PLAYED',      'ONE_TIME', 1,  'variation',    100, 1, TRUE, 210),
+       ('GAME_EXPLORER',      'Game Explorer',       '🧭', 'CATEGORIES_PLAYED', 'ONE_TIME', 5,  NULL,           500, 1, TRUE, 220)
     ON CONFLICT (code) DO NOTHING;
 
 -- The window (owner: "it will be reset after 24 hours", "After 24 hours this

@@ -30,7 +30,9 @@
 -- database built by an older tag needs at its next boot (production's, from
 -- go-server/v1.1.2, has game and variant but not is_bot), and they are why this
 -- file is no longer free of ALTER TABLE. users.is_active (26 Sep 2026) was
--- written straight in here the same way, a column and its guarded block.
+-- written straight in here the same way, a column and its guarded block, and
+-- so were xp_sources.mission_type, .target and .scope (28 Sep 2026, the
+-- one-time missions), which a database already holding the daily XP lacks.
 -- table_configs.winner_tax (26 Sep 2026) is declared in its CREATE TABLE
 -- alone, with no guarded block: that build is deployed onto a FRESH database
 -- (owner: "treat this as fresh deployment not a migration one").
@@ -121,8 +123,8 @@
 -- name a draw), and the spins (which name a player, a draw and a slot) — then
 -- the player levels, badges and XP (player_levels, badges, then user_badges,
 -- which names a player and a badge, xp_sources, xp_settings, player_xp, which
--- names a player, then player_xp_claims, which names a player and a source).
--- The four table-configuration
+-- names a player, then player_xp_claims and player_xp_missions, which each
+-- name a player and a source). The four table-configuration
 -- tables come last, in the order they
 -- reference one another — `table_engines`, `table_categories` (each category
 -- names its engine), then `table_settings` and `table_configs` (each names a
@@ -153,7 +155,8 @@
 -- table, and the counters not yet flushed live in the live store and nowhere
 -- here. Nor the player levels, badges and XP (26–27 Sep 2026): player_levels,
 -- badges, xp_sources and xp_settings are configuration, and user_badges,
--- player_xp and player_xp_claims account facts — a settle adds to player_xp,
+-- player_xp, player_xp_claims and player_xp_missions account facts — a settle
+-- adds to player_xp and moves a player's one-time missions on,
 -- and no table reads any of them to play a hand. The active play time the 30-
 -- and 60-minute XP is earned by lives in the live store, never here.
 
@@ -1215,7 +1218,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS player_reports_one_per_hand
 -- will be applied acc to minimum of badge or player level"; "Daily XP user can
 -- get store this info in db";
 -- then the Royal badges the store lists, each with its Lottie, validity, price
--- and 0% winning tax, "Add a icon in Store to buy badges"). Eight tables:
+-- and 0% winning tax, "Add a icon in Store to buy badges"; then 28 Sep 2026,
+-- the ONE-TIME missions: "One-time missions are permanent missions that a
+-- player can complete only once … The system should now support DAILY and
+-- ONE_TIME"). Nine tables:
 --
 --   player_levels  CONFIGURATION: the ladder a player climbs by XP — fifty
 --                  levels, each reached at its min_xp — with the title and
@@ -1251,10 +1257,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS player_reports_one_per_hand
 --                  minutes of active play in the window, or a hand won with a
 --                  given Teen Patti hand), the XP it gives, and how many times
 --                  a window it can be earned. A kind this build does not know
---                  earns nothing (db.XPKind*).
+--                  earns nothing (db.XPKind*). Since 28 Sep 2026 a source has
+--                  a MISSION TYPE: DAILY (every source until then, and the
+--                  default) or ONE_TIME — a mission completed once, for good,
+--                  when the hands a player completes reach its target (so many
+--                  hands played or won, so many different games played),
+--                  never reset by a window.
 --   player_xp_claims  an ACCOUNT FACT: how many times each player has earned
---                  each source in their current window — what makes "1 time"
---                  once a day, and what the app ticks off.
+--                  each DAILY source in their current window — what makes "1
+--                  time" once a day, and what the app ticks off.
+--   player_xp_missions  an ACCOUNT FACT: each player's progress on each
+--                  ONE_TIME mission and, once its target is reached, when it
+--                  was completed and the XP it gave — one row per player per
+--                  mission, for ever (its primary key), which is what makes
+--                  "once" once.
 --   xp_settings    CONFIGURATION, ONE row: the window's length — how long a
 --                  day lasts for the daily sources, each earned its
 --                  times_per_window in it — and an optional daily cap on the
@@ -1295,20 +1311,28 @@ CREATE UNIQUE INDEX IF NOT EXISTS player_reports_one_per_hand
 -- ledger transaction that settles a hand opens or rolls the window of every
 -- player who completed it and awards the winner's WIN_HAND source; the
 -- PLAY_TIME ones are awarded asynchronously, once the play time kept in the
--- live store (Redis, never here) for the window reaches their minutes.
+-- live store (Redis, never here) for the window reaches their minutes. The
+-- same settle moves every finisher's ONE_TIME missions on (player_xp_missions)
+-- and completes, through db.awardXP, each whose target the hand reached: the
+-- row goes from completed_at 0 to the instant, once — a conditional UPDATE
+-- under the row's lock — and only the statement that made that change adds
+-- the mission's XP. A ONE_TIME mission's XP is lifetime XP alone: it is never
+-- counted in a window's XP, a daily cap never limits it, and no window ever
+-- resets it.
 --
 -- None of it is game state. The rate a seat pays is captured on the seat when
 -- its player sits down and refreshed from every hand-end settle, and kept in
 -- the table's Redis snapshot; nothing at a table reads these tables at any
--- other moment. All seven are the app role's, and the foreign keys of
--- user_badges, player_xp and player_xp_claims to users need only the
--- REFERENCES grant ops/DEPLOY.md §7 gives.
+-- other moment. All nine are the app role's, and the foreign keys of
+-- user_badges, player_xp, player_xp_claims and player_xp_missions to users
+-- need only the REFERENCES grant ops/DEPLOY.md §7 gives.
 --
 -- As seeded, a window's XP is at most 108 — 15, 60 and 120 minutes of play
 -- (3 + 20 + 50) and a win with each of Pair, Color, Sequence, Pure Sequence
 -- and Trail (1 + 2 + 4 + 8 + 20), each once — so Level 10 (4,000 XP) is at
 -- least 38 days away. The ladder, the sources, the window and any cap are all
--- rows the owner can edit.
+-- rows the owner can edit. The seeded ONE_TIME missions add 3,650 XP once in
+-- a player's life, and none of it to any window.
 CREATE TABLE IF NOT EXISTS player_levels (
   level      SMALLINT PRIMARY KEY CHECK (level >= 1),
   -- The XP that reaches this level. UNIQUE: two levels at one threshold would
@@ -1457,6 +1481,24 @@ CREATE INDEX IF NOT EXISTS badge_purchases_user_idx ON badge_purchases (user_id,
 -- what one earning gives; times_per_window how many times a window it can be
 -- earned. Retire a source with is_active = FALSE — the seed would put a
 -- deleted row back (inactive rows are left as they are).
+--
+-- mission_type (28 Sep 2026) says how often a source can be earned: DAILY,
+-- times_per_window in each rolling window (every source before it, and the
+-- DEFAULT, so an existing row reads exactly as it did), or ONE_TIME, ONCE in
+-- a player's life (player_xp_missions, below). A CLOSED set — each value is a
+-- different rule the server applies, not a label — so it is a CHECK, as
+-- profile_pictures.type is. A ONE_TIME source is earned when a player's
+-- progress reaches its target: kind 'HANDS_PLAYED' counts the hands they
+-- play (a voluntary bet, requirement 16's "played") and 'HANDS_WON' the
+-- hands they win, 'CATEGORIES_PLAYED' the different table categories they
+-- have played a hand at and 'VARIATIONS_PLAYED' the different variations
+-- (MUFLIS … FIVE_CARD) — each counting only the hands a player COMPLETES,
+-- as the hand-end settle resolves them. scope narrows which hands count: NULL
+-- any table; an engine code (teen_patti, poker) that engine's tables; a
+-- category code (seen … omaha) that category's — by value, checked by the
+-- server like kind, because the table catalogue it names is declared (and
+-- seeded) after this table. target and scope mean nothing to a DAILY source,
+-- which ignores them.
 CREATE TABLE IF NOT EXISTS xp_sources (
   code             TEXT    PRIMARY KEY,
   name             TEXT    NOT NULL,
@@ -1466,11 +1508,53 @@ CREATE TABLE IF NOT EXISTS xp_sources (
   hand_rank        TEXT,
   xp               INTEGER NOT NULL CHECK (xp >= 0),
   times_per_window INTEGER NOT NULL DEFAULT 1 CHECK (times_per_window >= 1),
+  mission_type     TEXT    NOT NULL DEFAULT 'DAILY' CHECK (mission_type IN ('DAILY', 'ONE_TIME')),
+  target           INTEGER CHECK (target >= 1),
+  scope            TEXT,
   is_active        BOOLEAN NOT NULL,
   sort_order       INTEGER NOT NULL,
   created_at       BIGINT  NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
   updated_at       BIGINT  NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
 );
+
+-- xp_sources.mission_type, .target and .scope for a database built before
+-- them (28 Sep 2026: production's has the daily sources and none of the
+-- three). Catalogue-guarded, as users.is_bot is: only a database missing a
+-- column runs its ALTER, once, and a NOT NULL column with a constant DEFAULT
+-- is stored in the catalogue rather than written into every row. The DEFAULT
+-- is what keeps every existing source DAILY — the only kind there was.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'xp_sources' AND column_name = 'mission_type'
+  ) THEN
+    EXECUTE 'ALTER TABLE xp_sources ADD COLUMN mission_type TEXT NOT NULL DEFAULT ''DAILY'' CHECK (mission_type IN (''DAILY'', ''ONE_TIME''))';
+  END IF;
+END;
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'xp_sources' AND column_name = 'target'
+  ) THEN
+    EXECUTE 'ALTER TABLE xp_sources ADD COLUMN target INTEGER CHECK (target >= 1)';
+  END IF;
+END;
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'xp_sources' AND column_name = 'scope'
+  ) THEN
+    EXECUTE 'ALTER TABLE xp_sources ADD COLUMN scope TEXT';
+  END IF;
+END;
+$$;
 
 -- The one row of XP rules that belong to no source. id is always 1 — the CHECK
 -- makes a second row impossible. daily_cap is the most XP a player earns in one
@@ -1510,6 +1594,42 @@ CREATE TABLE IF NOT EXISTS player_xp_claims (
   claims       INTEGER NOT NULL CHECK (claims >= 0),
   updated_at   BIGINT  NOT NULL,
   PRIMARY KEY (user_id, source_code)
+);
+
+-- Each player's ONE_TIME missions (28 Sep 2026: "One-time missions are
+-- permanent missions that a player can complete only once … the completion
+-- must persist in PostgreSQL"): one row per player per mission, created by
+-- the first hand that moves it on and never deleted — no window, and nothing
+-- that runs at a window's end, ever touches it. progress is how far the
+-- player has come (hands, or the different games or variations in seen, which
+-- progress counts); completed_at is 0 until the progress reaches the source's
+-- target, and then the instant it did, for good; xp_awarded is the XP the
+-- completion gave, the record of it (the lifetime XP it went into is
+-- player_xp.xp). Only the hand-end settle writes it, under the player's
+-- wallet lock, and only db.awardXP completes it:
+--
+--   UPDATE … SET completed_at = <now> WHERE … AND completed_at = 0 AND progress >= <target>
+--
+-- the statement that changes the row is the one that adds the XP, and a
+-- second one — a replay, a concurrent settle, a retry — finds completed_at set
+-- and adds nothing. The primary key is the one row per player and mission
+-- that makes that single transition the only completion there can be; a row
+-- completed stops moving (progress is frozen at its completion). No index
+-- beyond it: every read is one player's, its leading column. Deleting a
+-- source deletes its rows (the cascade) — retire one with is_active = FALSE
+-- instead, which keeps who completed it.
+CREATE TABLE IF NOT EXISTS player_xp_missions (
+  user_id      TEXT    NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  source_code  TEXT    NOT NULL REFERENCES xp_sources (code) ON DELETE CASCADE,
+  progress     INTEGER NOT NULL DEFAULT 0 CHECK (progress >= 0),
+  seen         TEXT[]  NOT NULL DEFAULT '{}',
+  completed_at BIGINT  NOT NULL DEFAULT 0 CHECK (completed_at >= 0),
+  xp_awarded   INTEGER NOT NULL DEFAULT 0 CHECK (xp_awarded >= 0),
+  created_at   BIGINT  NOT NULL,
+  updated_at   BIGINT  NOT NULL,
+  PRIMARY KEY (user_id, source_code),
+  -- No XP without a completion.
+  CHECK (completed_at > 0 OR xp_awarded = 0)
 );
 
 
