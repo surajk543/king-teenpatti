@@ -33,11 +33,33 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	// seed, renamed from V1.0.1__seed_profile_pictures.sql, holds the table
 	// catalogue beside the pictures. The baseline keeps its name because
 	// ops/DEPLOY.md greps it.
-	if len(migrations) != 2 {
-		t.Fatalf("expected one DDL script and one DML script, got %d", len(migrations))
+	//
+	// Since 28 Sep 2026 (owner: "Create new file V1.0.2__seed.sql and ADD a
+	// insert idempotent profile_pictures"; it is V1.0.2__seed-festive-capybara.sql
+	// since the same day) later scripts may follow the pair — ROWS only, each
+	// named a seed: the baseline still holds every piece of structure, and runs
+	// first, so a later script can depend on it and never the other way round.
+	if len(migrations) < 2 {
+		t.Fatalf("expected the baseline and the seed at least, got %d scripts", len(migrations))
 	}
 	if migrations[0].File != "V1.0.0__baseline.sql" || migrations[1].File != "V1.0.1__seed.sql" {
 		t.Fatalf("expected V1.0.0__baseline.sql then V1.0.1__seed.sql, got %s then %s", migrations[0].File, migrations[1].File)
+	}
+	for _, m := range migrations[2:] {
+		if !strings.HasPrefix(m.Name, "seed") {
+			t.Errorf("%s follows the seed and so may hold rows only: name it V<version>__seed….sql, and put structure in the baseline", m.File)
+		}
+		later := statementsOf(m.SQL)
+		for _, ddl := range []string{"CREATE ", "ALTER ", "DROP ", "TRUNCATE", "DELETE FROM", "UPDATE "} {
+			if strings.Contains(later, ddl) {
+				t.Errorf("%s is a later seed and must not run %q: structure goes in the baseline, and a seed only adds rows", m.File, ddl)
+			}
+		}
+		// Every boot runs it again, so every row it adds must be skipped once
+		// there: one ON CONFLICT per INSERT.
+		if inserts, guarded := strings.Count(later, "INSERT INTO"), strings.Count(later, "ON CONFLICT"); inserts == 0 || inserts != guarded {
+			t.Errorf("%s has %d INSERT(s) and %d ON CONFLICT clause(s): every row must be idempotent", m.File, inserts, guarded)
+		}
 	}
 
 	for i, m := range migrations {
@@ -684,11 +706,12 @@ func TestBootstrapIsIdempotent(t *testing.T) {
 	if triggers != 1 {
 		t.Fatalf("expected exactly one append-only trigger, found %d", triggers)
 	}
-	// The seed ran twice and wrote each row once: 45 pictures, two engines and
+	// The seeds ran twice and wrote each row once: 46 pictures (45 of
+	// V1.0.1__seed.sql and V1.0.2__seed-festive-capybara.sql's Festive Capybara), two engines and
 	// seven categories, one settings row, the twelve default tables and seven
 	// private templates, all active.
-	if n := f.scalar(`SELECT COUNT(*) FROM profile_pictures`); n != 45 {
-		t.Fatalf("profile_pictures holds %d rows after a second boot, want 45", n)
+	if n := f.scalar(`SELECT COUNT(*) FROM profile_pictures`); n != 46 {
+		t.Fatalf("profile_pictures holds %d rows after a second boot, want 46", n)
 	}
 	if n := f.scalar(`SELECT COUNT(*) FROM table_engines WHERE is_active`); n != 2 {
 		t.Fatalf("table_engines holds %d active rows after a second boot, want 2", n)
