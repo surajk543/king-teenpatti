@@ -22,8 +22,10 @@
 #   3. reads the INSTALLED unit (systemctl show): its user, working directory, environment file and
 #      Environment= lines. It must run this checkout's go-server/bin/gameplay from go-server/, and its
 #      environment file must be go-server/.env, the file -migrate reads — else it refuses;
-#   4. git fetch origin (branches and tags, --prune --force), then fast-forwards the local master to
-#      origin/master without touching the working tree — the "latest pull";
+#   4. git fetch origin (branches and tags; --no-prune, --force), then fast-forwards the local master to
+#      origin/master without touching the working tree — the "latest pull". It NEVER deletes a branch
+#      or a tag, here or on origin, not even the host's copy of a branch deleted on GitHub (owner,
+#      29 Sep 2026: "don't delete any branch or tag"); --force only lets a tag moved on origin follow;
 #   5. chooses the tag (the argument, or the newest go-server/v* by version) and says what /health
 #      reports is running now. It refuses a tag older than $OLDEST_TAG outright (this database cannot
 #      run one), and a tag older than what runs without --allow-downgrade. It warns when the installed
@@ -699,7 +701,11 @@ main() {
 
   # --------------------------------------------- 4. fetch; master forward
   log "Fetching $REMOTE (branches and tags)"
-  git_ fetch "$REMOTE" --prune --tags --force
+  # --no-prune: never delete a branch or tag, not even the host's copy of a
+  # branch deleted on origin — and whatever fetch.prune this host's git
+  # config sets (owner, 29 Sep 2026: "don't delete any branch or tag").
+  # --force lets a tag moved on origin follow it; nothing is deleted by it.
+  git_ fetch "$REMOTE" --no-prune --tags --force
   local new_master old_master
   new_master="$(git_ rev-parse -q --verify "refs/remotes/$REMOTE/$BRANCH^{commit}")" \
     || die "$REMOTE/$BRANCH does not exist after the fetch"
