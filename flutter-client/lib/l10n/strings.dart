@@ -1689,13 +1689,25 @@ class Strings {
       _(provider == 'google' ? 'googlePhoto' : 'ownPhoto');
   String get sessionReplacedBody => _('sessionReplacedBody');
 
-  // --- a newer build is waiting on Play
+  // --- the app version gate (owner, 28 Sep 2026): Force Update, Soft Update,
+  // Maintenance. The screens show an operator's own message verbatim when the
+  // server sends one, and these words otherwise.
   String get updateTitle => _('updateTitle');
   String get updateBody => _('updateBody');
   String get updateNow => _('updateNow');
   String get updateOpenStore => _('updateOpenStore');
   String get updateOpenAppStore => _('updateOpenAppStore');
   String get updateFailed => _('updateFailed');
+  String updateVersionLine(String installed, String required) => _(
+    'updateVersionLine',
+  ).replaceAll('{installed}', installed).replaceAll('{required}', required);
+  String get updateStoreUnavailable => _('updateStoreUnavailable');
+  String get softUpdateTitle => _('softUpdateTitle');
+  String get softUpdateBody => _('softUpdateBody');
+  String get softUpdateLater => _('softUpdateLater');
+  String get maintenanceTitle => _('maintenanceTitle');
+  String get maintenanceBody => _('maintenanceBody');
+  String get maintenanceRetry => _('maintenanceRetry');
   String get purchaseNotLaunched => _('purchaseNotLaunched');
 
   // --- name and the entry cap
@@ -1813,13 +1825,24 @@ class Strings {
       'buyChips': 'Buy chips',
       'shop': 'Shop',
       'comingSoon': 'Coming soon',
-      'updateTitle': 'A new version is ready',
+      'updateTitle': 'Update required',
       'updateBody':
-          'Update to keep playing. This version is no longer up to date.',
+          'A new version of King Teen Patti is required to continue playing.',
       'updateNow': 'Update now',
       'updateOpenStore': 'Open Play Store',
       'updateOpenAppStore': 'Open App Store',
       'updateFailed': 'The update did not finish. Please try again.',
+      // The app version gate (owner, 28 Sep 2026).
+      'updateVersionLine': 'Your version {installed} · Required {required}',
+      'updateStoreUnavailable':
+          'The store could not be opened. Please update King Teen Patti from your app store.',
+      'softUpdateTitle': 'New version available',
+      'softUpdateBody': 'A newer version of King Teen Patti is available.',
+      'softUpdateLater': 'Later',
+      'maintenanceTitle': 'Under maintenance',
+      'maintenanceBody':
+          'King Teen Patti is temporarily unavailable. Please try again later.',
+      'maintenanceRetry': 'Try again',
       'purchaseNotLaunched': 'The purchase did not go through.',
       'storeTitle': 'Chip Store',
       'storeBlurb': 'The bigger the pack, the bigger the bonus.',
@@ -2695,12 +2718,24 @@ class Strings {
       'buyChips': 'चिप्स खरीदें',
       'shop': 'दुकान',
       'comingSoon': 'जल्द आ रहा है',
-      'updateTitle': 'नया वर्ज़न तैयार है',
-      'updateBody': 'खेलते रहने के लिए अपडेट करें। यह वर्ज़न अब पुराना है।',
+      'updateTitle': 'अपडेट ज़रूरी है',
+      'updateBody':
+          'खेलना जारी रखने के लिए King Teen Patti का नया वर्ज़न ज़रूरी है।',
       'updateNow': 'अभी अपडेट करें',
       'updateOpenStore': 'प्ले स्टोर खोलें',
       'updateOpenAppStore': 'ऐप स्टोर खोलें',
       'updateFailed': 'अपडेट पूरा नहीं हुआ। कृपया फिर कोशिश करें।',
+      // The app version gate (owner, 28 Sep 2026).
+      'updateVersionLine': 'आपका वर्ज़न {installed} · ज़रूरी {required}',
+      'updateStoreUnavailable':
+          'स्टोर नहीं खुल सका। कृपया अपने ऐप स्टोर से King Teen Patti अपडेट करें।',
+      'softUpdateTitle': 'नया वर्ज़न उपलब्ध है',
+      'softUpdateBody': 'King Teen Patti का एक नया वर्ज़न उपलब्ध है।',
+      'softUpdateLater': 'बाद में',
+      'maintenanceTitle': 'रखरखाव जारी है',
+      'maintenanceBody':
+          'King Teen Patti अभी कुछ समय के लिए उपलब्ध नहीं है। कृपया बाद में फिर कोशिश करें।',
+      'maintenanceRetry': 'फिर कोशिश करें',
       'purchaseNotLaunched': 'खरीदारी पूरी नहीं हुई।',
       'storeTitle': 'चिप स्टोर',
       'storeBlurb': 'जितना बड़ा पैक, उतना बड़ा बोनस।',
@@ -3559,13 +3594,24 @@ class Strings {
       'buyChips': 'চিপ কিনুন',
       'shop': 'দোকান',
       'comingSoon': 'শীঘ্রই আসছে',
-      'updateTitle': 'নতুন সংস্করণ প্রস্তুত',
+      'updateTitle': 'আপডেট প্রয়োজন',
       'updateBody':
-          'খেলা চালিয়ে যেতে আপডেট করুন। এই সংস্করণটি আর সর্বশেষ নয়।',
+          'খেলা চালিয়ে যেতে King Teen Patti-র নতুন সংস্করণ প্রয়োজন।',
       'updateNow': 'এখনই আপডেট করুন',
       'updateOpenStore': 'প্লে স্টোর খুলুন',
       'updateOpenAppStore': 'অ্যাপ স্টোর খুলুন',
       'updateFailed': 'আপডেট শেষ হয়নি। আবার চেষ্টা করুন।',
+      // The app version gate (owner, 28 Sep 2026).
+      'updateVersionLine': 'আপনার সংস্করণ {installed} · প্রয়োজন {required}',
+      'updateStoreUnavailable':
+          'স্টোর খোলা গেল না। অনুগ্রহ করে আপনার অ্যাপ স্টোর থেকে King Teen Patti আপডেট করুন।',
+      'softUpdateTitle': 'নতুন সংস্করণ উপলব্ধ',
+      'softUpdateBody': 'King Teen Patti-র একটি নতুন সংস্করণ উপলব্ধ।',
+      'softUpdateLater': 'পরে',
+      'maintenanceTitle': 'রক্ষণাবেক্ষণ চলছে',
+      'maintenanceBody':
+          'King Teen Patti সাময়িকভাবে অনুপলব্ধ। অনুগ্রহ করে পরে আবার চেষ্টা করুন।',
+      'maintenanceRetry': 'আবার চেষ্টা করুন',
       'purchaseNotLaunched': 'কেনাকাটা সম্পন্ন হয়নি।',
       'storeTitle': 'চিপ স্টোর',
       'storeBlurb': 'প্যাক যত বড়, বোনাসও তত বড়।',
@@ -4422,12 +4468,24 @@ class Strings {
       'buyChips': 'ચિપ્સ ખરીદો',
       'shop': 'દુકાન',
       'comingSoon': 'ટૂંક સમયમાં',
-      'updateTitle': 'નવું વર્ઝન તૈયાર છે',
-      'updateBody': 'રમવાનું ચાલુ રાખવા અપડેટ કરો. આ વર્ઝન હવે જૂનું છે.',
+      'updateTitle': 'અપડેટ જરૂરી છે',
+      'updateBody':
+          'રમવાનું ચાલુ રાખવા માટે King Teen Patti નું નવું વર્ઝન જરૂરી છે.',
       'updateNow': 'હમણાં અપડેટ કરો',
       'updateOpenStore': 'પ્લે સ્ટોર ખોલો',
       'updateOpenAppStore': 'એપ સ્ટોર ખોલો',
       'updateFailed': 'અપડેટ પૂરું થયું નથી. ફરી પ્રયાસ કરો.',
+      // The app version gate (owner, 28 Sep 2026).
+      'updateVersionLine': 'તમારું વર્ઝન {installed} · જરૂરી {required}',
+      'updateStoreUnavailable':
+          'સ્ટોર ખોલી શકાયો નથી. કૃપા કરીને તમારા એપ સ્ટોરમાંથી King Teen Patti અપડેટ કરો.',
+      'softUpdateTitle': 'નવું વર્ઝન ઉપલબ્ધ છે',
+      'softUpdateBody': 'King Teen Patti નું નવું વર્ઝન ઉપલબ્ધ છે.',
+      'softUpdateLater': 'પછીથી',
+      'maintenanceTitle': 'જાળવણી ચાલુ છે',
+      'maintenanceBody':
+          'King Teen Patti હાલમાં થોડા સમય માટે ઉપલબ્ધ નથી. કૃપા કરીને પછીથી ફરી પ્રયાસ કરો.',
+      'maintenanceRetry': 'ફરી પ્રયાસ કરો',
       'purchaseNotLaunched': 'ખરીદી પૂર્ણ થઈ નહીં.',
       'storeTitle': 'ચિપ સ્ટોર',
       'storeBlurb': 'પૅક જેટલું મોટું, બોનસ એટલું મોટું.',
@@ -5283,12 +5341,24 @@ class Strings {
       'buyChips': 'ਚਿਪਸ ਖਰੀਦੋ',
       'shop': 'ਦੁਕਾਨ',
       'comingSoon': 'ਜਲਦੀ ਆ ਰਿਹਾ ਹੈ',
-      'updateTitle': 'ਨਵਾਂ ਵਰਜਨ ਤਿਆਰ ਹੈ',
-      'updateBody': 'ਖੇਡਦੇ ਰਹਿਣ ਲਈ ਅੱਪਡੇਟ ਕਰੋ। ਇਹ ਵਰਜਨ ਹੁਣ ਪੁਰਾਣਾ ਹੈ।',
+      'updateTitle': 'ਅੱਪਡੇਟ ਲਾਜ਼ਮੀ ਹੈ',
+      'updateBody':
+          'ਖੇਡਣਾ ਜਾਰੀ ਰੱਖਣ ਲਈ King Teen Patti ਦਾ ਨਵਾਂ ਵਰਜਨ ਲਾਜ਼ਮੀ ਹੈ।',
       'updateNow': 'ਹੁਣੇ ਅੱਪਡੇਟ ਕਰੋ',
       'updateOpenStore': 'ਪਲੇ ਸਟੋਰ ਖੋਲ੍ਹੋ',
       'updateOpenAppStore': 'ਐਪ ਸਟੋਰ ਖੋਲ੍ਹੋ',
       'updateFailed': 'ਅੱਪਡੇਟ ਪੂਰਾ ਨਹੀਂ ਹੋਇਆ। ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+      // The app version gate (owner, 28 Sep 2026).
+      'updateVersionLine': 'ਤੁਹਾਡਾ ਵਰਜਨ {installed} · ਲਾਜ਼ਮੀ {required}',
+      'updateStoreUnavailable':
+          'ਸਟੋਰ ਨਹੀਂ ਖੁੱਲ੍ਹ ਸਕਿਆ। ਕਿਰਪਾ ਕਰਕੇ ਆਪਣੇ ਐਪ ਸਟੋਰ ਤੋਂ King Teen Patti ਅੱਪਡੇਟ ਕਰੋ।',
+      'softUpdateTitle': 'ਨਵਾਂ ਵਰਜਨ ਉਪਲਬਧ ਹੈ',
+      'softUpdateBody': 'King Teen Patti ਦਾ ਇੱਕ ਨਵਾਂ ਵਰਜਨ ਉਪਲਬਧ ਹੈ।',
+      'softUpdateLater': 'ਬਾਅਦ ਵਿੱਚ',
+      'maintenanceTitle': 'ਮੁਰੰਮਤ ਚੱਲ ਰਹੀ ਹੈ',
+      'maintenanceBody':
+          'King Teen Patti ਹਾਲੇ ਕੁਝ ਸਮੇਂ ਲਈ ਉਪਲਬਧ ਨਹੀਂ ਹੈ। ਕਿਰਪਾ ਕਰਕੇ ਬਾਅਦ ਵਿੱਚ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+      'maintenanceRetry': 'ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
       'purchaseNotLaunched': 'ਖਰੀਦਦਾਰੀ ਪੂਰੀ ਨਹੀਂ ਹੋਈ।',
       'storeTitle': 'ਚਿੱਪ ਸਟੋਰ',
       'storeBlurb': 'ਪੈਕ ਜਿੰਨਾ ਵੱਡਾ, ਬੋਨਸ ਓਨਾ ਵੱਡਾ।',

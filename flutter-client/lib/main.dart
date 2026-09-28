@@ -150,6 +150,9 @@ class _Root extends StatelessWidget {
           s.consentPending &&
           (s.screen == Screen.lobby || s.screen == Screen.table),
     );
+    // The optional update (the app version gate, 28 Sep 2026): over the
+    // sign-in screen or the lobby, never a table.
+    final softUpdate = context.select<GameState, bool>(softUpdateShown);
 
     return _NoticeHost(
       child: _TableRoutes(
@@ -164,6 +167,7 @@ class _Root extends StatelessWidget {
                 child: switch (screen) {
                   Screen.splash => const SplashScreen(),
                   Screen.update => const UpdateScreen(),
+                  Screen.maintenance => const MaintenanceScreen(),
                   Screen.login => const LoginScreen(),
                   Screen.lobby => const LobbyScreen(),
                   Screen.table => const TableScreen(),
@@ -194,6 +198,17 @@ class _Root extends StatelessWidget {
                 child: consent
                     ? const _ConsentGate(key: ValueKey('consent-gate'))
                     : const SizedBox.shrink(key: ValueKey('no-consent')),
+              ),
+            ),
+            // Above the consent panel: it asks once and is answered in a tap,
+            // and the statement is still there behind it.
+            IgnorePointer(
+              ignoring: !softUpdate,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 380),
+                child: softUpdate
+                    ? const SoftUpdatePrompt(key: ValueKey('soft-update'))
+                    : const SizedBox.shrink(key: ValueKey('no-soft-update')),
               ),
             ),
           ],

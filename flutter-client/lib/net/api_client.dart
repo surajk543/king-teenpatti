@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../models/dtos.dart';
 import '../models/friends.dart';
 import '../models/report.dart';
+import 'app_version.dart';
 
 /// Thrown when the server refuses a request. The message is the server's own,
 /// so it is safe to put in front of the player.
@@ -96,8 +97,35 @@ const accountDisabledCode = 'account_disabled';
 /// push that ends a live connection all come to this.
 const sessionReplacedCode = 'session_replaced';
 
+/// A signed-in door refused this build (the app version gate, 28 Sep 2026):
+/// 426 `update_required` or 503 `maintenance`, carrying what the update or
+/// maintenance screen shows.
+class AppGateRefusal extends ApiException {
+  AppGateRefusal(super.message, {required this.verdict, super.status})
+    : super(
+        code: verdict.status == AppGateStatus.maintenance
+            ? maintenanceCode
+            : updateRequiredCode,
+      );
+  final AppGateVerdict verdict;
+}
+
 class ApiClient {
   ApiClient(this.baseUrl, {this.client});
+
+  /// What this build declares on every request (the app version gate, 28 Sep
+  /// 2026): [appPlatformHeader] and [appVersionHeader]. Both or neither — a
+  /// build that cannot read its own version declares nothing rather than an
+  /// app platform with no version, which a server with a minimum would have
+  /// to refuse.
+  String? appPlatform;
+  String? appVersion;
+
+  /// Called when an answer says this build may not play — too old
+  /// ([updateRequiredCode]) or the game in maintenance ([maintenanceCode]) —
+  /// before its [AppGateRefusal] is thrown, so the app switches to the update
+  /// or maintenance screen whichever request met the refusal.
+  void Function(AppGateVerdict verdict)? onAppGate;
 
   /// Called when an answer says the account is disabled
   /// ([accountDisabledCode]), before its [ApiException] is thrown, so the app
@@ -126,7 +154,39 @@ class ApiClient {
   Map<String, String> _headers([String? token]) => {
     'Content-Type': 'application/json',
     if (token != null) 'Authorization': 'Bearer $token',
+    ..._identity,
   };
+
+  /// [appPlatform] and [appVersion] as headers, when this build has both.
+  Map<String, String> get _identity {
+    final platform = appPlatform, version = appVersion;
+    if (platform == null || platform.isEmpty) return const {};
+    if (version == null || version.isEmpty) return const {};
+    return {appPlatformHeader: platform, appVersionHeader: version};
+  }
+
+  /// How long the start-up check of this build's state may take before the
+  /// app carries on as it does offline: the server still refuses an
+  /// unsupported build at every door, so nothing depends on this answering.
+  static const appConfigTimeout = Duration(seconds: 12);
+
+  /// This build's state (`GET /api/app-config`, public, never gated, asked
+  /// before sign-in): the server's verdict for the platform and version sent
+  /// ([appPlatform], [appVersion]) and both platforms' rows. Null from a
+  /// server that predates the gate (404); a timeout, a refusal or a network
+  /// failure throws, and the caller carries on as it always did.
+  Future<AppConfigInfo?> appConfig() async {
+    final uri = _uri('/api/app-config');
+    final headers = {'Accept': 'application/json', ..._identity};
+    final client = this.client;
+    final r =
+        await (client != null
+                ? client.get(uri, headers: headers)
+                : http.get(uri, headers: headers))
+            .timeout(appConfigTimeout);
+    if (r.statusCode == 404) return null;
+    return AppConfigInfo.fromJson(_decode(r));
+  }
 
   /// The token an `Authorization: Bearer` header carried, or null.
   static String? _bearerOf(Map<String, String>? headers) {
@@ -153,6 +213,16 @@ class ApiClient {
       if (code == accountDisabledCode) onAccountDisabled?.call();
       if (code == sessionReplacedCode) {
         onSessionReplaced?.call(_bearerOf(r.request?.headers));
+      }
+      // The app version gate: too old to play, or the game in maintenance.
+      final gate = AppGateVerdict.fromRefusal(map);
+      if (gate != null) {
+        onAppGate?.call(gate);
+        throw AppGateRefusal(
+          '$message'.isEmpty || message == null ? code ?? '' : '$message',
+          verdict: gate,
+          status: r.statusCode,
+        );
       }
       throw ApiException(
         '$message'.isEmpty || message == null

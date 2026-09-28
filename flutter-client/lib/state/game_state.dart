@@ -16,6 +16,7 @@ import '../models/friends.dart';
 import '../net/picture_cache.dart';
 import '../net/api_client.dart';
 import '../net/app_update.dart';
+import '../net/app_version.dart';
 import '../net/connection_failure.dart';
 import '../net/game_connection.dart';
 import '../net/purchases.dart';
@@ -30,7 +31,9 @@ import 'table_config_cache.dart';
 import 'theme_preference.dart';
 import 'xp_missions.dart';
 
-enum Screen { splash, update, login, lobby, table }
+/// `update` is the Force Update screen and `maintenance` the Maintenance one
+/// (the app version gate, 28 Sep 2026): neither has a way past it.
+enum Screen { splash, update, maintenance, login, lobby, table }
 
 /// How long a table code is (owner, 13 Sep 2026): the server issues exactly
 /// this many letters and digits and refuses a join by any other shape.
@@ -168,6 +171,8 @@ class GameState extends ChangeNotifier {
       if (token != null && token != _token) return;
       _sessionWasReplaced();
     };
+    // The app version gate: any request refused as too old or in maintenance.
+    _api.onAppGate = _appGateRefused;
   }
 
   /// The backend this build was made against — [ServerConfig.url]: production
@@ -265,6 +270,40 @@ class GameState extends ChangeNotifier {
 
   /// True while Play's own update flow is on screen.
   bool updating = false;
+
+  // ------------------------------------------------------- app version gate
+
+  /// What the server's app version gate (owner, 28 Sep 2026) holds this
+  /// build to while it cannot play: FORCE_UPDATE ([Screen.update]) or
+  /// MAINTENANCE ([Screen.maintenance]), with the store link, the version to
+  /// reach and the operator's words, if any. Set by the start-up check
+  /// (`GET /api/app-config`), by any REST refusal (426 / 503) and by the
+  /// socket handshake's (connect_error `update_required` / `maintenance`);
+  /// null while this build may play.
+  AppGateVerdict? appGate;
+
+  /// The optional update on offer (SOFT_UPDATE, or Play's own nudge), while
+  /// its prompt is up; [laterSoftUpdate] puts it away for that announcement.
+  AppGateVerdict? softUpdate;
+  String? _softUpdateKey;
+
+  /// The last answer of the start-up check, for the store link a legacy
+  /// build floor ([_forceUpdate]) sends the player to.
+  AppGateVerdict? _announced;
+
+  /// True while the maintenance screen's Try again is asking.
+  bool checkingAppGate = false;
+
+  /// This build's own version, "1.6.0" — pubspec's, read from the package —
+  /// or empty until read.
+  String _installedVersion = '';
+
+  /// Opens a store link. The app's is url_launcher, outside the app; a test
+  /// replaces it to see which link Update now opened.
+  @visibleForTesting
+  Future<bool> Function(Uri uri) openStoreUrl = (uri) =>
+      launchUrl(uri, mode: LaunchMode.externalApplication);
+
   final GameConnection _conn;
   final List<StreamSubscription<dynamic>> _subs = [];
 
@@ -1179,15 +1218,9 @@ class GameState extends ChangeNotifier {
     await prefs.setString('deviceId', _deviceId);
 
     themeMode = ThemePreference.read(prefs);
-    unawaited(
-      PackageInfo.fromPlatform()
-          .then((info) {
-            appVersion = '${info.version} (${info.buildNumber})';
-            _buildNumber = int.tryParse(info.buildNumber) ?? 0;
-            notifyListeners();
-          })
-          .catchError((_) {}),
-    );
+    // Read before the server is asked anything: the version gate judges this
+    // build by the version it declares (net/app_version.dart).
+    await _readPackageInfo();
     lang = AppLang.fromCode(prefs.getString('lang'));
     numbers = NumberSystem.fromName(prefs.getString('numbers'));
     _publishNumberFormat();
@@ -1207,52 +1240,32 @@ class GameState extends ChangeNotifier {
     // latency to every launch for the sake of an answer that is usually "no".
     final updateCheck = _update.check();
 
+    // The app version gate (owner, 28 Sep 2026), before the player is asked
+    // for or restored: a build the server will not let play — too old, or the
+    // game in maintenance — stops here, on its screen, and never reaches the
+    // lobby. Unreachable (offline, slow), the app carries on as it always did:
+    // the server refuses an unsupported build at every door regardless.
+    final gate = await _fetchAppGate();
+    if (gate != null && gate.blocks) appGate = gate;
     // A saved session goes straight to the lobby.
-    var next = Screen.login;
-    final saved = prefs.getString('token');
-    if (saved != null && saved.isNotEmpty) {
-      _token = saved;
-      try {
-        user = await _api.me(saved);
-        _seeStanding();
-        unawaited(_loadPictures());
-        // Every sign-in asks for the table catalogue again — a restored
-        // session is a sign-in too — and a 304 makes that cheap.
-        unawaited(_loadTableConfig());
-        unawaited(loadLuckyDraw());
-        // The ladder says where the player's level starts, which the
-        // lobby's level bar measures from (owner, 27 Sep 2026).
-        if (levelLadder == null) unawaited(loadLevelLadder());
-        // The lobby's Friends key counts the requests waiting, read at
-        // every sign-in (owner, 26 Sep 2026).
-        unawaited(friends.refreshBadge());
-        next = Screen.lobby;
-        // An install that signed in before the statement existed meets it on
-        // its next launch, once, like everyone else.
-        await loadConsent(prefs);
-        // If the app was closed mid-hand the seat may still be held, or the
-        // table remembered; either way the answer comes with the connection,
-        // which starts now, behind the splash.
-        _beginResume();
-        _conn.connect(saved);
-      } catch (_) {
-        // Expired or revoked — fall back to the sign-in screen.
-        _token = null;
-        await prefs.remove('token');
-      }
-    }
+    final next = gate != null && gate.blocks
+        ? _gateScreen(gate)
+        : await _restoreSession(prefs);
 
     updateStatus = await updateCheck;
-    // An old client and a newer server can disagree about the wire, so the
-    // update stands in front of everything — including a saved session, since
-    // being signed in already does not make an out-of-date build safe.
-    if (updateStatus != UpdateStatus.none) next = Screen.update;
 
     final shownFor = DateTime.now().difference(splashShownAt);
     if (shownFor < minSplash) await Future<void>.delayed(minSplash - shownFor);
     // A table snapshot may already have arrived and moved us on; only the
-    // splash itself is replaced.
-    if (screen == Screen.splash) screen = next;
+    // splash itself is replaced. A refusal heard meanwhile — the restored
+    // session's `me`, or its socket's handshake — outranks everything.
+    if (screen == Screen.splash) {
+      final refused = appGate;
+      screen = refused != null && refused.blocks ? _gateScreen(refused) : next;
+    }
+    // The optional update — the server's newer version, or Play's own nudge
+    // — is offered once the app is up, and once per announcement.
+    _offerSoftUpdate(prefs, gate);
 
     // One second is enough for a countdown that shows seconds.
     _ticker = Timer.periodic(
@@ -1280,13 +1293,221 @@ class GameState extends ChangeNotifier {
   ///
   /// Disconnecting matters: this build has been told it cannot be understood,
   /// so leaving it talking would produce exactly the misread state the floor
-  /// exists to prevent.
-  void _forceUpdate() {
+  /// exists to prevent. The build floor (`minClientBuild`) and the version
+  /// gate's refusals all come to the one screen ([_appGateRefused]).
+  void _forceUpdate() => _appGateRefused(
+    AppGateVerdict(
+      AppGateStatus.forceUpdate,
+      storeUrl: _announced?.storeUrl,
+      minimumVersion: _announced?.minimumVersion,
+    ),
+  );
+
+  /// The screen a blocking verdict stands on.
+  static Screen _gateScreen(AppGateVerdict v) =>
+      v.status == AppGateStatus.maintenance
+      ? Screen.maintenance
+      : Screen.update;
+
+  /// Reads this build's version from the package (pubspec's `version`) and
+  /// declares it — with the platform — on every request and in the socket's
+  /// handshake. Bounded: a plugin that does not answer leaves the build
+  /// undeclared rather than holding the splash.
+  Future<void> _readPackageInfo() async {
+    try {
+      final info = await PackageInfo.fromPlatform().timeout(
+        const Duration(seconds: 2),
+      );
+      appVersion = '${info.version} (${info.buildNumber})';
+      _buildNumber = int.tryParse(info.buildNumber) ?? 0;
+      _installedVersion = info.version;
+    } catch (_) {}
+    _declareBuild();
+  }
+
+  /// Hands this build's platform and version to the REST client and the
+  /// socket — both, or neither: a build that cannot read its own version
+  /// declares nothing, rather than an app platform with no version, which a
+  /// server with a minimum set would have to refuse.
+  void _declareBuild() {
+    final platform = appPlatformName();
+    final version = SemVer.tryParse(_installedVersion) != null
+        ? _installedVersion
+        : null;
+    final declared = platform != null && version != null;
+    _api
+      ..appPlatform = declared ? platform : null
+      ..appVersion = declared ? version : null;
+    _conn
+      ..appPlatform = declared ? platform : null
+      ..appVersion = declared ? version : null;
+  }
+
+  /// Asks the server what this build may do (`GET /api/app-config`). Null
+  /// when it could not be asked — offline, slow, refused — and the app
+  /// carries on as it does offline; a server that predates the gate (404) is
+  /// NORMAL, its build floor still in force through session:ready.
+  Future<AppGateVerdict?> _fetchAppGate() async {
+    try {
+      final config = await _api.appConfig();
+      if (config == null) return const AppGateVerdict(AppGateStatus.normal);
+      return _announced = evaluateAppConfig(
+        config,
+        platform: _api.appPlatform,
+        version: _api.appVersion,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// A saved session, restored: `me`, then the socket, behind the splash
+  /// (or the maintenance screen's Try again). The lobby when it holds, the
+  /// sign-in screen when it does not. A refusal from the version gate is no
+  /// verdict on the session: the token is kept for after the update or the
+  /// maintenance, and the caller puts up the gate's screen.
+  Future<Screen> _restoreSession(SharedPreferences prefs) async {
+    final saved = prefs.getString('token');
+    if (saved == null || saved.isEmpty) return Screen.login;
+    _token = saved;
+    try {
+      user = await _api.me(saved);
+      _seeStanding();
+      unawaited(_loadPictures());
+      // Every sign-in asks for the table catalogue again — a restored
+      // session is a sign-in too — and a 304 makes that cheap.
+      unawaited(_loadTableConfig());
+      unawaited(loadLuckyDraw());
+      // The ladder says where the player's level starts, which the
+      // lobby's level bar measures from (owner, 27 Sep 2026).
+      if (levelLadder == null) unawaited(loadLevelLadder());
+      // The lobby's Friends key counts the requests waiting, read at
+      // every sign-in (owner, 26 Sep 2026).
+      unawaited(friends.refreshBadge());
+      // An install that signed in before the statement existed meets it on
+      // its next launch, once, like everyone else.
+      await loadConsent(prefs);
+      // If the app was closed mid-hand the seat may still be held, or the
+      // table remembered; either way the answer comes with the connection,
+      // which starts now, behind the splash.
+      _beginResume();
+      _conn.connect(saved);
+      return Screen.lobby;
+    } on AppGateRefusal {
+      return Screen.login;
+    } catch (_) {
+      // Expired or revoked — fall back to the sign-in screen.
+      _token = null;
+      await prefs.remove('token');
+      return Screen.login;
+    }
+  }
+
+  /// The server will not let this build play: too old ([Screen.update]) or
+  /// the game in maintenance ([Screen.maintenance]) — from a REST refusal,
+  /// the socket handshake, the start-up check or the legacy build floor, all
+  /// to the same screens. The socket is let go and nothing reconnects it —
+  /// not the background-return, not a seat check — while the TOKEN IS KEPT:
+  /// this is no verdict on the account, and after the maintenance (Try again)
+  /// or the update the player is where they were. On a cold start the splash
+  /// finishes first, and [start] puts the screen up.
+  void _appGateRefused(AppGateVerdict v) {
+    appGate = v;
+    softUpdate = null;
     _conn.disconnect();
+    _backgroundTimer?.cancel();
+    _backgroundTimer = null;
+    _closedForBackground = false;
+    _seatCheck?.cancel();
+    _resumeTimer?.cancel();
+    resuming = false;
     room = null;
     seatedAt = null;
-    screen = Screen.update;
+    chat.clear();
+    _clearBubbles();
+    _clearSideshow();
+    _clearVariation();
+    _clearMissile();
+    _clearCelebration();
+    _clearPokerHand();
+    switching = false;
+    if (screen != Screen.splash) screen = _gateScreen(v);
     notifyListeners();
+  }
+
+  /// A socket refusal or a REST 426 / 503, as the tests deliver them.
+  @visibleForTesting
+  void handleAppGate(AppGateVerdict v) => _appGateRefused(v);
+
+  /// The maintenance screen's Try again: asks the server again, and — the
+  /// game open once more — takes the player where they were (a saved session
+  /// to the lobby and its table, else the sign-in screen). Still closed, or
+  /// now too old, the right screen stays; unreachable, the screen stays and
+  /// says so.
+  Future<void> retryAppGate() async {
+    if (checkingAppGate) return;
+    checkingAppGate = true;
+    notifyListeners();
+    final gate = await _fetchAppGate();
+    if (gate == null) {
+      checkingAppGate = false;
+      notice = t.serviceUnavailable;
+      notifyListeners();
+      return;
+    }
+    if (gate.blocks) {
+      checkingAppGate = false;
+      appGate = gate;
+      screen = _gateScreen(gate);
+      notifyListeners();
+      return;
+    }
+    appGate = null;
+    final prefs = await SharedPreferences.getInstance();
+    final next = await _restoreSession(prefs);
+    checkingAppGate = false;
+    final refused = appGate;
+    screen = refused != null && refused.blocks ? _gateScreen(refused) : next;
+    notifyListeners();
+    _offerSoftUpdate(prefs, gate);
+  }
+
+  /// Puts up the optional update once per announcement: the server's newer
+  /// version (SOFT_UPDATE), or — Android — Play's own report of a newer
+  /// build, which since the version gate is a nudge, never a block (only the
+  /// server's minimum blocks). Answered Later, it is not asked again for the
+  /// same announcement ([SoftUpdateMemory]).
+  void _offerSoftUpdate(SharedPreferences prefs, AppGateVerdict? gate) {
+    if (gate != null && gate.blocks) return;
+    if (appGate?.blocks ?? false) return;
+    String? key;
+    AppGateVerdict? offer;
+    if (gate != null && gate.status == AppGateStatus.softUpdate) {
+      key = 'latest:${gate.latestVersion}';
+      offer = gate;
+    } else if (updateStatus != UpdateStatus.none) {
+      key = 'play:$_installedVersion';
+      offer = AppGateVerdict(
+        AppGateStatus.softUpdate,
+        storeUrl: gate?.storeUrl ?? _announced?.storeUrl,
+      );
+    }
+    if (key == null || !SoftUpdateMemory.shouldOffer(prefs, key)) return;
+    softUpdate = offer;
+    _softUpdateKey = key;
+    notifyListeners();
+  }
+
+  /// Later, on the optional update: put away until something newer is
+  /// announced.
+  Future<void> laterSoftUpdate() async {
+    final key = _softUpdateKey;
+    softUpdate = null;
+    _softUpdateKey = null;
+    notifyListeners();
+    if (key != null) {
+      await SoftUpdateMemory.later(await SharedPreferences.getInstance(), key);
+    }
   }
 
   void _wire() {
@@ -1424,6 +1645,9 @@ class GameState extends ChangeNotifier {
         offline = !up;
         notifyListeners();
       }),
+      // The handshake refused this build: the update or maintenance screen,
+      // and no reconnect.
+      _conn.onAppGate.listen(_appGateRefused),
     ]);
   }
 
@@ -3528,15 +3752,15 @@ class GameState extends ChangeNotifier {
         ? await _update.startImmediate()
         : false;
 
-    // Otherwise send them to the listing — the store app first, its web page
-    // second (net/app_update.dart picks the pair for the platform).
+    // Otherwise send them to the store: the link the SERVER named for this
+    // platform (the version gate's store_url — Play on Android, the App Store
+    // on iOS), and only when it named none the app's own pair — the store app
+    // first, its web page second (net/app_update.dart picks it).
     if (!ok) {
-      for (final uri in storeListingUris()) {
+      final named = (appGate ?? softUpdate ?? _announced)?.storeUrl;
+      for (final uri in named != null ? [named] : storeListingUris()) {
         try {
-          ok = await launchUrl(
-            Uri.parse(uri),
-            mode: LaunchMode.externalApplication,
-          );
+          ok = await openStoreUrl(Uri.parse(uri));
         } catch (_) {
           ok = false;
         }
@@ -3545,7 +3769,8 @@ class GameState extends ChangeNotifier {
     }
 
     updating = false;
-    if (!ok) notice = t.updateFailed;
+    // No store could be opened: said, never a crash.
+    if (!ok) notice = t.updateStoreUnavailable;
     notifyListeners();
   }
 

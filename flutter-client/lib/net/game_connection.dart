@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../models/dtos.dart';
 import '../models/friends.dart';
 import 'api_client.dart' show accountDisabledCode, sessionReplacedCode;
+import 'app_version.dart';
 
 /// A hand's reveal or its end, as `game:showdown` and `game:handEnded` carry
 /// them. `reason` is the server's (`missile` for a hand a missile ended);
@@ -97,6 +98,20 @@ class GameConnection {
   final String baseUrl;
   io.Socket? _socket;
   static const _uuid = Uuid();
+
+  /// What this build declares in the handshake, beside the token (the app
+  /// version gate, 28 Sep 2026): the auth object's [appPlatformAuthKey] and
+  /// [appVersionAuthKey]. Both or neither, as the REST headers.
+  String? appPlatform;
+  String? appVersion;
+
+  final _gate = StreamController<AppGateVerdict>.broadcast();
+
+  /// The handshake refused this build: too old to play (`update_required`) or
+  /// the game in maintenance (`maintenance`). The socket has already been let
+  /// go — a refusal at the handshake is final, and nothing here knocks again
+  /// — and the app puts up the update or maintenance screen.
+  Stream<AppGateVerdict> get onAppGate => _gate.stream;
 
   final _state = StreamController<RoomState>.broadcast();
   final _session =
@@ -263,11 +278,21 @@ class GameConnection {
   void connect(String token) {
     disconnect();
 
+    final platform = appPlatform, version = appVersion;
+    final declared =
+        platform != null &&
+        platform.isNotEmpty &&
+        version != null &&
+        version.isNotEmpty;
     final socket = io.io(
       baseUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
-          .setAuth({'token': token})
+          .setAuth({
+            'token': token,
+            if (declared) appPlatformAuthKey: platform,
+            if (declared) appVersionAuthKey: version,
+          })
           .enableReconnection()
           .setReconnectionDelay(800)
           // A new Manager and Socket for every session. Without it
@@ -301,6 +326,19 @@ class GameConnection {
       // sign-out, Delete account, a new sign-in) has nothing to tell the
       // player now.
       if (!identical(_socket, socket)) return;
+      // The app version gate (28 Sep 2026): this build is too old to play, or
+      // the game is in maintenance. socket_io_client already treats a
+      // middleware refusal as final; the socket is let go here as well, so no
+      // later path can knock again with a build the server has turned away —
+      // a network failure, below, is still retried as it always was.
+      final gate = AppGateVerdict.fromConnectError(e);
+      if (gate != null) {
+        _socket = null;
+        // After this handler: the socket is still delivering this event.
+        scheduleMicrotask(socket.dispose);
+        _gate.add(gate);
+        return;
+      }
       // The handshake's refusal is {message: <code>}. A disabled account is
       // passed on by its code, so the app can say so rather than blame the
       // network.
@@ -735,6 +773,7 @@ class GameConnection {
     _left.close();
     _kicked.close();
     _connected.close();
+    _gate.close();
   }
 
   static Map<String, dynamic> _map(dynamic v) =>
