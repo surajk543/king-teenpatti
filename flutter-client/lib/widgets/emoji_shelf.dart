@@ -13,7 +13,7 @@
 ///   one to everyone at the table; the rest dimmed with their price, bought
 ///   right there ([unlockEmoji]).
 ///
-/// The server sells one emoji at a time ([GameState.buyEmoji]), so in both
+/// The app buys one emoji at a time ([GameState.buyEmoji]), so in both
 /// places, while one is being bought, its tile wears the game's ring and
 /// every locked tile is dead until the answer comes back.
 library;
@@ -181,8 +181,9 @@ class EmojiChoice extends StatelessWidget {
   /// and the tile takes no tap.
   final bool busy;
 
-  /// Null for a locked emoji while ANOTHER is being bought: one purchase at
-  /// a time, so its tile takes no tap until that one is answered.
+  /// Null for a locked emoji while any emoji is being bought, this one or
+  /// another: one purchase at a time, so no locked tile takes a tap until
+  /// that one is answered.
   final VoidCallback? onTap;
 
   /// How wide a tile with a well of [side] stands on the shelf.

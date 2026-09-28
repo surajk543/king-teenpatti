@@ -25,8 +25,11 @@ package game
 // CategoryVariation (Go only; owner, 18 Sep 2026) is the one Teen Patti
 // category that does change the game: every hand opens with a window in which
 // the player to act first chooses the rules it is decided by
-// (table_variation.go, variation.go). Everything else about it is a seen
-// table's — the same capped ladder — with a blind table's secrecy.
+// (table_variation.go, variation.go). Everything else about it is a blind
+// table's: its secrecy and, for a public one since 28 Sep 2026
+// (config.TableRules), its betting — the ladder to the stack, no round cap,
+// no per-bet ceiling — with no pot cap by default. Until then it bet as a
+// seen table.
 //
 // The four POKER categories (Go only; owner, 19 Sep 2026 — POKER_PLAN.md) name
 // a different game family altogether: a table of one of them is not a

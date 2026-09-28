@@ -52,8 +52,9 @@ const (
 	// a table whose hands open with a window in which one player chooses the
 	// variation they are decided by (game/variation.go). A public one bets as
 	// a blind table does — no raise limit, no round cap, no per-bet ceiling
-	// (TableRules; owner, 28 Sep 2026) — has no pot cap unless
-	// VariationMaxPotBoots sets one, and hides other stacks as a blind table
+	// (TableRules; owner, 28 Sep 2026) — has no pot cap by default
+	// (VariationMaxPotBoots, or a menu entry's own pot=N, can set one), and
+	// hides other stacks as a blind table
 	// does (game.Category.HidesChips). Until 28 Sep 2026 it took the seen
 	// table's ladder and rounds.
 	CategoryVariation = "variation"

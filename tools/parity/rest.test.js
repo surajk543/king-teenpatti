@@ -534,11 +534,12 @@ test('a premium picture is bought once, with chips, and then can be worn', async
 test('a hammer picture is paid in hammers, never chips or diamonds, and a new account can afford one', async () => {
   const { profiles } = (await http('GET', '/api/profiles')).body;
   const hammered = profiles.filter((p) => p.currency === 'HAMMER');
-  // Nineteen of the 30 seeded animated pictures: the owner priced five in
+  // Twenty of the 31 seeded animated pictures: the owner priced five in
   // diamonds and six in chips (14 Sep 2026; two of them appended after launch),
-  // and Love and Kiss and then Dog Dancing, Dance and Cockroach (appended after
-  // launch too) joined the hammer shelf the same day.
-  assert.equal(hammered.length, 19, 'the seeded animated pictures are priced in hammers');
+  // Love and Kiss and then Dog Dancing, Dance and Cockroach (appended after
+  // launch too) joined the hammer shelf the same day, and Festive Capybara
+  // (1 hammer, V1.0.2__seed-festive-capybara.sql, 28 Sep 2026) after them.
+  assert.equal(hammered.length, 20, 'the seeded animated pictures are priced in hammers');
   const pic = hammered.find((p) => p.cost === 10);
   assert.ok(pic, 'one of them costs 10 hammers');
   assert.equal(pic.type, 'PREMIUM');
