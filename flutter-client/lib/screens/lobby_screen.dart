@@ -13,6 +13,7 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/depth.dart';
 import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
 import '../widgets/game_card.dart';
@@ -1453,23 +1454,32 @@ class _WalletPill extends StatelessWidget {
     final glass = GlassColors.of(context);
     return SizedBox(
       height: Dim.minTouch,
-      child: CustomPaint(
-        foregroundPainter: GlassHairline(
-          radius: Radii.pill,
-          colors: [glass.borderTop, glass.borderBottom],
-        ),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(Radii.pill),
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [glass.fillStrong, glass.fill],
-            ),
+      // One step off the room, as the bar's chips are (the depth ladder's
+      // raised step) — cast round the glass, never under it, so the pill
+      // keeps its own colour.
+      child: DepthShadow(
+        radius: Radii.pill,
+        child: CustomPaint(
+          foregroundPainter: GlassHairline(
+            radius: Radii.pill,
+            colors: [glass.borderTop, glass.borderBottom],
           ),
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: margin),
-            child: Center(widthFactor: 1, child: child),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(Radii.pill),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [glass.fillStrong, glass.fill],
+              ),
+            ),
+            child: DepthFace(
+              radius: Radii.pill,
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: margin),
+                child: Center(widthFactor: 1, child: child),
+              ),
+            ),
           ),
         ),
       ),
@@ -1762,45 +1772,53 @@ class _BarActions extends StatelessWidget {
     // blur — the chips drift under it.
     return Material(
       type: MaterialType.transparency,
-      child: CustomPaint(
-        foregroundPainter: GlassHairline(
-          radius: Radii.pill,
-          colors: [glass.borderTop, glass.borderBottom],
-        ),
-        child: Container(
-          height: Dim.minTouch,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(Radii.pill),
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [glass.fillStrong, glass.fill],
-            ),
+      // One step off the room, as the wallet pill beside it, cast round the
+      // glass and never under it.
+      child: DepthShadow(
+        radius: Radii.pill,
+        child: CustomPaint(
+          foregroundPainter: GlassHairline(
+            radius: Radii.pill,
+            colors: [glass.borderTop, glass.borderBottom],
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              key(
-                state.t.yourRecord,
-                Icons.insights_outlined,
-                () => onOpen(context, _EndPanel.stats),
-                AppTheme.inkMed,
+          child: Container(
+            height: Dim.minTouch,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(Radii.pill),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [glass.fillStrong, glass.fill],
               ),
-              divider,
-              key(
-                state.t.settings,
-                Icons.tune_rounded,
-                () => onOpen(context, _EndPanel.settings),
-                AppTheme.inkMed,
+            ),
+            child: DepthFace(
+              radius: Radii.pill,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  key(
+                    state.t.yourRecord,
+                    Icons.insights_outlined,
+                    () => onOpen(context, _EndPanel.stats),
+                    AppTheme.inkMed,
+                  ),
+                  divider,
+                  key(
+                    state.t.settings,
+                    Icons.tune_rounded,
+                    () => onOpen(context, _EndPanel.settings),
+                    AppTheme.inkMed,
+                  ),
+                  divider,
+                  key(
+                    state.t.signOut,
+                    Icons.logout_rounded,
+                    () => _confirmSignOut(context, state),
+                    0.42,
+                  ),
+                ],
               ),
-              divider,
-              key(
-                state.t.signOut,
-                Icons.logout_rounded,
-                () => _confirmSignOut(context, state),
-                0.42,
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -3368,8 +3386,6 @@ class _SitCapsule extends StatelessWidget {
       // Full width: it is the card's foot rail, and a capsule that hugs its
       // own label reads as a caption again.
       width: double.infinity,
-      alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: CardSpace.s12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(Radii.pill),
         // A pane laid on the card, lit from above, with the mode's colour
@@ -3415,31 +3431,43 @@ class _SitCapsule extends StatelessWidget {
               ]
             : null,
       ),
-      // Shrunk to the key when a translation will not fit it, never cut
-      // short: "Tap to sit down" is what the whole card is for.
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              label,
-              maxLines: 1,
-              softWrap: false,
-              style: AppTheme.label(
-                theme.textTheme.labelMedium!,
-                fontSize: (height * 0.40).clamp(12.0, 15.0),
-                colour: ink,
-                weight: FontWeight.w700,
+      // A key standing on its card: its top edge lit and its foot in shade
+      // while it can be pressed (the depth ladder's raised step), flush with
+      // the card when it cannot.
+      child: DepthFace(
+        radius: Radii.pill,
+        strength: enabled ? 1 : 0,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: CardSpace.s12),
+          child: Center(
+            // Shrunk to the key when a translation will not fit it, never cut
+            // short: "Tap to sit down" is what the whole card is for.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: AppTheme.label(
+                      theme.textTheme.labelMedium!,
+                      fontSize: (height * 0.40).clamp(12.0, 15.0),
+                      colour: ink,
+                      weight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: CardSpace.s8),
+                  Icon(
+                    Icons.arrow_forward_rounded,
+                    size: (height * 0.46).clamp(14.0, 19.0),
+                    color: enabled ? palette.ink : ink,
+                  ),
+                ],
               ),
             ),
-            const SizedBox(width: CardSpace.s8),
-            Icon(
-              Icons.arrow_forward_rounded,
-              size: (height * 0.46).clamp(14.0, 19.0),
-              color: enabled ? palette.ink : ink,
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -4083,6 +4111,7 @@ Future<void> openPicturePicker(BuildContext context) async {
                 child: PremiumGlassPanel(
                   mode: GlassMode.auto,
                   priority: 20,
+                  depth: Elevation.overlay,
                   radius: Radii.lg,
                   padding: const EdgeInsets.fromLTRB(
                     Space.xl,
@@ -4307,6 +4336,7 @@ class _LobbyDrawer extends StatelessWidget {
         child: PremiumGlassPanel(
           mode: GlassMode.auto,
           priority: 10,
+          depth: Elevation.overlay,
           radius: Radii.lg,
           padding: EdgeInsets.zero,
           behind: const _DrawerBody(),
@@ -4595,27 +4625,36 @@ class _SettingsGroup extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: inset),
-      child: Material(
-        color: fill,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(Radii.md),
-          side: BorderSide(
-            color: danger
-                ? error.withValues(alpha: dark ? 0.26 : 0.22)
-                : glass.cardBorder,
-            width: Dim.hairline,
+      // A pane one step above the drawer (the depth ladder's raised step,
+      // nested: the drawer's small shadow, not the room's), its top edge lit
+      // and its foot in shade under its rows.
+      child: DepthShadow(
+        radius: Radii.md,
+        child: Material(
+          color: fill,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Radii.md),
+            side: BorderSide(
+              color: danger
+                  ? error.withValues(alpha: dark ? 0.26 : 0.22)
+                  : glass.cardBorder,
+              width: Dim.hairline,
+            ),
           ),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (var i = 0; i < children.length; i++) ...[
-              if (i > 0) const _GroupDivider(),
-              children[i],
-            ],
-          ],
+          clipBehavior: Clip.antiAlias,
+          child: DepthFace(
+            radius: Radii.md,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < children.length; i++) ...[
+                  if (i > 0) const _GroupDivider(),
+                  children[i],
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );

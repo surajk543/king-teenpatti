@@ -8,6 +8,7 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/depth.dart';
 import '../theme/table_theme.dart';
 import 'avatar.dart';
 import 'emoji_art.dart';
@@ -834,17 +835,10 @@ class SeatPod extends StatelessWidget {
     final known = s.chips != null;
     final type = TableType.seat(theme, width);
 
+    final corner = width * 0.075;
     return Container(
       key: stackKey,
       width: double.infinity,
-      // Slimmer than it was: only the viewer still carries a pill (the rim
-      // seats' figures are withheld on a blind table and the pill went with
-      // them), and one plaque at the bottom of the screen does not need the
-      // weight it had when five of them ringed the table.
-      padding: EdgeInsets.symmetric(
-        vertical: width * 0.010,
-        horizontal: width * 0.040,
-      ),
       decoration: BoxDecoration(
         // Two stops rather than one: the darker top edge is what reads as a
         // well cut into the plaque, since Flutter has no inset shadow.
@@ -861,35 +855,53 @@ class SeatPod extends StatelessWidget {
                   AppTheme.bone300.withValues(alpha: 0.55),
                 ],
         ),
-        borderRadius: BorderRadius.circular(width * 0.075),
+        borderRadius: BorderRadius.circular(corner),
         border: Border.all(color: AppTheme.hairlineColour(theme.brightness)),
       ),
-      child: FittedBox(
-        fit: BoxFit.scaleDown,
-        child:
-            _stackArriving(
-              s,
-              type.stack(
-                colour: dark ? AppTheme.goldBright : AppTheme.goldDeep,
-              ),
-            ) ??
-            Text(
-              // On a blind table another player's stack was never sent, so
-              // show it as withheld rather than as zero.
-              known ? formatChips(s.chips!) : '•••',
-              textAlign: TextAlign.center,
-              style: known
-                  ? type.stack(
-                      colour: dark ? AppTheme.goldBright : AppTheme.goldDeep,
-                    )
-                  : type
-                        .stack(
-                          colour: theme.colorScheme.onSurface.withValues(
-                            alpha: AppTheme.inkLow,
-                          ),
+      // And the well's own edges (the depth ladder's well): its top inside
+      // edge in shade and a lit lip along its foot.
+      child: DepthFace(
+        radius: corner,
+        level: Elevation.well,
+        // Slimmer than it was: only the viewer still carries a pill (the rim
+        // seats' figures are withheld on a blind table and the pill went with
+        // them), and one plaque at the bottom of the screen does not need the
+        // weight it had when five of them ringed the table.
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            vertical: width * 0.010,
+            horizontal: width * 0.040,
+          ),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child:
+                _stackArriving(
+                  s,
+                  type.stack(
+                    colour: dark ? AppTheme.goldBright : AppTheme.goldDeep,
+                  ),
+                ) ??
+                Text(
+                  // On a blind table another player's stack was never sent,
+                  // so show it as withheld rather than as zero.
+                  known ? formatChips(s.chips!) : '•••',
+                  textAlign: TextAlign.center,
+                  style: known
+                      ? type.stack(
+                          colour: dark
+                              ? AppTheme.goldBright
+                              : AppTheme.goldDeep,
                         )
-                        .copyWith(letterSpacing: width * 0.02),
-            ),
+                      : type
+                            .stack(
+                              colour: theme.colorScheme.onSurface.withValues(
+                                alpha: AppTheme.inkLow,
+                              ),
+                            )
+                            .copyWith(letterSpacing: width * 0.02),
+                ),
+          ),
+        ),
       ),
     );
   }

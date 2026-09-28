@@ -14,6 +14,7 @@ import 'screens/table_screen.dart';
 import 'settings/feedback_settings.dart';
 import 'state/game_state.dart';
 import 'theme/app_theme.dart';
+import 'theme/depth.dart';
 import 'theme/theme_colors.dart';
 import 'widgets/game_loader.dart';
 import 'widgets/glass_components.dart';
@@ -330,6 +331,7 @@ class _ConsentGate extends StatelessWidget {
                 child: GlassCard(
                   mode: GlassMode.auto,
                   priority: 20,
+                  depth: Elevation.overlay,
                   radius: Radii.lg,
                   padding: const EdgeInsets.all(Space.xl),
                   child: Column(

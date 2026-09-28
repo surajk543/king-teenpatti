@@ -18,6 +18,7 @@ import '../l10n/strings.dart';
 import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/depth.dart';
 import '../theme/theme_colors.dart';
 import 'premium_surface.dart';
 
@@ -174,6 +175,7 @@ class GlassCard extends StatelessWidget {
     this.elevated = true,
     this.onTap,
     this.clipBehavior = Clip.antiAlias,
+    this.depth = Elevation.card,
   });
 
   final Widget child;
@@ -186,6 +188,9 @@ class GlassCard extends StatelessWidget {
   final bool elevated;
   final VoidCallback? onTap;
   final Clip clipBehavior;
+
+  /// Where the card stands on the depth ladder ([PremiumGlassPanel.depth]).
+  final Elevation depth;
 
   @override
   Widget build(BuildContext context) {
@@ -213,6 +218,7 @@ class GlassCard extends StatelessWidget {
       tint: tint,
       elevated: elevated,
       clipBehavior: clipBehavior,
+      depth: depth,
       padding: EdgeInsets.zero,
       child: body,
     );
@@ -334,6 +340,23 @@ class GlassButton extends StatelessWidget {
     var merged = (buttonStyle ?? const ButtonStyle())
         .merge(variant)
         .merge(base);
+    // A key stands one step above what it sits on (the depth ladder's
+    // raised step): its top edge lit and its foot shaded, just inside its
+    // outline, under its label — a filled key a third as strongly, since its
+    // colour already carries it. The flat half of a dialog's pair stays flat.
+    if (style != GlassButtonStyle.text && merged.backgroundBuilder == null) {
+      final themed = style == GlassButtonStyle.primary
+          ? theme.filledButtonTheme.style
+          : theme.outlinedButtonTheme.style;
+      final shape =
+          merged.shape?.resolve(const {}) ?? themed?.shape?.resolve(const {});
+      merged = merged.copyWith(
+        backgroundBuilder: raisedKeyFace(
+          radius: radiusOfShape(shape),
+          strength: style == GlassButtonStyle.primary ? 0.35 : 1,
+        ),
+      );
+    }
     // The owner's click replaces Material's tick, so the tap sounds once.
     if (click) merged = const ButtonStyle(enableFeedback: false).merge(merged);
     final onTap = enabled ? press : null;
@@ -707,66 +730,72 @@ class _GlassThemeSwitcherState extends State<GlassThemeSwitcher>
           width: Dim.hairline,
         ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(GlassThemeSwitcher._pad),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            AnimatedBuilder(
-              animation: _c,
-              builder: (context, _) => Align(
-                // Three segments, so the thumb's centre runs -1 .. 0 .. 1.
-                alignment: Alignment(-1 + _c.value.clamp(0.0, 2.0), 0),
-                child: FractionallySizedBox(
-                  widthFactor: 1 / 3,
-                  heightFactor: 1,
-                  // The chosen segment in the store's own words for a chosen
-                  // thing — a wash of gold under a champagne edge, as its
-                  // shelf keys wear — over the raised thumb's body, so the
-                  // choice reads as gold on both grounds without shouting.
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(Radii.pill),
-                      color: Color.alphaBlend(
-                        AppTheme.gold.withValues(alpha: dark ? 0.18 : 0.10),
-                        glass.thumb,
-                      ),
-                      border: Border.all(
-                        color: dark
-                            ? AppTheme.goldBright.withValues(alpha: 0.55)
-                            : AppTheme.hairlineColour(b, live: true),
-                        width: Dim.hairline,
-                      ),
-                      boxShadow: AppTheme.controlShadow(
-                        b,
-                        elevation: dark ? 1.5 : 2,
+      // Sunk: its top inside edge in shade and a lit lip along its foot (the
+      // depth ladder's well), so the raised thumb stands up out of it.
+      child: DepthFace(
+        radius: Radii.pill,
+        level: Elevation.well,
+        child: Padding(
+          padding: const EdgeInsets.all(GlassThemeSwitcher._pad),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              AnimatedBuilder(
+                animation: _c,
+                builder: (context, _) => Align(
+                  // Three segments, so the thumb's centre runs -1 .. 0 .. 1.
+                  alignment: Alignment(-1 + _c.value.clamp(0.0, 2.0), 0),
+                  child: FractionallySizedBox(
+                    widthFactor: 1 / 3,
+                    heightFactor: 1,
+                    // The chosen segment in the store's own words for a chosen
+                    // thing — a wash of gold under a champagne edge, as its
+                    // shelf keys wear — over the raised thumb's body, so the
+                    // choice reads as gold on both grounds without shouting.
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(Radii.pill),
+                        color: Color.alphaBlend(
+                          AppTheme.gold.withValues(alpha: dark ? 0.18 : 0.10),
+                          glass.thumb,
+                        ),
+                        border: Border.all(
+                          color: dark
+                              ? AppTheme.goldBright.withValues(alpha: 0.55)
+                              : AppTheme.hairlineColour(b, live: true),
+                          width: Dim.hairline,
+                        ),
+                        boxShadow: AppTheme.controlShadow(
+                          b,
+                          elevation: dark ? 1.5 : 2,
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-            Material(
-              type: MaterialType.transparency,
-              child: Row(
-                children: [
-                  for (final m in _order)
-                    Expanded(
-                      child: _Segment(
-                        icon: labels[m]!.$1,
-                        label: labels[m]!.$2,
-                        selected: m == mode,
-                        compact: !words,
-                        onTap: () {
-                          tapHaptic(context);
-                          context.read<GameState>().setThemeMode(m);
-                        },
+              Material(
+                type: MaterialType.transparency,
+                child: Row(
+                  children: [
+                    for (final m in _order)
+                      Expanded(
+                        child: _Segment(
+                          icon: labels[m]!.$1,
+                          label: labels[m]!.$2,
+                          selected: m == mode,
+                          compact: !words,
+                          onTap: () {
+                            tapHaptic(context);
+                            context.read<GameState>().setThemeMode(m);
+                          },
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

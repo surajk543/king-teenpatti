@@ -5,6 +5,7 @@ import '../l10n/strings.dart';
 import '../net/app_version.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/depth.dart';
 import '../theme/theme_colors.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/game_loader.dart';
@@ -257,6 +258,7 @@ class SoftUpdatePrompt extends StatelessWidget {
                 child: GlassCard(
                   mode: GlassMode.auto,
                   priority: 21,
+                  depth: Elevation.overlay,
                   radius: Radii.lg,
                   padding: const EdgeInsets.all(Space.xl),
                   child: Column(
