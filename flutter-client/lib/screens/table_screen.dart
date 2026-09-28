@@ -7,12 +7,14 @@ import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 
 import '../models/dtos.dart';
+import '../models/own_look.dart';
 import '../net/picture_cache.dart';
 import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../state/hammer_strike.dart';
 import '../state/missile_strike.dart';
 import '../theme/app_theme.dart';
+import '../theme/hand_result_motion.dart';
 import '../theme/table_theme.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/casino_table.dart';
@@ -868,6 +870,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     _hammer?.dispose();
     _missile?.dispose();
     _partyClock?.dispose();
+    _lookClock?.dispose();
     super.dispose();
   }
 
@@ -1296,29 +1299,141 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     if (mounted) context.read<FeedbackSettings>().hammerHit();
   }
 
-  /// The winning hand's result animation (owner, 29 Sep 2026;
-  /// `widgets/hand_result.dart`): the showdown winner's reveal, on the
-  /// celebration's own clock, from the moment the ribbon strikes. Null
-  /// whenever this frame's state holds no such result — no celebration yet,
-  /// or one already dropped by the next deal — so an old hand's light can
-  /// never reach the next one's cards.
+  /// The viewer's own look (owner, 29 Sep 2026: "Animation should be played
+  /// on UI side, no backend change, animation should not played on once user
+  /// take show … when user click on see card, then acc to rank of card play
+  /// animation"): the moment the viewer's own cards turn face up — their tap
+  /// on See cards, or the reveal the fourth blind bet forces — their cards
+  /// play the animation of what they make, ONCE a hand. Nothing lights at a
+  /// show, a showdown, a missile or a sideshow, on any seat.
+  ///
+  /// [_lookClock] is this look's own clock, made for it and run once; the
+  /// cue keeps it for the rest of the hand, so the cards stay settled (a Pure
+  /// Sequence's gold edge, a Trail's small light) and nothing replays on a
+  /// snapshot repeat or at the showdown. The next deal is a new hand: no look
+  /// yet, no cue, no light.
+  AnimationController? _lookClock;
+
+  /// The hand the felt last saw ('room:handNo'), whether the viewer's cards
+  /// were face up then, and the look being shown ('hand:user:level:cards').
+  String? _lookHand;
+  bool _lookWasUp = false;
+  String? _lookKey;
+  HandResultCue? _lookCue;
+
+  /// From the tap on See cards to the cards having turned: the last of the
+  /// three starts [PlayingCard.flipStagger] × 2 after the first and turns for
+  /// [PlayingCard.flipFor]; a beat more so the light lands on a still card.
+  static const Duration _lookTurn = Duration(milliseconds: 600);
+
+  /// What the viewer's own face-up cards make, for the animation: at a Seen
+  /// or Blind table read from the cards themselves ([ownLookCategory] — the
+  /// server says nothing about this hand there); at a Variation table the
+  /// server's own `you.hand`, since wild cards and Muflis change what a hand
+  /// is. Null for nothing to light: a High Card, a Muflis hand, a 5-Card hand
+  /// still being chosen, a variation not yet chosen. [extra] is how long the
+  /// fan is still busy before the light may land — a wild card turning into
+  /// its stand-in, the best three of five being set out.
+  ({HandResultLevel level, Map<String, int> cards, Duration extra})? _ownLook(
+    GameState state,
+    RoomState room,
+    You you,
+  ) {
+    if (room.category == TableCategory.variation) {
+      final hand = you.hand;
+      if (hand == null ||
+          hand.picking ||
+          state.shownVariation == Variation.muflis) {
+        return null;
+      }
+      final level = HandResultLevel.fromHandName(hand.handName);
+      if (level == null) return null;
+      final cards = handResultCards(
+        level: level,
+        cards: you.cards,
+        playsAs: hand.playsAs,
+        best: you.cards.length > 3 ? hand.best : const [],
+      );
+      if (cards.isEmpty) return null;
+      var extra = Duration.zero;
+      if (you.cards.length > 3) {
+        extra +=
+            _BestThreeStage.beforeAside +
+            _BestThreeStage.beforeArranged +
+            Motion.arrive;
+      }
+      if (hand.wild.isNotEmpty) {
+        extra +=
+            WildTransform.turnFor +
+            WildTransform.stagger * (you.cards.length - 1);
+      }
+      return (level: level, cards: cards, extra: extra);
+    }
+    if (you.cards.length != 3) return null;
+    final level = HandResultLevel.fromCategory(ownLookCategory(you.cards));
+    if (level == null) return null;
+    final cards = handResultCards(level: level, cards: you.cards);
+    if (cards.isEmpty) return null;
+    return (level: level, cards: cards, extra: Duration.zero);
+  }
+
+  /// The cue for [HandResultScope]: the viewer's own look, or null. Keeps
+  /// the felt on it as [_follow] does for the hammer — a look that has just
+  /// arrived gets its clock and is started after this frame; a felt that
+  /// first sees a hand with the look already made (a reconnect mid-hand)
+  /// shows it settled rather than playing it again.
   HandResultCue? _handResultCue(GameState state) {
-    final party = _party;
     final room = state.room;
-    final winner = state.winnerId;
-    if (party == null || room == null || winner == null) return null;
-    final key = '${room.roomId}:${room.handNo}:$winner';
-    if (_partyKey != key) return null;
-    return HandResultCue.forWinner(
-      key: key,
-      reveal: state.showdown.where((r) => r.userId == winner).firstOrNull,
-      clock: party.clock,
-      total: party.total,
-      startAt: party.resultAt,
-      category: room.category,
-      bootAmount: room.bootAmount,
-      variation: state.shownVariation,
-    );
+    final you = room?.you;
+    final me = state.user?.id;
+    if (room == null || you == null || me == null || room.isPoker) {
+      return null;
+    }
+    final hand = '${room.roomId}:${room.handNo}';
+    final up = !you.isBlind && you.cards.isNotEmpty;
+    final firstSight = hand != _lookHand;
+    final turned = !firstSight && up && !_lookWasUp;
+    _lookHand = hand;
+    _lookWasUp = up;
+    final look = up && you.status != SeatState.packed
+        ? _ownLook(state, room, you)
+        : null;
+    if (look == null) return null;
+    final key =
+        '$hand:$me:${look.level.name}:${(look.cards.keys.toList()..sort()).join(',')}';
+    if (key != _lookKey) {
+      _lookKey = key;
+      final startAt = (turned ? _lookTurn : Duration.zero) + look.extra;
+      final total = startAt + HandResultProfile.of(look.level).duration;
+      final spent = _lookClock;
+      final clock = _lookClock = AnimationController(
+        vsync: this,
+        duration: total,
+      );
+      if (firstSight) {
+        clock.value = 1;
+      } else {
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (mounted && identical(_lookClock, clock)) clock.forward();
+        });
+      }
+      // The last look's clock goes once this frame has let go of it.
+      if (spent != null) {
+        SchedulerBinding.instance.addPostFrameCallback((_) => spent.dispose());
+      }
+      _lookCue = HandResultCue(
+        key: key,
+        userId: me,
+        level: look.level,
+        cards: look.cards,
+        clock: clock,
+        total: total,
+        startAt: startAt,
+        category: room.category,
+        bootAmount: room.bootAmount,
+      );
+    }
+    return _lookCue;
   }
 
   @override
