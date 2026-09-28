@@ -18,6 +18,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../theme/depth.dart';
 import 'premium_surface.dart';
 import 'package:provider/provider.dart';
 
@@ -91,6 +92,9 @@ class GlassDrawerPanel extends StatelessWidget {
                 priority: priority,
                 radius: Radii.lg,
                 padding: padding,
+                // Laid over the room: the ladder's highest step, so it lifts
+                // off the dimmed table and its own cards sit on it.
+                depth: Elevation.overlay,
                 child: child,
               ),
             ),
@@ -160,6 +164,7 @@ class GlassDialog extends StatelessWidget {
           priority: priority,
           radius: Radii.lg,
           padding: padding,
+          depth: Elevation.overlay,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -212,10 +217,16 @@ class GlassCapsule extends StatelessWidget {
     this.minHeight,
     this.surface = GlassSurface.pane,
     this.click = false,
+    this.depth = Elevation.raised,
   });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
+
+  /// Where the capsule stands on the depth ladder: one step above what it
+  /// sits on ([Elevation.raised]) — a chip on the ground, a pill on a card —
+  /// with the small, tight shadow that step casts.
+  final Elevation depth;
 
   /// Wears the brighter hairline: claimable, focused, or on the clock.
   final bool live;
@@ -277,6 +288,7 @@ class GlassCapsule extends StatelessWidget {
         live: live,
         tint: tint,
         elevated: elevated,
+        depth: depth,
         padding: EdgeInsets.zero,
         child: body,
       ),
@@ -398,6 +410,8 @@ class NoticeToast extends StatelessWidget {
       mode: GlassMode.tinted,
       radius: Radii.md,
       live: tone != NoticeTone.neutral,
+      // Over everything, sheets and dialogs included.
+      depth: Elevation.overlay,
       padding: const EdgeInsets.symmetric(
         horizontal: Space.lg,
         vertical: Space.md,
