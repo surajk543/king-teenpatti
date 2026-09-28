@@ -421,7 +421,17 @@ func TestTheLevelLadderIsPublicAndWhole(t *testing.T) {
 			Code string `json:"code"`
 			Name string `json:"name"`
 			XP   int    `json:"xp"`
+			Type string `json:"type"`
 		} `json:"xpSources"`
+		Missions []struct {
+			Code   string `json:"code"`
+			Name   string `json:"name"`
+			Kind   string `json:"kind"`
+			Type   string `json:"type"`
+			Target int    `json:"target"`
+			Scope  string `json:"scope"`
+			XP     int    `json:"xp"`
+		} `json:"missions"`
 		DailyCap *int `json:"dailyCap"`
 	}
 	raw, _ := io.ReadAll(res.Body)
@@ -448,6 +458,19 @@ func TestTheLevelLadderIsPublicAndWhole(t *testing.T) {
 	}
 	if len(body.XPSources) != 8 || body.DailyCap != nil || body.XPSources[0].Code != "PLAY_15_MIN" || body.XPSources[0].XP != 3 {
 		t.Errorf("%d sources, cap %v, want no daily cap", len(body.XPSources), body.DailyCap)
+	}
+	// The one-time missions (28 Sep 2026) beside the daily sources, never
+	// among them: xpSources stays the eight DAILY ones an older app sums to
+	// its "108 XP a window".
+	for _, s := range body.XPSources {
+		if s.Type != "DAILY" {
+			t.Errorf("a daily source typed %q: %+v", s.Type, s)
+		}
+	}
+	if len(body.Missions) != 12 || body.Missions[0].Code != "FIRST_HAND" || body.Missions[0].Type != "ONE_TIME" ||
+		body.Missions[0].Target != 1 || body.Missions[0].XP != 50 || body.Missions[8].Scope != "texas_holdem" ||
+		body.Missions[11].Kind != "CATEGORIES_PLAYED" || body.Missions[11].Target != 5 {
+		t.Errorf("the missions = %+v", body.Missions)
 	}
 	for _, word := range []string{"userId", "chips", "\"xp\":0,\"window"} {
 		if strings.Contains(string(raw), word) {
