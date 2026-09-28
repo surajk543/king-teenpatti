@@ -555,6 +555,12 @@ final tableScenes = <TableScene>[
     await tester.pump(const Duration(milliseconds: 600));
   }),
   TableScene('15-poker-holdem', (s) => s.handleState(pokerRoom())),
+  // Every seat at a poker room sending an emoji at once (28 Sep 2026): the
+  // poker felt keeps them apart as the Teen Patti felt does.
+  TableScene('15b-poker-every-seat-emoji', (s) {
+    s.handleState(pokerRoom());
+    everySeatEmoji(s);
+  }),
   TableScene('16-store-from-table', (s) => s.handleState(opponentTurnRoom()), (
     tester,
     state,

@@ -11,6 +11,7 @@ import '../theme/table_theme.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/deal_flight.dart';
 import '../widgets/drifting_chips.dart';
+import '../widgets/emoji_placement.dart';
 import '../widgets/emoji_shelf.dart';
 import '../widgets/game_loader.dart';
 import '../widgets/missed_turns_notice.dart';
@@ -60,6 +61,10 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
 
   GlobalKey<ScaffoldState> get _scaffold =>
       context.read<GameState>().tableScaffold;
+
+  /// The controls this screen stands over the felt's corners, keyed so the
+  /// felt can keep a moved emoji from under them (EmojiPlacement).
+  final FeltCovers _covers = FeltCovers();
 
   void _open(LeftPanel panel) {
     // The chat's badge is cleared by its Table chat tab, not by opening it
@@ -131,7 +136,7 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
                         onRules: _openRules,
                         cornerKeys: 1,
                       ),
-                      const Expanded(child: _PokerFelt()),
+                      Expanded(child: _PokerFelt(covers: _covers)),
                     ],
                   ),
                 ),
@@ -139,23 +144,46 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
             ),
           ),
           // The room's two top corners, as the Teen Patti table keeps them.
-          const TopCorner(left: true, child: ShopButton()),
-          const TopCorner(left: false, child: TableWallet()),
+          TopCorner(
+            left: true,
+            child: KeyedSubtree(key: _covers.shop, child: const ShopButton()),
+          ),
+          TopCorner(
+            left: false,
+            child: KeyedSubtree(
+              key: _covers.wallet,
+              child: const TableWallet(),
+            ),
+          ),
           // Check / Call and All-in over the bet stepper, in the corner the
           // Teen Patti keys are pressed in, and exactly as wide: the viewer's
           // fanned hand — five cards, on 5-Card Draw — is laid out to clear
           // that width.
-          const Positioned(
+          Positioned(
             right: 0,
             bottom: 0,
-            child: SafeArea(child: WhileOnline(child: _PokerKeys())),
+            child: SafeArea(
+              child: WhileOnline(
+                child: KeyedSubtree(
+                  key: _covers.footRight,
+                  child: const _PokerKeys(),
+                ),
+              ),
+            ),
           ),
           // Fold, alone in the opposite corner, where Pack is: the one key
           // that must never sit under a thumb reaching for a bet.
-          const Positioned(
+          Positioned(
             left: 0,
             bottom: 0,
-            child: SafeArea(child: WhileOnline(child: _FoldKey())),
+            child: SafeArea(
+              child: WhileOnline(
+                child: KeyedSubtree(
+                  key: _covers.footLeft,
+                  child: const _FoldKey(),
+                ),
+              ),
+            ),
           ),
           const Positioned.fill(child: SafeArea(child: Reconnecting())),
         ],
@@ -167,8 +195,16 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
 /// The cloth: the five seats in the Teen Patti felt's places, the board or
 /// the dealer's hand over the pot, the pots, the street tag, the status line
 /// and the viewer's own hand.
-class _PokerFelt extends StatelessWidget {
-  const _PokerFelt();
+///
+/// Stateful for its emojis alone: where each seat's plays, apart from every
+/// other and under nothing drawn after it ([EmojiPlacement], 28 Sep 2026 —
+/// the Teen Patti felt's own rule, which a held or resumed poker seat still
+/// meets).
+class _PokerFelt extends StatefulWidget {
+  const _PokerFelt({required this.covers});
+
+  /// The controls the poker screen stands over the felt's corners.
+  final FeltCovers covers;
 
   /// The middle of the pot, as a fraction of the felt's height — the Teen
   /// Patti felt's own figure, so the pot is where players expect it.
@@ -240,8 +276,66 @@ class _PokerFelt extends StatelessWidget {
   }
 
   @override
+  State<_PokerFelt> createState() => _PokerFeltState();
+}
+
+class _PokerFeltState extends State<_PokerFelt>
+    with EmojiPlacement<_PokerFelt> {
+  static const _potDy = _PokerFelt._potDy;
+  static const _boardDy = _PokerFelt._boardDy;
+  static const _statusDy = _PokerFelt._statusDy;
+  static const _promptDx = _PokerFelt._promptDx;
+  static const _promptDy = _PokerFelt._promptDy;
+  static const _promptW = _PokerFelt._promptW;
+  static const _promptWrap = _PokerFelt._promptWrap;
+  static const _statusClear = _PokerFelt._statusClear;
+  static const _dealerFootDy = _PokerFelt._dealerFootDy;
+  static const _tagDy = _PokerFelt._tagDy;
+
+  /// The felt's Stack, which the pods and the emojis are measured against.
+  final GlobalKey _stageKey = GlobalKey(debugLabel: 'poker felt');
+
+  /// One key per place, naming its pod (its plaque) and its whole seat.
+  final List<GlobalKey> _podKeys = List.generate(
+    seatPlaces.length,
+    (i) => GlobalKey(debugLabel: 'poker pod $i'),
+  );
+  final List<GlobalKey> _seatKeys = List.generate(
+    seatPlaces.length,
+    (i) => GlobalKey(debugLabel: 'poker seat $i'),
+  );
+
+  /// The viewer's own hand as laid out — its line, their bet and the hole
+  /// cards — which the felt paints after every seat.
+  final GlobalKey _handKey = GlobalKey(debugLabel: 'poker own hand');
+
+  /// Where the viewer's hand may stand, not only where it stands now: from
+  /// its left edge to the felt's right and from the pot's middle to the
+  /// felt's foot, as the last layout gave them. Between hands it holds
+  /// nothing, and the next deal would lay its cards over an emoji the empty
+  /// hand had let stand there.
+  Rect? _handZone;
+
+  @override
+  GlobalKey get emojiStage => _stageKey;
+
+  @override
+  List<GlobalKey> get emojiPods => _podKeys;
+
+  @override
+  List<GlobalKey> get emojiSeats => _seatKeys;
+
+  @override
+  Iterable<Rect> emojiCoversOver(Rect? Function(GlobalKey key) rectOf) => [
+    ?rectOf(_handKey),
+    ?_handZone,
+    for (final key in widget.covers.all) ?rectOf(key),
+  ];
+
+  @override
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
+    followEmojis(state.emojiShown);
     final room = state.room;
     final poker = room?.poker;
     if (room == null || poker == null) {
@@ -291,11 +385,16 @@ class _PokerFelt extends StatelessWidget {
           final h = box.maxHeight;
           final podW = Dim.podW(w, h);
           final handH = Dim.handH(h);
-          final (noticeTop, noticeBottom) = _noticeBand(
+          final (noticeTop, noticeBottom) = _PokerFelt._noticeBand(
             MediaQuery.sizeOf(context),
             h,
             podW,
           );
+          // The viewer's hand stands right of their pod, below the pot — and
+          // nothing drawn in a seat may be put anywhere in that zone, which
+          // the hand paints over (EmojiPlacement).
+          final handLeft = seatPlaces[0].dx * w + podW / 2 + Space.md;
+          _handZone = Rect.fromLTRB(handLeft, _potDy * h, w, h);
 
           Widget pod(int viewIndex) {
             final s = viewIndex < seats.length ? seats[viewIndex] : null;
@@ -305,6 +404,10 @@ class _PokerFelt extends StatelessWidget {
             // badge while their friend request waits.
             final other = playerDrawerSeat(state, s);
             return SeatPod(
+              // The whole seat, measured as what an emoji drawn in an
+              // earlier seat must not be put under (EmojiPlacement).
+              key: viewIndex < _seatKeys.length ? _seatKeys[viewIndex] : null,
+              podKey: viewIndex < _podKeys.length ? _podKeys[viewIndex] : null,
               poker: true,
               // Another player's pod opens their card; the viewer's own opens
               // their record and their friends (owner, 27 Sep 2026).
@@ -355,6 +458,12 @@ class _PokerFelt extends StatelessWidget {
               // few seconds, on every phone at the table (owner, 26 Sep 2026).
               emoji: state.emojiOver(s?.userId),
               emojiUrl: state.absoluteUrl(state.emojiOver(s?.userId)?.url),
+              // Moved beside or above the pod where its own place would meet
+              // another seat's emoji, and never under anything drawn after
+              // the seat (EmojiPlacement).
+              emojiPlace: emojiPlaceOf(s?.userId),
+              emojiShift: emojiShiftOf(s?.userId),
+              emojiKey: emojiKeyAt(viewIndex),
               bubbleSide: viewIndex == 0
                   ? BubbleSide.above
                   : viewIndex <= 2
@@ -366,12 +475,13 @@ class _PokerFelt extends StatelessWidget {
 
           // Positioned by centre, and never past either edge (the Teen Patti
           // felt's `at`).
-          Widget at(Offset place, Widget child, {double? width}) {
+          Widget at(Offset place, Widget child, {double? width, Key? key}) {
             final box = width ?? podW;
             final left = (place.dx * w - box / 2)
                 .clamp(0.0, math.max(0.0, w - box))
                 .toDouble();
             return Positioned(
+              key: key,
               left: left,
               top: place.dy * h,
               width: box,
@@ -384,7 +494,7 @@ class _PokerFelt extends StatelessWidget {
 
           final potCentre = Offset(0.5 * w, _potDy * h);
           Offset seatCentre(int seatIndex) =>
-              _seatCentre(state, seatIndex, w, h);
+              _PokerFelt._seatCentre(state, seatIndex, w, h);
 
           // The board's cards: five across the gap between the top seats, so
           // each is as tall as that gap allows and never taller than the
@@ -403,7 +513,12 @@ class _PokerFelt extends StatelessWidget {
                 if (seat.userId == winner.userId) seat.seatIndex,
           ];
 
+          // Every child is keyed, as the Teen Patti felt's are: the board or
+          // the dealer's hand comes and goes before the seats, and unkeyed
+          // siblings are matched by their place — each pod would be rebuilt
+          // as its neighbour's (and its keyed seat moved between them).
           return Stack(
+            key: _stageKey,
             clipBehavior: Clip.none,
             children: [
               // The deal: a back flies from the deck to every seat in the
@@ -411,6 +526,7 @@ class _PokerFelt extends StatelessWidget {
               // shown. The Teen Patti felt's own layer, with the count from
               // the poker block.
               Positioned.fill(
+                key: const ValueKey('deal-flights'),
                 child: RepaintBoundary(
                   child: IgnorePointer(
                     child: DealFlights(
@@ -429,6 +545,7 @@ class _PokerFelt extends StatelessWidget {
                 const Offset(0.5, _tagDy),
                 _StreetTag(room: room, poker: poker),
                 width: w * 0.30,
+                key: const ValueKey('street-tag'),
               ),
               // The board, or the dealer's hand on 3-Card Poker; nothing on
               // 5-Card Draw, which has neither.
@@ -437,9 +554,11 @@ class _PokerFelt extends StatelessWidget {
                   const Offset(0.5, _boardDy),
                   _Board(cards: board, cardHeight: boardCardH),
                   width: boardW,
+                  key: const ValueKey('board'),
                 )
               else if (threeCard && dealer != null)
                 Positioned(
+                  key: const ValueKey('dealer'),
                   left: (0.5 * w - boardW / 2)
                       .clamp(0.0, math.max(0.0, w - boardW))
                       .toDouble(),
@@ -466,6 +585,7 @@ class _PokerFelt extends StatelessWidget {
                   chipSize: (podW * 0.17).clamp(12.0, 20.0),
                 ),
                 width: w * 0.24,
+                key: const ValueKey('pots'),
               ),
               if (handLive)
                 at(
@@ -480,6 +600,7 @@ class _PokerFelt extends StatelessWidget {
                     noticeShift: (noticeTop + noticeBottom) / 2 - _promptDy * h,
                   ),
                   width: w * _promptW,
+                  key: const ValueKey('status'),
                 )
               else
                 at(
@@ -494,21 +615,25 @@ class _PokerFelt extends StatelessWidget {
                     ),
                   ),
                   width: w * 0.28,
+                  key: const ValueKey('status'),
                 ),
 
               for (var i = 1; i < seatPlaces.length; i++)
-                at(seatPlaces[i], pod(i)),
+                at(seatPlaces[i], pod(i), key: ValueKey('seat-$i')),
 
               Positioned(
+                key: const ValueKey('seat-me'),
                 left: seatPlaces[0].dx * w - podW / 2,
                 bottom: h * 0.012,
                 width: podW,
                 child: pod(0),
               ),
               Positioned(
-                left: seatPlaces[0].dx * w + podW / 2 + Space.md,
+                key: const ValueKey('own-hand'),
+                left: handLeft,
                 bottom: h * 0.012,
                 child: Column(
+                  key: _handKey,
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     _OwnHandLine(result: result),
@@ -530,6 +655,7 @@ class _PokerFelt extends StatelessWidget {
               // crossing the table to every seat that took a pot.
               if (state.pokerShowing)
                 Positioned.fill(
+                  key: const ValueKey('celebration'),
                   child: _PokerCelebration(
                     hand: room.handNo,
                     winnerAt: winnerSeats.isEmpty

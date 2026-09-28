@@ -19,6 +19,7 @@ import '../widgets/casino_table.dart';
 import '../widgets/chip_store.dart';
 import '../widgets/deal_flight.dart';
 import '../widgets/drifting_chips.dart';
+import '../widgets/emoji_placement.dart';
 import '../widgets/emoji_shelf.dart';
 import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
@@ -87,6 +88,10 @@ class _TableScreenState extends State<TableScreen> {
   /// lives on the game state so the back gesture can close the drawer too.
   GlobalKey<ScaffoldState> get _scaffold =>
       context.read<GameState>().tableScaffold;
+
+  /// The controls this screen stands over the felt's corners, keyed so the
+  /// felt can keep a moved emoji from under them (EmojiPlacement).
+  final FeltCovers _covers = FeltCovers();
 
   void _open(LeftPanel panel) {
     // Opening the chat no longer clears its badge: the drawer opens on its
@@ -183,9 +188,9 @@ class _TableScreenState extends State<TableScreen> {
                       // Scaffold and repainted the whole table screen —
                       // rail, keys and all — every frame something on the
                       // felt moved: during a celebration, every frame.
-                      const Expanded(
+                      Expanded(
                         child: RepaintBoundary(
-                          child: SizedBox.expand(child: _Felt()),
+                          child: SizedBox.expand(child: _Felt(covers: _covers)),
                         ),
                       ),
                     ],
@@ -200,35 +205,54 @@ class _TableScreenState extends State<TableScreen> {
           // opens the same store, on its Chips shelf; its picture key sells
           // the animated shelf alone here, bought with diamonds and worn on
           // the seat at once.
-          const TopCorner(left: true, child: ShopButton()),
+          TopCorner(
+            left: true,
+            child: KeyedSubtree(key: _covers.shop, child: const ShopButton()),
+          ),
           // Diamonds and hammers, in the corner opposite the Shop key and on
           // its line (owner, 13 Sep 2026): what the player can still spend at
           // this table that is not chips. In the room rather than on the felt,
           // like the Shop key, and outside every seat's column (TableWallet).
-          const TopCorner(left: false, child: TableWallet()),
+          TopCorner(
+            left: false,
+            child: KeyedSubtree(
+              key: _covers.wallet,
+              child: const TableWallet(),
+            ),
+          ),
           // The keys, floating over the bottom-right of the table instead of
           // sitting in a bar across the foot of it. Owner's decision,
           // 10 Sep 2026: the bar was a sixth of a landscape screen reserved
           // for six controls, and the table wanted the room.
-          const Positioned(
+          Positioned(
             right: 0,
             bottom: 0,
-            child: SafeArea(child: WhileOnline(child: _ActionCluster())),
+            child: SafeArea(
+              child: WhileOnline(
+                child: KeyedSubtree(
+                  key: _covers.footRight,
+                  child: const _ActionCluster(),
+                ),
+              ),
+            ),
           ),
           // Pack sits in the opposite corner from everything else, which is
           // the point: folding is the one action you never want under a thumb
           // reaching for Chaal. The Missile key stands on it (owner, 14 Sep
           // 2026) — the other move that is pressed once and ends the hand,
           // kept away from the keys pressed every turn.
-          const Positioned(
+          Positioned(
             left: 0,
             bottom: 0,
             child: SafeArea(
               child: WhileOnline(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [_MissileKey(), _PackKey()],
+                child: KeyedSubtree(
+                  key: _covers.footLeft,
+                  child: const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [_MissileKey(), _PackKey()],
+                  ),
                 ),
               ),
             ),
@@ -558,7 +582,10 @@ Future<void> _offerMissiles(BuildContext context, GameState state) async {
 }
 
 class _Felt extends StatefulWidget {
-  const _Felt();
+  const _Felt({required this.covers});
+
+  /// The controls the table screen stands over the felt's corners.
+  final FeltCovers covers;
 
   /// Where each seat sits on the felt: the [SeatRing] for this table's number
   /// of places, laid round the casino table the felt is drawing (owner's
@@ -721,9 +748,11 @@ class _Felt extends StatefulWidget {
   State<_Felt> createState() => _FeltState();
 }
 
-/// The felt's state: a Force Sideshow's hammer, a missile volley, and where
-/// the pods they fly between actually stand.
-class _FeltState extends State<_Felt> with TickerProviderStateMixin {
+/// The felt's state: a Force Sideshow's hammer, a missile volley, where the
+/// pods they fly between actually stand, and where each seat's emoji plays
+/// ([EmojiPlacement]).
+class _FeltState extends State<_Felt>
+    with TickerProviderStateMixin, EmojiPlacement<_Felt> {
   static const _potDy = _Felt._potDy;
   static const _statusDy = _Felt._statusDy;
   static const _tagDy = _Felt._tagDy;
@@ -766,22 +795,40 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
   /// drawn in.
   final GlobalKey _stageKey = GlobalKey(debugLabel: 'felt');
 
-  /// One key per place, naming the emoji bubble playing there, wherever it
-  /// stands — so the felt can see where it landed ([_placeEmojis]).
-  final List<GlobalKey> _emojiKeys = List.generate(
+  /// One key per place, naming its whole seat (the [SeatPod]: pod, cards,
+  /// bet) — what an emoji moved beside an earlier-painted pod must not be
+  /// drawn under ([EmojiPlacement]).
+  final List<GlobalKey> _seatKeys = List.generate(
     SeatRing.maxSeats,
-    (i) => GlobalKey(debugLabel: 'emoji $i'),
+    (i) => GlobalKey(debugLabel: 'seat $i'),
   );
 
-  /// The emoji each player is sending as the felt last saw it — the line
-  /// itself, so a second one queued behind it counts as new — and where each
-  /// plays ([EmojiPlace]). A player missing from [_emojiPlaces] has an emoji
-  /// that has not been placed yet: it is drawn in its bubble's own place for
-  /// one frame, at the start of its pop-in (fully transparent), measured, and
-  /// moved if it meets another.
-  final Map<String, ChatMessage> _emojiSeen = {};
-  final Map<String, EmojiPlace> _emojiPlaces = {};
-  bool _emojiPlacing = false;
+  /// The viewer's own hand as laid out — their hand's name, their bet and the
+  /// fan — which the felt paints after every seat.
+  final GlobalKey _handKey = GlobalKey(debugLabel: 'own hand');
+
+  /// Where the viewer's hand may stand, not only where it stands now: from
+  /// its left edge to the felt's right and from under the pot's plate to the
+  /// felt's foot, as the last layout gave them. Between hands the hand is
+  /// empty, and a deal a moment later would lay its cards over an emoji the
+  /// empty hand had let stand there.
+  Rect? _handZone;
+
+  @override
+  GlobalKey get emojiStage => _stageKey;
+
+  @override
+  List<GlobalKey> get emojiPods => _podKeys;
+
+  @override
+  List<GlobalKey> get emojiSeats => _seatKeys;
+
+  @override
+  Iterable<Rect> emojiCoversOver(Rect? Function(GlobalKey key) rectOf) => [
+    ?rectOf(_handKey),
+    ?_handZone,
+    for (final key in widget.covers.all) ?rectOf(key),
+  ];
 
   /// The strike's clock, 0 to 1 over [HammerTiming.total]. Created by the
   /// first strike, never in advance and never by [dispose] (CLAUDE.md §12.3).
@@ -1078,156 +1125,6 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     if (mounted) tapHaptic(context);
   }
 
-  /// Keeps the felt on the emojis [GameState] is playing: one that has gone
-  /// forgets its place, and a new one — a player's first, or the next one
-  /// queued behind it — is placed after this frame, once it has been laid out
-  /// where its bubble would be.
-  void _followEmojis(Map<String, ChatMessage> shown) {
-    for (final id in _emojiSeen.keys.toList()) {
-      if (!shown.containsKey(id)) {
-        _emojiSeen.remove(id);
-        _emojiPlaces.remove(id);
-      }
-    }
-    var fresh = false;
-    for (final MapEntry(key: id, value: line) in shown.entries) {
-      if (identical(_emojiSeen[id], line)) continue;
-      _emojiSeen[id] = line;
-      _emojiPlaces.remove(id);
-      fresh = true;
-    }
-    if (!fresh || _emojiPlacing) return;
-    _emojiPlacing = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _placeEmojis());
-  }
-
-  /// Gives every emoji that has just arrived a place where it meets no emoji
-  /// already playing (owner, 28 Sep 2026: "when two players send emoji in any
-  /// game table then their emoji should not overlap, if overlap then change
-  /// the direction so that it does not overlap").
-  ///
-  /// The ones already playing keep where they are; the new ones are placed in
-  /// the order they were sent (the server's stamp, the same on every phone),
-  /// each taking the first of its seat's places that stays on the felt and
-  /// meets none placed before it: the bubble's own place, then beside the pod
-  /// towards the middle of the table, above it, and beside it on the other
-  /// side (the viewer's: above, then over their own cards, then to the left).
-  /// A place that would cover another player's pod is taken only when every
-  /// place clear of the pods meets an emoji. Where nothing fits, the bubble's
-  /// own place.
-  void _placeEmojis() {
-    _emojiPlacing = false;
-    if (!mounted) return;
-    final stage = _stageKey.currentContext?.findRenderObject();
-    if (stage is! RenderBox || !stage.hasSize) return;
-    final state = context.read<GameState>();
-    final seats = state.seatsInViewOrder();
-
-    Rect? rectOf(GlobalKey key) {
-      final box = key.currentContext?.findRenderObject();
-      if (box is! RenderBox || !box.attached || !box.hasSize) return null;
-      return box.localToGlobal(Offset.zero, ancestor: stage) & box.size;
-    }
-
-    final pods = <int, Rect>{
-      for (var view = 0; view < _podKeys.length; view++)
-        view: ?rectOf(_podKeys[view]),
-    };
-
-    final placed = <Rect>[];
-    final fresh = <({String id, int view, int at})>[];
-    for (final MapEntry(key: id, value: line) in _emojiSeen.entries) {
-      final view = seats.indexWhere((seat) => seat?.userId == id);
-      if (view < 0 || view >= _emojiKeys.length) continue;
-      if (_emojiPlaces.containsKey(id)) {
-        if (rectOf(_emojiKeys[view]) case final rect?) placed.add(rect);
-      } else {
-        fresh.add((id: id, view: view, at: line.at));
-      }
-    }
-    if (fresh.isEmpty) return;
-    fresh.sort(
-      (a, b) => a.at != b.at ? a.at.compareTo(b.at) : a.view.compareTo(b.view),
-    );
-
-    final bounds = (Offset.zero & stage.size).inflate(1);
-    bool clear(Rect r) =>
-        bounds.contains(r.topLeft) &&
-        bounds.contains(r.bottomRight) &&
-        !placed.any((p) => p.deflate(2).overlaps(r.deflate(2)));
-    bool offPods(Rect r, int view) => !pods.entries.any(
-      (e) => e.key != view && e.value.deflate(2).overlaps(r.deflate(2)),
-    );
-
-    final next = <String, EmojiPlace>{};
-    for (final f in fresh) {
-      final own = rectOf(_emojiKeys[f.view]);
-      final pod = pods[f.view];
-      if (own == null || pod == null) {
-        next[f.id] = EmojiPlace.column;
-        continue;
-      }
-      // The bubble in its own place hangs a pointer from its top or foot;
-      // beside the pod the same bubble lies on its side, the pointer out of
-      // the edge nearest the pod.
-      final gap = TableSpace.seat(pod.width);
-      final across = own.height;
-      final tall = own.width;
-      final beside = (
-        left: Rect.fromLTWH(
-          pod.left - gap - across,
-          pod.center.dy - tall / 2,
-          across,
-          tall,
-        ),
-        right: Rect.fromLTWH(
-          pod.right + gap,
-          pod.center.dy - tall / 2,
-          across,
-          tall,
-        ),
-      );
-      final above = Rect.fromLTWH(
-        pod.center.dx - own.width / 2,
-        pod.top - gap - own.height,
-        own.width,
-        own.height,
-      );
-      // Towards the middle of the table first: the seats on the left open to
-      // the right, as their words do.
-      final towardsRight = pod.center.dx < stage.size.width / 2;
-      final options = <(EmojiPlace, Rect)>[
-        (EmojiPlace.column, own),
-        if (f.view == 0) ...[
-          (EmojiPlace.right, beside.right),
-          (EmojiPlace.left, beside.left),
-        ] else ...[
-          towardsRight
-              ? (EmojiPlace.right, beside.right)
-              : (EmojiPlace.left, beside.left),
-          (EmojiPlace.above, above),
-          towardsRight
-              ? (EmojiPlace.left, beside.left)
-              : (EmojiPlace.right, beside.right),
-        ],
-      ];
-      final choice =
-          options
-              .where((o) => clear(o.$2) && offPods(o.$2, f.view))
-              .firstOrNull ??
-          options.where((o) => clear(o.$2)).firstOrNull ??
-          options.first;
-      next[f.id] = choice.$1;
-      placed.add(choice.$2);
-    }
-    final moves = next.values.any((p) => p != EmojiPlace.column);
-    if (moves) {
-      setState(() => _emojiPlaces.addAll(next));
-    } else {
-      _emojiPlaces.addAll(next);
-    }
-  }
-
   /// Keeps the felt on the strike [GameState] is showing: a new one is launched
   /// after this frame, when the pods have been laid out and can be measured;
   /// one that has gone (the hand ended, the player left) is dropped at once.
@@ -1299,7 +1196,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     final state = context.watch<GameState>();
     _follow(state.hammerStrike);
     _followMissile(state.missileStrike);
-    _followEmojis(state.emojiShown);
+    followEmojis(state.emojiShown);
 
     final room = state.room;
     if (room == null) return const Center(child: GameLoader());
@@ -1421,6 +1318,13 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
           final table = TableGeometry.of(Size(w, h));
           final ring = _Felt._ring(state, MediaQuery.sizeOf(context), w, h);
           final me = ring.spots.first;
+          // The viewer's hand stands right of their pod and never rises past
+          // the pot's plate (_LiftedHand) — and nothing drawn in a seat may be
+          // put anywhere in that zone, which the hand paints over
+          // (EmojiPlacement).
+          final handLeft = me.anchor.dx + podW / 2 + Space.md;
+          final handCeiling = _potDy * h + potPlate / 2 + Space.sm;
+          _handZone = Rect.fromLTRB(handLeft, handCeiling, w, h);
 
           Widget pod(SeatSpot spot) {
             final viewIndex = spot.view;
@@ -1471,6 +1375,9 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
             final other = playerDrawerSeat(state, s);
 
             return SeatPod(
+              // The whole seat, measured as what an emoji drawn in an
+              // earlier seat must not be put under (EmojiPlacement).
+              key: viewIndex < _seatKeys.length ? _seatKeys[viewIndex] : null,
               // Another player's pod opens their card; the viewer's own opens
               // their record and their friends (owner, 27 Sep 2026).
               onTap: other != null
@@ -1537,11 +1444,11 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               emoji: state.emojiOver(s?.userId),
               emojiUrl: state.absoluteUrl(state.emojiOver(s?.userId)?.url),
               // Moved beside or above the pod where its own place would meet
-              // another seat's emoji (_placeEmojis).
-              emojiPlace: _emojiPlaces[s?.userId] ?? EmojiPlace.column,
-              emojiKey: viewIndex < _emojiKeys.length
-                  ? _emojiKeys[viewIndex]
-                  : null,
+              // another seat's emoji, and never under anything drawn after
+              // the seat (EmojiPlacement).
+              emojiPlace: emojiPlaceOf(s?.userId),
+              emojiShift: emojiShiftOf(s?.userId),
+              emojiKey: emojiKeyAt(viewIndex),
               // A bubble opens towards the middle of the table: seats on the
               // left speak to the right, seats on the right to the left, and
               // the viewer's own words go up over their pod. The head seat's
@@ -2003,63 +1910,66 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               Positioned.fill(
                 key: const ValueKey('own-hand'),
                 child: _LiftedHand(
-                  left: me.anchor.dx + podW / 2 + Space.md,
+                  left: handLeft,
                   floor: me.anchor.dy,
                   least: TableSpace.handLift,
                   most: HandFan.liftFor(HandFan.cardHeightFor(handH)),
-                  ceiling: _potDy * h + potPlate / 2 + Space.sm,
-                  child: Column(
-                    key: const ValueKey('own-hand-column'),
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // The viewer's own hand name at a showdown, over their
-                      // cards, so the seat that matters most to them is not the
-                      // one seat that has to work out what it won with — and
-                      // after a sideshow they won, which it names the same way.
-                      if (ownHandName != null) ...[
-                        if (ownHandNameIsLive)
-                          // Keyed on the hand, so the one-second tick cannot
-                          // restart the wait.
-                          _AfterTheTurn(
-                            key: ValueKey('own-hand-name-${room.handNo}'),
-                            // Nothing turns in a hand with no wild card, so
-                            // there is nothing to wait for but the flip.
-                            turns: room.you?.hand?.wild.isNotEmpty ?? false,
-                            child: _OwnHandName(name: ownHandName),
-                          )
-                        else
-                          _OwnHandName(name: ownHandName),
-                        const SizedBox(height: Space.xxs),
-                      ],
-                      if (myBetShown) ...[
-                        // Scaled against a wider pod than the viewer actually
-                        // has: this is their own bet, read every turn, and it
-                        // earns a size the rim seats' copies do not — a step,
-                        // not more (final table polish, 26 Sep 2026: "SECONDARY:
-                        // Current pot amount. SUPPORTING: Individual player
-                        // contribution"). At 1.22 its figure was 14dp on a
-                        // 891dp phone, the size of the Chaal key's name, and
-                        // its plaque wider than the pot's.
-                        SeatBet(
-                          seat: myShown,
-                          width: podW * _myBetScale,
-                          totalFirst: true,
+                  ceiling: handCeiling,
+                  child: KeyedSubtree(
+                    key: _handKey,
+                    child: Column(
+                      key: const ValueKey('own-hand-column'),
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // The viewer's own hand name at a showdown, over their
+                        // cards, so the seat that matters most to them is not the
+                        // one seat that has to work out what it won with — and
+                        // after a sideshow they won, which it names the same way.
+                        if (ownHandName != null) ...[
+                          if (ownHandNameIsLive)
+                            // Keyed on the hand, so the one-second tick cannot
+                            // restart the wait.
+                            _AfterTheTurn(
+                              key: ValueKey('own-hand-name-${room.handNo}'),
+                              // Nothing turns in a hand with no wild card, so
+                              // there is nothing to wait for but the flip.
+                              turns: room.you?.hand?.wild.isNotEmpty ?? false,
+                              child: _OwnHandName(name: ownHandName),
+                            )
+                          else
+                            _OwnHandName(name: ownHandName),
+                          const SizedBox(height: Space.xxs),
+                        ],
+                        if (myBetShown) ...[
+                          // Scaled against a wider pod than the viewer actually
+                          // has: this is their own bet, read every turn, and it
+                          // earns a size the rim seats' copies do not — a step,
+                          // not more (final table polish, 26 Sep 2026: "SECONDARY:
+                          // Current pot amount. SUPPORTING: Individual player
+                          // contribution"). At 1.22 its figure was 14dp on a
+                          // 891dp phone, the size of the Chaal key's name, and
+                          // its plaque wider than the pot's.
+                          SeatBet(
+                            seat: myShown,
+                            width: podW * _myBetScale,
+                            totalFirst: true,
+                          ),
+                          const SizedBox(height: TableSpace.hand),
+                        ],
+                        // The showdown's copy of their own hand, so a player who
+                        // paid for a show while still blind sees what they were
+                        // holding: the server withholds `you.cards` until they
+                        // look, and it never turns that off.
+                        _OwnHand(
+                          cardHeight: HandFan.cardHeightFor(handH),
+                          revealed: myReveal?.cards,
+                          wild: myReveal?.wild ?? myPeek?.wild ?? const [],
+                          playsAs:
+                              myReveal?.playsAs ?? myPeek?.playsAs ?? const [],
+                          best: myReveal?.best ?? myPeek?.best ?? const [],
                         ),
-                        const SizedBox(height: TableSpace.hand),
                       ],
-                      // The showdown's copy of their own hand, so a player who
-                      // paid for a show while still blind sees what they were
-                      // holding: the server withholds `you.cards` until they
-                      // look, and it never turns that off.
-                      _OwnHand(
-                        cardHeight: HandFan.cardHeightFor(handH),
-                        revealed: myReveal?.cards,
-                        wild: myReveal?.wild ?? myPeek?.wild ?? const [],
-                        playsAs:
-                            myReveal?.playsAs ?? myPeek?.playsAs ?? const [],
-                        best: myReveal?.best ?? myPeek?.best ?? const [],
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
