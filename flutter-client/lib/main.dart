@@ -15,9 +15,9 @@ import 'settings/feedback_settings.dart';
 import 'state/game_state.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_colors.dart';
+import 'widgets/game_loader.dart';
 import 'widgets/glass_components.dart';
 import 'widgets/glass_panels.dart';
-import 'widgets/poker_chip.dart';
 import 'widgets/premium_surface.dart';
 import 'widgets/xp_mission_bar.dart';
 
@@ -150,6 +150,10 @@ class _Root extends StatelessWidget {
           s.consentPending &&
           (s.screen == Screen.lobby || s.screen == Screen.table),
     );
+    // The optional update (the app version gate, 28 Sep 2026): over the
+    // sign-in screen or the lobby, never a table.
+    final softUpdate = context.select<GameState, bool>(softUpdateShown);
+    final serviceDown = context.select<GameState, bool>((s) => s.serviceDown);
 
     return _NoticeHost(
       child: _TableRoutes(
@@ -164,6 +168,7 @@ class _Root extends StatelessWidget {
                 child: switch (screen) {
                   Screen.splash => const SplashScreen(),
                   Screen.update => const UpdateScreen(),
+                  Screen.maintenance => const MaintenanceScreen(),
                   Screen.login => const LoginScreen(),
                   Screen.lobby => const LobbyScreen(),
                   Screen.table => const TableScreen(),
@@ -194,6 +199,30 @@ class _Root extends StatelessWidget {
                 child: consent
                     ? const _ConsentGate(key: ValueKey('consent-gate'))
                     : const SizedBox.shrink(key: ValueKey('no-consent')),
+              ),
+            ),
+            // Above the consent panel: it asks once and is answered in a tap,
+            // and the statement is still there behind it.
+            IgnorePointer(
+              ignoring: !softUpdate,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 380),
+                child: softUpdate
+                    ? const SoftUpdatePrompt(key: ValueKey('soft-update'))
+                    : const SizedBox.shrink(key: ValueKey('no-soft-update')),
+              ),
+            ),
+            // Above everything: with no server there is nothing to press, and
+            // nothing a veil below could promise (owner, 28 Sep 2026: "when app
+            // shows service not available, it shows loader screen until it
+            // gets connected").
+            IgnorePointer(
+              ignoring: !serviceDown,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 380),
+                child: serviceDown
+                    ? const _ServiceVeil(key: ValueKey('service-veil'))
+                    : const SizedBox.shrink(key: ValueKey('no-service-veil')),
               ),
             ),
           ],
@@ -455,6 +484,27 @@ class _ScreenFadeState extends State<_ScreenFade>
   }
 }
 
+/// The server cannot be reached ([GameState.serviceDown]): the whole app
+/// waits under the game's loader — "Please wait..." over "Reconnecting…" —
+/// until the socket connects or the server answers, where it used to say
+/// "Service not available" in a toast over a screen that could do nothing.
+/// Solid enough that nothing behind it reads as usable.
+class _ServiceVeil extends StatelessWidget {
+  const _ServiceVeil({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final lang = context.select<GameState, AppLang>((s) => s.lang);
+    return ColoredBox(
+      color: AppTheme.ground(theme.brightness).withValues(alpha: 0.94),
+      child: Center(
+        child: GameLoader(size: 56, detail: Strings(lang).reconnecting),
+      ),
+    );
+  }
+}
+
 /// "Returning to your table…": what covers the lobby while the server works
 /// out where a reopened app belongs.
 class _ResumeVeil extends StatelessWidget {
@@ -479,32 +529,8 @@ class _ResumeVeil extends StatelessWidget {
             color: AppTheme.ground(theme.brightness).withValues(alpha: 0.72),
           ),
         ),
-        Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SpinningChip(
-                colour: AppTheme.gold,
-                size: 56,
-                turn: const Duration(milliseconds: 900),
-                rest: const Duration(milliseconds: 300),
-              ),
-              const SizedBox(height: Space.xl),
-              Text(
-                t.resumingTable,
-                textAlign: TextAlign.center,
-                // label, not smallCaps: this line is translated, and tracked
-                // capitals do nothing to Devanagari but stretch it.
-                style: AppTheme.label(
-                  theme.textTheme.titleSmall ?? const TextStyle(),
-                  colour: theme.colorScheme.onSurface.withValues(
-                    alpha: AppTheme.inkMed,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+        // The game's loader, and where it is taking the player under it.
+        Center(child: GameLoader(size: 56, detail: t.resumingTable)),
       ],
     );
   }
@@ -704,6 +730,14 @@ class _NoticeHostState extends State<_NoticeHost> {
       _shown = notice;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        final state = context.read<GameState>();
+        // No answer from the server: never a toast — the app waits for it
+        // under the loader (owner, 28 Sep 2026).
+        if (_saysUnreachable(state, notice)) {
+          state.clearNotice();
+          state.reportUnreachable();
+          return;
+        }
         ScaffoldMessenger.of(context)
           ..clearSnackBars()
           // Tone stays neutral: `notice` is one string with no severity beside
@@ -712,7 +746,7 @@ class _NoticeHostState extends State<_NoticeHost> {
           ..showSnackBar(
             NoticeToast.snackBar(
               context,
-              message: _readable(context, notice),
+              message: notice,
               // Read as it is shown, not when it was raised: a kick moves the
               // player to the lobby in the same breath as its notice. A screen
               // with something standing at its foot names where a toast may
@@ -733,7 +767,10 @@ class _NoticeHostState extends State<_NoticeHost> {
   }
 }
 
-/// Turns anything machine-shaped into one sentence a player can act on.
+/// Whether [notice] says, one way or another, that the server could not be
+/// reached — and so is never shown: the app waits for the server under its
+/// loader instead ([GameState.reportUnreachable]; owner, 28 Sep 2026). Until
+/// then such a notice read as one toast, "Service not available".
 ///
 /// Notices come from a lot of places, and some of them carry whatever the
 /// platform threw — a WebSocketException still holding the socket.io URL, its
@@ -746,7 +783,7 @@ class _NoticeHostState extends State<_NoticeHost> {
 /// caught too. Anything that reads as a message for a person is passed through
 /// untouched: refusals from the server ("This table is full") are the ones
 /// worth showing, and they are the majority.
-String _readable(BuildContext context, String notice) {
+bool _saysUnreachable(GameState state, String notice) {
   const machine = [
     'Exception',
     'Error:',
@@ -762,7 +799,5 @@ String _readable(BuildContext context, String notice) {
     // not be reached. One sentence for one condition, however it arrived.
     'Could not reach',
   ];
-  final leaks = machine.any(notice.contains);
-  if (!leaks) return notice;
-  return context.read<GameState>().t.serviceUnavailable;
+  return notice == state.t.serviceUnavailable || machine.any(notice.contains);
 }

@@ -112,6 +112,12 @@ type Metrics struct {
 	StatsFlushes      *prometheus.CounterVec // result
 	StatsFlushPlayers prometheus.Histogram
 
+	// The app version gate (owner, 28 Sep 2026): its checks and refusals, fed
+	// through AppVersionHooks-style methods (AppVersionChecked,
+	// AppVersionRejected).
+	AppVersionChecks     *prometheus.CounterVec // platform, status
+	AppVersionRejections *prometheus.CounterVec // platform, status, via
+
 	// HTTP
 	HTTPRequestsTotal   *prometheus.CounterVec   // method, route, status_code
 	HTTPRequestDuration *prometheus.HistogramVec // method, route, status_code
@@ -412,6 +418,20 @@ func New(opts Options) *Metrics {
 	})
 	svc.MustRegister(m.StatsFlushes, m.StatsFlushPlayers)
 
+	// ------------------------------------------------------ app version gate
+	// Every GET /api/app-config verdict, and every signed-in REST call and
+	// socket handshake the gate refused (owner, 28 Sep 2026), by platform and
+	// state — never by the version itself.
+	m.AppVersionChecks = m.counterVec(prometheus.CounterOpts{
+		Name: NameAppVersionChecks,
+		Help: "App version checks (GET /api/app-config), by declared platform and the state it was given.",
+	}, []string{"platform", "status"})
+	m.AppVersionRejections = m.counterVec(prometheus.CounterOpts{
+		Name: NameAppVersionRejections,
+		Help: "Signed-in REST calls and socket handshakes the app version gate refused, by declared platform, state (force_update, maintenance) and door (rest, socket).",
+	}, []string{"platform", "status", "via"})
+	svc.MustRegister(m.AppVersionChecks, m.AppVersionRejections)
+
 	// -------------------------------------------------------------------- HTTP
 	m.HTTPRequestsTotal = m.counterVec(prometheus.CounterOpts{
 		Name: NameHTTPRequestsTotal,
@@ -477,6 +497,34 @@ func (m *Metrics) ObserveTableTax(category game.Category, chips int64) {
 		label = string(category)
 	}
 	m.TableTaxTotal.WithLabelValues(label).Add(float64(chips))
+}
+
+// AppVersionChecked counts one GET /api/app-config verdict in
+// game_app_version_checks_total{platform,status}: appversion.Hooks.Checked.
+// status is an appversion Status* ("FORCE_UPDATE"), lower-cased into the
+// label; both labels are folded by SafeLabel. Nil-safe.
+func (m *Metrics) AppVersionChecked(platform, status string) {
+	if m == nil || m.AppVersionChecks == nil {
+		return
+	}
+	m.AppVersionChecks.WithLabelValues(
+		SafeLabel(platform, AppPlatforms, OtherLabel),
+		SafeLabel(strings.ToLower(status), AppStatuses, OtherLabel),
+	).Inc()
+}
+
+// AppVersionRejected counts one refused REST call or handshake in
+// game_app_version_rejections_total{platform,status,via}:
+// appversion.Hooks.Rejected. Nil-safe.
+func (m *Metrics) AppVersionRejected(platform, status, via string) {
+	if m == nil || m.AppVersionRejections == nil {
+		return
+	}
+	m.AppVersionRejections.WithLabelValues(
+		SafeLabel(platform, AppPlatforms, OtherLabel),
+		SafeLabel(strings.ToLower(status), AppStatuses, OtherLabel),
+		SafeLabel(via, AppVias, OtherLabel),
+	).Inc()
 }
 
 // BindRooms gives the table gauges their source (Node bindRooms). Before it

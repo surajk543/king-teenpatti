@@ -28,6 +28,7 @@ import '../theme/table_theme.dart';
 import 'chip_store.dart';
 import 'edge_fade.dart';
 import 'emoji_art.dart';
+import 'game_loader.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
 import 'picture_shelf.dart';
@@ -294,15 +295,7 @@ class _EmojiWell extends StatelessWidget {
             child: EmojiArt(url: url, size: side * 0.78, semanticLabel: name),
           ),
           ?overlay,
-          if (busy)
-            SizedBox(
-              width: side * 0.45,
-              height: side * 0.45,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: theme.colorScheme.primary,
-              ),
-            ),
+          if (busy) GameLoaderRing(size: side * 0.45),
         ],
       ),
     );

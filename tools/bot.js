@@ -95,10 +95,15 @@ const NAMES = [
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// The app version gate (28 Sep 2026): a practice bot declares itself a bot,
+// on every REST call and in the socket handshake, so no minimum version, no
+// maintenance and no APP_VERSION_REQUIRED ever turns it away.
+const APP_PLATFORM = 'bot';
+
 async function login(name, index) {
   const response = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-app-platform': APP_PLATFORM },
     body: JSON.stringify({
       provider: 'guest',
       // Stable per-bot device id, so a bot keeps its chips between runs.
@@ -173,7 +178,7 @@ async function startBot(index) {
   const name = NAMES[slot];
   const { token, user } = await login(name, slot);
 
-  const socket = io(BASE_URL, { auth: { token }, transports: ['websocket'], forceNew: true });
+  const socket = io(BASE_URL, { auth: { token, appPlatform: APP_PLATFORM }, transports: ['websocket'], forceNew: true });
 
   /**
    * Joins a table, retrying while the server still holds a seat for us.

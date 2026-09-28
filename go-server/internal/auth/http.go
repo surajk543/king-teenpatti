@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/surajk543/king-teenpatti/go-server/internal/appversion"
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
@@ -177,7 +178,13 @@ type Deps struct {
 	// variant, and the hand (app: rooms.ReportContext; a read of the room,
 	// changing nothing). Nil → nobody may report anybody (player_not_at_table).
 	ReportContext func(reporterID, reportedID string) (game.ReportContext, bool)
-	Logger        *slog.Logger
+	// AppGate is the app version gate (owner, 28 Sep 2026; appversion):
+	// RequireAuth asks it before anything else, so every signed-in route
+	// refuses an app build below its platform's minimum (426
+	// update_required) or on a platform in maintenance (503 maintenance). Nil
+	// admits everyone (unit tests that wire no gate).
+	AppGate *appversion.Gate
+	Logger  *slog.Logger
 }
 
 // MissileStore is the slice of db.Missiles the missile store endpoint uses.
@@ -383,17 +390,24 @@ func WriteNotFound(w http.ResponseWriter, r *http.Request) {
 // ctxKey is the context key RequireAuth stores the user under.
 type ctxKey struct{}
 
-// RequireAuth wraps a handler: TokenFromRequest → Tokens.Verify →
+// RequireAuth wraps a handler: the app version gate (AdmitApp: 426
+// update_required, 503 maintenance) → TokenFromRequest → Tokens.Verify →
 // Users.FindByID(sub); nil user → unknown_user ("This account no longer
 // exists"); a disabled one (users.is_active FALSE) → 403 account_disabled; a
 // token from a sign-in a later one replaced → 401 session_replaced. On failure WriteError(AuthError). The user is stored in the
 // request context (UserFrom). Authentication runs before any body or seated
-// check, so invalid_session / unknown_user beat every other refusal.
+// check, so invalid_session / unknown_user beat every other refusal — and the
+// version gate runs before authentication (owner, 28 Sep 2026: "Do not depend
+// on the authenticated user's identity for the initial version check"), so an
+// app too old to play is told to update rather than that its token expired.
 func (h *Handler) RequireAuth(next func(w http.ResponseWriter, r *http.Request, user *db.User)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// An answer to a signed-in request is that player's, and a shared
 		// cache must never keep it (24 Sep 2026).
 		w.Header().Set("Cache-Control", "no-store")
+		if !h.AdmitApp(w, r) {
+			return
+		}
 		claims, err := h.deps.Tokens.Verify(TokenFromRequest(r))
 		if err != nil {
 			h.writeError(w, r, err)
@@ -481,12 +495,49 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 // ---- wire shapes (routes.js) ----
 
 // ErrorResponse is every error body: {error, message} plus, for the reward
-// 409s, the current user and (bonus only) readyAt.
+// 409s, the current user and (bonus only) readyAt, and for the app version
+// gate's 426 update_required the store link and the version the app must reach
+// (each absent when there is none).
 type ErrorResponse struct {
-	Error   string   `json:"error"`
-	Message string   `json:"message"`
-	User    *db.User `json:"user,omitempty"`
-	ReadyAt *int64   `json:"readyAt,omitempty"`
+	Error          string   `json:"error"`
+	Message        string   `json:"message"`
+	User           *db.User `json:"user,omitempty"`
+	ReadyAt        *int64   `json:"readyAt,omitempty"`
+	StoreURL       string   `json:"storeUrl,omitempty"`
+	MinimumVersion string   `json:"minimumVersion,omitempty"`
+}
+
+// AdmitApp is the app version gate at a signed-in REST door (owner, 28 Sep
+// 2026): the client's X-App-Platform and X-App-Version judged against its
+// platform's app_versions row (appversion.Gate.Admit, counted and logged
+// there). It answers true to let the request on; otherwise it has written the
+// refusal (WriteAppRefusal) and answers false.
+func (h *Handler) AdmitApp(w http.ResponseWriter, r *http.Request) bool {
+	v, ok := h.deps.AppGate.Admit(r.Context(), appversion.ClientFromRequest(r), appversion.ViaREST, r.Pattern)
+	if !ok {
+		WriteAppRefusal(w, v)
+	}
+	return ok
+}
+
+// WriteAppRefusal writes a blocking verdict in the server's error shape:
+// FORCE_UPDATE → 426 {error: "update_required", message, storeUrl?,
+// minimumVersion?}, MAINTENANCE → 503 {error: "maintenance", message}. The
+// message is the platform row's when it has one, else the server's own
+// (appversion.MsgUpdateRequired / MsgMaintenance). Never cached.
+func WriteAppRefusal(w http.ResponseWriter, v appversion.Verdict) {
+	refusal := appversion.RefusalOf(v)
+	status := http.StatusUpgradeRequired
+	if refusal.Code == appversion.CodeMaintenance {
+		status = http.StatusServiceUnavailable
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	WriteJSON(w, status, ErrorResponse{
+		Error:          refusal.Code,
+		Message:        refusal.Message,
+		StoreURL:       refusal.StoreURL,
+		MinimumVersion: refusal.MinimumVersion,
+	})
 }
 
 // LoginResponse ← POST /api/auth/login: {token, user, isNew, welcomeChips}

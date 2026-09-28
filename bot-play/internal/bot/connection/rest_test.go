@@ -19,6 +19,7 @@ import (
 type seen struct {
 	method, path, auth, contentType string
 	body                            map[string]any
+	platform                        string // X-App-Platform
 }
 
 // restServer answers each path with a status and a body, and records every
@@ -40,7 +41,7 @@ func newRESTServer(t *testing.T, answers map[string]func(w http.ResponseWriter))
 			_ = json.Unmarshal(data, &body)
 		}
 		rs.mu.Lock()
-		rs.got = append(rs.got, seen{r.Method, r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("Content-Type"), body})
+		rs.got = append(rs.got, seen{r.Method, r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("Content-Type"), body, r.Header.Get(AppPlatformHeader)})
 		rs.mu.Unlock()
 		answer, ok := rs.answers[r.Method+" "+r.URL.Path]
 		if !ok {
@@ -101,6 +102,29 @@ func TestLoginSignsInAGuestDevice(t *testing.T) {
 	for k, v := range want {
 		if got.body[k] != v {
 			t.Fatalf("body %v", got.body)
+		}
+	}
+}
+
+// Every REST call declares the fleet a bot, signed in or not, so the game
+// server's app version gate never refuses it (28 Sep 2026).
+func TestEveryCallDeclaresTheFleetABot(t *testing.T) {
+	rs := newRESTServer(t, map[string]func(http.ResponseWriter){
+		"POST /api/auth/login": answer(200, `{"token":"tok-1","user":`+userJSON+`,"isNew":false,"welcomeChips":0}`),
+		"GET /api/auth/me":     answer(200, `{"user":`+userJSON+`}`),
+	})
+	api := NewHTTPAPI(rs.srv.URL, nil)
+	if _, err := api.Login(context.Background(), "botplay-v1-7", "Bot One"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.Me(context.Background(), "tok-1"); err != nil {
+		t.Fatal(err)
+	}
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	for _, got := range rs.got {
+		if got.platform != "bot" {
+			t.Errorf("%s %s declared %q, want bot", got.method, got.path, got.platform)
 		}
 	}
 }

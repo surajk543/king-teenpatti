@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import 'game_loader.dart';
 
 /// A scroll view over a list the server pages (owner, 27 Sep 2026: "reported
 /// user should be fetched using pagination, and same with friend list, as
@@ -75,18 +76,8 @@ class PagedFooter extends StatelessWidget {
   const PagedFooter({super.key});
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: Space.md),
-    child: Center(
-      child: SizedBox.square(
-        dimension: 20,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          color: Theme.of(
-            context,
-          ).colorScheme.onSurface.withValues(alpha: AppTheme.inkMed),
-        ),
-      ),
-    ),
+  Widget build(BuildContext context) => const Padding(
+    padding: EdgeInsets.symmetric(vertical: Space.md),
+    child: Center(child: GameLoader(size: 24)),
   );
 }

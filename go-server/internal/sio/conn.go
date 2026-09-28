@@ -510,7 +510,12 @@ func (c *conn) connectNamespace(p Packet) {
 			if c.transportGone() {
 				return // Node: "next called after client was closed - ignoring socket"
 			}
-			body, _ := marshalJSON(ConnectError{Message: err.Error()})
+			refusal := ConnectError{Message: err.Error()}
+			var withData *ConnectRefusal
+			if errors.As(err, &withData) {
+				refusal.Data = withData.Data
+			}
+			body, _ := marshalJSON(refusal)
 			c.enqueue(messageFrame(Packet{Type: PacketConnectError, ID: -1, Data: body}))
 			return
 		}

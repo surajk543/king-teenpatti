@@ -28,6 +28,18 @@ const (
 	maxAnswerBytes = 4 << 20
 )
 
+// How the fleet declares itself to the game server's app version gate
+// (go-server/internal/appversion, 28 Sep 2026): the platform "bot", on every
+// REST call (the X-App-Platform header) and in the socket handshake's auth
+// object (appPlatform, beside the token). A bot is the project's own client,
+// never the app, so the gate never refuses it — not for a minimum version, not
+// for a maintenance, not with APP_VERSION_REQUIRED on. It sends no version:
+// a bot has none to compare.
+const (
+	AppPlatform       = "bot"
+	AppPlatformHeader = "X-App-Platform"
+)
+
 // HTTPAPI is protocol.API against the real server's REST endpoints, over
 // one shared *http.Client (pooled connections). Safe for concurrent use.
 //
@@ -202,6 +214,10 @@ func (a *HTTPAPI) do(ctx context.Context, method, path, token string, body, out 
 		return fmt.Errorf("api: %s %s: %w", method, path, err)
 	}
 	req.Header.Set("Accept", "application/json")
+	// The game server's app version gate (28 Sep 2026): the fleet declares
+	// itself a bot, so no minimum version, no maintenance and no
+	// APP_VERSION_REQUIRED ever turns it away.
+	req.Header.Set(AppPlatformHeader, AppPlatform)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

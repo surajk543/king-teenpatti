@@ -28,6 +28,7 @@ import 'package:teenpatti/net/api_client.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/state/player_reports.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/widgets/game_loader.dart';
 import 'package:teenpatti/widgets/hammer_flight.dart' show PodImpact;
 import 'package:teenpatti/widgets/player_drawer.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
@@ -461,7 +462,7 @@ void main() {
           expect(
             find.descendant(
               of: _inDrawer(_key('report-submit')),
-              matching: find.byType(CircularProgressIndicator),
+              matching: find.byType(GameLoaderRing),
             ),
             findsOneWidget,
           );

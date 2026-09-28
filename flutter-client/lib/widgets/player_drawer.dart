@@ -14,6 +14,7 @@ import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
 import 'avatar.dart';
 import 'edge_fade.dart';
+import 'game_loader.dart';
 import 'own_seat_drawer.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
@@ -612,10 +613,7 @@ class DrawerKey extends StatelessWidget {
     final dead = onPressed == null && !busy;
     final ink = primary ? inkOnFill(AppTheme.gold) : scheme.onSurface;
     final glyph = busy
-        ? SizedBox.square(
-            dimension: 16,
-            child: CircularProgressIndicator(strokeWidth: 2, color: ink),
-          )
+        ? GameLoaderRing(size: 16, ink: ink)
         : Icon(icon, size: 18);
     final name = FittedBox(
       fit: BoxFit.scaleDown,
@@ -752,12 +750,7 @@ class _Waiting extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const Padding(
     padding: EdgeInsets.symmetric(vertical: Space.xl),
-    child: Center(
-      child: SizedBox.square(
-        dimension: 24,
-        child: CircularProgressIndicator(strokeWidth: 2.5),
-      ),
-    ),
+    child: Center(child: GameLoader(size: 32)),
   );
 }
 

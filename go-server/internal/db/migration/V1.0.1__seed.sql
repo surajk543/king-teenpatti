@@ -1125,3 +1125,22 @@ VALUES ('FIRST_HAND',         'First Hand',          '🎴', 'HANDS_PLAYED',    
 INSERT INTO xp_settings (id, daily_cap, window_ms)
 VALUES (1, NULL, 86400000)
     ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================= THE APP VERSIONS
+--
+-- The app version gate (owner, 28 Sep 2026; the baseline's APP VERSIONS
+-- section): a row per app platform with NO floor ('0.0.0'), nothing announced
+-- ('0.0.0') and the platform open (NORMAL), so deploying the gate changes
+-- nothing for anybody. android carries the Play listing, which is public and
+-- fixed by the package name; ios is empty until the App Store has a listing
+-- (the app then falls back to its own link, which needs APPLE_APP_ID).
+--
+-- ON CONFLICT (platform) DO NOTHING: an operator's UPDATE — a raised minimum,
+-- a maintenance — survives every restart, and a seed row changed here reaches
+-- only a fresh database. ops/DEPLOY.md ("The app version gate") has the
+-- statements that raise the minimum and enter and leave maintenance.
+INSERT INTO app_versions (platform, status, minimum_version, latest_version, store_url, message)
+VALUES ('android', 'NORMAL', '0.0.0', '0.0.0',
+        'https://play.google.com/store/apps/details?id=com.sungamestudio.kingteenpatti', NULL),
+       ('ios',     'NORMAL', '0.0.0', '0.0.0', '', NULL)
+    ON CONFLICT (platform) DO NOTHING;

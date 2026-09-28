@@ -144,6 +144,8 @@ var KnownErrorCodes = map[string]struct{}{
 	"invalid_device_id": {}, "invalid_session": {}, "invalid_token": {}, "missing_token": {},
 	"provider_unconfigured": {}, "unknown_provider": {}, "unknown_user": {}, "account_disabled": {},
 	"session_replaced": {},
+	// the app version gate's handshake refusals (Go only, 28 Sep 2026)
+	"update_required": {}, "maintenance": {},
 	// the socket layer's own
 	"rate_limited": {}, "internal_error": {},
 }

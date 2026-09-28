@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/surajk543/king-teenpatti/go-server/internal/appversion"
 	"github.com/surajk543/king-teenpatti/go-server/internal/auth"
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
@@ -79,6 +80,10 @@ type App struct {
 	// tableConfig is /health.tableConfig: where the tables came from, settled
 	// once by New (resolveTableCatalogue), with the RoomManager's version.
 	tableConfig TableConfigHealth
+	// appGate is the app version gate (owner, 28 Sep 2026; appversion):
+	// GET /api/app-config, every signed-in REST route and the socket
+	// handshake ask it.
+	appGate *appversion.Gate
 	// reconcileStop/Done drive the live-store reconciler (LIVE_RECONCILE_MS);
 	// Shutdown stops it.
 	reconcileStop chan struct{}
@@ -190,6 +195,7 @@ const (
 //     auth.Handler.Register(mux)   (the API routes, Friends V1's eight among them)
 //     GET  /api/rooms        → (signed in) {tables: ListTables({category: ?category if blind|seen|variation}) less code and pot, options}
 //     GET  /api/tables       → rooms.TableConfig(), ETag / If-None-Match → 304 (tablesHandler)
+//     GET  /api/app-config   → the caller's app version state (appConfigHandler; public, never gated)
 //     /socket.io/            → sio
 //     /                      → the browser client from cfg.PublicDir (staticHandler)
 //     wrapped in m.HTTPMiddleware(metricsPath, metrics.RouteLabelFor, mux)
@@ -255,6 +261,8 @@ func New(opts Options) (*App, error) {
 
 	// 3. the table catalogue, into cfg — before anything below reads it.
 	a.tableConfig = resolveTableCatalogue(cfg, opts.DB, logger)
+	// …and the app version gate, read while the server runs (appversion.go).
+	a.appGate = newAppGate(cfg, opts.DB, a.metrics, clock.Now, logger)
 
 	// 4. stores, tokens, providers.
 	users := db.NewUsers(opts.DB, cfg.Game.WelcomeChips, clock.Now)
@@ -295,6 +303,9 @@ func New(opts Options) (*App, error) {
 		// chat:emoji reads the sender's ownership here on every send
 		// (owner, 26 Sep 2026).
 		Emojis: emojis,
+		// The handshake refuses an app build too old to play, or on a
+		// platform in maintenance (owner, 28 Sep 2026).
+		AppGate: a.appGate,
 	})
 	// Player levels and XP (owner, 26 Sep 2026): a hand-end settlement awards
 	// the hand's XP in its own transaction; once it has committed, the
@@ -538,6 +549,10 @@ func New(opts Options) (*App, error) {
 		// hand the report is about.
 		Reports:       db.NewReports(opts.DB, clock.Now),
 		ReportContext: a.rooms.ReportContext,
+		// Every signed-in route refuses an app build too old to play (426
+		// update_required) or on a platform in maintenance (503), before its
+		// token is read (owner, 28 Sep 2026).
+		AppGate: a.appGate,
 	})
 	mux := http.NewServeMux()
 	if cfg.Metrics.Enabled {
@@ -550,6 +565,9 @@ func New(opts Options) (*App, error) {
 	// live table's code and pot (auth.Handler.RequireAuth).
 	mux.Handle("GET /api/rooms", api.RequireAuth(func(w http.ResponseWriter, r *http.Request, _ *db.User) { a.roomsHandler(w, r) }))
 	mux.HandleFunc("GET /api/tables", a.tablesHandler)
+	// Public and never gated: the app asks it before sign-in, to learn whether
+	// it may play at all (owner, 28 Sep 2026).
+	mux.HandleFunc("GET /api/app-config", a.appConfigHandler)
 	mux.Handle("/api/", auth.NotFoundHandler())
 	if !publicDirExists(cfg.PublicDir) {
 		logger.Warn("browser client directory not found; static requests will 404", "publicDir", cfg.PublicDir)

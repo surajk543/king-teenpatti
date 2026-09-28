@@ -380,6 +380,34 @@ func TestAuthRejectionIsConnectErrorWithCodeAsMessage(t *testing.T) {
 	}
 }
 
+// A *ConnectRefusal (the app version gate) carries data beside its message,
+// Node's err.data; a wrapped one too. Any other refusal is still message-only.
+func TestAConnectRefusalCarriesItsDataBesideTheMessage(t *testing.T) {
+	h := newHarness(t, Options{})
+	h.srv.Use(func(s *Socket) error {
+		switch string(s.Handshake().Auth["appVersion"]) {
+		case `"1.0.0"`:
+			return &ConnectRefusal{Message: "update_required", Data: map[string]string{"storeUrl": "https://play.example/kt", "minimumVersion": "1.5.0"}}
+		case `"wrapped"`:
+			return fmt.Errorf("gate: %w", &ConnectRefusal{Message: "maintenance", Data: map[string]string{"message": "Back soon"}})
+		}
+		return errors.New("plain")
+	})
+	c := h.openClient()
+	send(t, c.ws, `40{"appVersion":"1.0.0"}`)
+	if f := readFrame(t, c.ws, 2*time.Second); f != `44{"message":"update_required","data":{"minimumVersion":"1.5.0","storeUrl":"https://play.example/kt"}}` {
+		t.Fatalf("got %q", f)
+	}
+	send(t, c.ws, `40{"appVersion":"wrapped"}`)
+	if f := readFrame(t, c.ws, 2*time.Second); f != `44{"message":"gate: maintenance","data":{"message":"Back soon"}}` {
+		t.Fatalf("got %q", f)
+	}
+	send(t, c.ws, `40{}`)
+	if f := readFrame(t, c.ws, 2*time.Second); f != `44{"message":"plain"}` {
+		t.Fatalf("got %q", f)
+	}
+}
+
 func TestConnectToOtherNamespaceIsInvalidNamespace(t *testing.T) {
 	h := newHarness(t, Options{})
 	c := h.openClient()

@@ -23,6 +23,7 @@ import '../widgets/feedback_toggles.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/edge_fade.dart';
 import '../widgets/fireworks.dart';
+import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/lobby_card_badge.dart';
 import '../widgets/glass_panels.dart';
@@ -5400,11 +5401,7 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
               suffixIcon: _saving
                   ? const Padding(
                       padding: EdgeInsets.all(Space.md),
-                      child: SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
+                      child: GameLoaderRing(size: 18),
                     )
                   : IconButton(
                       tooltip: t.save,

@@ -20,6 +20,7 @@ import '../widgets/chip_store.dart';
 import '../widgets/deal_flight.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/emoji_shelf.dart';
+import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/hand_fan.dart';
@@ -1133,7 +1134,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     _followMissile(state.missileStrike);
 
     final room = state.room;
-    if (room == null) return const Center(child: CircularProgressIndicator());
+    if (room == null) return const Center(child: GameLoader());
     _followCelebration(state, room);
 
     final seats = state.seatsInViewOrder();

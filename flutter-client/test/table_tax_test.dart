@@ -39,6 +39,7 @@ import 'package:teenpatti/state/missile_strike.dart';
 import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/widgets/buy_chips.dart';
 import 'package:teenpatti/widgets/game_card.dart';
+import 'package:teenpatti/widgets/game_loader.dart';
 import 'package:teenpatti/widgets/level_screen.dart';
 import 'package:teenpatti/widgets/missile_flight.dart';
 import 'package:teenpatti/widgets/picture_shelf.dart';
@@ -1905,7 +1906,7 @@ void main() {
       expect(find.text(t.levelsUnavailable), findsOneWidget);
       expect(find.byKey(const ValueKey('winning-tax-retry')), findsOneWidget);
       expect(find.text('Level 10 · 🌟 Rising Star'), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byType(GameLoader), findsNothing);
       await _unmount(tester, state);
     });
   });

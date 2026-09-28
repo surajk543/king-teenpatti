@@ -530,7 +530,10 @@ them would connect.
 
 **The connection** (`connection/websocket.go`) is a websocket-only Engine.IO v4 /
 Socket.IO v5 client — the Flutter app's transport — with the JWT in the
-handshake's `auth.token`. The server pings every 20 s and the client only answers
+handshake's `auth.token`, and `auth.appPlatform: "bot"` beside it (as the
+`X-App-Platform: bot` header on every REST call): the game server's app version
+gate (28 Sep 2026) never refuses a bot — not for a minimum version, not for a
+maintenance, not with `APP_VERSION_REQUIRED` on. The server pings every 20 s and the client only answers
 (a client ping would end the connection); 45 s with nothing from the server is a
 dead connection. permessage-deflate is offered, frames under 256 bytes go out
 plain, a frame over the server's `maxPayload` is refused before it is sent, and a

@@ -96,7 +96,7 @@ const resolveSide = async (label, spec, schemaArg) => {
 // ------------------------------------------------------------- recording
 
 const openRecorder = (baseUrl, token, name) => new Promise((resolve, reject) => {
-  const socket = connect(baseUrl, { auth: { token }, transports: ['websocket'], forceNew: true, reconnection: false });
+  const socket = connect(baseUrl, { auth: { token, appPlatform: 'tool' }, transports: ['websocket'], forceNew: true, reconnection: false });
   const stream = [];
   socket.onAny((event, payload) => stream.push({ event, payload }));
   const timer = setTimeout(() => reject(new Error(`${name}: connect timed out`)), 5000);
@@ -164,7 +164,8 @@ const runScenario = async (side) => {
   const { baseUrl } = side;
   const rest = [];
   const http = async (name, method, route, { body, token } = {}) => {
-    const init = { method, headers: {} };
+    // A tool: never version-gated (the app version gate, 28 Sep 2026).
+    const init = { method, headers: { 'x-app-platform': 'tool' } };
     if (token) init.headers.authorization = `Bearer ${token}`;
     if (body !== undefined) { init.body = JSON.stringify(body); init.headers['content-type'] = 'application/json'; }
     const response = await fetch(`${baseUrl}${route}`, init);

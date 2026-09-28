@@ -106,6 +106,8 @@ curl -s -H 'Authorization: Bearer <token>' https://api.sungamestudio.com/metrics
 | `game_socket_messages_total` | counter | `event` | inbound messages by event name (`game:action`, `room:quickJoin`, `chat:message`, …) |
 | `game_socket_emits_total` | counter | `event` | outbound messages by event name (a room broadcast counts once) |
 | `game_session_replaced_total` | counter | — | a second sign-in displaced an existing socket |
+| `game_app_version_checks_total` | counter | `platform`, `status` | the app version gate (28 Sep 2026): every `GET /api/app-config` verdict — `platform` android/ios/bot/tool/web/none/other, `status` normal/soft_update/force_update/maintenance; never the version itself |
+| `game_app_version_rejections_total` | counter | `platform`, `status`, `via` | a signed-in REST call (`via="rest"`) or socket handshake (`via="socket"`) the gate refused — `force_update` (an app build below its platform's minimum) or `maintenance` |
 
 ### Game (Requirement 35c)
 

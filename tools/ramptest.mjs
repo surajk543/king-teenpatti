@@ -68,7 +68,8 @@ setInterval(() => { const now = performance.now(); const drift = now - lagMark -
 
 async function login(i) {
   const t0 = performance.now();
-  const r = await fetch(`${BASE_URL}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(30_000),
+  // A load bot declares itself a tool (the app version gate, 28 Sep 2026): never version-gated.
+  const r = await fetch(`${BASE_URL}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-app-platform': 'tool' }, signal: AbortSignal.timeout(30_000),
     body: JSON.stringify({ provider: 'guest', deviceId: `ramp-bot-${i + ID_OFFSET}-device-id`, displayName: `LoadBot${i + ID_OFFSET}` }) });
   const ms = performance.now() - t0;
   if (!r.ok) throw new Error(`login ${r.status}`);
@@ -90,7 +91,7 @@ function chooseAction(o) {
 
 function createBot(token, rec) {
   const t0 = performance.now();
-  const socket = io(BASE_URL, { auth: { token }, transports: ['websocket'], forceNew: true, reconnection: false });
+  const socket = io(BASE_URL, { auth: { token, appPlatform: 'tool' }, transports: ['websocket'], forceNew: true, reconnection: false });
   socket.on('connect', () => {
     rec.connectMs = performance.now() - t0; rec.connected = true;
     socket.emit('room:quickJoin', { bootAmount: BOOT, category: CATEGORY }, (ack) => { rec.joined = Boolean(ack?.ok); rec.joinCode = ack?.code; if (!ack?.ok) rec.joinRefused = ack?.code ?? 'no_ack'; });

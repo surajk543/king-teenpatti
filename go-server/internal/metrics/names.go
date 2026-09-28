@@ -108,6 +108,15 @@ const (
 	NameStatsFlushPlayers = "game_stats_flush_players" // histogram, players per committed batch
 )
 
+// The app version gate (owner, 28 Sep 2026; appversion). No label ever carries
+// the version a client sent: platform is one of AppPlatforms, status one of
+// AppStatuses and via one of AppVias — the version is in the log line, never
+// in a series.
+const (
+	NameAppVersionChecks     = "game_app_version_checks_total"     // {platform,status}: GET /api/app-config verdicts
+	NameAppVersionRejections = "game_app_version_rejections_total" // {platform,status,via}: refused REST calls and handshakes
+)
+
 // HTTP.
 const (
 	NameHTTPRequestsTotal   = "game_http_requests_total"           // {method,route,status_code}
@@ -164,6 +173,15 @@ var (
 	LiveResults = map[string]struct{}{LiveResultOK: {}, LiveResultNotFound: {}, LiveResultStale: {}, LiveResultError: {}}
 	// WriteResults are the `result` values of game_live_store_reconciles_total.
 	WriteResults = map[string]struct{}{ResultOK: {}, ResultError: {}}
+	// AppPlatforms are the `platform` values of the app version gate's two
+	// counters: what appversion.Client.Label answers — the platforms a client
+	// may declare, "none" for none and "other" for one the server does not
+	// know.
+	AppPlatforms = map[string]struct{}{"android": {}, "ios": {}, "bot": {}, "tool": {}, "web": {}, "none": {}, OtherLabel: {}}
+	// AppStatuses are their `status` values: the four states, lower-cased.
+	AppStatuses = map[string]struct{}{"normal": {}, "soft_update": {}, "force_update": {}, "maintenance": {}}
+	// AppVias are game_app_version_rejections_total's `via` values.
+	AppVias = map[string]struct{}{"rest": {}, "socket": {}}
 	// HTTPMethods are the accepted `method` labels; anything else is "OTHER".
 	HTTPMethods = map[string]struct{}{"GET": {}, "POST": {}, "PUT": {}, "PATCH": {}, "DELETE": {}, "HEAD": {}, "OPTIONS": {}}
 )
