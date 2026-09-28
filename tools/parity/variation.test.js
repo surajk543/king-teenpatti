@@ -30,7 +30,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   guestLogin, openClient, closeAll, closeOpenClients, stakeCounter, dealtTable, profile, pause,
-  assertKeys, assertOrder, CARD_CODE, HAND_NAMES, SNAPSHOT_KEYS, VARIATION_SNAPSHOT_KEYS, VARIATION_KEYS, VARIATIONS,
+  assertKeys, assertOrder, CARD_CODE, countdownKeys, HAND_NAMES, SNAPSHOT_KEYS, VARIATION_SNAPSHOT_KEYS, VARIATION_KEYS, VARIATIONS,
   THREE_CARD_VARIATIONS, YOU_HAND_KEYS, YOU_HAND_PICKING_KEYS, YOU_HAND_PICKED_KEYS, OPTIONS_KEYS,
 } from './lib/harness.mjs';
 import { closeDb } from './lib/db.mjs';
@@ -499,7 +499,7 @@ test('a showdown names the variation, marks the wild cards inside each hand, and
 
   // Between hands the block is gone — absent, not null — until the next deal opens a new window.
   const between = chooser.client.all('room:state').find((p) => p.handNo === ended.handNo && p.state !== 'betting');
-  if (between) assertKeys(between, SNAPSHOT_KEYS, 'room:state between hands');
+  if (between) assertKeys(between, countdownKeys(between, SNAPSHOT_KEYS), 'room:state between hands');
   await closeAll(...clients);
 });
 
@@ -815,7 +815,7 @@ test('a seen table and a blind table carry no variation key, announce no window,
     const { onTurn, waiting, clients } = await dealtTable(`varnot${category}`, uniqueStake, { category });
     for (const client of clients) {
       for (const snapshot of [...client.all('room:joined'), ...client.all('room:state')]) {
-        assertKeys(snapshot, SNAPSHOT_KEYS, `${category} snapshot`);
+        assertKeys(snapshot, countdownKeys(snapshot, SNAPSHOT_KEYS), `${category} snapshot`);
       }
       assert.equal(client.count('game:variationSelecting'), 0);
       assert.equal(client.count('game:variationSelected'), 0);

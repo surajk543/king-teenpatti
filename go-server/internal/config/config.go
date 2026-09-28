@@ -474,7 +474,11 @@ type GameConfig struct {
 	PrivateMaxRaiseSteps int   // PRIVATE_MAX_RAISE_STEPS 2
 	PrivateBoot          int64 // PRIVATE_BOOT 200
 
-	NextHandDelay time.Duration // NEXT_HAND_DELAY_MS 4000 ("starting in N")
+	// NextHandDelay is NEXT_HAND_DELAY_MS 6000: from a hand's end to the next
+	// deal — the winner's celebration, then the 3-2-1 countdown the app plays
+	// in its last 3 s (game/countdown.go; 4000 until 29 Sep 2026). A first
+	// deal waits only the countdown, game.StartDelay.
+	NextHandDelay time.Duration
 	// UnfundedGrace is UNFUNDED_GRACE_MS 30000: how long a seat that can no
 	// longer cover the boot is held between hands before the
 	// insufficient_chips kick (requirements 31/32), so a player buying chips
@@ -731,7 +735,7 @@ func Defaults() *Config {
 			PrivateMaxPot:           500000,
 			PrivateMaxRaiseSteps:    2,
 			PrivateBoot:             200,
-			NextHandDelay:           4 * time.Second,
+			NextHandDelay:           6 * time.Second,
 			UnfundedGrace:           30 * time.Second,
 			MissileRevealExtra:      3 * time.Second,
 			VariationSelectTimeout:  10 * time.Second,

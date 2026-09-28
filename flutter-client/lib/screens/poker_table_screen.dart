@@ -21,6 +21,7 @@ import '../widgets/pot_flight.dart';
 import '../widgets/rules_sheet.dart';
 import '../widgets/seat_pod.dart';
 import '../widgets/seat_ring.dart';
+import '../widgets/start_countdown.dart';
 import '../widgets/table_chrome.dart';
 import '../widgets/variation_prompt.dart';
 
@@ -453,6 +454,29 @@ class _PokerFelt extends StatelessWidget {
                     cardHeight: boardCardH,
                   ),
                 ),
+              // The 3-2-1 before a deal (29 Sep 2026), where the starting line
+              // stood — over the empty board before a first deal, in the
+              // pocket right of the pot after a hand — under the pots and
+              // the seats, so the stars pass behind them. Over the board it
+              // stands over the street tag too, so there it is no larger than
+              // keeps its stars (a disc's width above its middle) under the
+              // tag.
+              Positioned.fill(
+                key: const ValueKey('start-countdown'),
+                child: StartCountdownLayer(
+                  anchor: handLive
+                      ? Offset(_promptDx * w, (noticeTop + noticeBottom) / 2)
+                      : Offset(0.5 * w, _statusDy * h),
+                  discSize: StartCountdownLayer.discFor(
+                    handLive
+                        ? math.min(w * _promptW, noticeBottom - noticeTop)
+                        : math.min(
+                            2 * ((_potDy - _statusDy) * h - _statusClear),
+                            (_statusDy - _tagDy) * h - 16,
+                          ),
+                  ),
+                ),
+              ),
               at(
                 const Offset(0.5, _potDy),
                 _Pots(
@@ -947,6 +971,7 @@ class _PokerStatus extends StatelessWidget {
     // draw, play or fold), which are what the player must answer now.
     final warning =
         graceLeft == null &&
+            !state.countdownShowing &&
             state.missedTurnsNoticeShowing &&
             !state.canDraw &&
             !state.canPlay
@@ -976,7 +1001,8 @@ class _PokerStatus extends StatelessWidget {
     } else {
       line = switch (room.state) {
         TableState.waiting => '${t.waitingForPlayers} (${room.minPlayers})',
-        TableState.starting => t.startingGame,
+        // The 3-2-1 says it ([StartCountdownLayer]; 29 Sep 2026).
+        TableState.starting => '',
         _ => '',
       };
     }

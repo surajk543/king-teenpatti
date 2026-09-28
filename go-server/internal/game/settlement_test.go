@@ -1337,11 +1337,12 @@ func TestAddPlayerEventOrder(t *testing.T) {
 	mark := h.rec.count()
 	h.seat("b", tableStart)
 	eq(t, strings.Join(h.rec.names()[mark:], ","), "seatUpdated,chat,state,state", "second seat triggers the countdown")
-	if h.view("a").StartsAt == nil || *h.view("a").StartsAt != Millis(h.clock.Now().Add(6*time.Second)) {
-		t.Fatal("startsAt = now + nextHandDelay")
+	// A first deal is the countdown alone (countdown.go), not NextHandDelay.
+	if h.view("a").StartsAt == nil || *h.view("a").StartsAt != Millis(h.clock.Now().Add(StartCountdown)) {
+		t.Fatal("startsAt = now + StartCountdown")
 	}
 	mark = h.rec.count()
-	h.advance(6 * time.Second)
+	h.advance(StartCountdown)
 	eq(t, strings.Join(h.rec.names()[mark:], ","), "handStarted,turn,state", "deal order")
 	mark = h.rec.count()
 	h.mustAct(h.turnUser(), ActionChaal, ActRequest{})

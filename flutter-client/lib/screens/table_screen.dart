@@ -35,6 +35,7 @@ import '../widgets/pot_flight.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/seat_pod.dart';
 import '../widgets/seat_ring.dart';
+import '../widgets/start_countdown.dart';
 import '../widgets/table_chrome.dart';
 import '../widgets/table_tax.dart';
 import '../widgets/variation_prompt.dart';
@@ -1760,6 +1761,23 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 width: math.min(w * 0.37, h * 0.53),
                 key: const ValueKey('centrepiece'),
               ),
+              // The 3-2-1 before a deal (29 Sep 2026), where the starting line
+              // stood: on the cloth, under the tag, the pot and every seat, so
+              // the stars its numbers throw off pass behind them.
+              Positioned.fill(
+                key: const ValueKey('start-countdown'),
+                child: StartCountdownLayer(
+                  anchor: Offset(0.5 * w, statusY),
+                  discSize: StartCountdownLayer.discFor(
+                    _Felt.statusRoom(
+                      MediaQuery.textScalerOf(context),
+                      Theme.of(context),
+                      statusY: statusY,
+                      potY: _potDy * h,
+                    ),
+                  ),
+                ),
+              ),
 
               // A sideshow in progress, drawn for everyone: a line pulsing
               // between the two seats, so the rest of the table can see who
@@ -3018,7 +3036,12 @@ class _Status extends StatelessWidget {
 
     final text = switch (room.state) {
       TableState.waiting => '${state.t.waitingForPlayers} (${room.minPlayers})',
-      TableState.starting => state.t.startingGame,
+      // The countdown says it (29 Sep 2026: "instead of showing text
+      // "Starting game .." show this count Down animation 3,2,1"): the
+      // numbers stand in this place in the last three seconds before the
+      // deal ([StartCountdownLayer]), and before them the last hand's
+      // celebration has the table.
+      TableState.starting => '',
       // Nothing during a hand. Whose turn it is, is carried by the pulsing
       // ring on that player's pod — naming them in the middle of the table as
       // well says the same thing twice, and it said it in the one place the
@@ -3090,7 +3113,10 @@ class _Status extends StatelessWidget {
     // kick"): said here until the player acts again, from the count the
     // server keeps in their own snapshot ([warningFor]) — or, at a head
     // seat's table, in its own pocket, and this slot says its line.
-    final warning = noticeInPocket ? null : warningFor(state, room);
+    // The countdown stands in this slot when it is up.
+    final warning = noticeInPocket || state.countdownShowing
+        ? null
+        : warningFor(state, room);
     if (warning != null) {
       return MissedTurnsNotice(
         key: ValueKey('missed-turns-${warning.last}'),

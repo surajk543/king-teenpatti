@@ -43,7 +43,9 @@ func variationTable(t *testing.T, count int, opts ...harnessOption) (*harness, [
 		ids = append(ids, id)
 		h.seatNamed(id, strings.ToUpper(id), sideshowStart)
 	}
-	h.advance(variationConfig().NextHandDelay)
+	// The first deal's countdown (countdown.go), and not a moment more: the
+	// window opens at the deal and the tests count it from there.
+	h.advance(StartDelay(variationConfig().NextHandDelay))
 	eq(t, h.handNo(), 1, "the first hand is dealt")
 	return h, ids, h.chooser()
 }

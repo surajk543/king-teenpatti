@@ -53,7 +53,7 @@ func TestSpecComposesWhatTheServerAlwaysBuilt(t *testing.T) {
 		s.MaxPlayers, s.MinPlayers = 5, 2
 		s.TurnTimeout = 25 * time.Second
 		s.MaxMissedTurns = 3
-		s.NextHandDelay = 4 * time.Second
+		s.NextHandDelay = 6 * time.Second
 		s.UnfundedGrace = 30 * time.Second
 		return s
 	}

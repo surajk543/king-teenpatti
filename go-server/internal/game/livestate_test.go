@@ -589,7 +589,9 @@ func TestRestoreOfACountdown(t *testing.T) {
 	h := newHarness(t, liveConfig())
 	h.seat("a", tableStart)
 	h.seat("b", tableStart)
-	h.advance(2 * time.Second) // 4 s of the 6 s countdown left
+	// A first deal's countdown is StartCountdown (3 s), not the 6 s a hand's
+	// end waits (countdown.go): 2 s of it left.
+	h.advance(1 * time.Second)
 	snap := mustSnapshot(h)
 	eq(t, snap.State, TableStarting, "starting")
 	if snap.StartsAt == nil {
@@ -602,9 +604,10 @@ func TestRestoreOfACountdown(t *testing.T) {
 	eq(t, *r.view("a").StartsAt, *snap.StartsAt, "same startsAt")
 	eq(t, r.hasHand(), false, "not dealt yet")
 	eq(t, mustJSON(t, mustSnapshot(r)), mustJSON(t, snap), "snapshot round trip")
-	h.advance(3 * time.Second)
-	eq(t, r.hasHand(), false, "1 s left")
-	h.advance(1 * time.Second)
+	eq(t, *r.view("a").StartsInMs, int64(2000), "the restored snapshot says 2 s left")
+	h.advance(2*time.Second - time.Millisecond)
+	eq(t, r.hasHand(), false, "1 ms left")
+	h.advance(time.Millisecond)
 	eq(t, r.hasHand(), true, "dealt at the original startsAt")
 	eq(t, r.handNo(), 1, "hand 1")
 	eq(t, r.mustSeat("a").Chips, tableStart-tableBoot, "boot taken at the seat")

@@ -553,8 +553,11 @@ SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost,
 -- variation table: the 10 s chooser's window and the 8 s 5-Card pick. Poker: a
 -- 25 s clock, a buy-in of ten boots, three cards to exchange (only 5-Card Draw
 -- reads it), and none of Teen Patti's figures.
--- Every table: three missed turns before the idle kick, a 4 s pause between
--- hands, 30 s to buy chips before a short seat is kicked; every Teen Patti
+-- Every table: three missed turns before the idle kick, a 6 s pause between
+-- hands (the winner's celebration, then the 3-2-1 countdown before the deal;
+-- 4 s until 29 Sep 2026 — a database seeded before then keeps 4000 until its
+-- rows are changed by hand, and a 4 s window leaves the countdown only 1 s
+-- after the result), 30 s to buy chips before a short seat is kicked; every Teen Patti
 -- table, four blind moves and 3 s more after a missile. Every public Seen,
 -- Blind and Variation table TAXES ITS WINNERS (winner_tax; owner, 26 Sep
 -- 2026, and 27 Sep 2026: "Apply this tax rule on all the tables, blind, seen,
@@ -654,18 +657,18 @@ SELECT v.category, v.boot_amount, FALSE, v.min_chips, v.max_chips,
        v.winner_tax, v.tax_min_winnings, v.sort_order, fresh.empty
   FROM (VALUES
     -- category          boot         min_chips  max_chips   max_pot          steps rounds ceiling       blind turn   missed side  side_min next  grace  missile select pick  buy_in     disc tax       tax_min   sort
-    ('seen',             200::bigint, 0::bigint, 0::bigint,  2000000::bigint, 2,    7,     1024::bigint, 4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0::bigint, 0,   TRUE::boolean, 5000000::bigint, 10),
-    ('blind',            200,         0,         0,          0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  20),
-    ('blind',            5000,        0,         200000000,  0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  30),
-    ('blind',            50000,       0,         2000000000, 0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  40),
-    ('blind',            2000000,     500000000, 0,          0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  50),
-    ('variation',        50000,       0,         2000000000, 0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   10000, 8000, 0,         0,   TRUE,     5000000,  60),
-    ('variation',        2000000,     500000000, 0,          0,               0,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   10000, 8000, 0,         0,   TRUE,     5000000,  70),
-    ('seen',             50000,       0,         0,          50000000,        2,    7,     1024,         4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  80),
-    ('three_card_poker', 50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    500000,    3,   FALSE,    0,        90),
-    ('five_card_draw',   50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    500000,    3,   FALSE,    0,        100),
-    ('texas_holdem',     50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    500000,    3,   FALSE,    0,        110),
-    ('omaha',            50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    500000,    3,   FALSE,    0,        120)
+    ('seen',             200::bigint, 0::bigint, 0::bigint,  2000000::bigint, 2,    7,     1024::bigint, 4,    25000, 3,     6000, 3,       6000, 30000, 3000,   0,     0,    0::bigint, 0,   TRUE::boolean, 5000000::bigint, 10),
+    ('blind',            200,         0,         0,          0,               0,    0,     0,            4,    25000, 3,     6000, 3,       6000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  20),
+    ('blind',            5000,        0,         200000000,  0,               0,    0,     0,            4,    25000, 3,     6000, 3,       6000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  30),
+    ('blind',            50000,       0,         2000000000, 0,               0,    0,     0,            4,    25000, 3,     6000, 3,       6000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  40),
+    ('blind',            2000000,     500000000, 0,          0,               0,    0,     0,            4,    25000, 3,     6000, 3,       6000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  50),
+    ('variation',        50000,       0,         2000000000, 0,               0,    0,     0,            4,    25000, 3,     6000, 3,       6000, 30000, 3000,   10000, 8000, 0,         0,   TRUE,     5000000,  60),
+    ('variation',        2000000,     500000000, 0,          0,               0,    0,     0,            4,    25000, 3,     6000, 3,       6000, 30000, 3000,   10000, 8000, 0,         0,   TRUE,     5000000,  70),
+    ('seen',             50000,       0,         0,          50000000,        2,    7,     1024,         4,    25000, 3,     6000, 3,       6000, 30000, 3000,   0,     0,    0,         0,   TRUE,     5000000,  80),
+    ('three_card_poker', 50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       6000, 30000, 0,      0,     0,    500000,    3,   FALSE,    0,        90),
+    ('five_card_draw',   50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       6000, 30000, 0,      0,     0,    500000,    3,   FALSE,    0,        100),
+    ('texas_holdem',     50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       6000, 30000, 0,      0,     0,    500000,    3,   FALSE,    0,        110),
+    ('omaha',            50000,       0,         0,          0,               0,    0,     0,            0,    25000, 3,     0,    0,       6000, 30000, 0,      0,     0,    500000,    3,   FALSE,    0,        120)
   ) AS v(category, boot_amount, min_chips, max_chips,
          max_pot, max_raise_steps, max_bet_rounds, pot_limit_multiplier, max_blind_moves,
          turn_timeout_ms, max_missed_turns, sideshow_timeout_ms, sideshow_min_players,
@@ -693,13 +696,13 @@ SELECT v.category, v.boot_amount, TRUE, v.min_chips, v.max_chips,
        v.winner_tax, v.tax_min_winnings, v.sort_order, fresh.empty
   FROM (VALUES
     -- category          boot         min_chips  max_chips  max_pot         steps rounds ceiling       blind turn   missed side  side_min next  grace  missile select pick  buy_in     disc tax       tax_min   sort
-    ('seen',             200::bigint, 0::bigint, 0::bigint, 500000::bigint, 2,    7,     1024::bigint, 4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0::bigint, 0,   FALSE::boolean, 0::bigint, 1010),
-    ('blind',            200,         0,         0,         500000,         2,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   0,     0,    0,         0,   FALSE,    0,        1020),
-    ('variation',        200,         0,         0,         500000,         2,    0,     0,            4,    25000, 3,     6000, 3,       4000, 30000, 3000,   10000, 8000, 0,         0,   FALSE,    0,        1030),
-    ('three_card_poker', 200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    2000,      3,   FALSE,    0,        1040),
-    ('five_card_draw',   200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    2000,      3,   FALSE,    0,        1050),
-    ('texas_holdem',     200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    2000,      3,   FALSE,    0,        1060),
-    ('omaha',            200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       4000, 30000, 0,      0,     0,    2000,      3,   FALSE,    0,        1070)
+    ('seen',             200::bigint, 0::bigint, 0::bigint, 500000::bigint, 2,    7,     1024::bigint, 4,    25000, 3,     6000, 3,       6000, 30000, 3000,   0,     0,    0::bigint, 0,   FALSE::boolean, 0::bigint, 1010),
+    ('blind',            200,         0,         0,         500000,         2,    0,     0,            4,    25000, 3,     6000, 3,       6000, 30000, 3000,   0,     0,    0,         0,   FALSE,    0,        1020),
+    ('variation',        200,         0,         0,         500000,         2,    0,     0,            4,    25000, 3,     6000, 3,       6000, 30000, 3000,   10000, 8000, 0,         0,   FALSE,    0,        1030),
+    ('three_card_poker', 200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       6000, 30000, 0,      0,     0,    2000,      3,   FALSE,    0,        1040),
+    ('five_card_draw',   200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       6000, 30000, 0,      0,     0,    2000,      3,   FALSE,    0,        1050),
+    ('texas_holdem',     200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       6000, 30000, 0,      0,     0,    2000,      3,   FALSE,    0,        1060),
+    ('omaha',            200,         0,         0,         0,              0,    0,     0,            0,    25000, 3,     0,    0,       6000, 30000, 0,      0,     0,    2000,      3,   FALSE,    0,        1070)
   ) AS v(category, boot_amount, min_chips, max_chips,
          max_pot, max_raise_steps, max_bet_rounds, pot_limit_multiplier, max_blind_moves,
          turn_timeout_ms, max_missed_turns, sideshow_timeout_ms, sideshow_min_players,

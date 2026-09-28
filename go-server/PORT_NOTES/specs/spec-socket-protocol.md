@@ -905,6 +905,7 @@ S→C  42["friend:accepted",{"requestId":1,"player":{"userId":"<accepter>","disp
   "handNo": <int>, "dealerSeat": <int, -1 before first hand>,
   "maxPlayers": 5, "minPlayers": 2, "bootAmount": <int>, "turnTimeoutMs": 25000,
   "startsAt": <epoch ms> | null,           // this.startsAt ?? null (undefined before the first countdown → null)
+  "startsInMs": <int ≥ 0>,                 // Go only (29 Sep 2026): the time left to that deal as serialised; ABSENT unless state is "starting" (DECISIONS.md §2)
   "pot": <hand?.pot ?? 0>,
   "maxPot": <int, 0 = uncapped>,
   "stake": <hand?.stake ?? bootAmount>,

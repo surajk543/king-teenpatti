@@ -39,7 +39,14 @@ type TableView struct {
 	TurnTimeoutMs int64 `json:"turnTimeoutMs"`
 	// StartsAt is the countdown target (epoch ms) while State == starting, else null.
 	StartsAt *int64 `json:"startsAt"`
-	Pot      int64  `json:"pot"` // hand.pot, or 0 between hands
+	// StartsInMs is the same deal as the time LEFT until it, measured when
+	// this snapshot was serialised (countdown.go): present exactly when
+	// StartsAt is set and ABSENT — not null — otherwise, so every snapshot
+	// outside a countdown is byte for byte what it was. The app anchors its
+	// 3-2-1 to the moment the snapshot arrives, which no phone clock set
+	// wrong can move. Go only (29 Sep 2026).
+	StartsInMs *int64 `json:"startsInMs,omitempty"`
+	Pot        int64  `json:"pot"` // hand.pot, or 0 between hands
 	// MaxPot is the pot ceiling, 0 when uncapped.
 	MaxPot int64 `json:"maxPot"`
 	// WinnerTax is true at a table that TAXES ITS WINNERS (owner, 26 Sep

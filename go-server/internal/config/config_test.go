@@ -75,7 +75,7 @@ func TestDefaultsMatchNode(t *testing.T) {
 		"Game.MaxMissedTurns": 3, "Game.SideshowTimeout": 6 * time.Second, "Game.SideshowMinPlayers": 3,
 		"Game.DisplayNameMaxLength": 24,
 		"Game.PrivateMaxPot":        int64(500000), "Game.PrivateMaxRaiseSteps": 2, "Game.PrivateBoot": int64(200),
-		"Game.NextHandDelay": 4 * time.Second, "Game.MissileRevealExtra": 3 * time.Second, "Game.ConsolidateInterval": 15 * time.Second,
+		"Game.NextHandDelay": 6 * time.Second, "Game.MissileRevealExtra": 3 * time.Second, "Game.ConsolidateInterval": 15 * time.Second,
 		// The variation window is the SERVER's clock: ten seconds, then Muflis.
 		"Game.VariationSelectTimeout": 10 * time.Second,
 		// A variation table has no pot limit (owner, 18 Sep 2026).

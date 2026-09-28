@@ -1035,7 +1035,8 @@ test('GET /api/tables carries the figures its source gives: the seeded rows from
     assert.deepEqual(body.privateTables.map((entry) => entry.sortOrder), CATEGORY_ORDER.map((_, i) => 1000 + (i + 1) * 10));
     for (const entry of [...body.tables, ...body.privateTables]) {
       assert.equal(entry.turnTimeoutMs, 25000, `${entry.key} turn`);
-      assert.equal(entry.nextHandDelayMs, 4000, `${entry.key} next hand`);
+      // The celebration, then the 3-2-1 before the deal (29 Sep 2026; 4000 before).
+      assert.equal(entry.nextHandDelayMs, 6000, `${entry.key} next hand`);
       assert.equal(entry.maxMissedTurns, 3, `${entry.key} missed turns`);
       if (entry.engine === 'teen_patti') assert.equal(entry.sideshowTimeoutMs, 6000, `${entry.key} sideshow`);
       if (entry.category === 'variation') {

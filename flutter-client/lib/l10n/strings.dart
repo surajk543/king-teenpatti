@@ -1497,6 +1497,11 @@ class Strings {
   String get themeLight => _('themeLight');
   String get waitingForPlayers => _('waitingForPlayers');
   String get startingGame => _('startingGame');
+
+  /// What a screen reader hears of the countdown before a deal (29 Sep 2026):
+  /// "Starting in 3", then 2, then 1.
+  String startingIn(int seconds) =>
+      _('startingIn').replaceAll('{seconds}', '$seconds');
   String buyChipsToStay(int seconds) =>
       _('buyChipsToStay').replaceAll('{seconds}', '$seconds');
 
@@ -2338,6 +2343,7 @@ class Strings {
       'themeLight': 'Light',
       'waitingForPlayers': 'Waiting for players',
       'startingGame': 'Starting game…',
+      'startingIn': 'Starting in {seconds}',
       'buyChipsToStay': 'Buy chips in {seconds}s to keep your seat',
       'unlock': 'Unlock',
       'unlockTitle': 'Unlock this picture?',
@@ -3303,6 +3309,7 @@ class Strings {
       'themeLight': 'लाइट',
       'waitingForPlayers': 'खिलाड़ियों का इंतज़ार',
       'startingGame': 'खेल शुरू हो रहा है…',
+      'startingIn': '{seconds} सेकंड में शुरू',
       'buyChipsToStay': 'सीट बचाने के लिए {seconds} सेकंड में चिप्स खरीदें',
       'youAreWinner': 'आप जीत गए',
       'isTheWinner': 'जीत गए',
@@ -4199,6 +4206,7 @@ class Strings {
       'themeLight': 'লাইট',
       'waitingForPlayers': 'খেলোয়াড়ের অপেক্ষা',
       'startingGame': 'খেলা শুরু হচ্ছে…',
+      'startingIn': '{seconds} সেকেন্ডে শুরু',
       'buyChipsToStay': 'আসন রাখতে {seconds} সেকেন্ডের মধ্যে চিপস কিনুন',
       'youAreWinner': 'আপনি জিতেছেন',
       'isTheWinner': 'জিতেছেন',
@@ -5092,6 +5100,7 @@ class Strings {
       'themeLight': 'લાઇટ',
       'waitingForPlayers': 'ખેલાડીઓની રાહ',
       'startingGame': 'રમત શરૂ થાય છે…',
+      'startingIn': '{seconds} સેકન્ડમાં શરૂ',
       'buyChipsToStay': 'સીટ રાખવા {seconds} સેકન્ડમાં ચિપ્સ ખરીદો',
       'youAreWinner': 'તમે જીત્યા',
       'isTheWinner': 'જીત્યા',
@@ -5991,6 +6000,7 @@ class Strings {
       'themeLight': 'ਲਾਈਟ',
       'waitingForPlayers': 'ਖਿਡਾਰੀਆਂ ਦੀ ਉਡੀਕ',
       'startingGame': 'ਖੇਡ ਸ਼ੁਰੂ ਹੋ ਰਹੀ ਹੈ…',
+      'startingIn': '{seconds} ਸਕਿੰਟ ਵਿੱਚ ਸ਼ੁਰੂ',
       'buyChipsToStay': 'ਸੀਟ ਰੱਖਣ ਲਈ {seconds} ਸਕਿੰਟ ਵਿੱਚ ਚਿਪਸ ਖਰੀਦੋ',
       'youAreWinner': 'ਤੁਸੀਂ ਜਿੱਤ ਗਏ',
       'isTheWinner': 'ਜਿੱਤ ਗਏ',

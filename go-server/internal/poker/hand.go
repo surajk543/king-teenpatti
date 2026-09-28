@@ -1048,6 +1048,8 @@ func (t *Table) settle(reason WinReason, winners map[string]bool, pushes map[str
 	t.setHand(nil)
 	t.setState(game.TableWaiting)
 	nextHandAt := t.clock.Now().Add(t.cfg.NextHandDelay)
+	// The celebration, then the countdown: the next deal waits for both.
+	t.holdStartUntil = nextHandAt
 	t.listener.OnHandEnded(t.view, HandEndedEvent{
 		HandID: h.id, HandNo: h.handNo, Variant: t.cfg.Variant.Variant, Reason: reason, Pot: h.pot,
 		Pots: pots, Reveals: reveals, Community: community, Dealer: dealer, Summary: summary, NextHandAt: game.Millis(nextHandAt),

@@ -27,6 +27,7 @@ import 'hammer_strike.dart';
 import 'missile_strike.dart';
 import 'player_reports.dart';
 import 'quick_message_order.dart';
+import 'start_countdown.dart';
 import 'table_config_cache.dart';
 import 'theme_preference.dart';
 import 'xp_missions.dart';
@@ -1993,6 +1994,55 @@ class GameState extends ChangeNotifier {
     });
   }
 
+  /// The countdown to the next deal while the table counts down, as this
+  /// phone keeps it ([StartCountdown]): anchored to when each snapshot
+  /// arrived, never restarted by a later one. Null at any other time — a
+  /// countdown held for a table the viewer has left, or one the server has
+  /// moved past, reads as none.
+  StartCountdown? get startCountdown {
+    final held = _startCountdown;
+    final r = room;
+    if (held == null ||
+        r == null ||
+        r.roomId != held.roomId ||
+        r.state != TableState.starting ||
+        r.startsAt != held.startsAt) {
+      return null;
+    }
+    return held;
+  }
+
+  StartCountdown? _startCountdown;
+  Timer? _startCountdownTimer;
+
+  /// Whether the countdown is on the table right now: its last three seconds
+  /// before the deal. The status slot says nothing else while it is (the
+  /// countdown stands there), and it turns on exactly when the countdown
+  /// does — a timer notifies at that moment, not the next one-second tick.
+  bool get countdownShowing =>
+      startCountdown?.showingAt(StartCountdown.clock()) ?? false;
+
+  void _followCountdown(RoomState s) {
+    final now = StartCountdown.clock();
+    final next = StartCountdown.follow(startCountdown, s, receivedAtMs: now);
+    if (next == _startCountdown) return;
+    _startCountdown = next;
+    _startCountdownTimer?.cancel();
+    _startCountdownTimer = null;
+    final hidden = next == null
+        ? 0
+        : next.leftMs(now) - StartCountdown.lengthMs;
+    if (hidden > 0) {
+      // A frame late rather than a moment early: a timer that fires just
+      // before the clock reaches the numbers would leave them off for a
+      // second, to the next tick.
+      _startCountdownTimer = Timer(
+        Duration(milliseconds: hidden + 16),
+        notifyListeners,
+      );
+    }
+  }
+
   /// A table snapshot, already redacted for this viewer.
   @visibleForTesting
   void handleState(RoomState s) {
@@ -2024,6 +2074,7 @@ class GameState extends ChangeNotifier {
     final wasChoosing = variationIsMine;
     room = s;
     _trackMissedTurns(s);
+    _followCountdown(s);
     if (newTable) {
       seatedAt = DateTime.now();
       // A different table is a different sitting, so the blocks go with the
@@ -5024,6 +5075,7 @@ class GameState extends ChangeNotifier {
     _backgroundTimer?.cancel();
     _chatCooldownTimer?.cancel();
     _missedNoticeTimer?.cancel();
+    _startCountdownTimer?.cancel();
     _celebrationTimer?.cancel();
     _ticker?.cancel();
     for (final t in _bubbleTimers.values) {

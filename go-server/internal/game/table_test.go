@@ -2090,7 +2090,7 @@ func TestTheTimeoutStillFiresWhileARaiseStepperIsOpen(t *testing.T) {
 	h := newHarness(t, ladderConfig())
 	h.seat("a", 200000)
 	h.seat("b", 200000)
-	h.advance(6 * time.Second)
+	h.advance(StartCountdown) // the deal, and not a moment more
 
 	stalling := h.turnUser()
 	h.mustAct(stalling, ActionSee, ActRequest{}) // looking does not stop the clock
@@ -2109,7 +2109,7 @@ func TestAManualSeeReissuesTheTurnWithTheRemainingTime(t *testing.T) {
 	h := newHarness(t, ladderConfig())
 	h.seat("a", 200000)
 	h.seat("b", 200000)
-	h.advance(6 * time.Second)
+	h.advance(StartCountdown) // the deal, and not a moment more
 
 	player := h.turnUser()
 	deadline := h.lastTurn().Deadline
@@ -3097,6 +3097,9 @@ func runGoParity(t *testing.T, sc parityScenario) []any {
 				}
 				generic := toGeneric(view)
 				delete(generic, "startsAt")
+				// Go only (the countdown's time left, countdown.go): Node
+				// never sent it, and it is wall-clock like startsAt.
+				delete(generic, "startsInMs")
 				if turn, ok := generic["turn"].(map[string]any); ok {
 					delete(turn, "deadline")
 				}

@@ -69,7 +69,12 @@ type Table struct {
 	hand     *hand
 	button   int // -1 before the first hand
 	startsAt *time.Time
-	chat     *game.RoomChat
+	// holdStartUntil is the earliest the next deal may be: the last hand's
+	// nextHandAt, so a countdown started inside its window (a departure
+	// cancelled the first) never runs over the result's celebration. Zero or
+	// past = no hold. Not snapshotted (game.Table.holdStartUntil).
+	holdStartUntil time.Time
+	chat           *game.RoomChat
 	// lastResult is the previous hand's outcome, shown until the next deal.
 	lastResult *ResultView
 	// lastHand is the hand this room last finished — its id and its players —
@@ -920,7 +925,9 @@ func (t *Table) oweDeparted(entry *contribution) {
 // ------------------------------------------------------------- lifecycle
 
 // maybeStart: with state waiting and no countdown, sweep the unfunded, and
-// with MinPlayers funded seats arm the countdown (NextHandDelay).
+// with MinPlayers funded seats arm the countdown — game.StartDelay, the app's
+// 3-2-1, or to the last hand's nextHandAt when that is later (the result's
+// celebration first; game/countdown.go).
 func (t *Table) maybeStart() {
 	if t.Destroyed() || t.State() != game.TableWaiting || t.startTimer != nil {
 		return
@@ -931,7 +938,10 @@ func (t *Table) maybeStart() {
 	}
 	t.setState(game.TableStarting)
 	now := t.clock.Now()
-	startsAt := now.Add(t.cfg.NextHandDelay)
+	startsAt := now.Add(game.StartDelay(t.cfg.NextHandDelay))
+	if t.holdStartUntil.After(startsAt) {
+		startsAt = t.holdStartUntil
+	}
 	t.startsAt = &startsAt
 	t.emitState()
 	t.armStartTimerAfter(startsAt.Sub(now), func() { t.startHand() })

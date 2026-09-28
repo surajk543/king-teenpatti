@@ -95,6 +95,15 @@ export const SNAPSHOT_KEYS = [
  * player holds, a client never decides it.
  */
 export const VARIATION_SNAPSHOT_KEYS = [...SNAPSHOT_KEYS, 'variation'];
+/**
+ * The countdown before a deal (Go only; 29 Sep 2026): while a table is
+ * `starting`, room:state carries ONE more key, `startsInMs` — the time left
+ * until the deal, measured as the snapshot was sent — beside `startsAt`, and
+ * no other snapshot carries it (absent, not null), so every key set above is
+ * still exact outside a countdown. [keys] with it when [snapshot] counts down.
+ */
+export const countdownKeys = (snapshot, keys) =>
+  (snapshot?.state === 'starting' ? [...keys, 'startsInMs'] : keys);
 export const VARIATION_KEYS = [
   'selecting', 'userId', 'displayName', 'seatIndex', 'startedAt', 'deadline', 'timeoutMs', 'options', 'selected', 'selectedBy',
   'cardsPerPlayer',

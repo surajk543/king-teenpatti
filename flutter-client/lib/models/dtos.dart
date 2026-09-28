@@ -2894,6 +2894,7 @@ class RoomState {
     required this.bootAmount,
     required this.turnTimeoutMs,
     required this.startsAt,
+    this.startsInMs,
     required this.pot,
     required this.maxPot,
     required this.stake,
@@ -2940,6 +2941,13 @@ class RoomState {
   final int bootAmount;
   final int turnTimeoutMs;
   final int startsAt;
+
+  /// While the table counts down to a deal: the time left until it, measured
+  /// by the server as it sent this snapshot (29 Sep 2026). The countdown is
+  /// anchored to the moment the snapshot arrived, which no phone clock set
+  /// wrong can move ([StartCountdown]); null from a server that predates it,
+  /// and outside a countdown.
+  final int? startsInMs;
   final int pot;
   final int maxPot;
   final int stake;
@@ -2984,6 +2992,10 @@ class RoomState {
     bootAmount: _int(j['bootAmount']),
     turnTimeoutMs: _int(j['turnTimeoutMs']),
     startsAt: _int(j['startsAt']),
+    startsInMs: switch (_intOrNull(j['startsInMs'])) {
+      final ms? when ms >= 0 => ms,
+      _ => null,
+    },
     pot: _int(j['pot']),
     maxPot: _int(j['maxPot']),
     stake: _int(j['stake']),

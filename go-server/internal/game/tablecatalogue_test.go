@@ -790,7 +790,7 @@ func TestTheTableConfigPayloadIsTheLobbyAndItsVersionIsItsOwnHash(t *testing.T) 
 	first, _ := json.Marshal(p.Tables[0])
 	eq(t, string(first), `{"category":"seen","bootAmount":200,"maxPot":2000000,"maxBlindMoves":4,"minChips":0,"maxChips":0,`+
 		`"winnerTax":true,"winnerTaxMinWinnings":5000000,"key":"seen:200","engine":"teen_patti","isPrivate":false,"sortOrder":10,"maxRaiseSteps":2,"maxBetRounds":7,"potLimitMultiplier":1024,`+
-		`"turnTimeoutMs":25000,"maxMissedTurns":3,"sideshowTimeoutMs":6000,"sideshowMinPlayers":3,"nextHandDelayMs":4000,`+
+		`"turnTimeoutMs":25000,"maxMissedTurns":3,"sideshowTimeoutMs":6000,"sideshowMinPlayers":3,"nextHandDelayMs":6000,`+
 		`"unfundedGraceMs":0,"missileRevealExtraMs":3000,"variationSelectTimeoutMs":0,"fiveCardPickTimeoutMs":0}`, "seen 200")
 	holdem := payloadEntry(t, p.Tables, "texas_holdem:50000")
 	if holdem.Game != game.GamePoker || holdem.Engine != config.EnginePoker || holdem.BigBlind != 50000 || holdem.MinBuyIn != 500000 ||

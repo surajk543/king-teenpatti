@@ -48,7 +48,11 @@ type TableConfig struct {
 	SideshowTimeout    time.Duration // 6s (requirement 33); 0 = a request never expires
 	SideshowMinPlayers int           // 3; 0 = no minimum
 
-	NextHandDelay time.Duration // 4s countdown, also the settle-retry base delay
+	// NextHandDelay is the window between a hand's end and the next deal
+	// (6 s by default: the winner's celebration, then the StartCountdown the
+	// app plays in its last 3 s — countdown.go); a first deal waits only
+	// StartDelay(NextHandDelay). Also the settle-retry base delay.
+	NextHandDelay time.Duration
 
 	// UnfundedGrace: how long a seat below the boot is held between hands
 	// before the insufficient_chips kick; 0 = at once (requirements 31/32).
@@ -437,11 +441,14 @@ type Table struct {
 	dealerSeat int        // -1 before the first hand
 	startsAt   *time.Time // countdown target while state == starting
 	// holdStartUntil is the earliest a countdown started by maybeStart may end:
-	// set by a missile showdown to its hand end + NextHandDelay +
-	// MissileRevealExtra, the nextHandAt its handEnded promised. Zero = no
-	// hold. Not snapshotted: a countdown that is running is (startsAt), and a
-	// hold still pending when the table is saved waiting is a few seconds of
-	// animation, not state.
+	// set by every hand's end to the nextHandAt its handEnded promised — its
+	// end + NextHandDelay, + MissileRevealExtra after a missile showdown — so
+	// the next deal never comes before the celebration and the countdown the
+	// app plays after it (countdown.go), even when a departure cancels that
+	// countdown and a later arrival starts another inside the window. Zero =
+	// no hold; a hold in the past holds nothing. Not snapshotted: a countdown
+	// that is running is (startsAt), and a hold still pending when the table
+	// is saved waiting is a few seconds of animation, not state.
 	holdStartUntil time.Time
 	chat           *RoomChat
 	turnTimer      Timer
@@ -1333,9 +1340,11 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 
 // maybeStart (table.js _maybeStart): if destroyed, state != waiting, or a
 // start timer is armed → return. sweepUnfunded(). If funded seats <
-// MinPlayers → return. state = starting, startsAt = now + NextHandDelay
-// (or holdStartUntil when a missile showdown holds the deal later), emit
-// state, arm startTimer(startsAt - now) → run(startHand).
+// MinPlayers → return. state = starting, startsAt = now +
+// StartDelay(NextHandDelay) — the app's 3-2-1 countdown — or holdStartUntil
+// when the last hand's end holds the deal later (its celebration, a
+// missile's reveal), emit state, arm startTimer(startsAt - now) →
+// run(startHand). Node counted NextHandDelay from every start.
 func (t *Table) maybeStart() {
 	if t.destroyed.Load() {
 		return
@@ -1358,14 +1367,14 @@ func (t *Table) maybeStart() {
 
 	t.setState(TableStarting)
 	now := t.clock.Now()
-	startsAt := now.Add(t.cfg.NextHandDelay)
-	// A missile showdown promised its players a longer look at the cards
-	// (handEnded.nextHandAt); the countdown keeps that promise. Once the hold
-	// has passed it is spent, and a later countdown is an ordinary one.
+	// The countdown alone (countdown.go) — unless the last hand's end promised
+	// its players the celebration first (handEnded.nextHandAt, a missile's
+	// longer look at the cards included), which the countdown keeps. A hold
+	// that has passed holds nothing, and a later countdown is an ordinary one.
+	startsAt := now.Add(StartDelay(t.cfg.NextHandDelay))
 	if t.holdStartUntil.After(startsAt) {
 		startsAt = t.holdStartUntil
 	}
-	t.holdStartUntil = time.Time{}
 	t.startsAt = &startsAt
 	t.emitState()
 
@@ -3451,11 +3460,13 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 
 	nextHandAt := t.clock.Now().Add(t.cfg.NextHandDelay)
 	if reason == WinMissile && t.cfg.MissileRevealExtra > 0 {
-		// The flight, the explosions and a look at every revealed hand. The
-		// countdown maybeStart arms below is held to the same instant.
+		// The flight, the explosions and a look at every revealed hand.
 		nextHandAt = nextHandAt.Add(t.cfg.MissileRevealExtra)
-		t.holdStartUntil = nextHandAt
 	}
+	// The celebration, then the countdown: the countdown maybeStart arms
+	// below — and any a later arrival starts inside this window — is held to
+	// the same instant (countdown.go).
+	t.holdStartUntil = nextHandAt
 	var wireWinner *string
 	if winnerID != nil {
 		wireWinner = StrPtr(*winnerID)
@@ -3815,6 +3826,7 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 	}
 	if t.startsAt != nil {
 		view.StartsAt = Int64Ptr(Millis(*t.startsAt))
+		view.StartsInMs = Int64Ptr(StartsInMs(*t.startsAt, t.clock.Now()))
 	}
 	if h := t.hand; h != nil {
 		view.Pot = h.pot

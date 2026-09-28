@@ -87,6 +87,7 @@ test('quick-join: ack shape, snapshot shape, and the joiner hears room:state bef
   assert.equal(joined.bootAmount, bootAmount);
   assert.equal(joined.turnTimeoutMs, profile.turnTimeoutMs);
   assert.equal(joined.startsAt, null);
+  assert.equal('startsInMs' in joined, false, 'no countdown, no time left: absent, not null');
   assert.equal(joined.pot, 0);
   assert.equal(joined.maxPot, profile.seenMaxPot, 'a public seen table is capped at 1.2M');
   assert.equal(joined.stake, bootAmount, 'stake falls back to the boot between hands');
@@ -144,6 +145,12 @@ test('a second player is clustered onto the same table; the first hears the syst
   // Two funded players start the countdown; the deadline is a few ms away.
   const starting = await ca.wait('room:state', (s) => s.state === 'starting');
   assert.ok(starting.startsAt > Date.now() - 1000 && starting.startsAt <= Date.now() + profile.nextHandDelayMs + 50);
+  // Beside it, the time left as the server sent the snapshot (29 Sep 2026): what
+  // the app counts its 3-2-1 down from, whatever its own clock says. A first
+  // deal is the countdown alone — 3 s, or a quicker table's own delay.
+  assert.ok(Number.isInteger(starting.startsInMs), `startsInMs ${starting.startsInMs}`);
+  assert.ok(starting.startsInMs >= 0 && starting.startsInMs <= Math.min(3000, profile.nextHandDelayMs),
+    `startsInMs ${starting.startsInMs}`);
   const bView = cb.last('room:joined');
   assert.equal(bView.you.seatIndex, 1, 'seats fill in order');
   assert.equal(bView.seats[0].userId, a.user.id);

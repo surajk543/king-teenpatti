@@ -37,6 +37,10 @@ type TableView struct {
 	TurnTimeoutMs int64 `json:"turnTimeoutMs"`
 	// StartsAt is the countdown target (epoch ms) while State == starting, else null.
 	StartsAt *int64 `json:"startsAt"`
+	// StartsInMs is the time left until that deal when this snapshot was
+	// serialised — present exactly with StartsAt, ABSENT otherwise; the Teen
+	// Patti snapshot's own key (game/countdown.go).
+	StartsInMs *int64 `json:"startsInMs,omitempty"`
 	// Pot is everything on the table this hand (every pot, every street bet).
 	Pot int64 `json:"pot"`
 	// Turn is null between hands and while nobody is to act.
@@ -213,6 +217,7 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 	}
 	if t.startsAt != nil {
 		view.StartsAt = game.Int64Ptr(game.Millis(*t.startsAt))
+		view.StartsInMs = game.Int64Ptr(game.StartsInMs(*t.startsAt, t.clock.Now()))
 	}
 	if h := t.hand; h != nil {
 		view.Pot = h.pot
