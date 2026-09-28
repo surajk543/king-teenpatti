@@ -805,6 +805,13 @@ func TestAVariationWindowIsChosenOrLapsesToMuflis(t *testing.T) {
 	if other.state.You.Hand != nil {
 		t.Fatal("a blind player was told their hand")
 	}
+	// It bets as a blind table does (the server's config.TableRules since
+	// 28 Sep 2026): a seen chooser's ladder doubles from twice the stake until
+	// the stack stops it — 1,00,000 to 8,00,000 inside 9,50,000 — where a seen
+	// table stops at two rungs.
+	if o := chooser.options(); len(o.RaiseSteps) != 4 || o.RaiseSteps[0] != 100_000 || o.RaiseSteps[3] != 800_000 {
+		t.Fatalf("a variation table's ladder: %v (chips %d)", o.RaiseSteps, o.Chips)
+	}
 	chooser.request(protocol.EvGameSelectVariation, map[string]any{"variation": "JOKER"}, &ack)
 	if ack.Code != protocol.CodeVariationSelected {
 		t.Fatalf("a second choice: %+v", ack)

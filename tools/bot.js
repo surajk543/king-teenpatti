@@ -37,7 +37,8 @@ const COUNT = Number.parseInt(args.count ?? '2', 10);
 const BOOT = Number.parseInt(args.boot ?? '200', 10);
 /**
  * "seen" shows every stack at the table; "blind" hides all but your own;
- * "variation" bets as a seen table does, but every hand opens with one player
+ * "variation" hides stacks and bets as a blind table does (since 28 Sep 2026:
+ * the ladder to the stack, no round cap), and every hand opens with one player
  * choosing the variation it is decided by. Anything else is a seen table,
  * which is also what the server makes of a category it does not know.
  */

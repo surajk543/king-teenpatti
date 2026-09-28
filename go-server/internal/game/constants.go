@@ -94,12 +94,13 @@ func (c Category) Known() bool {
 }
 
 // HidesChips reports whether other players' stacks are withheld from a viewer:
-// on a blind table, and on a variation one (owner, 18 Sep 2026 — "keep the same
-// thing as blind table that no one can see other player amount"). A variation
-// table takes its BETTING from the seen table (the two-rung ladder, the rounds,
-// a pot cap) and its SECRECY from the blind one; only a seen table shows every
-// stack. Every poker table shows every stack: a stack is public information in
-// poker, and the pot maths (all-ins, side pots) depend on everyone seeing it.
+// on a blind table, on a variation one (owner, 18 Sep 2026 — "keep the same
+// thing as blind table that no one can see other player amount") and at every
+// poker room (below); only a seen table shows every stack. A variation table
+// takes its SECRECY from the blind one and, since 28 Sep 2026, a public one its
+// BETTING too — no raise limit, no round cap, no per-bet ceiling
+// (config.TableRules; until then it bet as a seen table, chaal or one raise
+// for 7 rounds) — with no pot cap of its own by default.
 func (c Category) HidesChips() bool {
 	// Blind and Variation Teen Patti, and every poker room (owner, 19 Sep
 	// 2026: "in poker do not show opponent chips"): a viewer is told their

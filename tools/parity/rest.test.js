@@ -1047,15 +1047,17 @@ test('GET /api/tables carries the figures its source gives: the seeded rows from
     }
     // The ladders the seed writes: the seen ladder of two rungs over seven
     // rounds, blind without limits, the private seen table capped at 5 Lakh.
+    // A public variation table bets as a blind one (owner, 28 Sep 2026: "no
+    // limit on chaal if a player has money") with no pot limit; its private
+    // template keeps the private ladder's two rungs and 5 Lakh cap, with no
+    // round cap and no per-bet ceiling.
     const byKey = Object.fromEntries([...body.tables, ...body.privateTables].map((entry) => [entry.key, entry]));
-    assert.deepEqual(
-      ['maxRaiseSteps', 'maxBetRounds', 'potLimitMultiplier', 'maxPot'].map((k) => byKey['seen:200'][k]),
-      [2, 7, 1024, 2000000],
-    );
-    assert.deepEqual(
-      ['maxRaiseSteps', 'maxBetRounds', 'potLimitMultiplier', 'maxPot'].map((k) => byKey['blind:200'][k]),
-      [0, 0, 0, 0],
-    );
+    const ladder = (key) => ['maxRaiseSteps', 'maxBetRounds', 'potLimitMultiplier', 'maxPot'].map((k) => byKey[key][k]);
+    assert.deepEqual(ladder('seen:200'), [2, 7, 1024, 2000000]);
+    assert.deepEqual(ladder('blind:200'), [0, 0, 0, 0]);
+    assert.deepEqual(ladder('variation:50000'), [0, 0, 0, 0], 'variation 50,000 bets as a blind table');
+    assert.deepEqual(ladder('variation:2000000'), [0, 0, 0, 0], 'variation 20 Lakh bets as a blind table');
+    assert.deepEqual(ladder('private:variation'), [2, 0, 0, 500000], 'the private variation template keeps two rungs');
     assert.equal(byKey['private:seen'].maxPot, 500000);
     assert.equal(byKey['texas_holdem:50000'].minBuyIn, 500000);
     assert.equal(byKey['five_card_draw:50000'].maxDiscards, 3);
