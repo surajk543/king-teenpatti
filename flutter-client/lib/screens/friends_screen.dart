@@ -17,6 +17,7 @@ import '../theme/theme_colors.dart';
 import '../widgets/avatar.dart';
 import '../widgets/edge_fade.dart';
 import '../widgets/friend_presence.dart';
+import '../widgets/game_card.dart' show CardLight;
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/paged_scroll.dart';
@@ -265,6 +266,12 @@ class FriendsScreen extends StatefulWidget {
   /// tablet, leaving 400dp, keeps it.
   static const double typingRoom = 160;
 
+  /// How far the room's light reaches down the page from its top edge
+  /// ([GlassColors.ambientLight]), as a share of the page's shorter side: a
+  /// pool over the head and the top of the lists, gone well before their
+  /// foot.
+  static const double lampReach = 1.25;
+
   @override
   State<FriendsScreen> createState() => _FriendsScreenState();
 }
@@ -455,6 +462,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
     final theme = Theme.of(context);
     final b = theme.brightness;
     final dark = b == Brightness.dark;
+    final glass = GlassColors.of(context);
     final keyboard = MediaQuery.viewInsetsOf(context).bottom;
     final safeBottom = MediaQuery.paddingOf(context).bottom;
 
@@ -539,6 +547,16 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   surface: dark ? GlassSurface.pane : GlassSurface.card,
                   tint: dark ? null : AppTheme.gold,
                   edge: AppTheme.gold.withValues(alpha: dark ? 0.42 : 0.6),
+                  // The page is the ground the panes stand on: flat, lit
+                  // from above by the room's light and casting nothing
+                  // inside itself (the depth brief, 28 Sep 2026).
+                  behind: CardLight(
+                    key: const ValueKey('friends-ambient'),
+                    colour: glass.ambientLight.withValues(alpha: 1),
+                    strength: glass.ambientLight.a,
+                    reach: FriendsScreen.lampReach,
+                    centre: Alignment.topCenter,
+                  ),
                   padding: const EdgeInsets.fromLTRB(
                     Space.lg,
                     Space.md,
@@ -880,6 +898,10 @@ class _RoundKey extends StatelessWidget {
 /// "Your Player ID", the id itself and the key that copies it — what a
 /// player reads out or sends to a friend so the friend can add them. The id
 /// is never cut: where it is wider than its room it is set smaller.
+///
+/// Metadata, so it stays flat: a well sunk into the page, casting nothing,
+/// the id in the body's ink rather than the display's — the least prominent
+/// words at the head of the page (the depth brief, 28 Sep 2026).
 class _PlayerIdStrip extends StatelessWidget {
   const _PlayerIdStrip({
     required this.t,
@@ -935,7 +957,7 @@ class _PlayerIdStrip extends StatelessWidget {
                 maxLines: 1,
                 style: AppTheme.money(
                   text.labelLarge!,
-                  colour: glass.textDisplay,
+                  colour: glass.textBody,
                   weight: FontWeight.w600,
                 ),
               ),
@@ -1022,7 +1044,11 @@ class _FriendsList extends StatelessWidget {
               ),
             )
           else
+            // Requests wait on the player: their pane's top edge is the
+            // app's live hairline, which sets it a little apart from the
+            // friends beside it.
             _Pane(
+              live: true,
               children: [
                 for (final request in f.incoming)
                   _RequestRow(
@@ -1271,11 +1297,13 @@ class _ReportRow extends StatelessWidget {
               ),
             )
           else
-            Avatar(
-              url: state.absoluteUrl(report.pictureUrl),
-              fallback: report.displayName,
-              radius: 18,
-              animate: true,
+            _Lifted(
+              child: Avatar(
+                url: state.absoluteUrl(report.pictureUrl),
+                fallback: report.displayName,
+                radius: 18,
+                animate: true,
+              ),
             ),
           const SizedBox(width: Space.md),
           Expanded(
@@ -1565,25 +1593,50 @@ class _SectionHead extends StatelessWidget {
 
 /// A group of rows on one card of the lobby's own surface, parted by inset
 /// hairlines — one pane a section, never a card a row.
+///
+/// The page's middle layer (the depth brief, 28 Sep 2026): a pane of glass
+/// standing a little above the page — the soft shadow of
+/// [GlassColors.paneShadow] at its foot, its hairline lit along the top
+/// ([GlassColors.paneEdge], or the app's live hairline on a [live] pane) —
+/// and its rows parted by grooves pressed into it ([GlassColors.rowRule]
+/// over [GlassColors.rowRuleLight]) where a line was drawn on it.
 class _Pane extends StatelessWidget {
-  const _Pane({this.children, this.child})
+  const _Pane({this.children, this.child, this.live = false})
     : assert((children == null) != (child == null));
 
   final List<Widget>? children;
   final Widget? child;
 
+  /// Something here waits on the player (the requests): the top of the
+  /// pane's hairline in the app's live gold.
+  final bool live;
+
   @override
   Widget build(BuildContext context) {
     final rows = children;
+    final glass = GlassColors.of(context);
     final divider = Container(
       margin: const EdgeInsets.only(left: Space.md + 36 + Space.md),
       height: Dim.hairline,
-      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08),
+      decoration: BoxDecoration(
+        color: glass.rowRule,
+        // The groove's lit lower lip, one hairline under it: drawn as a
+        // shadow so the rule keeps its one-hairline height.
+        boxShadow: [
+          BoxShadow(
+            color: glass.rowRuleLight,
+            offset: const Offset(0, Dim.hairline),
+          ),
+        ],
+      ),
     );
     return PremiumGlassPanel(
       surface: GlassSurface.card,
       radius: Radii.md,
-      elevated: false,
+      shadow: glass.paneShadow,
+      edge: live
+          ? AppTheme.hairlineColour(Theme.of(context).brightness, live: true)
+          : glass.paneEdge,
       padding: EdgeInsets.zero,
       child: Material(
         type: MaterialType.transparency,
@@ -1662,7 +1715,7 @@ class _NoFriends extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.group_add_outlined, size: 28, color: glass.cardMuted),
+            const _Medallion(icon: Icons.group_add_outlined),
             const SizedBox(height: Space.sm),
             Text(
               t.noFriendsTitle,
@@ -1690,19 +1743,163 @@ class _NoFriends extends StatelessWidget {
   }
 }
 
-/// A player's picture, from the URL the server resolved for them.
+/// The empty state's glyph on a small disc of the pane's well, lit along its
+/// top and casting the contact shadow of a thing standing on a pane
+/// ([GlassColors.nestedShadow]) — drawn round the glyph's own box, so the
+/// lines above and below keep their places.
+class _Medallion extends StatelessWidget {
+  const _Medallion({required this.icon});
+
+  final IconData icon;
+
+  /// The glyph's own box, as it always stood, and the glyph drawn in the
+  /// middle of the disc that now stands round it.
+  static const double glyph = 28;
+  static const double mark = 22;
+
+  /// How far the disc reaches past the glyph's box on every side: into the
+  /// air above the glyph and the gap below it, never further.
+  static const double reach = Space.sm;
+
+  @override
+  Widget build(BuildContext context) {
+    final glass = GlassColors.of(context);
+    return SizedBox.square(
+      key: const ValueKey('friends-empty-medallion'),
+      dimension: glyph,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: -reach,
+            top: -reach,
+            right: -reach,
+            bottom: -reach,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color.alphaBlend(glass.highlight, glass.wellFill),
+                    glass.wellFill,
+                  ],
+                ),
+                border: Border.all(
+                  color: glass.cardBorder,
+                  width: Dim.hairline,
+                ),
+                boxShadow: glass.nestedShadow,
+              ),
+            ),
+          ),
+          Center(
+            child: Icon(icon, size: mark, color: glass.cardMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A player's picture, from the URL the server resolved for them, standing
+/// a little nearer than the pane it is on ([_Lifted]); [pressed] while a
+/// finger is on the row it heads.
 class _Portrait extends StatelessWidget {
-  const _Portrait({required this.player, this.radius = 18});
+  const _Portrait({
+    required this.player,
+    this.radius = 18,
+    this.pressed = false,
+  });
 
   final PlayerCard player;
   final double radius;
+  final bool pressed;
 
   @override
-  Widget build(BuildContext context) => Avatar(
-    url: context.read<GameState>().absoluteUrl(player.pictureUrl),
-    fallback: player.displayName,
-    radius: radius,
-    animate: true,
+  Widget build(BuildContext context) => _Lifted(
+    pressed: pressed,
+    child: Avatar(
+      url: context.read<GameState>().absoluteUrl(player.pictureUrl),
+      fallback: player.displayName,
+      radius: radius,
+      animate: true,
+    ),
+  );
+}
+
+/// The layer a portrait stands on (the depth brief, 28 Sep 2026: "shadow →
+/// avatar border → avatar → content"): a soft shadow under the picture's own
+/// ring ([GlassColors.avatarShadow]), and just outside that ring a faint lit
+/// one ([GlassColors.avatarHighlight], [Dim.avatarHalo]) that the ring's own
+/// contact shadow leaves showing along the top. Both are drawn outside the
+/// picture's box, so nothing beside it moves.
+///
+/// While [pressed] the shadow eases in to [AppTheme.pressedLift] of itself
+/// over [Motion.fast] — the row's picture settling towards the pane under
+/// the finger — and back out on release.
+class _Lifted extends StatelessWidget {
+  const _Lifted({required this.child, this.pressed = false});
+
+  final Widget child;
+  final bool pressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final glass = GlassColors.of(context);
+    return AnimatedContainer(
+      key: const ValueKey('friends-portrait-lift'),
+      duration: Motion.fast,
+      curve: Motion.standard,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          ...(pressed
+              ? AppTheme.pressedShadow(glass.avatarShadow)
+              : glass.avatarShadow),
+          BoxShadow(color: glass.avatarHighlight, spreadRadius: Dim.avatarHalo),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+/// A row a finger presses: Material's ink as before, and [builder] told
+/// whether a finger is on it, so the portrait heading it settles while it is
+/// ([_Portrait.pressed]). A drag that becomes a scroll lets it go.
+class _PressableRow extends StatefulWidget {
+  const _PressableRow({
+    required this.onTap,
+    required this.builder,
+    this.borderRadius,
+    this.enableFeedback,
+  });
+
+  final VoidCallback onTap;
+  final Widget Function(BuildContext context, bool pressed) builder;
+  final BorderRadius? borderRadius;
+
+  /// Material's click; null keeps the ink's own default.
+  final bool? enableFeedback;
+
+  @override
+  State<_PressableRow> createState() => _PressableRowState();
+}
+
+class _PressableRowState extends State<_PressableRow> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    borderRadius: widget.borderRadius,
+    enableFeedback: widget.enableFeedback ?? true,
+    onTap: widget.onTap,
+    onHighlightChanged: (down) {
+      if (down != _pressed && mounted) setState(() => _pressed = down);
+    },
+    child: widget.builder(context, _pressed),
   );
 }
 
@@ -1723,13 +1920,13 @@ class _FriendRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final glass = GlassColors.of(context);
-    return InkWell(
+    return _PressableRow(
       enableFeedback: context.select<FeedbackSettings, bool>((f) => f.sound),
       onTap: () {
         tapHaptic(context);
         onTap();
       },
-      child: ConstrainedBox(
+      builder: (context, pressed) => ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 56),
         child: Padding(
           padding: const EdgeInsets.symmetric(
@@ -1738,7 +1935,7 @@ class _FriendRow extends StatelessWidget {
           ),
           child: Row(
             children: [
-              _Portrait(player: friend.player),
+              _Portrait(player: friend.player, pressed: pressed),
               const SizedBox(width: Space.md),
               Expanded(
                 child: Column(
@@ -1820,12 +2017,12 @@ class _RequestRow extends StatelessWidget {
     final busy = f.busyRequests.contains(request.requestId);
     final id = request.requestId;
 
-    final who = InkWell(
+    final who = _PressableRow(
       borderRadius: BorderRadius.circular(Radii.sm),
       onTap: onProfile,
-      child: Row(
+      builder: (context, pressed) => Row(
         children: [
-          _Portrait(player: request.player),
+          _Portrait(player: request.player, pressed: pressed),
           const SizedBox(width: Space.md),
           Expanded(
             child: Column(
@@ -2181,6 +2378,9 @@ class _AddFriendView extends StatelessWidget {
                 child: KeyboardFocusGuard(
                   child: GlassTextField(
                     key: const ValueKey('friends-id-field'),
+                    // Stands a little above the page, lit along its top,
+                    // gold-lit while typed in (the depth brief).
+                    raised: true,
                     controller: field,
                     focusNode: focus,
                     labelText: t.playerIdLabel,
@@ -2246,6 +2446,11 @@ class _AddFriendView extends StatelessWidget {
 
 /// The player a search found: picture, name and the move that fits — and a
 /// tap on the card opens their profile.
+///
+/// It emerges from the search above it (the depth brief, 28 Sep 2026): a
+/// new player's card fades in over [Motion.base] from [rise] up, tucked
+/// under the field, to its place — once per player found, never again for a
+/// change of what the two are to each other.
 class _PlayerResult extends StatelessWidget {
   const _PlayerResult({
     super.key,
@@ -2258,20 +2463,44 @@ class _PlayerResult extends StatelessWidget {
   final PlayerLookup found;
   final VoidCallback onOpen;
 
+  /// How far above its place the card starts.
+  static const double rise = Space.sm;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final glass = GlassColors.of(context);
     final self = found.friendStatus == FriendStatus.self;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: Motion.base,
+      curve: Motion.standard,
+      builder: (context, shown, card) => Opacity(
+        opacity: shown,
+        child: Transform.translate(
+          offset: Offset(0, -rise * (1 - shown)),
+          child: card,
+        ),
+      ),
+      child: _card(context, theme, glass, self),
+    );
+  }
+
+  Widget _card(
+    BuildContext context,
+    ThemeData theme,
+    GlassColors glass,
+    bool self,
+  ) {
     return _Pane(
-      child: InkWell(
+      child: _PressableRow(
         onTap: onOpen,
-        child: Padding(
+        builder: (context, pressed) => Padding(
           padding: const EdgeInsets.all(Space.md),
           child: LayoutBuilder(
             builder: (context, box) => Row(
               children: [
-                _Portrait(player: found.player, radius: 22),
+                _Portrait(player: found.player, radius: 22, pressed: pressed),
                 const SizedBox(width: Space.md),
                 Expanded(
                   child: Column(
@@ -2342,6 +2571,9 @@ class _ProfileView extends StatelessWidget {
   final PlayerCard? seed;
   final void Function(PlayerCard player) onRemove;
 
+  /// The scale the profile's picture opens from.
+  static const double portraitFrom = 0.9;
+
   @override
   Widget build(BuildContext context) {
     final f = context.watch<FriendsState>();
@@ -2381,7 +2613,19 @@ class _ProfileView extends StatelessWidget {
       children: [
         Row(
           children: [
-            _Portrait(player: player, radius: 30),
+            // The picture arrives a touch small and settles to its size as
+            // the profile opens (the depth brief, 28 Sep 2026: "Profile —
+            // small avatar transition"), once per profile: this page is
+            // mounted afresh for each player.
+            TweenAnimationBuilder<double>(
+              key: const ValueKey('friend-profile-portrait'),
+              tween: Tween(begin: _ProfileView.portraitFrom, end: 1),
+              duration: Motion.slow,
+              curve: Motion.settle,
+              builder: (context, scale, portrait) =>
+                  Transform.scale(scale: scale, child: portrait),
+              child: _Portrait(player: player, radius: 30),
+            ),
             const SizedBox(width: Space.md),
             Expanded(
               child: Column(
