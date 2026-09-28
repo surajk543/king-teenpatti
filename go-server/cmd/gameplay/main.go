@@ -16,10 +16,12 @@
 //     final game_states flush; the store closed last), db.Close, exit 0 — or
 //     exit 1 when the budget runs out.
 //
-// Two flags run a table-catalogue tool instead of the server (tableconfig.go):
-// -export-table-config prints the SQL that puts the env-composed catalogue in
-// the database, -check-table-config judges the database's catalogue without
-// migrating anything.
+// Three flags run a tool instead of the server. -migrate (migrate.go) applies
+// every embedded migration — step 4 alone — and exits; ops/deploy.sh runs it
+// with the new binary before the restart. Two are table-catalogue tools
+// (tableconfig.go): -export-table-config prints the SQL that puts the
+// env-composed catalogue in the database, -check-table-config judges the
+// database's catalogue without migrating anything.
 package main
 
 import (
@@ -83,6 +85,8 @@ func versionString() string {
 
 func main() {
 	showVersion := flag.Bool("version", false, "print the build version and exit")
+	migrate := flag.Bool("migrate", false,
+		"apply every migration embedded in this binary to DATABASE_URL / PG_SCHEMA (./.env read as the server reads it) through the same code a boot runs, and exit: 0 all applied, 1 failed. Run it as the server's user and role, never as postgres (ops/deploy.sh does)")
 	exportTables := flag.Bool("export-table-config", false,
 		"print, as SQL on stdout, what makes the database hold the table configuration the env keys compose, and exit")
 	checkTables := flag.Bool("check-table-config", false,
@@ -92,13 +96,31 @@ func main() {
 		fmt.Println(versionString())
 		return
 	}
-	// The table tools run before run(): no server, no logger on stdout — the
-	// export's stdout is SQL alone (tableconfig.go).
-	if *exportTables || *checkTables {
-		if *exportTables && *checkTables {
-			fmt.Fprintln(os.Stderr, "choose one of -export-table-config and -check-table-config")
-			os.Exit(exitTablesUnusable)
+	// The tools run before run(): no server, no logger on stdout — the
+	// export's stdout is SQL alone (tableconfig.go), -migrate's its report
+	// (migrate.go).
+	tools := 0
+	for _, on := range []bool{*migrate, *exportTables, *checkTables} {
+		if on {
+			tools++
 		}
+	}
+	if tools > 1 {
+		fmt.Fprintln(os.Stderr, "choose one of -migrate, -export-table-config and -check-table-config")
+		if *migrate {
+			os.Exit(exitMigrateFailed)
+		}
+		os.Exit(exitTablesUnusable)
+	}
+	if *migrate {
+		note, err := loadDotEnv()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(exitMigrateFailed)
+		}
+		os.Exit(migrateDatabase(context.Background(), os.LookupEnv, note, os.Stdout, os.Stderr))
+	}
+	if *exportTables || *checkTables {
 		note, err := loadDotEnv()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
