@@ -26,6 +26,7 @@ import 'game_loader.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
 import 'poker_chip.dart';
+import 'premium_surface.dart';
 
 /// The shelves of a picture list: everything, then the premium pictures by
 /// the wallet they are bought from — chips, hammers, diamonds (owner, 14 Sep
@@ -2430,50 +2431,65 @@ class WalletPill extends StatelessWidget {
     final tools = count(Icons.hardware, _hammerInk, hammers);
     final rockets = count(missileIcon, _missileInk, missiles);
 
+    // Two lines are a rounded panel rather than a capsule: a pill's radius on
+    // a box twice as tall would round its ends into a lozenge.
+    final radius = stacked ? Radii.md : Radii.pill;
     return Semantics(
       label: semanticsLabel,
       excludeSemantics: true,
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: Space.md,
-          vertical: Space.xs,
-        ),
-        decoration: BoxDecoration(
-          // Two lines are a rounded panel rather than a capsule: a pill's
-          // radius on a box twice as tall would round its ends into a lozenge.
-          borderRadius: BorderRadius.circular(stacked ? Radii.md : Radii.pill),
-          color: AppTheme.ink900.withValues(alpha: 0.82),
-          border: Border.all(
-            color: AppTheme.goldBright.withValues(alpha: 0.28),
-            width: Dim.hairline,
+      // A dark pill standing one step off the room, in the room's own
+      // shadow (the depth ladder's raised step) — round the pill and never
+      // under it, since a fifth of the room shows through its ink.
+      child: DepthShadow(
+        radius: radius,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(radius),
+            color: AppTheme.ink900.withValues(alpha: 0.82),
+            border: Border.all(
+              color: AppTheme.goldBright.withValues(alpha: 0.28),
+              width: Dim.hairline,
+            ),
+          ),
+          // Its lit top edge and shaded foot, as a dark plate's (it is dark in
+          // both themes).
+          child: DepthFace(
+            radius: radius,
+            brightness: Brightness.dark,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: Space.md,
+                vertical: Space.xs,
+              ),
+              child: stacked
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            gems,
+                            const SizedBox(width: Space.md),
+                            tools,
+                          ],
+                        ),
+                        rockets,
+                      ],
+                    )
+                  : Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        gems,
+                        const SizedBox(width: Space.md),
+                        tools,
+                        const SizedBox(width: Space.md),
+                        rockets,
+                      ],
+                    ),
+            ),
           ),
         ),
-        child: stacked
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      gems,
-                      const SizedBox(width: Space.md),
-                      tools,
-                    ],
-                  ),
-                  rockets,
-                ],
-              )
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  gems,
-                  const SizedBox(width: Space.md),
-                  tools,
-                  const SizedBox(width: Space.md),
-                  rockets,
-                ],
-              ),
       ),
     );
   }

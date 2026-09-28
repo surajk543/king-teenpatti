@@ -869,12 +869,6 @@ class PerformanceStatCard extends StatelessWidget {
       colour: money ? ink.gold : ink.primary,
     );
     return Container(
-      padding: const EdgeInsets.fromLTRB(
-        Space.md,
-        Space.sm,
-        Space.sm,
-        Space.sm,
-      ),
       decoration: BoxDecoration(
         color: money ? ink.moneyFill : ink.cardFill,
         borderRadius: BorderRadius.circular(Radii.md),
@@ -884,31 +878,45 @@ class PerformanceStatCard extends StatelessWidget {
         ),
         boxShadow: ink.cardShadow,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 15, color: money ? ink.gold : ink.muted),
-          const SizedBox(height: Space.xs),
-          // Set smaller rather than cut: "10.5 Crore" on a 640dp phone at
-          // text x1.25 is wider than its half of the row.
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(value, maxLines: 1, style: figure),
+      // A card one step above the drawer: its top edge lit and its foot in
+      // shade (the depth ladder's raised step) — by night, where it is glass
+      // on glass and casts nothing, that edge is what stands it up.
+      child: DepthFace(
+        radius: Radii.md,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            Space.md,
+            Space.sm,
+            Space.sm,
+            Space.sm,
           ),
-          const SizedBox(height: Space.xxs),
-          Text(
-            label,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: AppTheme.label(
-              text.labelSmall!,
-              colour: ink.muted,
-              weight: FontWeight.w500,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: money ? ink.gold : ink.muted),
+              const SizedBox(height: Space.xs),
+              // Set smaller rather than cut: "10.5 Crore" on a 640dp phone at
+              // text x1.25 is wider than its half of the row.
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(value, maxLines: 1, style: figure),
+              ),
+              const SizedBox(height: Space.xxs),
+              Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppTheme.label(
+                  text.labelSmall!,
+                  colour: ink.muted,
+                  weight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

@@ -11,6 +11,7 @@ import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../state/quick_message_order.dart';
 import '../theme/app_theme.dart';
+import '../theme/depth.dart';
 import '../theme/table_theme.dart';
 import 'edge_fade.dart';
 import 'emoji_art.dart';
@@ -736,17 +737,22 @@ class RailKey extends StatelessWidget {
                 ),
                 boxShadow: AppTheme.controlShadow(brightness, elevation: 2),
               ),
-              child: Material(
-                type: MaterialType.transparency,
-                child: InkWell(
-                  // Material's own click, gated on the player's Sound switch,
-                  // as every key's is.
-                  enableFeedback: context.select<FeedbackSettings, bool>(
-                    (f) => f.sound,
+              // The plaque's lit top edge and shaded foot, as the console's
+              // keys wear them.
+              child: DepthFace(
+                radius: Radii.md,
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: InkWell(
+                    // Material's own click, gated on the player's Sound
+                    // switch, as every key's is.
+                    enableFeedback: context.select<FeedbackSettings, bool>(
+                      (f) => f.sound,
+                    ),
+                    onTap: onTap,
+                    borderRadius: corner,
+                    child: Center(child: child),
                   ),
-                  onTap: onTap,
-                  borderRadius: corner,
-                  child: Center(child: child),
                 ),
               ),
             ),
@@ -1386,6 +1392,7 @@ class _SwitchingVeil extends StatelessWidget {
           ),
           mode: GlassMode.blurred,
           radius: Radii.lg,
+          depth: Elevation.overlay,
           // The game's loader, and the move it is waiting on under it.
           child: GameLoader(
             detail: t.switchTable,
@@ -1500,21 +1507,14 @@ class Plate extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: corner,
-        child: Stack(
-          children: [
-            Padding(padding: padding, child: child),
-            // The light catching the plate's top edge, which is what makes it
-            // read as engraved metal rather than a translucent rectangle.
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: Dim.hairline,
-              child: IgnorePointer(
-                child: ColoredBox(color: Colors.white.withValues(alpha: 0.07)),
-              ),
-            ),
-          ],
+        // The light catching the plate's top edge and the shade along its
+        // foot — the ladder's raised step, on a plate that is dark in both
+        // themes — which is what makes it read as engraved metal standing
+        // on the cloth rather than a translucent rectangle laid on it.
+        child: DepthFace(
+          radius: radius,
+          brightness: Brightness.dark,
+          child: Padding(padding: padding, child: child),
         ),
       ),
     );
@@ -1754,6 +1754,11 @@ class MachinedKey extends StatelessWidget {
               width: Dim.hairline,
             ),
           ),
+          // The machined plaque stands one step off the console: its top edge
+          // lit and its foot in shade under its words, pressed in under a
+          // finger and flush when dead. The struck-gold face carries its own
+          // lit edge.
+          backgroundBuilder: gilded ? null : raisedKeyFace(radius: Radii.md),
         );
 
     final content = Row(
@@ -1920,6 +1925,8 @@ class StepperKey extends StatelessWidget {
                       width: Dim.hairline,
                     ),
             ),
+            // The same plaque face as the keys beside it.
+            backgroundBuilder: raisedKeyFace(radius: Radii.md),
           ),
           icon: Icon(icon),
         ),
