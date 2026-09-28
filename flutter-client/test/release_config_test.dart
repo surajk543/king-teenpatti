@@ -8,7 +8,10 @@ import 'package:flutter_test/flutter_test.dart';
 String _read(String path) => File(path).readAsStringSync();
 
 void main() {
-  test('the version is past the last tagged release, 1.6.0+14', () {
+  test('the version is past the last tagged release, 1.6.1+15', () {
+    // flutter-client/v1.6.1 is 1.6.1+15 (29 Sep 2026); 1.6.2+16 carries the
+    // review's fixes: progress while an emoji is bought in the drawer, and the
+    // variation keys' true height and words.
     // flutter-client/v1.6.0 is 1.6.0+14 (28 Sep 2026); 1.6.1+15 carries the
     // table fixes: raising at Variation, the picker's glass, emojis that never
     // overlap, buying an emoji in the drawer and the price in unlock dialogs.
@@ -33,7 +36,7 @@ void main() {
     expect(line, isNotNull);
     final build = int.parse(line!.group(4)!);
     final name = [1, 2, 3].map((i) => int.parse(line.group(i)!)).toList();
-    expect(build, greaterThan(14));
+    expect(build, greaterThan(15));
     // The name moves with it: 1.2.2 is the tagged release.
     final isAfter122 =
         name[0] > 1 ||
