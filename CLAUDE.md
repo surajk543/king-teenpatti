@@ -916,8 +916,12 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   owner, 28 Sep 2026: "reduce the XP Granted value"): First Hand 1 played +5 · First Win 1 won +10 ·
   Getting Started 10 played +15 · First 5 Wins 5 won +30 · Card Player 50 played +50 · Winning Streak 10 won +75 (ten wins in all,
   not consecutive — the owner's name) · Variation Explorer 1 played `variation` +10 (the other
-  reading, different variations, is one UPDATE: `kind = 'VARIATIONS_PLAYED', scope = NULL`) · Game Explorer 5 `CATEGORIES_PLAYED`
-  +50. **The four Poker missions first given with them** (First Poker Hand, First Poker Win, Texas Hold'em Debut, Poker Regular —
+  reading, different variations, is one UPDATE: `kind = 'VARIATIONS_PLAYED', scope = NULL`) · Game Explorer 3 `CATEGORIES_PLAYED`
+  +50 (5 at first; owner, the same day: "make it 3 instead of 5" — with Poker hidden the app offers three games, Seen, Blind and
+  Variation, so five could never be reached). **A target lowered by hand** on a database where a player is already at or past it
+  completes at the next hand that MOVES the mission (`advanceMissions` returns only the rows it moved): a count mission's next
+  counted hand, but a different-games or different-variations mission moves only for a value it has not counted, so such a player
+  waits at "3 / 3" for a game they have not played. **The four Poker missions first given with them** (First Poker Hand, First Poker Win, Texas Hold'em Debut, Poker Regular —
   sort_order 170–200) **were taken out the same day** (owner: "Remove Poker and texas related one time XP from DB, we don't need");
   a database that ran the seed with them keeps its rows until they are deleted by hand (`DELETE FROM xp_sources WHERE code IN
   ('FIRST_POKER_HAND','FIRST_POKER_WIN','TEXAS_HOLDEM_DEBUT','POKER_REGULAR')` — `player_xp_missions` CASCADEs). A scope is still an
@@ -975,7 +979,7 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   tab in UI one Time XP, on the side of Daily XP" — it was a section under the daily list for its first hours; `LevelInfoTab.oneTime`,
   `Icons.task_alt_rounded`, pane key `winning-tax-one-time`): the **One-Time missions** (`OneTimeMissionTile`, 230dp tiles in the
   hand tiles' style, no `LevelClock` — no window touches them): the server's title, what it asks in the player's words (`missionTask`,
-  `missionGameName`: "Play 10 hands", "Play 1 Variation hand", "Play 5 different games"), "+XP", "7 / 10" beside a 6dp `LevelBar` while
+  `missionGameName`: "Play 10 hands", "Play 1 Variation hand", "Play 3 different games"), "+XP", "7 / 10" beside a 6dp `LevelBar` while
   open, the green tick and "Completed" once done (the tile edged green), never a countdown, the heading "n / 8 completed"; from a
   server without missions the tab says there are none (`xpOneTimeNone`, key `one-time-none`) (`LevelLadder.missions`/`sourceOf`, `LadderSource.type/target/scope`, `PlayerLevel.missions` →
   `MissionProgress`; `dailyMax` sums the daily sources alone, `levelSignatureOf` includes the missions; 15 strings in all five

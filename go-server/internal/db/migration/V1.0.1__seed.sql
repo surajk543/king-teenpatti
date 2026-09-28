@@ -1074,7 +1074,7 @@ VALUES ('PLAY_15_MIN',       'Play 15 active minutes',  '🎮', 'PLAY_TIME', 15,
 --   Card Player           play 50 hands              +50    CARD_PLAYER
 --   Winning Streak        win 10 hands               +75    WINNING_STREAK
 --   Variation Explorer    play 1 Variation hand      +10    VARIATION_EXPLORER
---   Game Explorer         play 5 different games     +50    GAME_EXPLORER
+--   Game Explorer         play 3 different games     +50    GAME_EXPLORER
 --
 -- 245 XP in all (2,450 as first given), and none of it counted in a daily
 -- window. A hand is
@@ -1093,7 +1093,13 @@ VALUES ('PLAY_15_MIN',       'Play 15 active minutes',  '🎮', 'PLAY_TIME', 15,
 --
 -- Game Explorer counts the seven table categories (seen, blind, variation,
 -- three_card_poker, five_card_draw, texas_holdem, omaha) a player has played
--- a hand at. Nothing like them was seeded before (the daily sources above are
+-- a hand at, and wants three of them (owner, 28 Sep 2026: "make it 3 instead
+-- of 5" — 5 at first; the app offers Seen, Blind and Variation alone since
+-- Poker was hidden, so five could never be reached). A target lowered by hand
+-- on a database where a player is already at or past it completes at the next
+-- hand that MOVES the mission, and a different-games mission moves only for a
+-- game it has not counted: such a player is left at "3 / 3" until they play a
+-- fourth kind of table. Nothing like them was seeded before (the daily sources above are
 -- play time and "Win by …"), so every one is new. ON CONFLICT (code) DO
 -- NOTHING, like the daily sources: an owner's UPDATE — a mission re-valued,
 -- re-targeted or switched off — survives every restart, and a completed
@@ -1106,7 +1112,7 @@ VALUES ('FIRST_HAND',         'First Hand',          '🎴', 'HANDS_PLAYED',    
        ('CARD_PLAYER',        'Card Player',         '♠️', 'HANDS_PLAYED',      'ONE_TIME', 50, NULL,           50, 1, TRUE, 150),
        ('WINNING_STREAK',     'Winning Streak',      '⚡', 'HANDS_WON',         'ONE_TIME', 10, NULL,           75, 1, TRUE, 160),
        ('VARIATION_EXPLORER', 'Variation Explorer',  '🔀', 'HANDS_PLAYED',      'ONE_TIME', 1,  'variation',    10, 1, TRUE, 210),
-       ('GAME_EXPLORER',      'Game Explorer',       '🧭', 'CATEGORIES_PLAYED', 'ONE_TIME', 5,  NULL,           50, 1, TRUE, 220)
+       ('GAME_EXPLORER',      'Game Explorer',       '🧭', 'CATEGORIES_PLAYED', 'ONE_TIME', 3,  NULL,           50, 1, TRUE, 220)
     ON CONFLICT (code) DO NOTHING;
 
 -- The window (owner: "it will be reset after 24 hours", "After 24 hours this

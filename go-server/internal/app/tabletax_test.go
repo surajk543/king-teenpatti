@@ -470,7 +470,7 @@ func TestTheLevelLadderIsPublicAndWhole(t *testing.T) {
 	}
 	if len(body.Missions) != 8 || body.Missions[0].Code != "FIRST_HAND" || body.Missions[0].Type != "ONE_TIME" ||
 		body.Missions[0].Target != 1 || body.Missions[0].XP != 5 || body.Missions[6].Scope != "variation" ||
-		body.Missions[7].Kind != "CATEGORIES_PLAYED" || body.Missions[7].Target != 5 {
+		body.Missions[7].Kind != "CATEGORIES_PLAYED" || body.Missions[7].Target != 3 {
 		t.Errorf("the missions = %+v", body.Missions)
 	}
 	for _, word := range []string{"userId", "chips", "\"xp\":0,\"window"} {

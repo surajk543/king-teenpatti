@@ -138,7 +138,7 @@ ownersMissions = [
     'variation',
     10,
   ),
-  ('GAME_EXPLORER', 'Game Explorer', '🧭', 'CATEGORIES_PLAYED', 5, null, 50),
+  ('GAME_EXPLORER', 'Game Explorer', '🧭', 'CATEGORIES_PLAYED', 3, null, 50),
 ];
 
 /// One mission as `user.playerLevel.missions[]` carries it: [progress] of

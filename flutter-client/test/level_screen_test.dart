@@ -1458,7 +1458,7 @@ void main() {
                       xpAwarded: 5,
                     ),
                     missionAt('GETTING_STARTED', 7, 10),
-                    missionAt('GAME_EXPLORER', 3, 5),
+                    missionAt('GAME_EXPLORER', 2, 3),
                   ],
                 ),
                 withMissions: true,

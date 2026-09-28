@@ -200,7 +200,7 @@ void main() {
           'CARD_PLAYER': 'Play 50 hands',
           'WINNING_STREAK': 'Win 10 hands',
           'VARIATION_EXPLORER': 'Play 1 Variation hand',
-          'GAME_EXPLORER': 'Play 5 different games',
+          'GAME_EXPLORER': 'Play 3 different games',
         },
       );
       // A mission is named by its title; the task says what it asks.
@@ -355,7 +355,7 @@ void main() {
       );
       expect(
         _textOf(tester, const ValueKey('xp-mission-progress-GAME_EXPLORER')),
-        '0 / 5',
+        '0 / 3',
       );
       // Completed: the tick and the word, in the completion green, and no
       // progress line.

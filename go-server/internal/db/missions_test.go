@@ -144,7 +144,7 @@ var ownersMissions = []string{
 	"CARD_PLAYER|Card Player|HANDS_PLAYED|50||50",
 	"WINNING_STREAK|Winning Streak|HANDS_WON|10||75",
 	"VARIATION_EXPLORER|Variation Explorer|HANDS_PLAYED|1|variation|10",
-	"GAME_EXPLORER|Game Explorer|CATEGORIES_PLAYED|5||50",
+	"GAME_EXPLORER|Game Explorer|CATEGORIES_PLAYED|3||50",
 }
 
 // TestTheSeededOneTimeMissionsAreTheOwnersEight: a fresh database holds the
@@ -571,17 +571,19 @@ func TestScopedMissionsCountOnlyTheirGames(t *testing.T) {
 
 // TestExplorerMissionsCountDifferentGames: Game Explorer counts the DIFFERENT
 // table categories a player has played at — hands at one category over and
-// over count once — and completes at the fifth; Variation Explorer is a hand
-// played at a Variation table; switched by one UPDATE to count variations,
-// it counts different variations instead.
+// over count once — and completes at the third (owner, 28 Sep 2026: "make it
+// 3 instead of 5", the three games the app offers), after which a new game
+// moves it no further; Variation Explorer is a hand played at a Variation
+// table; switched by one UPDATE to count variations, it counts different
+// variations instead.
 func TestExplorerMissionsCountDifferentGames(t *testing.T) {
 	f := newFixture(t)
 	a, b := f.user("Explorer"), f.user("Other")
 	for i := 0; i < 3; i++ {
 		f.settleAt(f.ledger, game.CategorySeen, "", seat{user: a, played: true}, seat{user: b, won: true, played: true})
 	}
-	if got := f.mission(a.ID, "GAME_EXPLORER"); got.Progress != 1 || got.Target != 5 {
-		t.Fatalf("three Seen hands: %+v, want 1 of 5", got)
+	if got := f.mission(a.ID, "GAME_EXPLORER"); got.Progress != 1 || got.Target != 3 {
+		t.Fatalf("three Seen hands: %+v, want 1 of 3", got)
 	}
 	// A hand not played (no voluntary bet) is not a game played.
 	f.settleAt(f.ledger, game.CategoryBlind, "", seat{user: a}, seat{user: b, won: true, played: true})
@@ -590,33 +592,36 @@ func TestExplorerMissionsCountDifferentGames(t *testing.T) {
 	}
 	f.settleAt(f.ledger, game.CategoryBlind, "", seat{user: a, played: true}, seat{user: b, won: true, played: true})
 	f.settleAt(f.ledger, game.CategoryBlind, "", seat{user: a, played: true}, seat{user: b, won: true, played: true})
+	if got := f.mission(a.ID, "GAME_EXPLORER"); got.Progress != 2 || got.Completed {
+		t.Fatalf("Seen and Blind: %+v, want 2 of 3", got)
+	}
+	before := f.xpOf(a.ID)
 	f.settleAt(f.ledger, game.CategoryVariation, game.VariationMuflis, seat{user: a, played: true}, seat{user: b, won: true, played: true})
-	if got := f.mission(a.ID, "GAME_EXPLORER"); got.Progress != 3 || got.Completed {
-		t.Fatalf("Seen, Blind, Variation: %+v, want 3 of 5", got)
+	got := f.mission(a.ID, "GAME_EXPLORER")
+	if !got.Completed || got.Progress != 3 || got.XPAwarded != 50 {
+		t.Fatalf("the third game: %+v", got)
 	}
 	if got := f.mission(a.ID, "VARIATION_EXPLORER"); !got.Completed || got.XPAwarded != 10 {
 		t.Fatalf("Variation Explorer after a Variation hand: %+v", got)
 	}
-	f.settleAt(f.ledger, game.CategoryOmaha, "", seat{user: a, played: true}, seat{user: b, won: true, played: true})
-	f.settleAt(f.ledger, game.CategoryOmaha, "", seat{user: a, played: true}, seat{user: b, won: true, played: true})
-	if got := f.mission(a.ID, "GAME_EXPLORER"); got.Progress != 4 || got.Completed {
-		t.Fatalf("and Omaha twice: %+v, want 4 of 5", got)
+	// Getting Started is at 6 of 10: this hand gave the two explorers' XP alone.
+	if f.xpOf(a.ID) != before+50+10 {
+		t.Fatalf("the third game gave %d XP, want Game Explorer's 50 and Variation Explorer's 10", f.xpOf(a.ID)-before)
 	}
-	before := f.xpOf(a.ID)
-	f.settleAt(f.ledger, game.CategoryFiveCardDraw, "", seat{user: a, played: true}, seat{user: b, won: true, played: true})
-	got := f.mission(a.ID, "GAME_EXPLORER")
-	if !got.Completed || got.Progress != 5 || got.XPAwarded != 50 {
-		t.Fatalf("the fifth game: %+v", got)
+	// Completed, it is frozen: a fourth game counts for nothing and gives nothing.
+	before = f.xpOf(a.ID)
+	f.settleAt(f.ledger, game.CategoryOmaha, "", seat{user: a, played: true}, seat{user: b, won: true, played: true})
+	if got := f.mission(a.ID, "GAME_EXPLORER"); !got.Completed || got.Progress != 3 || got.XPAwarded != 50 {
+		t.Fatalf("a fourth game after completion: %+v", got)
 	}
-	// Getting Started is at 9 of 10: this hand gave Game Explorer's 50 alone.
-	if f.xpOf(a.ID) != before+50 {
-		t.Fatalf("the fifth game gave %d XP, want Game Explorer's 50", f.xpOf(a.ID)-before)
+	if f.xpOf(a.ID) != before {
+		t.Fatalf("a fourth game after completion gave %d XP", f.xpOf(a.ID)-before)
 	}
 	var seen []string
 	if err := f.d.Pool.QueryRow(f.ctx, `SELECT seen FROM player_xp_missions WHERE user_id = $1 AND source_code = 'GAME_EXPLORER'`, a.ID).Scan(&seen); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(seen, ",") != "seen,blind,variation,omaha,five_card_draw" {
+	if strings.Join(seen, ",") != "seen,blind,variation" {
 		t.Errorf("the games counted: %v", seen)
 	}
 

@@ -76,7 +76,7 @@ Map<String, Object?> _someMissions() => levelAt(
     missionAt('GETTING_STARTED', 7, 10),
     missionAt('FIRST_5_WINS', 3, 5),
     missionAt('CARD_PLAYER', 12, 50),
-    missionAt('GAME_EXPLORER', 3, 5),
+    missionAt('GAME_EXPLORER', 2, 3),
   ],
 );
 
