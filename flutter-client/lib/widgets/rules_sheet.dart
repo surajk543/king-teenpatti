@@ -55,14 +55,27 @@ class _RulesSheet extends StatelessWidget {
       if (category == TableCategory.variation) t.ruleVariationPick,
       seen ? t.everyoneChips : t.onlyYourChips,
       t.ruleBlindMoves(table.maxBlindMoves),
-      // A blind table's ladder runs to the stack; seen and variation tables
-      // raise once a turn.
-      blind ? t.ruleRaiseFree : t.ruleRaiseOnce,
+      // The ladder the catalogue gives this table: 0 rungs runs to the stack
+      // (blind, and variation since 28 Sep 2026 — owner: "only able to raise
+      // one time in variation 50000"); a menu without the figure falls back
+      // to the category — seen alone raises once a turn.
+      if (table.maxRaiseSteps == null
+          ? blind || category == TableCategory.variation
+          : table.maxRaiseSteps == 0)
+        t.ruleRaiseFree
+      else
+        t.ruleRaiseOnce,
       table.potUncapped
           ? t.rulePotOpen
           : t.rulePotCapped(formatChips(table.maxPot)),
-      // Blind tables have no forced showdown; the other two do.
-      if (!blind) t.ruleRoundsEnd,
+      // A forced showdown only where the table keeps a round cap: the
+      // catalogue says (a variation table has none since 28 Sep 2026, owner:
+      // "no limit on chaal if a player has money"); a menu without the
+      // figure falls back to the category — blind never, seen always.
+      if (table.maxBetRounds == null
+          ? !blind && category != TableCategory.variation
+          : table.maxBetRounds! > 0)
+        t.ruleRoundsEnd,
       t.ruleShowTwo,
       // A table that taxes its winners (owner, 26 Sep 2026): the whole
       // ladder in one sentence, that a badge can lower it (27 Sep 2026: "Vip

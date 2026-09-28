@@ -766,6 +766,23 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
   /// drawn in.
   final GlobalKey _stageKey = GlobalKey(debugLabel: 'felt');
 
+  /// One key per place, naming the emoji bubble playing there, wherever it
+  /// stands — so the felt can see where it landed ([_placeEmojis]).
+  final List<GlobalKey> _emojiKeys = List.generate(
+    SeatRing.maxSeats,
+    (i) => GlobalKey(debugLabel: 'emoji $i'),
+  );
+
+  /// The emoji each player is sending as the felt last saw it — the line
+  /// itself, so a second one queued behind it counts as new — and where each
+  /// plays ([EmojiPlace]). A player missing from [_emojiPlaces] has an emoji
+  /// that has not been placed yet: it is drawn in its bubble's own place for
+  /// one frame, at the start of its pop-in (fully transparent), measured, and
+  /// moved if it meets another.
+  final Map<String, ChatMessage> _emojiSeen = {};
+  final Map<String, EmojiPlace> _emojiPlaces = {};
+  bool _emojiPlacing = false;
+
   /// The strike's clock, 0 to 1 over [HammerTiming.total]. Created by the
   /// first strike, never in advance and never by [dispose] (CLAUDE.md §12.3).
   AnimationController? _hammer;
@@ -1061,6 +1078,156 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     if (mounted) tapHaptic(context);
   }
 
+  /// Keeps the felt on the emojis [GameState] is playing: one that has gone
+  /// forgets its place, and a new one — a player's first, or the next one
+  /// queued behind it — is placed after this frame, once it has been laid out
+  /// where its bubble would be.
+  void _followEmojis(Map<String, ChatMessage> shown) {
+    for (final id in _emojiSeen.keys.toList()) {
+      if (!shown.containsKey(id)) {
+        _emojiSeen.remove(id);
+        _emojiPlaces.remove(id);
+      }
+    }
+    var fresh = false;
+    for (final MapEntry(key: id, value: line) in shown.entries) {
+      if (identical(_emojiSeen[id], line)) continue;
+      _emojiSeen[id] = line;
+      _emojiPlaces.remove(id);
+      fresh = true;
+    }
+    if (!fresh || _emojiPlacing) return;
+    _emojiPlacing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _placeEmojis());
+  }
+
+  /// Gives every emoji that has just arrived a place where it meets no emoji
+  /// already playing (owner, 28 Sep 2026: "when two players send emoji in any
+  /// game table then their emoji should not overlap, if overlap then change
+  /// the direction so that it does not overlap").
+  ///
+  /// The ones already playing keep where they are; the new ones are placed in
+  /// the order they were sent (the server's stamp, the same on every phone),
+  /// each taking the first of its seat's places that stays on the felt and
+  /// meets none placed before it: the bubble's own place, then beside the pod
+  /// towards the middle of the table, above it, and beside it on the other
+  /// side (the viewer's: above, then over their own cards, then to the left).
+  /// A place that would cover another player's pod is taken only when every
+  /// place clear of the pods meets an emoji. Where nothing fits, the bubble's
+  /// own place.
+  void _placeEmojis() {
+    _emojiPlacing = false;
+    if (!mounted) return;
+    final stage = _stageKey.currentContext?.findRenderObject();
+    if (stage is! RenderBox || !stage.hasSize) return;
+    final state = context.read<GameState>();
+    final seats = state.seatsInViewOrder();
+
+    Rect? rectOf(GlobalKey key) {
+      final box = key.currentContext?.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+      return box.localToGlobal(Offset.zero, ancestor: stage) & box.size;
+    }
+
+    final pods = <int, Rect>{
+      for (var view = 0; view < _podKeys.length; view++)
+        view: ?rectOf(_podKeys[view]),
+    };
+
+    final placed = <Rect>[];
+    final fresh = <({String id, int view, int at})>[];
+    for (final MapEntry(key: id, value: line) in _emojiSeen.entries) {
+      final view = seats.indexWhere((seat) => seat?.userId == id);
+      if (view < 0 || view >= _emojiKeys.length) continue;
+      if (_emojiPlaces.containsKey(id)) {
+        if (rectOf(_emojiKeys[view]) case final rect?) placed.add(rect);
+      } else {
+        fresh.add((id: id, view: view, at: line.at));
+      }
+    }
+    if (fresh.isEmpty) return;
+    fresh.sort(
+      (a, b) => a.at != b.at ? a.at.compareTo(b.at) : a.view.compareTo(b.view),
+    );
+
+    final bounds = (Offset.zero & stage.size).inflate(1);
+    bool clear(Rect r) =>
+        bounds.contains(r.topLeft) &&
+        bounds.contains(r.bottomRight) &&
+        !placed.any((p) => p.deflate(2).overlaps(r.deflate(2)));
+    bool offPods(Rect r, int view) => !pods.entries.any(
+      (e) => e.key != view && e.value.deflate(2).overlaps(r.deflate(2)),
+    );
+
+    final next = <String, EmojiPlace>{};
+    for (final f in fresh) {
+      final own = rectOf(_emojiKeys[f.view]);
+      final pod = pods[f.view];
+      if (own == null || pod == null) {
+        next[f.id] = EmojiPlace.column;
+        continue;
+      }
+      // The bubble in its own place hangs a pointer from its top or foot;
+      // beside the pod the same bubble lies on its side, the pointer out of
+      // the edge nearest the pod.
+      final gap = TableSpace.seat(pod.width);
+      final across = own.height;
+      final tall = own.width;
+      final beside = (
+        left: Rect.fromLTWH(
+          pod.left - gap - across,
+          pod.center.dy - tall / 2,
+          across,
+          tall,
+        ),
+        right: Rect.fromLTWH(
+          pod.right + gap,
+          pod.center.dy - tall / 2,
+          across,
+          tall,
+        ),
+      );
+      final above = Rect.fromLTWH(
+        pod.center.dx - own.width / 2,
+        pod.top - gap - own.height,
+        own.width,
+        own.height,
+      );
+      // Towards the middle of the table first: the seats on the left open to
+      // the right, as their words do.
+      final towardsRight = pod.center.dx < stage.size.width / 2;
+      final options = <(EmojiPlace, Rect)>[
+        (EmojiPlace.column, own),
+        if (f.view == 0) ...[
+          (EmojiPlace.right, beside.right),
+          (EmojiPlace.left, beside.left),
+        ] else ...[
+          towardsRight
+              ? (EmojiPlace.right, beside.right)
+              : (EmojiPlace.left, beside.left),
+          (EmojiPlace.above, above),
+          towardsRight
+              ? (EmojiPlace.left, beside.left)
+              : (EmojiPlace.right, beside.right),
+        ],
+      ];
+      final choice =
+          options
+              .where((o) => clear(o.$2) && offPods(o.$2, f.view))
+              .firstOrNull ??
+          options.where((o) => clear(o.$2)).firstOrNull ??
+          options.first;
+      next[f.id] = choice.$1;
+      placed.add(choice.$2);
+    }
+    final moves = next.values.any((p) => p != EmojiPlace.column);
+    if (moves) {
+      setState(() => _emojiPlaces.addAll(next));
+    } else {
+      _emojiPlaces.addAll(next);
+    }
+  }
+
   /// Keeps the felt on the strike [GameState] is showing: a new one is launched
   /// after this frame, when the pods have been laid out and can be measured;
   /// one that has gone (the hand ended, the player left) is dropped at once.
@@ -1132,6 +1299,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     final state = context.watch<GameState>();
     _follow(state.hammerStrike);
     _followMissile(state.missileStrike);
+    _followEmojis(state.emojiShown);
 
     final room = state.room;
     if (room == null) return const Center(child: GameLoader());
@@ -1368,6 +1536,12 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               // few seconds, on every phone at the table (owner, 26 Sep 2026).
               emoji: state.emojiOver(s?.userId),
               emojiUrl: state.absoluteUrl(state.emojiOver(s?.userId)?.url),
+              // Moved beside or above the pod where its own place would meet
+              // another seat's emoji (_placeEmojis).
+              emojiPlace: _emojiPlaces[s?.userId] ?? EmojiPlace.column,
+              emojiKey: viewIndex < _emojiKeys.length
+                  ? _emojiKeys[viewIndex]
+                  : null,
               // A bubble opens towards the middle of the table: seats on the
               // left speak to the right, seats on the right to the left, and
               // the viewer's own words go up over their pod. The head seat's

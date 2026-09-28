@@ -265,6 +265,26 @@ Future<void> dealNextHand(WidgetTester tester, GameState state) async {
   await tester.pump(const Duration(milliseconds: 520));
 }
 
+/// Every seat sending an emoji at once (28 Sep 2026, "their emoji should not
+/// overlap"): the bubbles stand over the seats' own columns and no two meet.
+void everySeatEmoji(GameState state) {
+  for (final (id, name) in [
+    ('u0', 'Priya'),
+    ('u1', 'Ravi'),
+    ('u2', 'Meera'),
+    ('u3', 'Arjun'),
+    ('u4', 'Vikramaditya'),
+  ]) {
+    state.emojiShown[id] = ChatMessage(
+      userId: id,
+      displayName: name,
+      text: 'Kiss Face',
+      at: chatAt(15, 2),
+      emoji: const ChatEmoji(id: 17, name: 'Kiss Face', url: ''),
+    );
+  }
+}
+
 /// The two top seats talking: their speech bubbles hang from their columns
 /// and grow towards the middle of the table.
 void topSeatsTalking(GameState state) {
@@ -558,6 +578,16 @@ final tableScenes = <TableScene>[
   TableScene(
     '19-variation-selecting',
     (s) => s.handleState(variationSelectingRoom()),
+  ),
+  TableScene('19c-every-seat-emoji', (s) {
+    s.handleState(opponentTurnRoom());
+    everySeatEmoji(s);
+  }),
+  // The viewer choosing: the picker over the upper felt (28 Sep 2026, the
+  // glass and depth pass, with a mark on every key).
+  TableScene(
+    '19b-variation-picker',
+    (s) => s.handleState(variationSelectingRoom(mine: true)),
   ),
   // A cloth per game (25 Sep 2026): the seen and variation tables on turn and
   // off it, as the blind table is in 01 and 02.

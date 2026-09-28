@@ -420,7 +420,7 @@ void main() {
 
   group('the unlock dialog', () {
     testWidgets('prices a picture in hammers, one hammer in the singular, '
-        'with the hammers held under it', (tester) async {
+        'with that price named under it', (tester) async {
       _setScreen(tester, const Size(891, 411));
       final state = _state(hammers: 45);
       final feedback = FeedbackSettings();
@@ -439,13 +439,22 @@ void main() {
         ),
         findsOneWidget,
       );
-      final held = find.descendant(
+      // The price, named — never the 45 hammers held, which is what stood
+      // here until the owner read it as the price (28 Sep 2026: "it is not
+      // showing cost after clicking on it, it is showing how many hammers i
+      // have").
+      final price = find.descendant(
         of: dialog,
         matching: find.byType(HammerBalance),
       );
-      expect(held, findsOneWidget);
+      expect(price, findsOneWidget);
+      expect(tester.widget<HammerBalance>(price).count, 30);
       expect(
-        find.descendant(of: held, matching: find.text('45')),
+        find.descendant(of: price, matching: find.text('45')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: dialog, matching: find.text('Price')),
         findsOneWidget,
       );
       expect(

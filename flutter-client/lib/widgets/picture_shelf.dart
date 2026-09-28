@@ -854,6 +854,91 @@ Widget? walletBalanceFor(GameState state, String currency) =>
       _ => null,
     };
 
+/// What a thing costs, on the dark pill the store's wallets are drawn on, in
+/// that wallet's glyph and ink ([HammerBalance], [DiamondBalance],
+/// [ChipBalance]) — so it reads as a figure in that wallet.
+Widget walletPricePill({required int cost, required String currency}) =>
+    switch (currency) {
+      PictureCurrency.hammer => HammerBalance(count: cost),
+      PictureCurrency.diamond => DiamondBalance(count: cost),
+      _ => ChipBalance(chips: cost),
+    };
+
+/// The price, named, under an unlock question — and, under the "not enough"
+/// offer, what the player holds of that wallet beside it, named too (owner,
+/// 28 Sep 2026: "when we go to buy profile pic with hammer, it is not showing
+/// cost after clicking on it, it is showing how many hammers i have"). The one
+/// pill under the picture's question used to be the player's own balance, with
+/// the price only in the sentence above it, so the figure a player read as the
+/// price was their own count — what the owner had already had taken off the
+/// emoji's question (27 Sep 2026: "it should show hammer cost, not the count
+/// of hammers user have"). The question shows the price alone; the offer,
+/// where the shortfall is the point, both.
+class PriceAndWallet extends StatelessWidget {
+  const PriceAndWallet({
+    super.key,
+    required this.cost,
+    required this.currency,
+    this.showWallet = false,
+    this.priceKey = const ValueKey('unlock-price'),
+  });
+
+  final int cost;
+  final String currency;
+
+  /// Whether the player's own balance stands beside the price.
+  final bool showWallet;
+
+  /// Names the price's pill, for the tests (an emoji's is
+  /// `emoji-unlock-price`, as it always was).
+  final Key priceKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    final t = state.t;
+    final theme = Theme.of(context);
+    final label = AppTheme.label(
+      theme.textTheme.labelSmall ?? const TextStyle(),
+      colour: theme.colorScheme.onSurface.withValues(alpha: AppTheme.inkMed),
+      weight: FontWeight.w600,
+    );
+    Widget named(String name, Widget pill) => Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(name, maxLines: 1, style: label),
+        const SizedBox(height: Space.xxs),
+        pill,
+      ],
+    );
+    final Widget held = switch (currency) {
+      PictureCurrency.hammer ||
+      PictureCurrency.diamond => walletBalanceFor(state, currency)!,
+      _ => ChipBalance(chips: state.user?.chips ?? 0),
+    };
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.end,
+      spacing: Space.xl,
+      runSpacing: Space.sm,
+      children: [
+        named(
+          t.priceLabel,
+          KeyedSubtree(
+            key: priceKey,
+            child: walletPricePill(cost: cost, currency: currency),
+          ),
+        ),
+        if (showWallet)
+          named(
+            t.youHaveLabel,
+            KeyedSubtree(key: const ValueKey('unlock-balance'), child: held),
+          ),
+      ],
+    );
+  }
+}
+
 /// Asks before spending on a premium picture, then buys and wears it.
 ///
 /// A confirmation rather than a straight tap-to-buy: this is the only place in
@@ -891,8 +976,6 @@ Future<void> unlockPicture(
     );
     return;
   }
-  final balance = walletBalanceFor(state, picture.currency);
-
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => GlassDialog(
@@ -909,6 +992,11 @@ Future<void> unlockPicture(
               ),
             ),
           ),
+          // The price where it is always in view: the body under the title
+          // scrolls, and on a 360dp phone its foot — where the price stood —
+          // was under the fold (28 Sep 2026).
+          const SizedBox(width: Space.md),
+          PriceAndWallet(cost: picture.cost, currency: picture.currency),
         ],
       ),
       content: Column(
@@ -928,9 +1016,6 @@ Future<void> unlockPicture(
               ),
             ),
           ),
-          // What the player holds of that wallet, under the price, so the sum
-          // is done before Unlock rather than after a refusal.
-          if (balance != null) ...[const SizedBox(height: Space.md), balance],
         ],
       ),
       actions: [
@@ -1018,8 +1103,6 @@ Future<void> offerWalletShelf(
   final state = context.read<GameState>();
   final t = state.t;
   final hammers = shelf == StoreTab.hammers;
-  final balance = walletBalanceFor(state, currency);
-
   final go = await showDialog<bool>(
     context: context,
     builder: (dialogContext) {
@@ -1044,6 +1127,11 @@ Future<void> offerWalletShelf(
                 ),
               ),
             ),
+            // The price where it is always in view: the body under the title
+            // scrolls, and on a 360dp phone its foot — where the price stood —
+            // was under the fold (28 Sep 2026).
+            const SizedBox(width: Space.md),
+            PriceAndWallet(cost: cost, currency: currency, showWallet: true),
           ],
         ),
         content: Column(
@@ -1064,7 +1152,6 @@ Future<void> offerWalletShelf(
                 ),
               ),
             ),
-            if (balance != null) ...[const SizedBox(height: Space.md), balance],
           ],
         ),
         actions: [

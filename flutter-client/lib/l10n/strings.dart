@@ -1503,6 +1503,11 @@ class Strings {
   /// The premium-picture tier (requirement 21).
   String get unlock => _('unlock');
   String get unlockTitle => _('unlockTitle');
+
+  /// Over the two pills of an unlock or top-up question: what it costs, and
+  /// what the player holds of that wallet (28 Sep 2026).
+  String get priceLabel => _('priceLabel');
+  String get youHaveLabel => _('youHaveLabel');
   String unlockBody(String name, String cost) =>
       _('unlockBody').replaceAll('{name}', name).replaceAll('{cost}', cost);
 
@@ -1942,7 +1947,7 @@ class Strings {
           'This emoji is yours — send it with the emoji key at a table.',
       'tableEmojis': 'Emojis',
       'emojiSendHint': 'Tap an emoji to send it to the table.',
-      'emojiUnlockMore': 'Unlock more in the store',
+      'emojiUnlockMore': 'Tap one to unlock it',
       'emojiNoneOwned': 'You have no emojis yet — unlock one below.',
       'emojiSentBy': '{name} sent {emoji}',
       'emojiLockedRefusal': 'Unlock this emoji in the store first.',
@@ -2336,6 +2341,8 @@ class Strings {
       'buyChipsToStay': 'Buy chips in {seconds}s to keep your seat',
       'unlock': 'Unlock',
       'unlockTitle': 'Unlock this picture?',
+      'priceLabel': 'Price',
+      'youHaveLabel': 'You have',
       'unlockBody': '{name} costs {cost} chips. Unlock it and wear it now?',
       'unlockBodyDiamond':
           '{name} costs {cost} diamond{s}. Unlock it and wear it now?',
@@ -2850,7 +2857,7 @@ class Strings {
       'emojiOwnedNote': 'यह इमोजी आपका है — इसे टेबल पर इमोजी बटन से भेजें।',
       'tableEmojis': 'इमोजी',
       'emojiSendHint': 'टेबल को भेजने के लिए किसी इमोजी पर टैप करें।',
-      'emojiUnlockMore': 'स्टोर में और अनलॉक करें',
+      'emojiUnlockMore': 'अनलॉक करने के लिए किसी पर टैप करें',
       'emojiNoneOwned':
           'आपके पास अभी कोई इमोजी नहीं है — नीचे से एक अनलॉक करें।',
       'emojiSentBy': '{name} ने {emoji} भेजा',
@@ -3235,6 +3242,8 @@ class Strings {
       'themeSystem': 'सिस्टम',
       'unlock': 'अनलॉक करें',
       'unlockTitle': 'यह तस्वीर अनलॉक करें?',
+      'priceLabel': 'कीमत',
+      'youHaveLabel': 'आपके पास',
       'unlockBody': '{name} की कीमत {cost} चिप्स है। अभी अनलॉक करके लगाएँ?',
       'unlockBodyDiamond':
           '{name} की कीमत {cost} डायमंड है। अभी अनलॉक करके लगाएँ?',
@@ -3745,7 +3754,7 @@ class Strings {
       'emojiOwnedNote': 'এই ইমোজিটি আপনার — টেবিলে ইমোজি বোতাম দিয়ে পাঠান।',
       'tableEmojis': 'ইমোজি',
       'emojiSendHint': 'টেবিলে পাঠাতে একটি ইমোজিতে ট্যাপ করুন।',
-      'emojiUnlockMore': 'স্টোরে আরও আনলক করুন',
+      'emojiUnlockMore': 'আনলক করতে যেকোনো একটিতে ট্যাপ করুন',
       'emojiNoneOwned': 'আপনার এখনও কোনো ইমোজি নেই — নিচে থেকে একটি আনলক করুন।',
       'emojiSentBy': '{name} {emoji} পাঠিয়েছেন',
       'emojiLockedRefusal': 'আগে স্টোরে এই ইমোজিটি আনলক করুন।',
@@ -4122,6 +4131,8 @@ class Strings {
       'quickHelpMe': 'দয়া করে আমাকে সাহায্য করুন।',
       'unlock': 'আনলক করুন',
       'unlockTitle': 'এই ছবিটি আনলক করবেন?',
+      'priceLabel': 'দাম',
+      'youHaveLabel': 'আপনার কাছে',
       'unlockBody': '{name} এর দাম {cost} চিপস। এখনই আনলক করে ব্যবহার করবেন?',
       'unlockBodyDiamond':
           '{name} এর দাম {cost} ডায়মন্ড। এখনই আনলক করে ব্যবহার করবেন?',
@@ -4640,7 +4651,7 @@ class Strings {
       'emojiOwnedNote': 'આ ઇમોજી તમારું છે — ટેબલ પર ઇમોજી બટનથી મોકલો.',
       'tableEmojis': 'ઇમોજી',
       'emojiSendHint': 'ટેબલને મોકલવા માટે ઇમોજી પર ટૅપ કરો.',
-      'emojiUnlockMore': 'સ્ટોરમાં વધુ અનલૉક કરો',
+      'emojiUnlockMore': 'અનલૉક કરવા કોઈ એક પર ટૅપ કરો',
       'emojiNoneOwned': 'તમારી પાસે હજી કોઈ ઇમોજી નથી — નીચેથી એક અનલૉક કરો.',
       'emojiSentBy': '{name} એ {emoji} મોકલ્યું',
       'emojiLockedRefusal': 'પહેલાં સ્ટોરમાં આ ઇમોજી અનલૉક કરો.',
@@ -4979,6 +4990,8 @@ class Strings {
       'welcomeBack': 'પરત સ્વાગત — તમે તમારા ટેબલ પર પાછા છો.',
       'unlock': 'અનલૉક કરો',
       'unlockTitle': 'આ ફોટો અનલૉક કરવો છે?',
+      'priceLabel': 'કિંમત',
+      'youHaveLabel': 'તમારી પાસે',
       'unlockBody':
           '{name} ની કિંમત {cost} ચિપ્સ છે. હમણાં અનલૉક કરીને વાપરવો?',
       'unlockBodyDiamond':
@@ -5531,7 +5544,7 @@ class Strings {
       'emojiOwnedNote': 'ਇਹ ਇਮੋਜੀ ਤੁਹਾਡਾ ਹੈ — ਟੇਬਲ ਉੱਤੇ ਇਮੋਜੀ ਬਟਨ ਨਾਲ ਭੇਜੋ।',
       'tableEmojis': 'ਇਮੋਜੀ',
       'emojiSendHint': 'ਟੇਬਲ ਨੂੰ ਭੇਜਣ ਲਈ ਕਿਸੇ ਇਮੋਜੀ ਉੱਤੇ ਟੈਪ ਕਰੋ।',
-      'emojiUnlockMore': 'ਸਟੋਰ ਵਿੱਚ ਹੋਰ ਅਨਲਾਕ ਕਰੋ',
+      'emojiUnlockMore': 'ਅਨਲਾਕ ਕਰਨ ਲਈ ਕਿਸੇ ਇੱਕ ਉੱਤੇ ਟੈਪ ਕਰੋ',
       'emojiNoneOwned':
           'ਤੁਹਾਡੇ ਕੋਲ ਅਜੇ ਕੋਈ ਇਮੋਜੀ ਨਹੀਂ — ਹੇਠਾਂ ਤੋਂ ਇੱਕ ਅਨਲਾਕ ਕਰੋ।',
       'emojiSentBy': '{name} ਨੇ {emoji} ਭੇਜਿਆ',
@@ -5874,6 +5887,8 @@ class Strings {
       'missOneMore': 'ਇੱਕ ਹੋਰ ਵਾਰੀ ਖੁੰਝੀ ਤਾਂ ਤੁਸੀਂ ਟੇਬਲ ਛੱਡ ਦਿਓਗੇ',
       'unlock': 'ਅਨਲਾਕ ਕਰੋ',
       'unlockTitle': 'ਇਹ ਤਸਵੀਰ ਅਨਲਾਕ ਕਰਨੀ ਹੈ?',
+      'priceLabel': 'ਕੀਮਤ',
+      'youHaveLabel': 'ਤੁਹਾਡੇ ਕੋਲ',
       'unlockBody': '{name} ਦੀ ਕੀਮਤ {cost} ਚਿਪਸ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',
       'unlockBodyDiamond':
           '{name} ਦੀ ਕੀਮਤ {cost} ਹੀਰੇ ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣੀ ਹੈ?',

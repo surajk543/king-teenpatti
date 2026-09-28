@@ -464,9 +464,12 @@ void main() {
         await _teardown(tester, state);
       });
 
-      testWidgets('a locked emoji opens the store on the Emojis shelf', (
+      testWidgets('a locked emoji is bought where it is, not in the store', (
         tester,
       ) async {
+        // Owner, 28 Sep 2026: "While buying emoji from emoji button in
+        // gametable, it is sending me to store, no need to send player to
+        // store, he buy emoji there itself".
         final state = _state(room());
         await _pump(tester, state);
         await _openEmojiPage(tester);
@@ -478,9 +481,56 @@ void main() {
         await tester.pump(const Duration(milliseconds: 300));
         await tester.tap(find.byKey(const ValueKey('emoji-locked-5')));
         await tester.pump();
-        await tester.pump(const Duration(seconds: 2));
-        expect(find.byType(EmojiChoice), findsNWidgets(_emojis().length));
-        expect(find.text(state.t.storeEmojisBlurb), findsOneWidget);
+        await tester.pump(const Duration(seconds: 1));
+        // The question over the drawer, with the price named — and no
+        // store.
+        expect(find.text(state.t.unlockEmojiTitle), findsOneWidget);
+        expect(find.byType(EmojiChoice), findsNothing);
+        expect(find.text(state.t.storeEmojisBlurb), findsNothing);
+        expect(
+          tester
+              .widget<HammerBalance>(
+                find.descendant(
+                  of: find.byKey(const ValueKey('emoji-unlock-price')),
+                  matching: find.byType(HammerBalance),
+                ),
+              )
+              .count,
+          30,
+        );
+        // The price alone, named — never the 45 the player holds.
+        expect(find.byKey(const ValueKey('unlock-balance')), findsNothing);
+        expect(find.text(state.t.priceLabel), findsOneWidget);
+        await tester.tap(find.text(state.t.cancel));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        expect(find.text(state.t.unlockEmojiTitle), findsNothing);
+        expect(find.byType(EmojiDrawer), findsOneWidget);
+
+        // Short of hammers: the offer of the Hammers shelf, still no store
+        // until the player asks for it.
+        state.user = User.fromJson({
+          'id': 'u0',
+          'provider': 'guest',
+          'displayName': 'Player 0',
+          'chips': 12500000,
+          'diamond': 9,
+          'hammer': 10,
+          'missile': 1,
+        });
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey('emoji-locked-5')),
+        );
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.tap(find.byKey(const ValueKey('emoji-locked-5')));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        expect(find.text(state.t.notEnoughHammersTitle), findsOneWidget);
+        expect(find.byType(EmojiChoice), findsNothing);
+        await tester.tap(find.text(state.t.cancel));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
         expect(tester.takeException(), isNull);
 
         await _teardown(tester, state);

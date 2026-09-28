@@ -324,11 +324,7 @@ class _EmojiOnOffer extends StatelessWidget {
 /// wallet's own glyph and ink, so it reads as the price in that wallet.
 Widget emojiPricePill(EmojiItem emoji) => KeyedSubtree(
   key: const ValueKey('emoji-unlock-price'),
-  child: switch (emoji.currency) {
-    PictureCurrency.hammer => HammerBalance(count: emoji.cost),
-    PictureCurrency.diamond => DiamondBalance(count: emoji.cost),
-    _ => ChipBalance(chips: emoji.cost),
-  },
+  child: walletPricePill(cost: emoji.cost, currency: emoji.currency),
 );
 
 /// Asks before spending on a premium emoji, then buys it — [unlockPicture]
@@ -361,7 +357,6 @@ Future<void> unlockEmoji(
     );
     return;
   }
-  final price = emojiPricePill(emoji);
 
   final confirmed = await showDialog<bool>(
     context: context,
@@ -379,6 +374,15 @@ Future<void> unlockEmoji(
               ),
             ),
           ),
+          // The price where it is always in view: the body under the title
+          // scrolls, and on a 360dp phone its foot — where the price stood —
+          // was under the fold (28 Sep 2026).
+          const SizedBox(width: Space.md),
+          PriceAndWallet(
+            cost: emoji.cost,
+            currency: emoji.currency,
+            priceKey: const ValueKey('emoji-unlock-price'),
+          ),
         ],
       ),
       content: Column(
@@ -394,8 +398,6 @@ Future<void> unlockEmoji(
               ),
             ),
           ),
-          const SizedBox(height: Space.md),
-          price,
         ],
       ),
       actions: [
@@ -441,8 +443,12 @@ Future<void> unlockEmoji(
 /// each quick message counts it down.
 ///
 /// Under them, the ones the player does not own, dimmed with their price; a
-/// tap opens the store on its Emojis shelf, over the drawer, so a player who
-/// buys one comes back to it here, ready to send.
+/// tap buys it RIGHT HERE (owner, 28 Sep 2026: "While buying emoji from emoji
+/// button in gametable, it is sending me to store, no need to send player to
+/// store, he buy emoji there itself"): the unlock question over the drawer
+/// ([unlockEmoji]) and, once bought, the emoji moves up among the player's
+/// own, ready to send. Only a wallet too short for it leads to the store —
+/// to that wallet's shelf, which is what the player then needs.
 class EmojiDrawer extends StatelessWidget {
   const EmojiDrawer({super.key});
 
@@ -582,10 +588,7 @@ class EmojiDrawer extends StatelessWidget {
                               _LockedTile(
                                 key: ValueKey('emoji-locked-${e.id}'),
                                 emoji: e,
-                                onTap: () => showChipStore(
-                                  context,
-                                  opensOn: StoreTab.emojis,
-                                ),
+                                onTap: () => unlockEmoji(context, e),
                               ),
                           ],
                         ),
@@ -680,7 +683,7 @@ class _SendTile extends StatelessWidget {
 }
 
 /// An emoji the player does not own, on the table's page: dimmed in its
-/// well, with its price under it; a tap opens the store on its shelf.
+/// well, with its price under it; a tap asks to buy it there and then.
 class _LockedTile extends StatelessWidget {
   const _LockedTile({super.key, required this.emoji, required this.onTap});
 

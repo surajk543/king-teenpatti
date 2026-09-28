@@ -1409,13 +1409,18 @@ func TestRoomsAVariationQuickJoinSitsAtAVariationTableAndNeverASeenOne(t *testin
 	if cfg.VariationSelectTimeout != 10*time.Second {
 		t.Fatalf("window = %s, want the configured 10s", cfg.VariationSelectTimeout)
 	}
-	// It bets as a seen table does — the same ladder, rounds and per-bet
-	// ceiling — but with no pot limit (owner, 18 Sep 2026), where the seen
-	// table keeps its 20 Lakh.
+	// It bets as a blind table does — the ladder to the stack, no round cap,
+	// no per-bet ceiling (owner, 28 Sep 2026: "the bug is that i am only able
+	// to raise one time in variation 50000") — and has no pot limit (owner,
+	// 18 Sep 2026), where the seen table keeps its two rungs, its 7 rounds and
+	// its 20 Lakh.
 	seenCfg := seen.Config()
-	if cfg.MaxRaiseSteps != seenCfg.MaxRaiseSteps || cfg.MaxBetRounds != seenCfg.MaxBetRounds ||
-		cfg.PotLimitMultiplier != seenCfg.PotLimitMultiplier {
-		t.Fatalf("variation rules %+v differ from seen rules %+v", cfg, seenCfg)
+	if cfg.MaxRaiseSteps != 0 || cfg.MaxBetRounds != 0 || cfg.PotLimitMultiplier != 0 {
+		t.Fatalf("a variation table limits its betting: steps %d, rounds %d, per-bet ceiling %d",
+			cfg.MaxRaiseSteps, cfg.MaxBetRounds, cfg.PotLimitMultiplier)
+	}
+	if seenCfg.MaxBetRounds != 7 {
+		t.Fatalf("the seen table's rounds moved: %d", seenCfg.MaxBetRounds)
 	}
 	if cfg.MaxPot != 0 {
 		t.Fatalf("a variation table's pot is capped at %d", cfg.MaxPot)
