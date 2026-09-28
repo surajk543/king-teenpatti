@@ -4338,10 +4338,11 @@ unchanged). The unit's `WorkingDirectory`, `EnvironmentFile` and `PUBLIC_DIR` ar
 `PUBLIC_DIR=/var/www/gameplay/king-teenpatti/go-server/public`. No Go toolchain on the host beforehand:
 `ops/build.sh` installs Go 1.27.1 into `~/.local/go` (sha256 checked against go.dev) and builds a static binary.
 ```bash
-cd /var/www/gameplay/king-teenpatti && git pull origin master
+# every deploy is of a TAG (29 Sep 2026, owner): steps.txt step 1, DEPLOY.md "Every later deploy"
+cd /var/www/gameplay/king-teenpatti && git fetch origin --tags --force && git checkout --detach go-server/vX.Y.Z
 bash go-server/ops/build.sh                                       # as deploy, no sudo
 sudo bash go-server/ops/install-go-server.sh                      # FIRST TIME: backs up the Node unit → gameplay.service.node.bak, copies server/.env → go-server/.env, installs gameplay-go.service AS gameplay.service, restarts, checks /health process.node = go… and /metrics 200, then rm -rf's server/ from the host (KEEP_NODE_TREE=1 skips; a differing server/.env is kept as go-server/.env.node.bak)
-sudo systemctl restart gameplay                                   # every later deploy (after git pull + build.sh)
+sudo systemctl restart gameplay                                   # every later deploy (after the tag's checkout + build.sh)
 sudo systemctl status gameplay --no-pager && sudo journalctl -u gameplay -n 20 --no-pager
 curl -s 127.0.0.1:3000/health | python3 -m json.tool | head -20   # process.node must start with "go"
 # rollback = the PREVIOUS GO TAG, never Node (it cannot run against this schema — DEPLOY.md §5)

@@ -76,9 +76,15 @@ NEW="${PREFIX}${MAJOR}.${MINOR}.${PATCH}"
 # ------------------------------------------------------------- refusals
 # A tag must name a rebuildable commit. With uncommitted work in the tree the
 # binary you are about to ship is not the one the tag points at, and the
-# `-dirty` suffix in the stamp would be the only clue.
-[ -z "$(git -C "$REPO_ROOT" status --porcelain)" ] \
+# `-dirty` suffix in the stamp would be the only clue. That is any change to a
+# tracked file, and any untracked file under go-server/ (a stray .go file there
+# is compiled in); an untracked file elsewhere — a load report, a scratch note —
+# cannot reach the binary and does not stop a release (29 Sep 2026: it did,
+# on the owner's own checkout).
+[ -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=no)" ] \
   || die "the working tree has uncommitted changes; commit or stash them first"
+[ -z "$(git -C "$REPO_ROOT" status --porcelain -- go-server)" ] \
+  || die "untracked files under go-server/ would be built in; remove or commit them first"
 
 if git -C "$REPO_ROOT" rev-parse -q --verify "refs/tags/$NEW" >/dev/null; then
   die "$NEW already exists; a released version is never moved — cut the next one instead"

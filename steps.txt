@@ -1,23 +1,32 @@
-# Deploy routine — Go server (the Node server was removed from production on the switch)
+# Deploy routine — Go server. Production runs a TAG (go-server/vX.Y.Z), never "whatever master is now".
 
-# 0. FIRST, on your own machine: cut the release tag from master and push it.
+# 0. FIRST, on your own machine: merge the release PR, then cut the tag ON master and push it.
 #    The tag IS the version — build.sh stamps it into the binary and /health reports it — so an
-#    untagged deploy has no name, and prod-version.sh below would compare against the previous tag
-#    and cheerfully report IN SYNC while production is several commits behind.
-#    release.sh refuses a dirty tree and a commit that is already tagged, and never pushes for you.
+#    untagged deploy has no name. Cut it on master AFTER the merge, on the merge commit itself: a tag
+#    on the PR branch's last commit is one commit behind what master holds, and a host building master
+#    would report vX.Y.Z-1-g<sha>. release.sh refuses local edits (and untracked files under
+#    go-server/, which would be compiled in), a commit that is already tagged, and never pushes.
 git checkout master && git pull origin master
-bash go-server/ops/release.sh minor               # or patch / major / vX.Y.Z ; --current just reports
+bash go-server/ops/release.sh patch               # or minor / major / vX.Y.Z ; --current just reports
 git push origin go-server/vX.Y.Z
 
-# 1. Then on the host:
+# 1. Then on the host, deploy THAT tag:
 cd /var/www/gameplay/king-teenpatti
-git pull origin master
+TAG=go-server/vX.Y.Z                              # the tag you just pushed (or, to roll back, an older one)
+git fetch origin --tags --force                   # brings the tag (--force: also one that was moved)
+git status --short --untracked-files=no           # must print nothing — a local edit would be built in
+git checkout --detach "$TAG"                      # the checkout now IS the tag (a detached HEAD, on purpose)
 bash go-server/ops/build.sh                       # as deploy, no sudo: installs Go if missing, builds go-server/bin/gameplay
+./go-server/bin/gameplay -version                 # must name the tag: "gameplay vX.Y.Z go1.27.1 linux/amd64"
 sudo bash go-server/ops/install-go-server.sh      # FIRST TIME ONLY: swaps gameplay.service to the Go binary, copies .env, removes server/
-sudo systemctl restart gameplay                   # every later deploy (after build.sh)
+sudo systemctl restart gameplay                   # the server applies every migration script at boot, then serves
 sudo systemctl status gameplay --no-pager
 sudo journalctl -u gameplay -n 20 --no-pager
-curl -s http://127.0.0.1:3000/health | python3 -m json.tool | head -20   # process.node must start with "go"
+curl -s http://127.0.0.1:3000/health | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["ok"], d["version"])'   # True vX.Y.Z
+#    Roll back = the same lines with the previous tag (list them: git tag -l 'go-server/v*' --sort=-v:refname | head -5).
+#    The host stays on a detached HEAD at the tag it runs; the next deploy's fetch + checkout moves it on.
+#    Do not `git pull origin master` there any more: master can be ahead of the last tag, and a pull
+#    changes the source the NEXT build.sh would compile without changing what is running.
 
 # The host's go-server/.env OVERRIDES the defaults compiled into the binary. A release that changes
 # a default (LOBBY_TABLES, TABLE_STAKES, SEEN_MAX_POT, …) does nothing on a host that pins that key
@@ -31,7 +40,7 @@ curl -s http://127.0.0.1:3000/health | python3 -c 'import sys,json;print(json.lo
 # Which build is live? /health carries the release tag ops/build.sh stamped in.
 # Do this from anywhere — no ssh, no credentials — and trust nothing until it says IN SYNC:
 # a restart that quietly failed is indistinguishable from a successful one otherwise.
-bash go-server/ops/prod-version.sh                # IN SYNC / BEHIND (exit 2) against prod.sungamestudio.com
+bash go-server/ops/prod-version.sh                # IN SYNC when prod runs the newest tag; BEHIND (exit 2) otherwise — expected after a deliberate rollback
 curl -s https://prod.sungamestudio.com/health | python3 -c 'import sys,json;print(json.load(sys.stdin)["version"])'
 # (production answers on prod.sungamestudio.com since 24 Sep 2026; api.sungamestudio.com no longer resolves)
 
