@@ -22,6 +22,7 @@ sudo bash go-server/ops/install-go-server.sh      # FIRST TIME ONLY: swaps gamep
 sudo systemctl restart gameplay                   # the server applies every migration script at boot, then serves
 sudo systemctl status gameplay --no-pager
 sudo journalctl -u gameplay -n 20 --no-pager
+for i in $(seq 60); do curl -sf -o /dev/null http://127.0.0.1:3000/health && break; sleep 1; done   # the restart first settles live pots (up to 20s), then boots
 curl -s http://127.0.0.1:3000/health | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["ok"], d["version"])'   # True vX.Y.Z
 #    Roll back = the same lines with the previous tag (list them: git tag -l 'go-server/v*' --sort=-v:refname | head -5).
 #    The host stays on a detached HEAD at the tag it runs; the next deploy's fetch + checkout moves it on.
