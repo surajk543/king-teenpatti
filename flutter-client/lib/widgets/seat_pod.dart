@@ -13,6 +13,7 @@ import '../theme/table_theme.dart';
 import 'avatar.dart';
 import 'emoji_art.dart';
 import 'hammer_flight.dart';
+import 'hand_result.dart';
 import 'liquid_fill.dart';
 import 'playing_card.dart';
 import 'poker_chip.dart';
@@ -1016,12 +1017,19 @@ class SeatPod extends StatelessWidget {
                 : null,
           ),
         );
+    // Round every card, lit or not: a winning hand's cards light up by what
+    // they made (hand_result.dart), and no card is rebuilt when they do.
+    Widget lit(int i) => HandResultCard(
+      code: show != null && i < show.length ? show[i] : null,
+      cardHeight: cardH,
+      child: card(i),
+    );
 
-    final Widget fan;
+    Widget fan;
     if (count <= 3) {
       fan = Row(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: [for (var i = 0; i < count; i++) card(i)],
+        children: [for (var i = 0; i < count; i++) lit(i)],
       );
     } else {
       // Four or five cards in the width three take (owner, 18 Sep 2026): the
@@ -1050,13 +1058,20 @@ class SeatPod extends StatelessWidget {
                   setBack:
                       picking && i < show.length && !best.contains(show[i]),
                   cardHeight: cardH,
-                  child: card(i),
+                  child: lit(i),
                 ),
               ),
           ],
         ),
       );
     }
+    // Its pod stands over it, a seat's gap away: nothing a result draws
+    // reaches it.
+    fan = HandResultGroup(
+      userId: s.userId,
+      headroom: TableSpace.seat(width),
+      child: fan,
+    );
 
     // BLIND / SEEN rides on the hand it describes, and only while there is a
     // hand to describe: face-up cards at a showdown or a sideshow peek are the
