@@ -766,12 +766,21 @@ main() {
     note "what runs names no release version ($running_version), so whether $want is older cannot be told"
   fi
 
-  local scripts changed has_migrate=0
+  local scripts changed has_migrate=0 base="$ORIG_HEAD" base_label="the checkout's HEAD" running_sha=""
+  # Compare with what RUNS wherever its tag is known: on a first run the
+  # checkout has already been moved to the new commit by hand, so its HEAD
+  # would say nothing changed however much the scripts did.
+  if [ -n "$running_version" ]; then
+    running_sha="$(git_ rev-parse -q --verify "refs/tags/go-server/$running_version^{commit}" || true)"
+  fi
+  if [ -n "$running_sha" ]; then
+    base="$running_sha" base_label="what runs ($running_version)"
+  fi
   scripts="$(git_ ls-tree --name-only "$tag_sha" go-server/internal/db/migration/ | sed 's#.*/##' | paste -sd ' ' -)"
-  changed="$(git_ diff --name-status "$ORIG_HEAD" "$tag_sha" -- go-server/internal/db/migration \
+  changed="$(git_ diff --name-status "$base" "$tag_sha" -- go-server/internal/db/migration \
     | sed 's#go-server/internal/db/migration/##' | tr '\t' ' ' | paste -sd ';' - | sed 's/;/; /g')"
   note "the tag's migrations: ${scripts:-none}"
-  note "changed since the checkout's HEAD: ${changed:-none}"
+  note "changed since $base_label: ${changed:-none}"
   if git_ cat-file -e "$tag_sha:go-server/cmd/gameplay/migrate.go" 2>/dev/null; then has_migrate=1; fi
   check_unit_drift "$tag_sha" "$tag"
   check_writable "$tag_sha"

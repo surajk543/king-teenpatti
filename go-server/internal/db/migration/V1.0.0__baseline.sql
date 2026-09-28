@@ -84,6 +84,9 @@
 -- this schema takes no lock; only a database that lacks the index builds it
 -- (TestABootThatChangesNothingWaitsForNoWriter). A NEW index on a busy table
 -- still holds SHARE while it builds, once, on the first deploy that carries it.
+-- Like IF NOT EXISTS, the lookup is by NAME only: a changed index definition
+-- (its columns, its WHERE, UNIQUE) never reaches a database that has the old
+-- one — give the new definition a NEW index name, or drop the old one by hand.
 --
 -- Declared from scratch: every table is written once, in full, with its
 -- columns, checks and foreign keys in place. The file describes the shape the
@@ -405,7 +408,7 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_proc
      WHERE proname = 'users_immutable_rows'
-       AND pronamespace = current_schema()::regnamespace
+       AND pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = current_schema())
   ) THEN
     CREATE FUNCTION users_immutable_rows() RETURNS trigger AS $fn$
     BEGIN

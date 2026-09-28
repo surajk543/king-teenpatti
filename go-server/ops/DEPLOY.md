@@ -1,5 +1,13 @@
 # Deploying the Go game server to production
 
+> **The current routine (29 Sep 2026).** Production is **`prod.sungamestudio.com` → `129.121.135.218`**
+> (`game-server-01`), PostgreSQL 16.15, and it runs a **tag**. The operator is **`write`**, the checkout's owner,
+> who deploys with **one command inside `tmux`**: `bash go-server/ops/deploy.sh [go-server/vX.Y.Z]` (§3 "One-command
+> deploy"; `steps.txt` is the short form). A rollback is `deploy.sh go-server/v<previous> --allow-downgrade`. The
+> sections below keep the history of how the host was set up — against the preprod box `148.113.24.201` and the old
+> `api.sungamestudio.com`, as `deploy`, by `git pull origin master` — read them for the facts they record, not as
+> the commands to run today.
+
 Host `148.113.24.201` (`ssh deploy@148.113.24.201`), Ubuntu, 4 cores / 8 GB, checkout at
 `/var/www/gameplay/king-teenpatti`. nginx proxies `api.sungamestudio.com` → `127.0.0.1:3000`;
 Prometheus on the box scrapes `127.0.0.1:3000/metrics` (job `game-server`, bearer token);
@@ -181,7 +189,8 @@ end. In order:
    `origin/master` **as a ref**: the working tree is not touched until step 6, since the running binary serves
    `go-server/public/` from disk. A `master` with commits `origin/master` lacks stops it — the host holds no history of its own.
 5. **The tag, and what may be deployed** — the argument, or the newest `go-server/v*` by version. It prints what `/health`
-   reports now (version and table catalogue), the tag's migrations and which changed since the checkout. Then:
+   reports now (version and table catalogue), the tag's migrations and which changed since what runs (the running
+   version's own tag; the checkout's HEAD where no tag matches it). Then:
    - a tag **older than `go-server/v1.7.0`** is refused outright, whatever the flags — this database cannot run it (§5:
      v1.6.0 writes `player_stats` with `ON CONFLICT (user_id)`, which fails every pack, leave and hand end while `/health`
      says ok; v1.5.0 and older do not even boot). Such a tag goes onto a fresh database only, by hand (§8);
@@ -268,8 +277,8 @@ a release whose scripts DO change the structure: a new index takes SHARE on its 
 3 s (`lock_timeout`) for the locks it needs — and while it waits, every writer of that table waits behind it, so pack,
 leave and hand-end writes can stall up to 3 s, and one purchase can be aborted by a deadlock (its money is rolled back,
 the player sees an error and buys again). A migration that cannot get its lock in 3 s fails: exit 2, nothing restarted,
-run it again. **Deploy a release that changes the structure at a quiet hour** — the dry run's "changed since the
-checkout's HEAD" line says whether any script changed. Such a release ran all of this at its boot before, with the server down;
+run it again. **Deploy a release that changes the structure at a quiet hour** — the dry run's "changed since
+what runs" line says whether any script changed. Such a release ran all of this at its boot before, with the server down;
 the difference is only that the players are still playing.
 
 **Why never `psql -f` the migration files as `postgres`.** A table belongs to whoever creates it. Scripts run as
@@ -293,7 +302,11 @@ rollback is a deploy of the older tag with **`--allow-downgrade`** — `bash go-
 runs, and no flag deploys one older than `go-server/v1.7.0` (the oldest this database can run; §5, §8). The newer tag's
 migrations stay (they are additive, and the older build ignores what it does not know). A tag from before `-migrate`
 existed is built and restarted without the migrate step: its migrations run at its own boot, as they always did.
-`bin/gameplay.prev` is the build the last deploy replaced — the build that was running then.
+`bin/gameplay.prev` is the build that was running when the last deploy started — after a run that restarted nothing,
+that is the running build itself; to go back further, deploy the older tag with `--allow-downgrade`. **After rolling back to
+a tag older than the first one that carries `deploy.sh`** (e.g. `go-server/v1.10.2`), the checkout holds no `deploy.sh`:
+the next deploy is the first-time line below again (`git fetch origin && git checkout --detach origin/master && bash
+go-server/ops/deploy.sh`), or the by-hand lines.
 
 **First time.** The script arrives with the first checkout that contains it. The host has sat on a detached HEAD at
 the tag it runs since the by-hand v1.10.2 deploy (29 Sep 2026), so the first run fetches and checks master out detached,
@@ -323,8 +336,9 @@ git status --short --untracked-files=no           # must print nothing
 git checkout --detach "$TAG"
 bash go-server/ops/build.sh
 ./go-server/bin/gameplay -version                 # names the tag
-cd go-server && sudo -u deploy ./bin/gameplay -migrate && cd ..   # the tag's migrations first (the unit's User=)
-sudo systemctl restart gameplay
+(cd go-server && sudo -u deploy env NODE_ENV=production ./bin/gameplay -migrate) && sudo systemctl restart gameplay
+#   ^ the tag's migrations first (the unit's User= and NODE_ENV: the production guards), and the restart ONLY if they
+#     succeeded — one line, so a failed migration leaves the old build serving even when the block is pasted
 sudo systemctl status gameplay --no-pager
 sudo journalctl -u gameplay -n 20 --no-pager
 for i in $(seq 60); do curl -sf -o /dev/null 127.0.0.1:3000/health && break; sleep 1; done
@@ -675,6 +689,12 @@ psql "$(sed -n 's/^DATABASE_URL=//p' /var/www/gameplay/king-teenpatti/go-server/
 
 ## 5. Rollback
 
+**Since 29 Sep 2026 a rollback is `bash go-server/ops/deploy.sh go-server/v<previous> --allow-downgrade`** (§3) — the
+script refuses a tag this database cannot run (anything before `go-server/v1.7.0`), migrates nothing backwards, restarts,
+watches `/health`, and puts the newer build back by itself if the older one does not come up. To come forward again,
+`deploy.sh` with no argument. The command blocks below are the by-hand history of this section; what they say about
+which tags need what still holds.
+
 **Roll back to the previous Go release, not to Node.** Rolling back to Node stopped being possible
 on 12 Sep 2026: `users.avatar_choice` — which the Node build reads and writes in three places — no
 longer exists, the catalogue tables (`profile_pictures`, `user_profile_pictures`) are not in its
@@ -848,7 +868,7 @@ old dashboard is in git history if you ever want it back).
 | Env file | `server/.env` | `go-server/.env` (copied once by the installer; same keys) |
 | Working directory / browser client | `server/`, `server/public` | `go-server/`, `go-server/public` (`PUBLIC_DIR` in the unit) |
 | Checkout contents | `server/` + `go-server/` | `go-server/` + `tools/` (bots, ramp, parity); `server/` removed from `master` and from the host |
-| Deploy routine | `git pull origin master && npm ci && systemctl restart` | `git fetch --tags && git checkout --detach go-server/vX.Y.Z && bash go-server/ops/build.sh && systemctl restart` (`steps.txt`; a tag, since 29 Sep 2026) |
+| Deploy routine | `git pull origin master && npm ci && systemctl restart` | `bash go-server/ops/deploy.sh` (`steps.txt`; a tag, since 29 Sep 2026) — by hand: fetch the tags, check the tag out detached, `build.sh`, `-migrate`, restart |
 | Monitoring bundle | `server/ops/monitoring/` | `go-server/ops/monitoring/` |
 | `game_*` metrics (sockets, game, latency, HTTP, pool) | | **identical names, labels, buckets** |
 | Process metrics | `game_server_process_*` + `game_server_nodejs_*` | `game_server_process_*` + `game_server_go_*`; **no `nodejs_*` series** |
