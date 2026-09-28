@@ -18,6 +18,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 import 'package:teenpatti/l10n/strings.dart';
@@ -29,6 +31,8 @@ import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/widgets/chip_store.dart';
 import 'package:teenpatti/widgets/emoji_art.dart';
 import 'package:teenpatti/widgets/emoji_shelf.dart';
+import 'package:teenpatti/widgets/game_loader.dart';
+import 'package:teenpatti/widgets/glass_components.dart';
 import 'package:teenpatti/widgets/picture_shelf.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 
@@ -359,6 +363,129 @@ void main() {
     await _settle(tester);
     expect(find.text(t.unlockEmojiTitle), findsNothing);
     expect(state.buyingEmoji, isNull);
+    expect(tester.takeException(), isNull);
+
+    await _close(tester, state, feedback);
+  });
+
+  testWidgets('while an emoji is being bought its tile wears the ring and no '
+      'other locked tile asks, as on the table\'s emoji page', (tester) async {
+    // Review, 28 Sep 2026: one emoji is bought at a time, and the store's
+    // shelf and the table's page keep one rule for it. The server holds its
+    // answer until let go.
+    final answer = Completer<void>();
+    final calls = <String>[];
+    final server = MockClient((request) async {
+      calls.add('${request.method} ${request.url.path}');
+      if (request.url.path == '/api/emojis/buy') {
+        await answer.future;
+        return http.Response(
+          jsonEncode({
+            'user': {
+              'id': 'u1',
+              'provider': 'guest',
+              'displayName': 'Ravi',
+              'chips': 20740000,
+              'diamond': 9,
+              'hammer': 15,
+              'missile': 1,
+            },
+            'charged': true,
+            'spent': 30,
+          }),
+          200,
+        );
+      }
+      return http.Response(
+        jsonEncode({
+          'emojis': [
+            for (final e in _emojis())
+              {
+                'id': e.id,
+                'name': e.name,
+                'url': e.url,
+                'currency': e.currency,
+                'type': e.type,
+                'cost': e.cost,
+                'durationDays': e.durationDays,
+                'owned': e.owned || e.id == 4,
+                'expiresAt': e.expiresAt,
+              },
+          ],
+        }),
+        200,
+      );
+    });
+    final (state, feedback) = await _openEmojis(tester);
+    state.debugToken = 'tok';
+    const t = Strings(AppLang.english);
+
+    bool live(String name) {
+      final tile = _tile(name);
+      final presses = tester
+          .widget<PressScale>(
+            find.descendant(of: tile, matching: find.byType(PressScale)).first,
+          )
+          .enabled;
+      final taps =
+          tester
+              .widget<InkWell>(
+                find.descendant(of: tile, matching: find.byType(InkWell)).first,
+              )
+              .onTap !=
+          null;
+      expect(presses, taps, reason: name);
+      return taps;
+    }
+
+    await http.runWithClient(() async {
+      await tester.tap(_tile('Party Popper'));
+      await _settle(tester);
+    }, () => server);
+    await tester.tap(find.text(t.unlock));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(calls, ['POST /api/emojis/buy']);
+    expect(state.buyingEmoji, 4);
+
+    // The ring on the one being bought, and every locked tile dead.
+    expect(
+      find.descendant(
+        of: _tile('Party Popper'),
+        matching: find.byType(GameLoaderRing),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byType(GameLoaderRing), findsOneWidget);
+    for (final name in [
+      'Party Popper',
+      'Heart Eyes',
+      'Crying With Laughter',
+      'Thumbs Up',
+    ]) {
+      expect(live(name), isFalse, reason: name);
+    }
+    // An owned one still says where it is sent from.
+    expect(live('Wave'), isTrue);
+
+    // A tap on another locked tile asks nothing.
+    await tester.tap(_tile('Crying With Laughter'));
+    await _settle(tester);
+    expect(find.text(t.unlockEmojiTitle), findsNothing);
+    expect(calls, ['POST /api/emojis/buy']);
+
+    // The answer: owned, the ring gone, the rest live again.
+    answer.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(calls, ['POST /api/emojis/buy', 'GET /api/emojis']);
+    expect(state.buyingEmoji, isNull);
+    expect(find.byType(GameLoaderRing), findsNothing);
+    expect(_badgeOf(tester, _tile('Party Popper')).kind, ShelfBadgeKind.owned);
+    for (final name in ['Heart Eyes', 'Crying With Laughter', 'Thumbs Up']) {
+      expect(live(name), isTrue, reason: name);
+    }
     expect(tester.takeException(), isNull);
 
     await _close(tester, state, feedback);
