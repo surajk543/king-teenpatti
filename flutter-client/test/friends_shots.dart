@@ -2,8 +2,9 @@
 // names: the lobby with its Friends key and the count of requests waiting;
 // the page with requests and friends — playing, online, offline —; the empty
 // page; the page that could not load; Add Friend waiting, with a player found
-// and with nobody found; a playing friend's profile, and the question before
-// Remove Friend — at the landscape sizes the app is checked on and a tablet,
+// (one to ask, one already asked, one who asked first) and with nobody found;
+// a playing friend's profile, and the question before Remove Friend; and the
+// Reported tab — at the landscape sizes the app is checked on and a tablet,
 // in both themes, at text x1.0 and x1.25, and in Hindi at the tightest size.
 // Not part of `flutter test` (the name has no `_test`): run it by hand.
 //
@@ -18,6 +19,7 @@
 // and written to SHOTS_DIR as a PNG at twice the logical size. Anything that
 // overflows or throws is written to SHOTS_DIR/problems.txt rather than
 // failing the run.
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -27,6 +29,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:teenpatti/l10n/strings.dart';
@@ -54,7 +57,85 @@ const _pictures = {
   'u-asha': 'rabbit',
 };
 
-enum _Scene { lobby, list, empty, failed, add, found, nobody, profile, remove }
+enum _Scene {
+  lobby,
+  list,
+  empty,
+  failed,
+  add,
+  found,
+  // A player found whom the viewer has already asked (Request Sent), and one
+  // who asked the viewer first (Accept).
+  sent,
+  received,
+  nobody,
+  profile,
+  remove,
+  // The list page's second tab: the players this player reported.
+  reported,
+}
+
+/// What each lookup scene types into the Player ID field.
+const _searched = {
+  _Scene.found: 'u-asha',
+  _Scene.sent: 'u-dev',
+  _Scene.received: 'u-ravi',
+  _Scene.nobody: 'nobody-at-all',
+};
+
+/// The Reported tab's rows, newest first: every status, a description, and
+/// a player whose account has gone since.
+List<Map<String, dynamic>> _reports() {
+  Map<String, dynamic> report(
+    String name,
+    String? picture,
+    String reason,
+    String status,
+    int day, {
+    String description = '',
+    String category = 'seen',
+    bool gone = false,
+  }) => {
+    'player': {
+      'displayName': gone ? '' : name,
+      'profilePicture': {
+        'id': null,
+        'url': picture == null ? null : '/profiles/$picture.svg',
+      },
+      'gone': gone,
+    },
+    'reason': reason,
+    'description': description,
+    'game': 'teen_patti',
+    'category': category,
+    'variant': '',
+    'status': status,
+    'createdAt': DateTime(2026, 9, day, 19, 44).millisecondsSinceEpoch,
+    'updatedAt': DateTime(2026, 9, day, 19, 44).millisecondsSinceEpoch,
+  };
+  return [
+    report(
+      'Vikram',
+      'tiger',
+      'CHEATING',
+      'PENDING',
+      27,
+      description: 'Kept showing only when the pot was large.',
+    ),
+    report('Neha', 'fox', 'ABUSIVE_LANGUAGE', 'UNDER_REVIEW', 26),
+    report(
+      'Rohit',
+      'lion',
+      'SPAM',
+      'ACTION_TAKEN',
+      25,
+      category: 'blind',
+      description: 'The same line in the chat every turn.',
+    ),
+    report('Sneha', 'owl', 'OTHER', 'DISMISSED', 24, category: 'variation'),
+    report('', null, 'HARASSMENT', 'PENDING', 23, gone: true),
+  ];
+}
 
 class _Shot {
   const _Shot(
@@ -80,6 +161,7 @@ const _sizes = [
   Size(640, 360),
   Size(891, 411),
   Size(592, 360),
+  Size(915, 412),
   Size(1280, 800),
 ];
 
@@ -132,7 +214,43 @@ FakeFriendsServer _server(_Scene scene) {
     },
     'friendStatus': 'NONE',
   };
+  // Dev was asked (the fixture's outgoing request); Ravi asked first.
+  server.players['u-dev'] = {
+    'player': {
+      ...cardJson('u-dev', 'Dev'),
+      'profilePicture': {'id': 1, 'url': url('u-arjun')},
+    },
+    'friendStatus': 'PENDING_SENT',
+    'requestId': 43,
+  };
+  server.players['u-ravi'] = {
+    'player': {
+      ...cardJson('u-ravi', 'Ravi'),
+      'profilePicture': {'id': 1, 'url': url('u-ravi')},
+    },
+    'friendStatus': 'PENDING_RECEIVED',
+    'requestId': 41,
+  };
   return server;
+}
+
+/// The fake's client, with `GET /api/reports/mine` answered in front of it
+/// for the Reported tab.
+http.Client _client(_Scene scene, FakeFriendsServer server) {
+  if (scene != _Scene.reported) return server.client;
+  return MockClient((r) async {
+    if (r.url.path == '/api/reports/mine') {
+      return http.Response(
+        jsonEncode({'reports': _reports()}),
+        200,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+      );
+    }
+    final copy = http.Request(r.method, r.url)
+      ..headers.addAll(r.headers)
+      ..bodyBytes = r.bodyBytes;
+    return http.Response.fromStream(await server.client.send(copy));
+  });
 }
 
 void main() {
@@ -170,9 +288,10 @@ void main() {
       debugDisableShadows = false;
       try {
         final server = _server(shot.scene);
+        final client = _client(shot.scene, server);
         await http.runWithClient(
           () => _shoot(tester, shot, problems),
-          () => server.client,
+          () => client,
         );
       } finally {
         debugDisableShadows = true;
@@ -284,17 +403,25 @@ Future<void> _shoot(
     await tester.tap(find.byTooltip(Strings(shot.lang).friends));
     await settle();
     switch (shot.scene) {
-      case _Scene.add || _Scene.found || _Scene.nobody:
+      case _Scene.add ||
+          _Scene.found ||
+          _Scene.sent ||
+          _Scene.received ||
+          _Scene.nobody:
         await tester.tap(find.byKey(const ValueKey('friends-add')));
         await settle();
-        if (shot.scene != _Scene.add) {
+        final typed = _searched[shot.scene];
+        if (typed != null) {
           await tester.enterText(
             find.byKey(const ValueKey('friends-id-field')),
-            shot.scene == _Scene.found ? 'u-asha' : 'nobody-at-all',
+            typed,
           );
           await tester.tap(find.byKey(const ValueKey('friends-search')));
           await settle();
         }
+      case _Scene.reported:
+        await tester.tap(find.byKey(const ValueKey('friends-tab-reported')));
+        await settle();
       case _Scene.profile || _Scene.remove:
         await tapShown(find.byKey(const ValueKey('friend-u-meera')));
         if (shot.scene == _Scene.remove) {
