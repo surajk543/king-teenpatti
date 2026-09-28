@@ -8,6 +8,7 @@ import '../net/social_sign_in.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
+import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/premium_surface.dart';
@@ -189,12 +190,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         minimumSize: const Size.fromHeight(52),
                         onPressed: state.busy ? null : () => _signIn(context),
                         icon: state.busy
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
+                            ? GameLoaderRing(
+                                size: 18,
+                                ink: Theme.of(context).colorScheme.onPrimary,
                               )
                             : const Icon(Icons.sports_esports_outlined),
                         label: state.busy ? t.signingIn : t.playAsGuest,

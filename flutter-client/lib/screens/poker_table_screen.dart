@@ -12,6 +12,7 @@ import '../widgets/buy_chips.dart';
 import '../widgets/deal_flight.dart';
 import '../widgets/drifting_chips.dart';
 import '../widgets/emoji_shelf.dart';
+import '../widgets/game_loader.dart';
 import '../widgets/missed_turns_notice.dart';
 import '../widgets/player_drawer.dart';
 import '../widgets/playing_card.dart';
@@ -244,7 +245,7 @@ class _PokerFelt extends StatelessWidget {
     final room = state.room;
     final poker = room?.poker;
     if (room == null || poker == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: GameLoader());
     }
     final t = state.t;
     final seats = state.seatsInViewOrder();

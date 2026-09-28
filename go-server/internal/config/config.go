@@ -177,6 +177,10 @@ type Config struct {
 	// player, how long a description may be, and how long a player who has
 	// left a table stays reportable by those they sat with.
 	Reports ReportConfig
+	// AppVersion is the app version gate (owner, 28 Sep 2026; Go only): the
+	// switch that refuses clients which declare no app platform, and how long
+	// the app_versions rows are cached.
+	AppVersion AppVersionConfig
 
 	// TableConfigSource is TABLE_CONFIG_SOURCE resolved (tables.go): "db" —
 	// the four configuration tables in PostgreSQL (the engines, the
@@ -444,6 +448,16 @@ type GameConfig struct {
 	// the server can set the floor. Raise it in the same deploy that ships a
 	// breaking change, never before — every player below it is locked out
 	// until they update.
+	//
+	// Since the app version gate (28 Sep 2026; internal/appversion) this is
+	// the floor UNDER session:ready's minClientBuild, no longer the whole of
+	// it: each connection is sent the larger of this and the build number
+	// that the minimum_version of its platform's app_versions row translates
+	// to (appversion.LegacyMinClientBuild) — which is how raising a minimum
+	// version also holds every install that predates the gate, since those
+	// understand nothing else. The gate's own minimum is a version, enforced
+	// by the server at every signed-in door; this key is enforced by the app
+	// alone, as it always was.
 	MinClientBuild int // MIN_CLIENT_BUILD 0
 
 	// Requirement 29: longest display name. Also hardcoded as 24 in
@@ -756,6 +770,7 @@ func Defaults() *Config {
 			AttemptLimit:   10,
 			AttemptWindow:  time.Minute,
 		},
+		AppVersion: AppVersionConfig{Required: false, CacheTTL: 15 * time.Second},
 		// No table env key set → the database (tables.go).
 		TableConfigSource: TableConfigSourceDB,
 	}
@@ -1004,6 +1019,11 @@ func FromEnv(lookup Lookup) (*Config, error) {
 		r.fail("STATS_FLUSH_BATCH", strconv.Itoa(c.Stats.FlushBatch), "must be 1 or more")
 	}
 	readReportConfig(r, &c.Reports)
+	c.AppVersion.Required = r.boolean("APP_VERSION_REQUIRED", c.AppVersion.Required)
+	c.AppVersion.CacheTTL = r.millis("APP_VERSION_CACHE_MS", c.AppVersion.CacheTTL)
+	if c.AppVersion.CacheTTL < 0 {
+		r.fail("APP_VERSION_CACHE_MS", strconv.FormatInt(c.AppVersion.CacheTTL.Milliseconds(), 10), "must be 0 (read every time) or more")
+	}
 
 	source, keysSet, err := resolveTableConfigSource(lookup)
 	if err != nil && r.err == nil {
@@ -1037,6 +1057,27 @@ type RESTRateConfig struct {
 	Login  int           // REST_LOGIN_RATE_LIMIT (60)
 	Wallet int           // REST_WALLET_RATE_LIMIT (120)
 	Window time.Duration // REST_RATE_WINDOW_MS (60000)
+}
+
+// AppVersionConfig is the app version gate's two keys (owner, 28 Sep 2026; Go
+// only; internal/appversion). The versions themselves — each platform's
+// minimum, latest, store link, maintenance and message — are not keys: they are
+// the app_versions rows, read while the server runs, so raising a minimum needs
+// no restart (ops/DEPLOY.md, "The app version gate").
+type AppVersionConfig struct {
+	// Required is APP_VERSION_REQUIRED (false): refuse, with FORCE_UPDATE
+	// (REST 426 update_required, connect_error update_required), every client
+	// that declares no app platform — every install of the app that predates
+	// the gate, and any script. Off by default, because deploying the gate
+	// must not lock out an app nobody has updated yet; turn it on only once
+	// the oldest build the store still serves sends X-App-Platform, and the
+	// minimum_version holds everything older. The project's own clients
+	// declare bot, tool or web and are never refused.
+	Required bool
+	// CacheTTL is APP_VERSION_CACHE_MS (15000): how long the app_versions rows
+	// are cached in the process — the longest an operator's UPDATE takes to
+	// be enforced. 0 reads the table on every request.
+	CacheTTL time.Duration
 }
 
 // MinProductionJWTSecretBytes is the shortest JWT_SECRET production accepts:

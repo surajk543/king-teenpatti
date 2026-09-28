@@ -6,6 +6,13 @@
  * to fill a table with real players) without a Unity build.
  */
 (() => {
+  // The app version gate (28 Sep 2026): this client declares itself `web` on
+  // every request and in the socket handshake, so no minimum version, no
+  // maintenance and no APP_VERSION_REQUIRED turns it away — it is a protocol
+  // smoke-test surface, not the app. Every fetch below goes through this.
+  const APP_PLATFORM = 'web';
+  const fetch = (url, init = {}) =>
+    window.fetch(url, { ...init, headers: { 'x-app-platform': APP_PLATFORM, ...(init.headers || {}) } });
   const $ = (id) => document.getElementById(id);
   const SUITS = { s: '♠', h: '♥', d: '♦', c: '♣' };
   const RED = new Set(['h', 'd']);
@@ -188,7 +195,7 @@
   // ------------------------------------------------------------------ socket
 
   function connect() {
-    state.socket = io({ auth: { token: state.token }, transports: ['websocket', 'polling'] });
+    state.socket = io({ auth: { token: state.token, appPlatform: APP_PLATFORM }, transports: ['websocket', 'polling'] });
     const socket = state.socket;
 
     socket.on('connect_error', (error) => {

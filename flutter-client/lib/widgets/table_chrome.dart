@@ -15,6 +15,7 @@ import '../theme/table_theme.dart';
 import 'edge_fade.dart';
 import 'emoji_art.dart';
 import 'feedback_toggles.dart';
+import 'game_loader.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
 import 'picture_shelf.dart';
@@ -241,7 +242,6 @@ class Reconnecting extends StatelessWidget {
     final (offline, lang) = context.select<GameState, (bool, AppLang)>(
       (s) => (s.offline, s.lang),
     );
-    final theme = Theme.of(context);
 
     return IgnorePointer(
       child: Align(
@@ -260,26 +260,13 @@ class Reconnecting extends StatelessWidget {
                     ),
                     opacity: 0.88,
                     accent: AppTheme.goldBright.withValues(alpha: 0.55),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox.square(
-                          dimension: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation(AppTheme.gold),
-                          ),
-                        ),
-                        const SizedBox(width: Space.md),
-                        Text(
-                          Strings(lang).reconnecting,
-                          // Light ink on a dark plate, in both brightnesses.
-                          style: TableType.system(
-                            theme,
-                            colour: Colors.white.withValues(alpha: 0.92),
-                          ),
-                        ),
-                      ],
+                    // The game's loader, what it is waiting for under it;
+                    // light ink on a dark plate, in both brightnesses.
+                    child: GameLoader(
+                      size: 28,
+                      detail: Strings(lang).reconnecting,
+                      ink: Colors.white.withValues(alpha: 0.92),
+                      textColour: Colors.white,
                     ),
                   ),
                 ),
@@ -892,11 +879,7 @@ class TableDrawer extends StatelessWidget {
                 MenuRow(
                   icon: Icons.swap_horiz_rounded,
                   leading: state.switching
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
+                      ? const GameLoaderRing(size: 18)
                       : null,
                   label: t.switchTable,
                   // Which stake the new table will be: it repeated its own
@@ -1403,31 +1386,11 @@ class _SwitchingVeil extends StatelessWidget {
           ),
           mode: GlassMode.blurred,
           radius: Radii.lg,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.4,
-                  valueColor: AlwaysStoppedAnimation(AppTheme.gold),
-                ),
-              ),
-              const SizedBox(width: Space.lg),
-              Text(
-                t.switchTable,
-                // The table speaking for itself, translated — so in its own
-                // case and without the tracking the fixed Latin words get.
-                style: TableType.system(
-                  theme,
-                  colour: AppTheme.onTable(
-                    theme.colorScheme,
-                    alpha: AppTheme.inkHigh,
-                  ),
-                ),
-              ),
-            ],
+          // The game's loader, and the move it is waiting on under it.
+          child: GameLoader(
+            detail: t.switchTable,
+            ink: AppTheme.onTable(theme.colorScheme, alpha: AppTheme.inkHigh),
+            textColour: AppTheme.onTable(theme.colorScheme, alpha: 1),
           ),
         ),
       ),
@@ -3650,8 +3613,7 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
         : now.seenBy.split(',').toSet();
     // Within one hand only: a new deal makes everybody blind again, which is
     // not news, and the table a player arrives at is not either.
-    final sawCards =
-        now.seenHand == _seenHand && !_seenBy.containsAll(seenBy);
+    final sawCards = now.seenHand == _seenHand && !_seenBy.containsAll(seenBy);
 
     if (startedTurn) _alarmed = false;
 

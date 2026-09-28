@@ -40,6 +40,7 @@ type fakeServer struct {
 
 	conns    chan *fakeConn
 	tokens   chan string
+	auths    chan string // each CONNECT's whole auth object
 	requests chan *http.Request
 }
 
@@ -61,6 +62,7 @@ func newFakeServer(t *testing.T, configure ...func(*fakeServer)) *fakeServer {
 		maxPayload:   100000,
 		conns:        make(chan *fakeConn, 16),
 		tokens:       make(chan string, 16),
+		auths:        make(chan string, 16),
 		requests:     make(chan *http.Request, 16),
 	}
 	for _, c := range configure {
@@ -100,6 +102,7 @@ func (f *fakeServer) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.Unmarshal(connect[2:], &auth)
 	f.tokens <- auth.Token
+	f.auths <- string(connect[2:])
 	if f.refuse != "" {
 		fc.send(`44{"message":"` + f.refuse + `"}`)
 	} else {
@@ -341,6 +344,16 @@ func TestDialAuthenticatesAndDeliversTheServersEvents(t *testing.T) {
 	case <-s.Done():
 		t.Fatal("Done closed on an open session")
 	default:
+	}
+}
+
+// The handshake declares the fleet a bot beside its token, so the game
+// server's app version gate never refuses it (28 Sep 2026).
+func TestTheHandshakeDeclaresTheFleetABot(t *testing.T) {
+	f := newFakeServer(t)
+	f.dial(t, DialOptions{})
+	if got := <-f.auths; got != `{"token":"jwt-token","appPlatform":"bot"}` {
+		t.Fatalf("the CONNECT auth object is %s", got)
 	}
 }
 

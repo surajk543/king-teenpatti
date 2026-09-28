@@ -61,13 +61,13 @@ const q = async (t, p = []) => (await pool.query({ text: t.replaceAll('%S%', `"$
 
 const users = [];
 for (let i = 0; i < 4; i++) {
-  const r = await fetch(`${URL}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' },
+  const r = await fetch(`${URL}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-app-platform': 'tool' },
     body: JSON.stringify({ provider: 'guest', deviceId: `chips-${SCHEMA}-${i}-dev`, displayName: `Chip${i}` }) });
   users.push(await r.json());
 }
 const recs = users.map((u, i) => {
   const rec = { i, id: u.user.id, token: u.token, seen: null, acted: null };
-  const s = io(URL, { auth: { token: u.token }, transports: ['websocket'], forceNew: true, reconnection: false });
+  const s = io(URL, { auth: { token: u.token, appPlatform: 'tool' }, transports: ['websocket'], forceNew: true, reconnection: false });
   const act = (o, dl) => {
     if (!o) return; const k = `${rec.handNo}:${dl}:${o.canSee ? 'b' : 's'}`;
     if (rec.acted === k) return; rec.acted = k;
@@ -145,7 +145,7 @@ const seenAtTable = leaver.seen;
 await new Promise((res) => leaver.socket.emit('room:leave', {}, res));
 await sleep(1500);
 
-const rest = await (await fetch(`${URL}/api/auth/me`, { headers: { authorization: `Bearer ${leaver.token}` } })).json();
+const rest = await (await fetch(`${URL}/api/auth/me`, { headers: { authorization: `Bearer ${leaver.token}`, 'x-app-platform': 'tool' } })).json();
 const [dbRow] = await q('select chips from %S%.users where id = $1', [leaver.id]);
 const [led] = await q('select coalesce(sum(delta),0) as s from %S%.chip_ledger where user_id = $1', [leaver.id]);
 console.log(`  table showed ${seenAtTable}   REST reports ${rest.user.chips}   users.chips ${dbRow.chips}   ledger sum ${led.s}`);

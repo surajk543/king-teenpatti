@@ -326,9 +326,12 @@ func (d *Dialer) handshake(ctx context.Context, ws *websocket.Conn, token string
 		return nil, fmt.Errorf("%w: open packet: %v", ErrProtocol, err)
 	}
 
+	// The handshake declares the fleet a bot beside its token (the game
+	// server's app version gate, 28 Sep 2026): never version-gated.
 	auth, err := json.Marshal(struct {
-		Token string `json:"token"`
-	}{token})
+		Token       string `json:"token"`
+		AppPlatform string `json:"appPlatform"`
+	}{token, AppPlatform})
 	if err != nil {
 		return nil, err
 	}

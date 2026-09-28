@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import 'game_loader.dart';
 import 'glass_components.dart';
 import 'lucky_wheel.dart';
 
@@ -185,10 +186,7 @@ class LuckySpinKey extends StatelessWidget {
       words = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox.square(
-            dimension: 14,
-            child: CircularProgressIndicator(strokeWidth: 2, color: gold),
-          ),
+          GameLoaderRing(size: 14, ink: gold),
           const SizedBox(width: Space.sm),
           Flexible(
             child: Text(

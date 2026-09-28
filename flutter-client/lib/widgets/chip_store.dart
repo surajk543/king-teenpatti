@@ -16,6 +16,7 @@ import '../theme/theme_colors.dart';
 import 'avatar.dart';
 import 'edge_fade.dart';
 import 'emoji_shelf.dart';
+import 'game_loader.dart';
 import 'glass_components.dart';
 import 'glass_orb.dart';
 import 'glass_panels.dart';
@@ -1832,10 +1833,7 @@ class _ChipStoreState extends State<_ChipStore> {
                     ),
                   ],
                 )
-              : const SizedBox.square(
-                  dimension: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
+              : const GameLoader(size: 32),
         ),
       );
     }
@@ -2079,8 +2077,7 @@ class _PicturesHead extends StatelessWidget {
             PictureFilterMenu(
               value: filter,
               counts: {
-                for (final f in PictureFilter.menu)
-                  f: shelfCount(state, f),
+                for (final f in PictureFilter.menu) f: shelfCount(state, f),
               },
               onChanged: onFilter,
             ),
@@ -2097,8 +2094,7 @@ class _PicturesHead extends StatelessWidget {
           PictureFilterMenu(
             value: filter,
             counts: {
-              for (final f in PictureFilter.menu)
-                f: shelfCount(state, f),
+              for (final f in PictureFilter.menu) f: shelfCount(state, f),
             },
             onChanged: onFilter,
           ),
@@ -2928,10 +2924,7 @@ class _PriceButton extends StatelessWidget {
       ),
       child: busy
           ? Center(
-              child: SizedBox.square(
-                dimension: height * 0.44,
-                child: CircularProgressIndicator(strokeWidth: 2, color: ink),
-              ),
+              child: GameLoaderRing(size: height * 0.44, ink: ink),
             )
           : FittedBox(
               fit: BoxFit.scaleDown,

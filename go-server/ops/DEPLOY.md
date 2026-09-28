@@ -308,6 +308,92 @@ LOBBY_TABLES=seen:200,blind:200,blind:5000:max=50000000,blind:50000:max=10000000
 Rolling back past this release with `variation:` still in `.env` stops the older binary at boot
 (it rejects an unknown `LOBBY_TABLES` category at load) — take the entry out first.
 
+### The app version gate (28 Sep 2026) — minimum, latest and maintenance, per platform, with no restart
+
+*(`CLAUDE.md` §7.2 "The app version gate" is the reference; `internal/appversion`.)* The server decides, per app platform,
+whether a build may play, from ONE table, `app_versions` — a row for `android` and one for `ios`:
+
+| column | meaning |
+|---|---|
+| `status` | `NORMAL`, or `MAINTENANCE`: nobody on that platform may play, whatever their version |
+| `minimum_version` | the oldest version allowed (MAJOR.MINOR.PATCH); below it the app shows **Update required** and the server refuses it at every signed-in door (426 `update_required`, `connect_error update_required`). `0.0.0` = no floor |
+| `latest_version` | the newest version announced; between the minimum and this the app offers **New version available** with Later. `0.0.0` = none |
+| `store_url` | where **Update now** goes (Play on android; the App Store listing on ios, once there is one) |
+| `message` | shown with a force update or a maintenance; `NULL` = the app's own words, in the player's language |
+
+**The deploy itself changes nothing**: the first boot creates the table and seeds both rows with NO floor (`0.0.0`), nothing
+announced, `NORMAL`, and `APP_VERSION_REQUIRED` defaults to false. The rows are read through a cache of `APP_VERSION_CACHE_MS`
+(15 s): **an UPDATE is enforced within 15 seconds, with no restart and no app release**. Every statement below is run as the
+app's database user (`psql "$DATABASE_URL"`, or `sudo -u postgres psql gameplay`); a malformed version or status is refused by a
+CHECK at the UPDATE, never locks anyone out.
+
+**Check what the server enforces** (public, no token; the headers or the query name the build):
+
+```bash
+curl -s 'https://prod.sungamestudio.com/api/app-config?platform=android&version=1.5.0' | python3 -m json.tool
+psql "$DATABASE_URL" -c "SELECT platform, status, minimum_version, latest_version, store_url, message, updated_at FROM app_versions ORDER BY platform"
+```
+
+**Raise the minimum** — the operational change of the brief: Android 1.5.0 → 1.6.0. **Only ever to a version the store is
+already serving** (the §14.4 rule of `CLAUDE.md` for `MIN_CLIENT_BUILD`, which this replaces: a floor above what Play serves takes
+the game down for everyone with no way past):
+
+```sql
+UPDATE app_versions SET minimum_version = '1.6.0' WHERE platform = 'android';
+-- announce a newer one as optional at the same time (a Soft Update, Later allowed):
+UPDATE app_versions SET latest_version = '1.6.2' WHERE platform = 'android';
+-- iOS is its own row:
+UPDATE app_versions SET minimum_version = '1.4.0', latest_version = '1.5.0' WHERE platform = 'ios';
+```
+
+Within 15 s: Android 1.5.0 → FORCE_UPDATE (the Update required screen, and 426 / connect_error from the server), 1.6.0 → SOFT_UPDATE
+while 1.6.2 is announced, 1.6.2 → NORMAL. **The installs that predate the gate** (1.5.0+13 and older) send no version; they are
+held too, because every connection's `session:ready.config.minClientBuild` is now the build number the minimum translates to
+(1.6.0 → 14: every legacy release), which their own update screen already obeys. `MIN_CLIENT_BUILD` in `.env` can stay 0.
+
+**Enter maintenance** — every platform, or one:
+
+```sql
+UPDATE app_versions SET status = 'MAINTENANCE', message = 'Back at 14:00 IST';     -- both rows
+UPDATE app_versions SET status = 'MAINTENANCE' WHERE platform = 'ios';            -- iOS only
+```
+
+Within 15 s the app shows **Under maintenance** (with the message) and its Try again; every signed-in request answers 503
+`maintenance` and every handshake `connect_error maintenance`. **A socket already connected is NOT dropped** — the gate is at
+the door — so players mid-hand finish in peace; the login and `/health` stay open, and the bot fleet and the tools (which
+declare `bot` / `tool`) keep playing. For maintenance that must empty the tables, set the rows first and then restart: the
+graceful shutdown settles every live pot (§14.3), and the reconnecting apps meet the maintenance screen. **Leave maintenance**:
+
+```sql
+UPDATE app_versions SET status = 'NORMAL', message = NULL;
+```
+
+— a player on the maintenance screen taps Try again (or reopens the app) and is back where they were.
+
+**When to turn `APP_VERSION_REQUIRED` on** — the switch that refuses every client that declares NO app platform (every
+install that predates the gate, and any script): only once (1) the oldest build Play still serves is one that sends
+`X-App-Platform` (the first build with the gate), and (2) the android `minimum_version` is at or above it. Until then it would
+lock out apps nobody has updated yet. Then, in `go-server/.env`:
+
+```bash
+APP_VERSION_REQUIRED=true
+sudo systemctl restart gameplay
+```
+
+`bot-play/` (the resident fleet), `tools/` and the browser client declare `bot`, `tool` and `web` and are never refused — deploy
+bot-play from a commit that carries the declaration (it does since this release) BEFORE turning the switch on.
+
+**Watch it**: `game_app_version_rejections_total{platform,status,via}` (Grafana → Explore) counts the old builds still
+knocking; the journal has one line a minute per kind:
+
+```bash
+journalctl -u gameplay --since '10 min ago' | grep -E 'FORCE_UPDATE_REJECTED|WEBSOCKET_VERSION_REJECTED|MAINTENANCE_REJECTED|SOFT_UPDATE_DETECTED'
+```
+
+**Rollback**: an older Go tag never reads `app_versions` (the table stays, harmless) and serves nothing at `/api/app-config` —
+the app then carries on as it does offline, and the legacy `MIN_CLIENT_BUILD` floor is the only one in force again. Set it in
+`.env` to the build number the minimum meant before rolling back, if one was raised.
+
 ## 4. Verify
 
 **Health** — `process.node` must start with `go`; `goroutines`/`numCpu`/`gomaxprocs` are Go-only extras:

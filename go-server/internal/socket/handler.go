@@ -14,6 +14,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/surajk543/king-teenpatti/go-server/internal/appversion"
 	"github.com/surajk543/king-teenpatti/go-server/internal/auth"
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
@@ -58,6 +59,13 @@ type Deps struct {
 	// database read per send). Nil → no catalogue: every chat:emoji is
 	// unknown_emoji.
 	Emojis EmojiStore
+	// AppGate is the app version gate (owner, 28 Sep 2026; appversion): the
+	// handshake asks it before the token, and refuses an app build below its
+	// platform's minimum (connect_error update_required) or on a platform in
+	// maintenance (connect_error maintenance). It also sets each connection's
+	// session:ready minClientBuild. Nil admits everyone and sends
+	// MIN_CLIENT_BUILD as it is.
+	AppGate *appversion.Gate
 }
 
 // Presence timings (LIVE_STATE_PLAN.md key schema, kt:online): every live
@@ -79,6 +87,9 @@ type session struct {
 	user        *db.User
 	rateLimiter *rateLimiter // 30 / 5 s, every guarded event
 	chatLimiter *rateLimiter // config.Chat.RateLimit / RateWindow
+	// client is what the handshake declared about the app (appPlatform,
+	// appVersion): what session:ready's minClientBuild is worked out for.
+	client appversion.Client
 
 	// disconnectMu / disconnected make the disconnect bookkeeping run exactly
 	// once and let a second caller WAIT for a run in flight. sio runs the
@@ -293,7 +304,10 @@ func (h *Handler) SetRooms(rooms *game.RoomManager) {
 // Attach registers the handshake middleware and the connection handler on
 // srv (attachSocketHandlers).
 //
-// Handshake (io.use): token = handshake.auth.token, falling back to
+// Handshake (io.use): the app version gate first — auth.appPlatform and
+// auth.appVersion against the platform's app_versions row (Deps.AppGate):
+// "update_required" or "maintenance", with data (see authenticate) — then
+// token = handshake.auth.token, falling back to
 // query.token; Tokens.Verify → Users.FindByID(sub); nil user →
 // "unknown_user"; a disabled one (users.is_active) → "account_disabled"; a
 // token whose sign-in a later one replaced → "session_replaced"; any
@@ -371,8 +385,21 @@ func sessionOf(s *sio.Socket) *session {
 
 // ------------------------------------------------------------- handshake
 
-// authenticate is the io.use middleware (socket/index.js:378-391).
+// authenticate is the io.use middleware (socket/index.js:378-391), with the
+// app version gate in front of it (owner, 28 Sep 2026): the auth object's
+// appPlatform and appVersion judged against the platform's app_versions row
+// BEFORE the token is read — the version check must not depend on who the
+// player is — and a build below the minimum, or on a platform in maintenance,
+// refused with a CONNECT_ERROR {message: "update_required" | "maintenance",
+// data: {message, storeUrl?, minimumVersion?}} (appversion.Refusal). A
+// middleware refusal is final for socket.io's clients: they do not reconnect
+// by themselves, which is what keeps an old build from knocking for ever.
 func (h *Handler) authenticate(s *sio.Socket) error {
+	client := appversion.ClientFromAuth(s.Handshake().Auth)
+	if v, ok := h.deps.AppGate.Admit(context.Background(), client, appversion.ViaSocket, "handshake"); !ok {
+		refusal := appversion.RefusalOf(v)
+		return &sio.ConnectRefusal{Message: refusal.Code, Data: refusal}
+	}
 	token := handshakeToken(s.Handshake())
 	claims, err := h.deps.Tokens.Verify(token)
 	if err != nil {
@@ -410,6 +437,7 @@ func (h *Handler) authenticate(s *sio.Socket) error {
 		user:        user,
 		rateLimiter: newRateLimiter(ActionRateLimit, ActionRateWindowMs*time.Millisecond, h.now),
 		chatLimiter: newRateLimiter(cfg.Chat.RateLimit, cfg.Chat.RateWindow, h.now),
+		client:      client,
 	})
 	return nil
 }
@@ -536,8 +564,11 @@ func (h *Handler) onConnection(s *sio.Socket) {
 		h.incReconnect(metrics.ReconnectOffer)
 	}
 
-	// 5.
-	h.emitTo(s, EvSessionReady, SessionReady{User: user, Config: h.publicGameConfig(), Resume: resume})
+	// 5. The build floor is this connection's: worked out from the
+	// minimum_version of the platform it declared (appversion.Gate).
+	gameConfig := h.publicGameConfig()
+	gameConfig.MinClientBuild = h.deps.AppGate.MinClientBuild(context.Background(), sess.client, gameConfig.MinClientBuild)
+	h.emitTo(s, EvSessionReady, SessionReady{User: user, Config: gameConfig, Resume: resume})
 
 	// 6.
 	if existing != nil {

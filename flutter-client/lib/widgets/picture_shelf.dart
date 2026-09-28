@@ -22,6 +22,7 @@ import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
 import 'avatar.dart';
 import 'chip_store.dart';
+import 'game_loader.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
 import 'poker_chip.dart';
@@ -1540,15 +1541,7 @@ class PictureChoice extends StatelessWidget {
                         child: SizedBox.square(dimension: radius * 2),
                       ),
                     Center(child: face),
-                    if (busy)
-                      SizedBox(
-                        width: radius,
-                        height: radius,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
+                    if (busy) GameLoaderRing(size: radius),
                   ],
                 ),
               ),

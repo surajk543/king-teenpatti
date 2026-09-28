@@ -1735,3 +1735,78 @@ CREATE TABLE IF NOT EXISTS table_configs (
   -- A poker stack must at least cover the stake it sits down to.
   CHECK (category NOT IN ('three_card_poker', 'five_card_draw', 'texas_holdem', 'omaha') OR min_buy_in >= boot_amount)
 );
+
+-- ------------------------------------------------------------ app versions
+
+-- The app version gate (owner, 28 Sep 2026: "the backend controls the minimum
+-- supported app version … I should be able to change the minimum supported
+-- Android/iOS version from the backend and immediately prevent older clients
+-- from entering the game"; internal/appversion, db.AppVersions). One row per
+-- app platform — android and ios, configured independently:
+--
+--   status           NORMAL, or MAINTENANCE: nobody on that platform may play,
+--                    whatever their version (REST 503 maintenance, connect_error
+--                    maintenance, the app's maintenance screen);
+--   minimum_version  the oldest version allowed to play, MAJOR.MINOR.PATCH;
+--                    below it is FORCE_UPDATE (REST 426 update_required,
+--                    connect_error update_required, the app's update screen).
+--                    '0.0.0' = no floor;
+--   latest_version   the newest version announced; at or above the minimum and
+--                    below this is SOFT_UPDATE (the app offers the update and
+--                    may be told Later). '0.0.0' = none;
+--   store_url        where the app's Update now goes; '' leaves the app to its
+--                    own link;
+--   message          shown with a force update or a maintenance; NULL = the
+--                    app's own words.
+--
+-- CONFIGURATION, like the table catalogue — but read while the server runs:
+-- the gate reads the rows through a cache of APP_VERSION_CACHE_MS (15 s), so
+-- an operator's UPDATE is enforced within seconds, with no restart and no app
+-- release (ops/DEPLOY.md, "The app version gate"). Nothing a hand does reads
+-- or writes it, and it references nothing.
+--
+-- Versions are TEXT held to MAJOR.MINOR.PATCH by a CHECK, so a typo fails at
+-- the UPDATE rather than locking every player out; the server compares them as
+-- numbers, never as text (1.10.0 is newer than 1.9.0). platform is an OPEN set
+-- (a lower-case word, not an enumeration): a platform this build does not know
+-- is a row it never reads. updated_at follows every UPDATE by itself (the
+-- trigger below), so the row says when it was last changed.
+--
+-- V1.0.1__seed.sql writes both rows with NO floor and nothing announced, and
+-- ON CONFLICT DO NOTHING: deploying this changes nothing for anybody, and an
+-- operator's UPDATE survives every restart.
+CREATE TABLE IF NOT EXISTS app_versions (
+  platform        TEXT PRIMARY KEY CHECK (platform ~ '^[a-z][a-z0-9_]{0,31}$'),
+  status          TEXT NOT NULL DEFAULT 'NORMAL' CHECK (status IN ('NORMAL', 'MAINTENANCE')),
+  minimum_version TEXT NOT NULL DEFAULT '0.0.0'
+                  CHECK (minimum_version ~ '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$'),
+  latest_version  TEXT NOT NULL DEFAULT '0.0.0'
+                  CHECK (latest_version ~ '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$'),
+  store_url       TEXT NOT NULL DEFAULT '' CHECK (length(store_url) <= 500),
+  message         TEXT CHECK (message IS NULL OR length(message) <= 500),
+  created_at      BIGINT NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at      BIGINT NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
+);
+
+-- Replaced on every boot (a function takes no table lock); the trigger is
+-- created only when missing, so a boot never queues behind a reader.
+CREATE OR REPLACE FUNCTION app_versions_touch() RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at := (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgname = 'app_versions_touch'
+       AND tgrelid = 'app_versions'::regclass
+  ) THEN
+    CREATE TRIGGER app_versions_touch
+      BEFORE UPDATE ON app_versions
+      FOR EACH ROW EXECUTE FUNCTION app_versions_touch();
+  END IF;
+END;
+$$;

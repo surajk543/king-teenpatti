@@ -12,6 +12,7 @@ import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
 import 'chip_store.dart';
 import 'edge_fade.dart';
+import 'game_loader.dart';
 import 'glass_components.dart';
 import 'premium_surface.dart';
 import 'table_chrome.dart';
@@ -709,12 +710,7 @@ class _LevelScreenState extends State<LevelScreen> {
           ),
         ),
       ] else
-        const Center(
-          child: SizedBox.square(
-            dimension: 22,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
+        const Center(child: GameLoader(size: 32)),
     ];
   }
 }

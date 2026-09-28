@@ -26,6 +26,7 @@ import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import 'chip_store.dart';
 import 'drifting_chips.dart';
+import 'game_loader.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
 import 'picture_shelf.dart';
@@ -715,16 +716,7 @@ class TablePictureChoice extends StatelessWidget {
                   children: [
                     preview,
                     if (busy)
-                      Center(
-                        child: SizedBox(
-                          width: previewH * 0.4,
-                          height: previewH * 0.4,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: theme.colorScheme.primary,
-                          ),
-                        ),
-                      ),
+                      Center(child: GameLoaderRing(size: previewH * 0.4)),
                   ],
                 ),
               ),

@@ -72,9 +72,13 @@ const (
 	CodeLuckyDrawUnavailable = "lucky_draw_unavailable" // 503: no active draw with that code, or none of its slots can be won
 	CodeLuckyDrawNotReady    = "lucky_draw_not_ready"   // 409: the player's last spin has not recharged; readyAt says when it will
 	CodeInvalidActionID      = "invalid_action_id"      // 400: a spin's actionId empty or over 64 characters
-	CodeInternalError        = "internal_error"         // 500
-	CodeInvalidJSON          = "invalid_json"           // 400 — Go-only, see PORT_PLAN.md (Node answered 500 internal_error)
-	CodeNotFound             = "not_found"              // 404 — Go-only JSON 404 for unknown /api paths (DECISIONS.md §5)
+	// The app version gate (owner, 28 Sep 2026; Go only; appversion): every
+	// signed-in route, and the socket handshake as a connect_error.
+	CodeUpdateRequired = "update_required" // 426: the app build is below its platform's minimum_version
+	CodeMaintenance    = "maintenance"     // 503: the app's platform is in maintenance
+	CodeInternalError  = "internal_error"  // 500
+	CodeInvalidJSON    = "invalid_json"    // 400 — Go-only, see PORT_PLAN.md (Node answered 500 internal_error)
+	CodeNotFound       = "not_found"       // 404 — Go-only JSON 404 for unknown /api paths (DECISIONS.md §5)
 	// The emoji store (owner, 26 Sep 2026; Go only). unknown_emoji,
 	// emoji_retired and emoji_locked are also the socket's chat:emoji refusals
 	// (socket.KnownErrorCodes), with the same messages.

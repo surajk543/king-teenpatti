@@ -98,6 +98,7 @@ king-teenpatti/
 │   │   ├── sio/                  our own Engine.IO v4 + Socket.IO v5 server, websocket only (protocol.go, conn.go, server.go)
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go,
 │   │   │                         poker.go (poker:action in, the poker:* events out — the Handler's poker.Listener); testclient/
+│   │   ├── appversion/           the app version gate (28 Sep 2026, §7.2): semver.go (Parse/Compare — the ONE version comparison), rules.go (Evaluate: NORMAL/SOFT_UPDATE/FORCE_UPDATE/MAINTENANCE, the platforms, LegacyMinClientBuild), source.go (the app_versions rows behind a TTL cache), gate.go (Gate.Admit/Check, the refusal and the GET /api/app-config body, the logs)
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go, reports.go (Report Player's POST /api/reports and GET /api/reports/limit, §7.2)
 │   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — the founding PAIR since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows); since 28 Sep 2026 DML-only seeds may follow them, V1.0.2__seed-festive-capybara.sql the first (Festive Capybara) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL), luckydraw.go (the Lucky Draw: State, Spin — draw, grant and record in one transaction, §7.3), reports.go (player_reports: Submit — the limits and the insert in one transaction, §7.3); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
@@ -273,6 +274,7 @@ PORT=3001 PG_SCHEMA=test_x ./bin/gameplay      # spare port + throwaway schema (
 PGPASSWORD=postgres psql -h localhost -U postgres -d gameplay -f tables.sql   # PGOPTIONS='-c search_path=<schema>' first on any PG_SCHEMA but public
 ./bin/gameplay -check-table-config                  # the database's catalogue judged as a db boot would: exit 0 clean, 1 rows left out, 2 unusable
 curl -s localhost:3000/api/tables | python3 -m json.tool | head -40    # what the server enforces (and the app caches)
+curl -s 'localhost:3000/api/app-config?platform=android&version=1.5.0' | python3 -m json.tool   # the app version gate's verdict for a build (§7.2)
 curl -s localhost:3000/health | python3 -c 'import json,sys; print(json.load(sys.stdin)["tableConfig"])'   # {source, version, fallback}
 ```
 
@@ -989,7 +991,8 @@ event-by-event contract is also written down in `go-server/PORT_NOTES/specs/spec
 
 ### 7.1 Socket.IO contract (`socket/index.js` → `internal/socket/handler.go`, `wire.go`)
 Handshake: JWT in `handshake.auth.token`; `io.use` is async (`await findById`). Failures →
-`connect_error` `missing_token | invalid_session | unknown_user | account_disabled | session_replaced | unauthorized`. One live socket per
+`connect_error` `missing_token | invalid_session | unknown_user | account_disabled | session_replaced | unauthorized`, and the app
+version gate's `update_required | maintenance` (below, 28 Sep 2026). One live socket per
 user (`session:replaced` to the old one). **One signed-in DEVICE per account** (owner, 28 Sep 2026: "when someone is already
 logged in with google account in one device and some other guy tries to login with same google account in diff device, the
 first one will be auto logout and showing message someone has logged in your account and new guy will see the live state of
@@ -1001,6 +1004,19 @@ every signed-in REST door, 401), and the login itself ends a live socket of an E
 (`room:joined`, the live hand). A join from a socket whose session was replaced in between is refused `session_replaced` by
 `freshUser`, and the guard ends that socket (never the account's newer one). On connect: `session:ready {user, config}`; if still seated
 → `room:joined` + `chat:history` (**why restarted bots land on their previous table**).
+**The app version gate at the handshake** (owner, 28 Sep 2026; §7.2 "The app version gate"): the auth object also carries
+**`appPlatform`** (`android` | `ios` — the app builds; `bot` | `tool` | `web` — this project's own clients) and **`appVersion`**
+(MAJOR.MINOR.PATCH) beside `token`, and the middleware judges them BEFORE it reads the token (`appversion.Gate.Admit`): a build below
+its platform's minimum is refused **`connect_error update_required`** and a platform in maintenance **`connect_error maintenance`**,
+each with `data: {message, storeUrl?, minimumVersion?}` (`sio.ConnectRefusal` — the one CONNECT_ERROR that carries data). A
+middleware refusal is final for socket.io's clients (no reconnect storm; `TestAHandshakeRefusedForAnOldVersionIsNotRetried` proves it
+with the real socket.io-client, and the Flutter client lets the socket go as well). A socket that declares nothing — every install
+that predates the gate, and any script — is admitted unless `APP_VERSION_REQUIRED` is on. **An already-connected socket is never
+dropped when the rows change**: the gate is at the door (a handshake, a REST call), so an operator's UPDATE never cuts a player off
+mid-hand; a real maintenance is a restart, whose graceful shutdown settles the pots (§14.3). `session:ready.config.minClientBuild` is
+now per connection: the larger of `MIN_CLIENT_BUILD` and the build number its platform's `minimum_version` translates to
+(`appversion.LegacyMinClientBuild` — an undeclared socket is judged by android's row), which is how raising a minimum also holds the
+installs that predate the gate on their own update screen.
 
 `guard`: rate limit **30/5s per socket, and (Go, 24 Sep 2026) the same 30/5s per ACCOUNT** — a second limiter keyed on the
 user survives a reconnect, which used to reset the count (`userLimiters`, pruned by the presence heartbeat) — (a trip acks `{ok:false, code:'rate_limited'}` **and** emits
@@ -1272,6 +1288,42 @@ back the same way. `internal/app/singlesession_test.go` (a Google account mid-ha
 second connects, its token refused at `me`, a wallet door and the handshake, the new socket handed the same room and hand and
 the seat kept past the grace; a token without `sv` good until the next login; three sign-ins in a row; a late hand-over never
 ends the latest session's socket).
+**The app version gate** (owner's brief, 28 Sep 2026: "the backend controls the minimum supported app version … The backend must
+ALSO enforce the minimum version for important API/WebSocket access so an old client cannot bypass the Flutter UI";
+`internal/appversion`, `db/appversions.go`, `app/appversion.go`). Four states — **NORMAL**, **SOFT_UPDATE** (supported, a newer
+version announced), **FORCE_UPDATE** (below the platform's minimum), **MAINTENANCE** (the platform's row says closed) — decided by ONE
+rule, `appversion.Evaluate`, from the `app_versions` rows (§7.3) and what the client DECLARES: headers **`X-App-Platform`** and
+**`X-App-Version`** on REST, `appPlatform`/`appVersion` in the handshake's auth (§7.1). One semver comparison (`appversion.Parse`:
+MAJOR.MINOR.PATCH as numbers, a `+build` suffix ignored, anything else invalid — 1.10.0 > 1.9.0). The rule, in order: `bot`, `tool`,
+`web` → NORMAL always (never version-gated, never held by maintenance: bot-play, tools/bot.js, the ramp test, the parity harness and
+the scratch scripts, the browser client all declare one); the row the client is judged by (its own for `android`/`ios`, android's for
+anything undeclared — every install that predates the gate is an Android build) in MAINTENANCE → MAINTENANCE (it outranks an update);
+undeclared → FORCE_UPDATE only when `APP_VERSION_REQUIRED` is on, else NORMAL; an app build with a minimum set (above 0.0.0) → FORCE_UPDATE
+below it, **and with no version or a malformed one** (a real build always sends its own); else SOFT_UPDATE below `latest_version`, else
+NORMAL. **`GET /api/app-config`** — public, no token, **never gated**, `Cache-Control: no-store` — answers the caller's state from its
+headers (or `?platform=&version=` for an operator's curl; a header wins): `{status, platform, version (as parsed, or null), minimumVersion,
+latestVersion, storeUrl, message, android: {status, minimumVersion, latestVersion, storeUrl, message}, ios: {…}}` ("0.0.0" = none;
+nothing internal — the versions, store links and messages are what the listings say anyway). **Every signed-in REST route** refuses
+(`auth.Handler.AdmitApp`, the first thing `RequireAuth` does — before the token, so the check never depends on who the player is):
+**426** `{error: "update_required", message, storeUrl?, minimumVersion?}` and **503** `{error: "maintenance", message}` — the
+`{error, message}` shape with two `omitempty` fields added to `ErrorResponse`; `message` is the row's, else the server's
+("A new version of King Teen Patti is required to continue playing." / "King Teen Patti is temporarily unavailable. Please try again
+later."). **Never gated**: the login (so an old app can learn it must update), `/api/app-config`, `/health`, `/metrics`, static files and
+the public catalogues (`/api/tables`, `/api/profiles`, `/api/table-pictures`, `/api/emojis`, `/api/levels`). The rows are read through
+a cache of `APP_VERSION_CACHE_MS` (15 s; `appversion.Source` — one read per TTL however busy, a failed read keeps the last good one, and
+before the first read the gate is open, which a boot's own read makes moot). Counted and logged (§7.5): `APP_VERSION_CHECK` /
+`SOFT_UPDATE_DETECTED` per check, `FORCE_UPDATE_REJECTED` / `MAINTENANCE_REJECTED` per REST refusal and `WEBSOCKET_VERSION_REJECTED` per
+handshake refusal, each with platform, appVersion, minimumVersion, latestVersion and the route pattern — once a minute per kind, and
+never a user id. **The legacy floor**: installs that predate the gate read only `session:ready.config.minClientBuild`, so a connection
+is sent `max(MIN_CLIENT_BUILD, LegacyMinClientBuild(row.minimum_version))` — the first build number at least that version among the
+releases that predate the gate (1.0.0+1 … 1.5.0+13, a closed list in `appversion`), 14 for any minimum above 1.5.0, 0 with no floor — so
+one UPDATE of `minimum_version` holds the old installs too, with the switch off. A declaring build (1.6.0+14 or later) is never below
+it. `internal/appversion/*_test.go` (the semver cases, the rule's every branch, the legacy floor, the cache, the counters and logs),
+`internal/app/appversion_test.go` (the brief's backend tests on the real wiring: each platform's state, REST 426/503 on every signed-in
+door and none on the public ones, the handshake's refusals and their data, per-connection `minClientBuild`, a live socket kept through
+an UPDATE, the switch, the §15 change without a restart), `appversion_reconnect_test.go` (the real socket.io-client: one knock and no
+reconnect after `update_required`, a network drop still retried), `db/appversions_test.go` (the seed, the CHECKs, the trigger, an older
+database brought forward). Operator steps: `go-server/ops/DEPLOY.md` "The app version gate".
 **Friends V1** (owner's brief, 26 Sep 2026: "Friends System V1 … FRIENDS MUST BE A LOBBY FEATURE … Friends can see
 whether another friend is online and, if they are currently playing, which game/table TYPE and variant they are playing …
 This live information MUST come from Redis, NEVER PostgreSQL"; `auth/friends.go`, `db/friends.go`, `game/playing.go`).
@@ -1438,7 +1490,7 @@ owns `users`.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly thirty-seven, and none of them is game state** (`user_sessions` since 28 Sep 2026, the sign-in each token must carry, in its own paragraph after the player reports) (Report Player's `player_reports` since 27 Sep 2026, moderation audit, in its own paragraph after the friends graph) (Player stats v2's `player_variation_stats` and
+Tables — **there are exactly thirty-eight, and none of them is game state** (`app_versions` since 28 Sep 2026, the app version gate's configuration, in its own paragraph just before the ledger reasons) (`user_sessions` since 28 Sep 2026, the sign-in each token must carry, in its own paragraph after the player reports) (Report Player's `player_reports` since 27 Sep 2026, moderation audit, in its own paragraph after the friends graph) (Player stats v2's `player_variation_stats` and
 `stats_flushes` since 27 Sep 2026, in the statistics paragraph below) (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph; `player_stats`, `friend_requests` and `friendships` since the same day, Friends V1, §7.2; and eight of levels, badges and the daily XP since 27 Sep 2026 — `player_levels`, `badges`, `user_badges`, `badge_purchases`, `xp_sources`, `xp_settings`, `player_xp`, `player_xp_claims`, §6.6): ten of accounts, money and the picture
 catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`, `user_table_choice` — the paragraph after the
 `users` trigger below; merged 23 Sep 2026) (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
@@ -1712,6 +1764,22 @@ on (draw, slot), so an owner's UPDATE survives every restart. A picture prize is
 databases: `UPDATE lucky_draw_slots SET reward_type='PROFILE_PICTURE', reward_value=NULL, reward_ref_id=(SELECT id::text FROM
 profile_pictures WHERE name='Lovestruck Cat') WHERE …` (the seed's header has the table-picture twin).
 
+**The app versions (owner, 28 Sep 2026; §7.2 "The app version gate")** are one table, **`app_versions`**, at the END of
+`V1.0.0__baseline.sql` (APP VERSIONS) and seeded at the end of `V1.0.1__seed.sql` (THE APP VERSIONS): one row per app platform —
+`platform` (PK; an OPEN set, a lower-case word CHECKed for shape, not an enumeration: a platform this build does not know is a row it
+never reads), `status` NORMAL | MAINTENANCE, `minimum_version` and `latest_version` (TEXT CHECKed to MAJOR.MINOR.PATCH without leading
+zeros, `'0.0.0'` = none — so a typo fails at the UPDATE, never locks players out), `store_url` (≤ 500), `message` (NULL = the app's own
+words, ≤ 500), `created_at`/`updated_at` epoch ms — `updated_at` follows every UPDATE through the `app_versions_touch` trigger (function
+replaced on every boot, trigger created only when missing). **The seed puts NO floor**: android `NORMAL, 0.0.0, 0.0.0`, the Play listing
+(public, fixed by the package), ios the same with no store link — so deploying the gate changes nothing for anybody — `ON CONFLICT
+(platform) DO NOTHING`, so an operator's UPDATE survives every restart. CONFIGURATION like the table catalogue, **but read while the
+server runs** (the gate's 15 s cache, §7.4), which is the one reason it is a table: env keys are read once at boot and the table
+catalogue once at boot, and the owner asked to "change the minimum supported Android/iOS version from the backend and immediately
+prevent older clients" with no restart and no app release — the Lucky Draw's precedent (configuration read per request). One table,
+not two: per-platform rows carry maintenance too, so `UPDATE app_versions SET status = 'MAINTENANCE'` (no WHERE) is the global switch
+and a `WHERE platform = 'ios'` a partial one. It references nothing and nothing references it (so DEPLOY.md §7 changes nothing for it).
+`db/appversions_test.go` (the seed holds no floor, an operator's UPDATE read back and every typo refused by a CHECK, the trigger, one boot
+bringing a database that lacks the table forward with an UPDATE surviving two more boots).
 Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss, table_tax (§6.6: the winner's winning tax, action `<handId>:tax:<userId>`, always negative),
 milestone_reward, timed_bonus, daily_bonus, purchase, picture_purchase, table_picture_purchase, emoji_purchase, lucky_draw, account_deleted, legacy_reconciliation,
 test_fixture`. (`lucky_draw` is a Lucky Draw CHIPS prize — a chip source, always positive, action_id
@@ -1787,7 +1855,9 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | **`VARIATION_MAX_POT_BOOTS`** † | 0 | **Go-only.** A public variation table's pot cap, counted in BOOTS of that table; **0 = no pot limit, the default** (owner, 18 Sep 2026). A count of boots and not a figure because variation runs at several stakes (§6.4). `MenuMaxPot(category, boot)` advertises exactly what `TableRules` gives the table. A product that overflows int64 for any variation table on the menu stops the boot with the key named; a negative value does too. |
 | **`POKER_TURN_TIMEOUT_MS`** / **`POKER_MIN_BUYIN_BOOTS`** / **`POKER_MAX_DISCARDS`** † | 0 / 10 / 3 | **Go-only** (§6.5). A poker decision's clock (0 = `TURN_TIMEOUT_MS`); the smallest stack that may sit at a poker room, in boots of that table (at least 1; the menu's `minChips`); how many cards a 5-Card Draw player may exchange (0..5, else the boot stops). How each variant plays is fixed in `poker.Variants`, not here. |
 | **`MISSILE_REVEAL_EXTRA_MS`** † | 3000 | **Go-only.** Added to `NEXT_HAND_DELAY_MS` after a missile showdown (§6.1), so the client's volley, its explosions and a look at every hand fit before the next deal. |
-| **`MIN_CLIENT_BUILD`** | 0 | The oldest client build allowed to play, sent to every client in `session:ready.config.minClientBuild`. A client below it is held on the update screen with no way past (Flutter `_belowMinimumBuild`/`_forceUpdate`). **0 = no floor**, which is what production runs; raise it only after the newer build is actually live in the store, or the floor locks everyone out of a version they cannot yet install. This is the server-authoritative gate — Play's own in-app check (`AppUpdate`) is a separate, best-effort nudge that fails open. |
+| **`MIN_CLIENT_BUILD`** | 0 | The oldest client build allowed to play, sent to every client in `session:ready.config.minClientBuild`. A client below it is held on the update screen with no way past (Flutter `_belowMinimumBuild`/`_forceUpdate`). **0 = no floor**, which is what production runs; raise it only after the newer build is actually live in the store, or the floor locks everyone out of a version they cannot yet install. Play's own in-app check (`AppUpdate`) is a separate, best-effort nudge that fails open (a Soft Update prompt since 28 Sep 2026). **Since the app version gate (28 Sep 2026) this is the floor UNDER each connection's `minClientBuild`**, which is the larger of it and the build number the platform's `app_versions.minimum_version` translates to (§7.2) — so a raised minimum version already raises it for the installs that predate the gate, and this can stay 0. The gate's own minimum is a version, enforced by the server at every signed-in door; this key is enforced by the app alone. |
+| **`APP_VERSION_REQUIRED`** | false | **Go-only (28 Sep 2026; §7.2 "The app version gate").** true = refuse every client that declares no app platform — every install that predates the gate — with FORCE_UPDATE (REST 426 `update_required`, `connect_error update_required`). `bot`, `tool` and `web` are never refused. Turn it on ONLY once the oldest build the store still serves sends `X-App-Platform` (the first build with the gate) and the android `minimum_version` holds everything older — until then it would lock out apps nobody has updated yet (DEPLOY.md "The app version gate"). A restart applies it. |
+| **`APP_VERSION_CACHE_MS`** | 15000 | **Go-only (28 Sep 2026).** How long the `app_versions` rows are cached in the process — the longest an operator's UPDATE (a raised minimum, a maintenance) takes to be enforced. 0 reads the table on every request. A negative value stops the boot. The versions, store links, maintenance and messages themselves are NOT keys: they are the rows (§7.3). |
 | `SIDESHOW_TIMEOUT_MS` / `SIDESHOW_MIN_PLAYERS` † | 6000 / 3 | |
 | `DISPLAY_NAME_MAX` | 24 | also hardcoded: providers.js `.slice(0,24)`, Flutter login/lobby `maxLength: 24` |
 | `PRIVATE_BOOT` / `PRIVATE_MAX_POT` / `PRIVATE_MAX_RAISE_STEPS` † | 200 / 500000 / 2 | db: the private templates (`is_private` rows, one per category); `privateBoot`/`privateMaxPot` on the wire are the seen template's |
@@ -1840,6 +1910,13 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   `game_snapshot_*` series, no `game_restore_reconciled/rejected_total` and no
   `game_refunded_pots/chips_total`** — the first two belonged to the abandoned PostgreSQL backstop,
   the third to `RefundOrphanedPots`, which went when PostgreSQL stopped holding pots (§5.1).
+- The app version gate (28 Sep 2026; §7.2): **`game_app_version_checks_total{platform,status}`** — every `GET /api/app-config`
+  verdict — and **`game_app_version_rejections_total{platform,status,via}`** — every signed-in REST call (`via="rest"`) and socket
+  handshake (`via="socket"`) the gate refused. `platform` ∈ android, ios, bot, tool, web, `none` (nothing declared), `other` (a platform
+  the server does not know); `status` ∈ normal, soft_update, force_update, maintenance — lower-cased, `metrics.AppPlatforms` /
+  `AppStatuses` / `AppVias` fold anything else to `other`. **The version a client sent is never a label** (it is in the log line). The
+  catalogue in `metrics_test.go` is 46 since. `rate(game_app_version_rejections_total{status="force_update"}[5m])` is how many old
+  builds are still knocking after a minimum was raised.
 - **Label rule (enforced by `SafeLabel()` and `internal/metrics/metrics_test.go` + `tools/parity/metrics.test.js`):** no socket/user/room id,
   table code, name, URL or IP ever becomes a label value. `Table` stays uninstrumented — counters are fed from its events in the
   socket layer, timings from the socket handlers, `RoomManager.CreateTable` and `db/ledger.go`; `game` must not import `metrics`
@@ -2123,6 +2200,59 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   asked again on that device (quit, relaunch, resume included). Keyed per account, not per device: a
   second account on the same phone is asked once for itself. Client-only, nothing goes to the server.
   Not shown over the update screen. Back while it is up = the usual quit question. `test/consent_test.dart`.
+- **The app version gate** (owner, 28 Sep 2026; server side §7.1/§7.2 "The app version gate"; `net/app_version.dart`). The app
+  **declares itself** — `appPlatformName()` (`android` | `ios` from `defaultTargetPlatform`, null elsewhere) and pubspec's version
+  from `package_info_plus` (read and AWAITED at start, 2 s bound — it used to be fire-and-forget) — as `X-App-Platform` /
+  `X-App-Version` on every `_headers()` request (`ApiClient.appPlatform/appVersion`) and as `appPlatform`/`appVersion` in the
+  handshake's auth (`GameConnection.appPlatform/appVersion`): **both or neither** — a build that cannot read its own version declares
+  nothing, rather than an app platform with no version, which a server with a minimum must refuse. **No minimum lives in the app.**
+  **At start** (`GameState.start`, behind the splash), BEFORE the saved session is restored: `GET /api/app-config`
+  (`ApiClient.appConfig`, 12 s, public) → `evaluateAppConfig` — the server's own verdict and the app's reading of its platform's row
+  with the one Dart `SemVer`, **the stricter wins** — then FORCE_UPDATE → `Screen.update`, MAINTENANCE → `Screen.maintenance`, and
+  neither the session nor the socket is touched (the token is KEPT); else `_restoreSession` as before, and a SOFT_UPDATE offered once
+  the app is up. Unreachable (offline, slow, refused) → exactly the old behaviour; a 404 (a server that predates the gate) → NORMAL,
+  its `minClientBuild` floor still in force. **Later** (`_appGateRefused`), every "must update" path comes to the SAME screens: a REST
+  426 / 503 from any request (`ApiClient.onAppGate`, fired from `_decode` before `AppGateRefusal` — an `ApiException` — is thrown), the
+  handshake's `connect_error update_required | maintenance` (`GameConnection.onAppGate`; the connection lets its socket go itself —
+  `scheduleMicrotask(socket.dispose)` — and emits no `onError`), and the legacy `session:ready.minClientBuild` floor (`_forceUpdate`).
+  It lets the socket go, cancels the background-return reconnect (`_closedForBackground`), the seat check and the resume veil, clears the
+  table, and **keeps the token**: nothing reconnects — not the lifecycle's resume, not a seat check — until the update, or Try again. A
+  network failure is still retried by socket_io_client exactly as before. **Force Update** (`screens/update_screen.dart` `UpdateScreen`,
+  the old update screen restyled, same frame — `LobbyGround`, `DriftingChips`, `PremiumSurface`, `SpinningChip`): "Update required", the
+  operator's message or `updateBody`, **Update now** (`GameState.startUpdate`: Play's in-place flow when Play reported one, else the
+  store link the SERVER named for this platform — `openStoreUrl`, url_launcher external — and only when it named none the old
+  `storeListingUris()` pair; nothing opened → toast `updateStoreUnavailable`), "Your version 1.4.2 · Required 1.5.0". **No Later, no
+  Skip, no way past.** **Maintenance** (`MaintenanceScreen`, same frame, a construction mark): "Under maintenance", the server's message
+  or `maintenanceBody`, **Try again** (`retryAppGate`: re-asks; open again → back where the player was, a saved session to the lobby and
+  its table; still closed or now too old → that screen; unreachable → it stays with `serviceUnavailable`). **Soft Update**
+  (`SoftUpdatePrompt`, a layer in main.dart's root stack above the consent panel, the consent panel's shape — `softUpdateShown`: only
+  over the sign-in screen or the lobby, never a table, not under the resume veil): "New version available", **Update now** / **Later**;
+  Later (`laterSoftUpdate`) writes the announcement to SharedPreferences **`softUpdateLater`** (`SoftUpdateMemory`: `latest:<version>`
+  or `play:<installed>`) and it is not asked again until something newer is announced. **Play's own "newer build" report
+  (`AppUpdate`), which used to put up the blocking update screen, is now this nudge**: only the server's minimum blocks (the lead's call —
+  "don't let it fight the new screens"). Eleven keys in all five languages (the update title/body reworded to the brief's). Tests:
+  `test/app_version_test.dart` (the semver cases, the stricter-wins reading, the refusals, the headers), `app_gate_test.dart` (the brief's
+  Flutter tests on GameState: a supported build enters declaring itself; FORCE_UPDATE stands before sign-in, keeps the token, has no
+  Later; Update now opens Play on Android and the App Store on iOS, a store that will not open is a toast; SOFT_UPDATE and Later once
+  per announcement; MAINTENANCE with its message and Try again; a mid-session handshake refusal and a REST 426 to the same screen with no
+  reconnect; offline as before; the legacy floor), `app_gate_socket_test.dart` (the real socket_io_client against an in-process
+  Engine.IO server: one knock after `update_required`, a network drop still retried, the app's lifecycle reconnecting nothing),
+  `app_gate_screens_test.dart` (the three surfaces at 640x360 x1.25 in five languages, both themes), and the harness
+  `test/app_gate_shots.dart` (run by hand; it borrows the Mac's own Indic fonts when the Noto ones are absent).
+
+- **No server, no toast** (owner, 28 Sep 2026: "when app shows service not available, it shows loader screen until it
+  gets connected"). `GameState.serviceDown` is raised by a handshake that got no answer (`GameConnection.unreachable`: a
+  connect_error that is not the server's `{message: code}`), by any notice that says the server could not be reached (main.dart
+  `_saysUnreachable`, the filter that used to turn such a notice into the "Service not available" toast), by the maintenance
+  screen's Try again with no server, and by a start whose `me()` got no answer (the network, a timeout, a 5xx) — which now KEEPS
+  the token and waits (`_whenReachable`), where it used to drop it and sign the player out over a network blip. While it is up
+  `_ServiceVeil` (main.dart, above every other layer) shows the game's loader — "Please wait..." over "Connection lost.
+  Reconnecting…" — and `GET /api/app-config` is asked every `GameState.serviceProbeEvery` (3 s); the veil comes down when the
+  socket connects or, with no socket expected, when the server answers (a maintenance screen then asks again). A handshake the
+  server REFUSED (`GameConnection.refused`: an expired or revoked token, or one another server issued) is no outage — that
+  session could wait for ever — and signs out to the sign-in screen, as a start with such a token does. The sign-in screen keeps
+  its own error line. `test/service_down_test.dart`; `app_gate_test` 7 expects the loader. Played on TP_API36: the demo server
+  stopped put the veil up within seconds, and restarted, brought the lobby back on the same session.
 
 ### 8.2 GameState essentials
 New hand = `handNo` changed → clears celebration/sideshow reveal, resets `raiseIndex`. **The
@@ -2139,6 +2269,27 @@ by `GameState._publishNumberFormat()`. Abbreviate only `> 100000`; Indian `3.24 
 in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
 
 ### 8.4 UI
+- **The game's loader** (owner, 28 Sep 2026: "change the loader of game … use this lottie json … whereever loader you are
+  showing show this loader, and below text also please wait..."; `widgets/game_loader.dart`): the owner's
+  `assets/animations/GameLoader.json` (540×540, 2.2 s, a teal arc chasing a dark one round a ring; no 3D, expressions or
+  images) in place of every Material spinner the app drew — `test/game_loader_test.dart` holds `lib/` to none. **`GameLoader`**,
+  the ring over "Please wait..." (`pleaseWait`, all five languages) and, where the screen named what it waits for, that line
+  under it (the reconnecting plate, the switching veil, the resume veil, the service veil), stands wherever content is still
+  coming: a table or poker room not yet received, the Friends page, the Lucky Draw, the level screen and the tax popup before
+  the ladder, the player and own-seat drawers, a store shelf, a paged list's next page. Inside a key or over a tile being
+  bought, where a line of words cannot fit (Play as Guest, Update now / Try again, the drawer keys, Accept, the price keys, the
+  spin key, a picture or emoji being bought, the name field, Switch table), **`GameLoaderRing`** alone, in the old spinner's
+  box. The file's black arc is drawn in the theme's ink (or the key's) by a `ValueDelegate` — black vanished on the dark theme
+  — and the file is never edited; the ring fills its box (`gameLoaderRingShare`: the ring's 196 of the canvas's 540 units,
+  the rest drawn past the box through an `OverflowBox`).
+- **The version gate's three surfaces** (28 Sep 2026; the flow is §8.1 "The app version gate"): `Screen.update` (Force Update) and
+  `Screen.maintenance` share ONE frame, `_GatePanel` in `screens/update_screen.dart` — the update screen's own since before the gate:
+  the room's ground and drifting chips, one solid gold-edged `PremiumSurface` (solid, not glass: the chips drift behind it), a mark
+  (the `SpinningChip`; a construction glyph in a gold disc for maintenance), the title in `headlineSmall`, the body in `bodyMedium`, one
+  full-width primary `GlassButton` (Update now / Try again, a spinner while it works) and a tabular footnote (the versions, or the
+  build); it scrolls, so three lines of Bengali at x1.25 on a 360dp phone never overflow. The Soft Update prompt is the consent panel's
+  shape (a 0.72 ground tint, one `GlassCard` taking the blur lease) with Later as a text key beside a primary Update now. No new colours
+  or type: `test/app_gate_screens_test.dart`, `test/app_gate_shots.dart`.
 - **Teen Patti only, by default, since 27 Sep 2026** (owner: "do this change in UI only, remove poker category and In UI
   only show three cards seen, blind, variation"). ONE build-time switch, `AppFeatures.poker` (`lib/config/features.dart`,
   `--dart-define=SHOW_POKER=true`, off by default; a mutable static only so tests can flip it). Off, the lobby leaves every
@@ -3946,7 +4097,7 @@ deploy runbook; `steps.txt` the six-line routine.
 - **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, the founding pair since 23 Sep 2026 —
   `V1.0.0__baseline.sql` all DDL, `V1.0.1__seed.sql` DML — then DML-only seeds since 28 Sep 2026, `V1.0.2__seed-festive-capybara.sql`
   the first — applied in version order, idempotent, run at
-  every start: thirty-seven tables (§7.3) — money, accounts, the sign-in each token must carry, gameplay stats, the friends graph, the player reports, the levels and badges, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
+  every start: thirty-eight tables (§7.3) — money, accounts, the app version gate's rows, the sign-in each token must carry, gameplay stats, the friends graph, the player reports, the levels and badges, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
   state — §7.3), `TableConfigs.Load`/`ExportTableConfigSQL` (the table catalogue), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table
@@ -3971,7 +4122,10 @@ deploy runbook; `steps.txt` the six-line routine.
   `gomaxprocs`. Grafana's former "Node.js" row is now "Runtime"; alerts
   `GameServerSchedulerLatencyHigh` / `GameServerGoroutinesHigh` / `GameServerMemoryHigh` replaced
   the three `nodejs_*` ones (§7.5 bundle at `go-server/ops/monitoring/`, `MONITORING.md`).
-- Small honest deviations: **one signed-in device per account** (§7.1/§7.2/§7.3; 28 Sep 2026) — `user_sessions`, the JWT's `sv`,
+- Small honest deviations: **the app version gate** (§7.1/§7.2/§7.3/§7.4; 28 Sep 2026) — `app_versions`, `GET /api/app-config`,
+  426 `update_required` / 503 `maintenance` on signed-in routes and the same two codes as `connect_error` (with data), the
+  per-connection `minClientBuild`, `APP_VERSION_REQUIRED` / `APP_VERSION_CACHE_MS`; a client that declares nothing is served exactly as
+  before while the switch is off and no row is in maintenance; **one signed-in device per account** (§7.1/§7.2/§7.3; 28 Sep 2026) — `user_sessions`, the JWT's `sv`,
   `session_replaced` (401 and connect_error), and a login ending an earlier session's live socket with `session:replaced`;
   **Report Player** (§7.2/§7.3; 27 Sep 2026) — `POST /api/reports`, `player_reports`, `Room.ReportContexts`, the manager's recent-departure memory, and the ledger purge sparing a reported hand's rows (no wire, snapshot or ledger row of a table changed); **the table pictures** (§7.2/§7.3; merged 23 Sep 2026) — three tables, three REST endpoints,
   `user.tablePicture`, `room:state.tablePicture` on Teen Patti snapshots, `table_picture_purchase` ledger rows; **the Poker family** (§6.5) — four poker categories, `poker:action` in, the nine `poker:*` events

@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 import '../models/dtos.dart';
 import '../models/friends.dart';
 import 'api_client.dart' show accountDisabledCode, sessionReplacedCode;
+import 'app_version.dart';
 
 /// A hand's reveal or its end, as `game:showdown` and `game:handEnded` carry
 /// them. `reason` is the server's (`missile` for a hand a missile ended);
@@ -97,6 +98,20 @@ class GameConnection {
   final String baseUrl;
   io.Socket? _socket;
   static const _uuid = Uuid();
+
+  /// What this build declares in the handshake, beside the token (the app
+  /// version gate, 28 Sep 2026): the auth object's [appPlatformAuthKey] and
+  /// [appVersionAuthKey]. Both or neither, as the REST headers.
+  String? appPlatform;
+  String? appVersion;
+
+  final _gate = StreamController<AppGateVerdict>.broadcast();
+
+  /// The handshake refused this build: too old to play (`update_required`) or
+  /// the game in maintenance (`maintenance`). The socket has already been let
+  /// go — a refusal at the handshake is final, and nothing here knocks again
+  /// — and the app puts up the update or maintenance screen.
+  Stream<AppGateVerdict> get onAppGate => _gate.stream;
 
   final _state = StreamController<RoomState>.broadcast();
   final _session =
@@ -253,6 +268,10 @@ class GameConnection {
 
   bool get isConnected => _socket?.connected ?? false;
 
+  /// Whether a socket for this session exists — connected, or still trying
+  /// ([connect] was called and nothing has let it go since).
+  bool get hasSocket => _socket != null;
+
   /// The socket of the current session, for a test to inspect.
   @visibleForTesting
   io.Socket? get debugSocket => _socket;
@@ -260,14 +279,37 @@ class GameConnection {
   /// The code a move gets when it is refused because the socket is down.
   static const notConnected = 'not_connected';
 
+  /// The code a handshake that never reached the server is reported under
+  /// (no answer, a refused or dropped connection, a gateway with no game
+  /// behind it): the app waits for the server under its loader rather than
+  /// saying so in a toast (owner, 28 Sep 2026). A refusal the SERVER sends —
+  /// `{message: <code>}` — is not this.
+  static const unreachable = 'service_unreachable';
+
+  /// The code a handshake the server TURNED DOWN is reported under, beyond
+  /// the codes the app answers on their own (a disabled account, a session
+  /// replaced, the version gate): an expired or revoked token, or one this
+  /// server never issued. That session cannot connect however long it waits.
+  static const refused = 'session_refused';
+
   void connect(String token) {
     disconnect();
 
+    final platform = appPlatform, version = appVersion;
+    final declared =
+        platform != null &&
+        platform.isNotEmpty &&
+        version != null &&
+        version.isNotEmpty;
     final socket = io.io(
       baseUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
-          .setAuth({'token': token})
+          .setAuth({
+            'token': token,
+            if (declared) appPlatformAuthKey: platform,
+            if (declared) appVersionAuthKey: version,
+          })
           .enableReconnection()
           .setReconnectionDelay(800)
           // A new Manager and Socket for every session. Without it
@@ -301,6 +343,19 @@ class GameConnection {
       // sign-out, Delete account, a new sign-in) has nothing to tell the
       // player now.
       if (!identical(_socket, socket)) return;
+      // The app version gate (28 Sep 2026): this build is too old to play, or
+      // the game is in maintenance. socket_io_client already treats a
+      // middleware refusal as final; the socket is let go here as well, so no
+      // later path can knock again with a build the server has turned away —
+      // a network failure, below, is still retried as it always was.
+      final gate = AppGateVerdict.fromConnectError(e);
+      if (gate != null) {
+        _socket = null;
+        // After this handler: the socket is still delivering this event.
+        scheduleMicrotask(socket.dispose);
+        _gate.add(gate);
+        return;
+      }
       // The handshake's refusal is {message: <code>}. A disabled account is
       // passed on by its code, so the app can say so rather than blame the
       // network.
@@ -314,7 +369,17 @@ class GameConnection {
         _errors.add((code: sessionReplacedCode, message: sessionReplacedCode));
         return;
       }
-      _errors.add((code: null, message: 'Could not reach the table: $e'));
+      // No answer from the server at all — a network failure, a timeout, a
+      // gateway with nothing behind it — rather than a refusal it sent: the
+      // app waits for it (socket_io_client keeps trying) instead of saying so.
+      if (e is! Map || e['message'] is! String) {
+        _errors.add((
+          code: unreachable,
+          message: 'Could not reach the table: $e',
+        ));
+        return;
+      }
+      _errors.add((code: refused, message: '${e['message']}'));
     });
 
     socket.on('session:ready', (data) {
@@ -735,6 +800,7 @@ class GameConnection {
     _left.close();
     _kicked.close();
     _connected.close();
+    _gate.close();
   }
 
   static Map<String, dynamic> _map(dynamic v) =>

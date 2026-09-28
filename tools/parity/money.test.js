@@ -266,8 +266,12 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   for (const retired of ['game_states', 'pots', 'hands']) {
     assert.ok(!tables.includes(retired), `${retired} is game state and must not exist`);
   }
+  // app_versions (28 Sep 2026) is the app version gate's configuration: a row
+  // per app platform — open or in maintenance, its minimum and latest
+  // versions, its store link — read by the REST and handshake gate through a
+  // short cache, never by a table.
   assert.deepEqual(tables, [
-    'badge_purchases', 'badges', 'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships',
+    'app_versions', 'badge_purchases', 'badges', 'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships',
     'hammer_purchases', 'hammer_spends', 'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends',
     'player_levels', 'player_reports', 'player_stats', 'player_variation_stats', 'player_xp', 'player_xp_claims', 'profile_pictures',
     'stats_flushes', 'table_categories', 'table_configs', 'table_engines', 'table_pictures', 'table_settings',
@@ -281,7 +285,7 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
     `SELECT table_name, column_name FROM information_schema.columns
       WHERE table_schema = current_schema()
         AND table_name IN ('table_engines', 'table_categories', 'table_settings', 'table_configs',
-                           'player_levels', 'badges', 'xp_sources', 'xp_settings')
+                           'player_levels', 'badges', 'xp_sources', 'xp_settings', 'app_versions')
         AND column_name ~ '^(room|hand|seat|user)_'
         -- the kind of hand a daily XP source is won with (PAIR … TRAIL): a
         -- rule, never a hand
