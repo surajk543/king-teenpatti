@@ -1188,6 +1188,77 @@ class GameState extends ChangeNotifier {
   /// says "reconnecting" to a session that has not connected yet.
   bool offline = false;
 
+  /// The server cannot be reached (owner, 28 Sep 2026: "when app shows
+  /// service not available, it shows loader screen until it gets
+  /// connected"): the whole app waits under the game's loader (main.dart's
+  /// service veil) instead of saying "Service not available" in a toast.
+  /// Raised by a handshake that got no answer ([GameConnection.unreachable]),
+  /// a request that could not get through, or a start that could not reach
+  /// the server ([reportUnreachable]); lowered the moment the socket
+  /// connects or — with none expected — the server answers one of the checks
+  /// made every [serviceProbeEvery] meanwhile.
+  bool serviceDown = false;
+
+  /// How often the server is asked, while it cannot be reached, whether it
+  /// is back: `GET /api/app-config`, public, never gated and cheap.
+  static const serviceProbeEvery = Duration(seconds: 3);
+  Timer? _serviceProbe;
+  bool _probing = false;
+  Completer<void>? _serviceReachable;
+
+  /// Something could not reach the server: up goes the loader, and the
+  /// server is asked every [serviceProbeEvery] until it answers.
+  void reportUnreachable() {
+    if (_disposed) return;
+    _serviceProbe ??= Timer.periodic(
+      serviceProbeEvery,
+      (_) => unawaited(_probeService()),
+    );
+    if (serviceDown) return;
+    serviceDown = true;
+    notifyListeners();
+  }
+
+  Future<void> _probeService() async {
+    if (_probing || _disposed) return;
+    _probing = true;
+    try {
+      await _api.appConfig();
+    } catch (_) {
+      // Still no answer; the next tick asks again.
+      return;
+    } finally {
+      _probing = false;
+    }
+    // The server answers. A session whose socket is still trying waits for
+    // it — socket_io_client keeps trying on its own, and its connect lowers
+    // the loader; with no socket expected the server's answer is enough.
+    if (_conn.hasSocket && !_conn.isConnected) return;
+    _serviceBack();
+  }
+
+  /// The server can be reached again: the loader comes down, and a start or
+  /// a maintenance check that was waiting for it carries on.
+  void _serviceBack() {
+    _serviceProbe?.cancel();
+    _serviceProbe = null;
+    final waiting = _serviceReachable;
+    _serviceReachable = null;
+    waiting?.complete();
+    if (!serviceDown) return;
+    serviceDown = false;
+    notifyListeners();
+    // The maintenance screen's Try again found no server: it asks again now,
+    // unless a start that is itself waiting will.
+    if (screen == Screen.maintenance && waiting == null) {
+      unawaited(retryAppGate());
+    }
+  }
+
+  /// Completes once the server can be reached again ([_serviceBack]).
+  Future<void> _whenReachable() =>
+      (_serviceReachable ??= Completer<void>()).future;
+
   /// Whether the viewer is playing a hand right now, so leaving or switching
   /// would pack their cards and leave their stake in the pot.
   bool get inLiveHand =>
@@ -1395,11 +1466,23 @@ class GameState extends ChangeNotifier {
       return Screen.lobby;
     } on AppGateRefusal {
       return Screen.login;
-    } catch (_) {
-      // Expired or revoked — fall back to the sign-in screen.
-      _token = null;
-      await prefs.remove('token');
-      return Screen.login;
+    } catch (e) {
+      if (e is ApiException && (e.status ?? 0) < 500) {
+        // The server answered and turned the token down: expired or revoked
+        // — back to the sign-in screen.
+        _token = null;
+        await prefs.remove('token');
+        return Screen.login;
+      }
+      // No answer — the network, a timeout, a gateway with no game behind it
+      // (5xx): the token is kept, the app waits for the server under its
+      // loader (owner, 28 Sep 2026), and the session is restored once it
+      // answers. This used to drop the token too, signing the player out
+      // over a network blip.
+      reportUnreachable();
+      await _whenReachable();
+      if (_disposed) return Screen.login;
+      return _restoreSession(prefs);
     }
   }
 
@@ -1450,9 +1533,11 @@ class GameState extends ChangeNotifier {
     notifyListeners();
     final gate = await _fetchAppGate();
     if (gate == null) {
+      // No server: the loader until it answers, then this asks again
+      // ([_serviceBack]).
       checkingAppGate = false;
-      notice = t.serviceUnavailable;
       notifyListeners();
+      reportUnreachable();
       return;
     }
     if (gate.blocks) {
@@ -1617,6 +1702,21 @@ class GameState extends ChangeNotifier {
       _conn.onFriendRequest.listen(handleFriendRequest),
       _conn.onFriendAccepted.listen(handleFriendAccepted),
       _conn.onError.listen((e) {
+        // No answer from the server at all: the app waits for it under the
+        // loader, never a toast (owner, 28 Sep 2026).
+        if (e.code == GameConnection.unreachable) {
+          reportUnreachable();
+          return;
+        }
+        // The server turned this session's token down at the handshake —
+        // expired, revoked, or issued by another server: out to the sign-in
+        // screen, as a start with such a token goes. Never the loader (this
+        // session will not connect however long it waits), and no longer the
+        // "Service not available" toast over a lobby that could do nothing.
+        if (e.code == GameConnection.refused) {
+          unawaited(signOut());
+          return;
+        }
         // The account was disabled while signed in: out, and the popup.
         if (e.code == accountDisabledCode) {
           _accountWasDisabled();
@@ -1643,6 +1743,7 @@ class GameState extends ChangeNotifier {
       }),
       _conn.onConnected.listen((up) {
         offline = !up;
+        if (up) _serviceBack();
         notifyListeners();
       }),
       // The handshake refused this build: the update or maintenance screen,
@@ -4908,6 +5009,7 @@ class GameState extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _serviceProbe?.cancel();
     unawaited(purchases.dispose());
     friends.dispose();
     reports.dispose();

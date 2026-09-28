@@ -294,11 +294,13 @@ void main() {
     await http.runWithClient(state.retryAppGate, () => server.client);
     expect(state.screen, Screen.maintenance);
 
-    // Unreachable: the screen stays and says so.
+    // Unreachable: the screen stays, under the game's loader until the
+    // server answers — no "Service not available" toast (owner, 28 Sep 2026).
     server.config = null;
     await http.runWithClient(state.retryAppGate, () => server.client);
     expect(state.screen, Screen.maintenance);
-    expect(state.notice, isNotNull);
+    expect(state.serviceDown, isTrue);
+    expect(state.notice, isNull);
 
     // Open again: back where the player was.
     server.config = appConfigJson();

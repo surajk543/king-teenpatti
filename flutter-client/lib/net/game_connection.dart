@@ -268,12 +268,29 @@ class GameConnection {
 
   bool get isConnected => _socket?.connected ?? false;
 
+  /// Whether a socket for this session exists — connected, or still trying
+  /// ([connect] was called and nothing has let it go since).
+  bool get hasSocket => _socket != null;
+
   /// The socket of the current session, for a test to inspect.
   @visibleForTesting
   io.Socket? get debugSocket => _socket;
 
   /// The code a move gets when it is refused because the socket is down.
   static const notConnected = 'not_connected';
+
+  /// The code a handshake that never reached the server is reported under
+  /// (no answer, a refused or dropped connection, a gateway with no game
+  /// behind it): the app waits for the server under its loader rather than
+  /// saying so in a toast (owner, 28 Sep 2026). A refusal the SERVER sends —
+  /// `{message: <code>}` — is not this.
+  static const unreachable = 'service_unreachable';
+
+  /// The code a handshake the server TURNED DOWN is reported under, beyond
+  /// the codes the app answers on their own (a disabled account, a session
+  /// replaced, the version gate): an expired or revoked token, or one this
+  /// server never issued. That session cannot connect however long it waits.
+  static const refused = 'session_refused';
 
   void connect(String token) {
     disconnect();
@@ -352,7 +369,17 @@ class GameConnection {
         _errors.add((code: sessionReplacedCode, message: sessionReplacedCode));
         return;
       }
-      _errors.add((code: null, message: 'Could not reach the table: $e'));
+      // No answer from the server at all — a network failure, a timeout, a
+      // gateway with nothing behind it — rather than a refusal it sent: the
+      // app waits for it (socket_io_client keeps trying) instead of saying so.
+      if (e is! Map || e['message'] is! String) {
+        _errors.add((
+          code: unreachable,
+          message: 'Could not reach the table: $e',
+        ));
+        return;
+      }
+      _errors.add((code: refused, message: '${e['message']}'));
     });
 
     socket.on('session:ready', (data) {

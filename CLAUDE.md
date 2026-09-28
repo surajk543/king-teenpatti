@@ -2233,6 +2233,20 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   `app_gate_screens_test.dart` (the three surfaces at 640x360 x1.25 in five languages, both themes), and the harness
   `test/app_gate_shots.dart` (run by hand; it borrows the Mac's own Indic fonts when the Noto ones are absent).
 
+- **No server, no toast** (owner, 28 Sep 2026: "when app shows service not available, it shows loader screen until it
+  gets connected"). `GameState.serviceDown` is raised by a handshake that got no answer (`GameConnection.unreachable`: a
+  connect_error that is not the server's `{message: code}`), by any notice that says the server could not be reached (main.dart
+  `_saysUnreachable`, the filter that used to turn such a notice into the "Service not available" toast), by the maintenance
+  screen's Try again with no server, and by a start whose `me()` got no answer (the network, a timeout, a 5xx) — which now KEEPS
+  the token and waits (`_whenReachable`), where it used to drop it and sign the player out over a network blip. While it is up
+  `_ServiceVeil` (main.dart, above every other layer) shows the game's loader — "Please wait..." over "Connection lost.
+  Reconnecting…" — and `GET /api/app-config` is asked every `GameState.serviceProbeEvery` (3 s); the veil comes down when the
+  socket connects or, with no socket expected, when the server answers (a maintenance screen then asks again). A handshake the
+  server REFUSED (`GameConnection.refused`: an expired or revoked token, or one another server issued) is no outage — that
+  session could wait for ever — and signs out to the sign-in screen, as a start with such a token does. The sign-in screen keeps
+  its own error line. `test/service_down_test.dart`; `app_gate_test` 7 expects the loader. Played on TP_API36: the demo server
+  stopped put the veil up within seconds, and restarted, brought the lobby back on the same session.
+
 ### 8.2 GameState essentials
 New hand = `handNo` changed → clears celebration/sideshow reveal, resets `raiseIndex`. **The
 celebration has its own timer** (`nextHandAt`, 6s fallback) — it used to clear only on the next deal,
@@ -2248,6 +2262,19 @@ by `GameState._publishNumberFormat()`. Abbreviate only `> 100000`; Indian `3.24 
 in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
 
 ### 8.4 UI
+- **The game's loader** (owner, 28 Sep 2026: "change the loader of game … use this lottie json … whereever loader you are
+  showing show this loader, and below text also please wait..."; `widgets/game_loader.dart`): the owner's
+  `assets/animations/GameLoader.json` (540×540, 2.2 s, a teal arc chasing a dark one round a ring; no 3D, expressions or
+  images) in place of every Material spinner the app drew — `test/game_loader_test.dart` holds `lib/` to none. **`GameLoader`**,
+  the ring over "Please wait..." (`pleaseWait`, all five languages) and, where the screen named what it waits for, that line
+  under it (the reconnecting plate, the switching veil, the resume veil, the service veil), stands wherever content is still
+  coming: a table or poker room not yet received, the Friends page, the Lucky Draw, the level screen and the tax popup before
+  the ladder, the player and own-seat drawers, a store shelf, a paged list's next page. Inside a key or over a tile being
+  bought, where a line of words cannot fit (Play as Guest, Update now / Try again, the drawer keys, Accept, the price keys, the
+  spin key, a picture or emoji being bought, the name field, Switch table), **`GameLoaderRing`** alone, in the old spinner's
+  box. The file's black arc is drawn in the theme's ink (or the key's) by a `ValueDelegate` — black vanished on the dark theme
+  — and the file is never edited; the ring fills its box (`gameLoaderRingShare`: the ring's 196 of the canvas's 540 units,
+  the rest drawn past the box through an `OverflowBox`).
 - **The version gate's three surfaces** (28 Sep 2026; the flow is §8.1 "The app version gate"): `Screen.update` (Force Update) and
   `Screen.maintenance` share ONE frame, `_GatePanel` in `screens/update_screen.dart` — the update screen's own since before the gate:
   the room's ground and drifting chips, one solid gold-edged `PremiumSurface` (solid, not glass: the chips drift behind it), a mark
