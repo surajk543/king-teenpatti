@@ -140,17 +140,27 @@ directory is gone).
 
 ### Every later deploy
 
-Once the unit points at the Go binary, the routine is the old one with the build step swapped in
-(this is `steps.txt`):
+Once the unit points at the Go binary, every deploy is of a TAG — `go-server/vX.Y.Z`, cut on master
+after the release is merged (`ops/release.sh`) — never of "whatever master is now" (this is `steps.txt`;
+29 Sep 2026, owner: deploy a specific tag):
 
 ```bash
-cd /var/www/gameplay/king-teenpatti && git pull origin master
+cd /var/www/gameplay/king-teenpatti
+TAG=go-server/vX.Y.Z                              # the tag to run (an older one rolls back)
+git fetch origin --tags --force
+git status --short --untracked-files=no           # must print nothing
+git checkout --detach "$TAG"
 bash go-server/ops/build.sh
+./go-server/bin/gameplay -version                 # names the tag
 sudo systemctl restart gameplay
 sudo systemctl status gameplay --no-pager
 sudo journalctl -u gameplay -n 20 --no-pager
-curl -s 127.0.0.1:3000/health | python3 -m json.tool | grep -E '"ok"|"node"|"players"'
+curl -s 127.0.0.1:3000/health | python3 -c 'import sys,json;d=json.load(sys.stdin);print(d["ok"], d["version"])'
 ```
+
+The host stays on a detached HEAD at the tag it runs, and the next deploy's fetch and checkout move
+it on. A `git pull origin master` there is no longer part of a deploy: master can be ahead of the last
+tag, and a pull changes the source the next build would compile without changing what is running.
 
 The build writes `bin/gameplay` while the old binary is running — Linux keeps the old inode alive
 until the restart, so building never disturbs the live process. Files under `go-server/public/`
@@ -660,7 +670,7 @@ old dashboard is in git history if you ever want it back).
 | Env file | `server/.env` | `go-server/.env` (copied once by the installer; same keys) |
 | Working directory / browser client | `server/`, `server/public` | `go-server/`, `go-server/public` (`PUBLIC_DIR` in the unit) |
 | Checkout contents | `server/` + `go-server/` | `go-server/` + `tools/` (bots, ramp, parity); `server/` removed from `master` and from the host |
-| Deploy routine | `git pull origin master && npm ci && systemctl restart` | `git pull origin master && bash go-server/ops/build.sh && systemctl restart` (`steps.txt`) |
+| Deploy routine | `git pull origin master && npm ci && systemctl restart` | `git fetch --tags && git checkout --detach go-server/vX.Y.Z && bash go-server/ops/build.sh && systemctl restart` (`steps.txt`; a tag, since 29 Sep 2026) |
 | Monitoring bundle | `server/ops/monitoring/` | `go-server/ops/monitoring/` |
 | `game_*` metrics (sockets, game, latency, HTTP, pool) | | **identical names, labels, buckets** |
 | Process metrics | `game_server_process_*` + `game_server_nodejs_*` | `game_server_process_*` + `game_server_go_*`; **no `nodejs_*` series** |

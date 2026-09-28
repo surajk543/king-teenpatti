@@ -33,7 +33,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 
 | Part | Path | Status |
 |---|---|---|
-| **Game server** | `go-server/` | **The server** — live in production since `go-server/ops/DEPLOY.md` was run (Sept 2026). Go 1.27, one static binary, **PostgreSQL 18** via `pgx`. Database-first money model (§5). Wire-identical to the Node original it replaced — same protocol, JWTs, schema, ledger rows, `/health`, `game_*` metrics (141/141 black-box parity suites). §5–§7 describe its behaviour; §14 its shape. **Since 19 Sep 2026 it also runs the Poker family** (§6.5): 3-Card Poker, 5-Card Draw, Texas Hold'em and Omaha as rooms beside the Teen Patti tables, in `internal/poker/`. **Since 23 Sep 2026 its table configuration can live in PostgreSQL** (owner: "all table related config store in database"): the engines (Teen Patti, Poker), the categories under them, and every lobby table with every figure it plays by, read once at boot when `TABLE_CONFIG_SOURCE=db` (§7.3, §7.4) and served to the app as `GET /api/tables` (§7.2). Configuration only — game state stays in Redis. |
+| **Game server** | `go-server/` | **The server** — live in production since `go-server/ops/DEPLOY.md` was run (Sept 2026). Go 1.27, one static binary, PostgreSQL via `pgx` (**16.15 on production**, 18.6 on the dev box — checked 29 Sep 2026). Database-first money model (§5). Wire-identical to the Node original it replaced — same protocol, JWTs, schema, ledger rows, `/health`, `game_*` metrics (141/141 black-box parity suites). §5–§7 describe its behaviour; §14 its shape. **Since 19 Sep 2026 it also runs the Poker family** (§6.5): 3-Card Poker, 5-Card Draw, Texas Hold'em and Omaha as rooms beside the Teen Patti tables, in `internal/poker/`. **Since 23 Sep 2026 its table configuration can live in PostgreSQL** (owner: "all table related config store in database"): the engines (Teen Patti, Poker), the categories under them, and every lobby table with every figure it plays by, read once at boot when `TABLE_CONFIG_SOURCE=db` (§7.3, §7.4) and served to the app as `GET /api/tables` (§7.2). Configuration only — game state stays in Redis. |
 | Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. **No longer a rollback target at all** (12 Sep 2026): it reads and writes `users.avatar_choice`, which the schema dropped for `active_picture_id`, and knows nothing of the picture-catalogue tables — so it cannot run against this database. `ops/rollback-to-node.sh` was deleted rather than left as a recovery script that would fail when used; rolling back now means the previous **Go** tag (DEPLOY.md §5). |
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
@@ -215,7 +215,7 @@ There is no CI, ESLint or Prettier anywhere, and one Dockerfile (`bot-play/Docke
 | **Go** | 1.27.1 at `~/.local/go` | **Not on PATH** — `export PATH=$HOME/.local/go/bin:$PATH`. `go-server/ops/build.sh` installs exactly this version there when missing (sha256 checked against go.dev); `bot-play/ops/build.sh` uses the same toolchain (running that script when it is missing). Both `go.mod`s say `go 1.27`. |
 | Node.js | v22.22.1 (`>=20`) | Still needed for `tools/` (bots, ramp, parity — ESM, `node:test`), for two Go interop tests that borrow `tools/node_modules`, and by the Flutter toolchain. **Not** needed to run the server or the bot fleet (`bot-play/` is Go since 27 Sep 2026). |
 | npm | 9.2.0 | `cd tools && npm install` once. |
-| **PostgreSQL** | 18.6, local, port 5432 | DB `gameplay`, user/password `postgres`/`postgres`. Default `DATABASE_URL` in config points here. `psql` and `pg_isready` are installed. Go tests skip (not fail) when it is unreachable. |
+| **PostgreSQL** | 18.6, local, port 5432 (production runs **16.15**: 18 records every NOT NULL in `pg_constraint`, 16 does not, so a catalogue count of constraints differs between them by exactly the NOT NULL columns) | DB `gameplay`, user/password `postgres`/`postgres`. Default `DATABASE_URL` in config points here. `psql` and `pg_isready` are installed. Go tests skip (not fail) when it is unreachable. |
 | Flutter | 3.44.7 stable (`/snap/bin/flutter`) | Dart 3.12.2 — this is the **minimum** `pubspec.lock` accepts. Code uses records, switch expressions, `'k': ?v` null-aware map entries, `DropdownButtonFormField(initialValue:)`. |
 | Android SDK | `~/Android/Sdk` | **Not on PATH** — `export PATH="$PATH:$HOME/Android/Sdk/platform-tools:$HOME/Android/Sdk/emulator:$HOME/Android/Sdk/cmdline-tools/latest/bin"` |
 | Emulator images | `system-images;android-36;google_apis;x86_64` (+ android-34) | AVDs: `TP_API36` (Pixel 6), `TP_Small` (Nexus 5, 640×360dp — tightest), `TP_Tablet`, `TP_Tall` (Pixel 7 Pro), `Pixel_6_API_34`. |
@@ -1903,7 +1903,7 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | `MAX_PLAYERS_PER_ROOM` / `MIN_PLAYERS_TO_START` † | 5 / 2 | the Teen Patti felt lays out 2..5 places round its table from it (`SeatRing`, §8.4); 5 is still hardcoded in the poker felt's `seatPlaces` and the browser CSS |
 | `TURN_TIMEOUT_MS` † | 25000 | |
 | `MAX_BET_ROUNDS` / `POT_LIMIT_MULTIPLIER` / `MAX_RAISE_STEPS` † | 20 / 1024 / 8 | defaults only; `createTable` overrides all three per category (seen: 7 / 1024 / 2, blind: 0 / 0 / 0) |
-| `SEEN_MAX_RAISE_STEPS` / `SEEN_MAX_BET_ROUNDS` / `SEEN_MAX_POT` † | 2 / 7 / **2000000** | brief says "10 moves"; code is 7 rounds. **20 Lakh is the most a seen hand can pay** (owner, 12 Sep 2026): the moment the pot reaches it every player still in shows and the best hand takes it (`potCapReached` → `resolveShowdown(…, WinPotLimit)`), and `betOptions` headroom stops a bet that would carry the pot past it. `SEEN_MAX_RAISE_STEPS 2` is the two-rung ladder — chaal, or one raise — so a seen player raises once per turn. |
+| `SEEN_MAX_RAISE_STEPS` / `SEEN_MAX_BET_ROUNDS` / `SEEN_MAX_POT` † | 2 / 7 / **2000000** | brief says "10 moves"; code is 7 rounds. **20 Lakh is the most a seen hand can pay** (owner, 12 Sep 2026): the moment the pot reaches it every player still in shows and the best hand takes it (`potCapReached` → `resolveShowdown(…, WinPotLimit)`), and `betOptions` headroom stops a bet that would carry the pot past it. `SEEN_MAX_RAISE_STEPS 2` is the two-rung ladder — chaal, or one raise — so a seen player raises once per turn. None of the three reaches a public variation table since 28 Sep 2026: it bets as a blind one, fixed in code (§6.4). |
 | `MAX_BLIND_MOVES` † | 4 | |
 | **`WINNER_TAX_MIN_WINNINGS`** † | 5000000 | **Go-only (27 Sep 2026, §6.6).** The smallest WINNINGS (the pot less the winner's own chips) a table that taxes its winners (`LOBBY_TABLES` `tax=1`) taxes; 0 taxes any. db: `table_configs.tax_min_winnings` per row. |
 | `ENTRY_CAP_BOOT` / `ENTRY_CAP_CATEGORY` / `ENTRY_CAP_MAX_CHIPS` † | 200 / blind / 2000000 | Blind 200 is open up to 20 Lakh (owner, 27 Sep 2026; 5 Lakh before). Requirement 30, and now the oldest case of the band above: `RoomManager.tableMaxChips` folds this trio into the matching menu entry's `maxChips`, so the lobby draws it from the same field as every other table. A `max=` on that entry in `LOBBY_TABLES` wins, being the more specific statement. |
@@ -2701,7 +2701,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `EmojiDrawer`, a page of the table's left drawer (never a route): owned emojis to send (tap = send + close; dimmed with
   the dial during the cooldown), locked ones with their price, **bought right there** (owner, 28 Sep 2026: "no need to
   send player to store, he buy emoji there itself"; `unlockEmoji` over the drawer — the store opens only for a wallet too
-  short, on that wallet's shelf; the heading `emojiUnlockMore` reads "Tap one to unlock it"). **An emoji plays over
+  short, on that wallet's shelf; the heading `emojiUnlockMore` reads "Tap one to unlock it"). The app buys one emoji at
+  a time (`GameState.buyEmoji` refuses a second while `buyingEmoji` is set), so while one is being bought its tile wears
+  the game's ring and EVERY locked tile — in the drawer and on the store's shelf — takes no tap until the answer comes
+  back; `unlockEmoji` entered meanwhile says "Please wait..." rather than dropping the tap (review, 29 Sep 2026). **An emoji plays over
   its sender's seat for `GameState.emojiBubbleFor` = 5 s** (owner: "5 seconds instead of 4") on every phone, the sender's
   too, in the chat bubble's place (`SeatPod.emoji`, a one-deep queue per seat), and sits in the chat log as a small
   playing Lottie beside the name; a blocked sender's is hidden. **Two emojis never overlap** (owner, 28 Sep 2026: "if
@@ -3210,8 +3213,13 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   themes — no blur on the felt —, the overlay's light and shadow from the dark depth ladder, cast round it, a gold
   hairline; a shuffle mark beside the title, `_TitleMark`); each key a raised tile (`DepthFace`, the raised shadow) with
   its variation's glyph over its name (`variationIcon`: swap for Muflis, a target for AK47, masks for Joker, a medal for
-  Hukam, double arrows down/up for Lowest/Highest Joker, a fan of cards for 5-Card), the chosen one struck gold; roomy keys
-  62dp. Scenes `19b-variation-picker` in `table_scenes.dart`. A tap darkens all six and
+  Hukam, double arrows down/up for Lowest/Highest Joker, a fan of cards for 5-Card), the chosen one struck gold. Each key is exactly its stated height —
+  `_VariationKey.compactHeight` 44dp (the touch floor), `roomyHeight` 64dp — because its hairline and the panel's are
+  PAINTED inside them rather than drawn as a border (an `Ink` border pads its child by its width, which made every key
+  2dp taller); the mark is 15dp over a name alone, 16dp over a name and its note, and the words keep their room (the
+  panel is 166dp at 640x360, 224dp on a roomy screen, the sums in `VariationPrompt`'s doc); a finger on a key takes its
+  raised light to a third (`pressedLight`). `test/variation_picker_keys_test.dart`; scene `19b-variation-picker` in
+  `table_scenes.dart`. A tap darkens all six and
   `GameState.selectVariation` **awaits the ack**: taken → dark until the snapshot removes the panel however slow the link;
   refused or unanswered → the keys come back. As the window opens for the viewer, the drawers close and any sheet over
   the table is popped (`popUntil(isFirst)`, as `_TableRoutes` does). Everyone else gets `VariationSelectingLine` in
@@ -4330,10 +4338,11 @@ unchanged). The unit's `WorkingDirectory`, `EnvironmentFile` and `PUBLIC_DIR` ar
 `PUBLIC_DIR=/var/www/gameplay/king-teenpatti/go-server/public`. No Go toolchain on the host beforehand:
 `ops/build.sh` installs Go 1.27.1 into `~/.local/go` (sha256 checked against go.dev) and builds a static binary.
 ```bash
-cd /var/www/gameplay/king-teenpatti && git pull origin master
+# every deploy is of a TAG (29 Sep 2026, owner): steps.txt step 1, DEPLOY.md "Every later deploy"
+cd /var/www/gameplay/king-teenpatti && git fetch origin --tags --force && git checkout --detach go-server/vX.Y.Z
 bash go-server/ops/build.sh                                       # as deploy, no sudo
 sudo bash go-server/ops/install-go-server.sh                      # FIRST TIME: backs up the Node unit → gameplay.service.node.bak, copies server/.env → go-server/.env, installs gameplay-go.service AS gameplay.service, restarts, checks /health process.node = go… and /metrics 200, then rm -rf's server/ from the host (KEEP_NODE_TREE=1 skips; a differing server/.env is kept as go-server/.env.node.bak)
-sudo systemctl restart gameplay                                   # every later deploy (after git pull + build.sh)
+sudo systemctl restart gameplay                                   # every later deploy (after the tag's checkout + build.sh)
 sudo systemctl status gameplay --no-pager && sudo journalctl -u gameplay -n 20 --no-pager
 curl -s 127.0.0.1:3000/health | python3 -m json.tool | head -20   # process.node must start with "go"
 # rollback = the PREVIOUS GO TAG, never Node (it cannot run against this schema — DEPLOY.md §5)
