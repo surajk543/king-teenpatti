@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import 'avatar.dart';
 import 'picture_shelf.dart';
 import 'poker_chip.dart';
+import 'premium_surface.dart';
 
 /// What a prize is called: "10 Lakh chips", "5 diamonds", "4 hammers",
 /// "2 missiles", a picture's name, "No prize".
@@ -272,46 +273,40 @@ class LuckyPrizeTile extends StatelessWidget {
             dark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
           )
         : (dark ? Colors.white.withValues(alpha: 0.05) : Colors.white);
-    final shadow = AppTheme.shadowFor(b);
-    final resting = <BoxShadow>[
-      if (!dark) ...[
-        BoxShadow(
-          color: shadow.withValues(alpha: 0.05),
-          blurRadius: 2,
-          offset: const Offset(0, 1),
-        ),
-        BoxShadow(
-          color: shadow.withValues(alpha: 0.09),
-          blurRadius: 12,
-          offset: const Offset(0, 3),
-        ),
-      ],
-    ];
-
-    final content = LayoutBuilder(
-      builder: (context, box) => _content(context, box.biggest),
+    // A tile on the page, one step above it (the depth ladder's raised step,
+    // nested: the page's small shadow, not the room's) — by night too, where
+    // it had none — cast round the tile and never under it, since by night
+    // its fill is a veil of white; and its top edge lit and its foot in shade
+    // under its words.
+    final content = DepthFace(
+      radius: Radii.md,
+      child: LayoutBuilder(
+        builder: (context, box) => _content(context, box.biggest),
+      ),
     );
 
     Widget tile(double swell) => Transform.scale(
       scale: 1 + 0.035 * swell,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: fill,
-          borderRadius: radius,
-          border: Border.all(color: ring, width: won ? 2 : Dim.hairline),
-          boxShadow: [
-            ...resting,
-            if (celebrate)
-              BoxShadow(
-                color: AppTheme.gold.withValues(
-                  alpha: (dark ? 0.24 : 0.18) + 0.30 * swell,
+      child: DepthShadow(
+        radius: Radii.md,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: fill,
+            borderRadius: radius,
+            border: Border.all(color: ring, width: won ? 2 : Dim.hairline),
+            boxShadow: [
+              if (celebrate)
+                BoxShadow(
+                  color: AppTheme.gold.withValues(
+                    alpha: (dark ? 0.24 : 0.18) + 0.30 * swell,
+                  ),
+                  blurRadius: 18,
+                  spreadRadius: 0.5,
                 ),
-                blurRadius: 18,
-                spreadRadius: 0.5,
-              ),
-          ],
+            ],
+          ),
+          child: content,
         ),
-        child: content,
       ),
     );
 

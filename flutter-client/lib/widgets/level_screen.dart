@@ -8,6 +8,7 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/depth.dart';
 import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
 import 'chip_store.dart';
@@ -360,6 +361,7 @@ class _LevelScreenState extends State<LevelScreen> {
         child: PremiumGlassPanel(
           mode: GlassMode.auto,
           priority: 20,
+          depth: Elevation.overlay,
           radius: Radii.lg,
           padding: const EdgeInsets.fromLTRB(
             Space.lg,
@@ -1080,23 +1082,33 @@ class LevelCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final glass = GlassColors.of(context);
     final a = accent;
-    return Container(
-      padding: padding,
-      decoration: BoxDecoration(
-        color: a == null
-            ? glass.wellFill
-            : Color.alphaBlend(
-                a.withValues(alpha: 0.08 * accentStrength),
-                glass.wellFill,
-              ),
-        borderRadius: BorderRadius.circular(Radii.md),
-        border: Border.all(
+    // A card on the sheet, one step above it (the depth ladder's raised
+    // step: nested, so its shadow is the sheet's small one, not the room's),
+    // cast round the card and never under it — by night its fill is a veil
+    // of white the shadow would show through.
+    return DepthShadow(
+      radius: Radii.md,
+      child: Container(
+        decoration: BoxDecoration(
           color: a == null
-              ? glass.cardBorder
-              : a.withValues(alpha: 0.55 * accentStrength),
+              ? glass.wellFill
+              : Color.alphaBlend(
+                  a.withValues(alpha: 0.08 * accentStrength),
+                  glass.wellFill,
+                ),
+          borderRadius: BorderRadius.circular(Radii.md),
+          border: Border.all(
+            color: a == null
+                ? glass.cardBorder
+                : a.withValues(alpha: 0.55 * accentStrength),
+          ),
+        ),
+        // Its top edge lit and its foot in shade, under its words.
+        child: DepthFace(
+          radius: Radii.md,
+          child: Padding(padding: padding, child: child),
         ),
       ),
-      child: child,
     );
   }
 }

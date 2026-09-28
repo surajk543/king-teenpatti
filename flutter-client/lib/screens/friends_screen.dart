@@ -13,6 +13,7 @@ import '../state/friends_state.dart';
 import '../state/game_state.dart';
 import '../state/player_reports.dart';
 import '../theme/app_theme.dart';
+import '../theme/depth.dart';
 import '../theme/theme_colors.dart';
 import '../widgets/avatar.dart';
 import '../widgets/edge_fade.dart';
@@ -534,6 +535,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 child: PremiumGlassPanel(
                   mode: GlassMode.auto,
                   priority: 20,
+                  depth: Elevation.overlay,
                   radius: Radii.lg,
                   // Obsidian glass by night, the lobby's own card warmed by
                   // day, lit gold along its top edge — the Lucky Draw's page.

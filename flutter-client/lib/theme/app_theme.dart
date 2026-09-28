@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flex_color_scheme/flex_color_scheme.dart';
 import 'package:flutter/material.dart';
 
+import 'depth.dart';
 import 'theme_colors.dart';
 
 /// The one spacing ramp.
@@ -868,29 +869,13 @@ class AppTheme {
     ];
   }
 
-  /// What a glass panel casts: a tight directional shadow under its edge and
-  /// a broad ambient one, tuned per ground. Never a bloom — an accent bloom is
-  /// reserved for the felt, the winner's pod and the buy-chips button, so
-  /// that a bloom always means the game did something.
-  static List<BoxShadow> glassShadow(Brightness brightness) {
-    final s = shadowFor(brightness);
-    final dark = brightness == Brightness.dark;
-
-    return [
-      // Directional: the pane's contact with what is under it.
-      BoxShadow(
-        color: s.withValues(alpha: dark ? 0.45 : 0.08),
-        blurRadius: 8,
-        offset: const Offset(0, 3),
-      ),
-      // Ambient: the room's light falling around it.
-      BoxShadow(
-        color: s.withValues(alpha: dark ? 0.35 : 0.10),
-        blurRadius: 28,
-        offset: const Offset(0, 12),
-      ),
-    ];
-  }
+  /// What a glass panel standing on the room casts: the depth ladder's card
+  /// ([Depth], [Elevation.card]) — a tight contact shadow under its edge and a
+  /// soft ambient one pooled beneath it, tuned per ground. Never a bloom — an
+  /// accent bloom is reserved for the felt, the winner's pod and the
+  /// buy-chips button, so that a bloom always means the game did something.
+  static List<BoxShadow> glassShadow(Brightness brightness) =>
+      Depth.shadows(brightness, Elevation.card);
 
   /// Every figure that represents chips, a count, a countdown or a code.
   ///

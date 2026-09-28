@@ -11,6 +11,7 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/depth.dart';
 import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
 import 'avatar.dart';
@@ -1276,6 +1277,7 @@ class _ChipStoreState extends State<_ChipStore> {
               // radius is the theme's own (GlassColors.sigma).
               mode: GlassMode.auto,
               priority: 20,
+              depth: Elevation.overlay,
               radius: Radii.lg,
               // On a short screen every dp over the navigation's own row is
               // a dp of the products', so the sheet there has no grab handle
@@ -2899,7 +2901,6 @@ class _PriceButton extends StatelessWidget {
       curve: Motion.standard,
       height: height,
       width: double.infinity,
-      padding: EdgeInsets.symmetric(horizontal: height * 0.22),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(Radii.pill),
         gradient: LinearGradient(
@@ -2922,45 +2923,53 @@ class _PriceButton extends StatelessWidget {
           ),
         ],
       ),
-      child: busy
-          ? Center(
-              child: GameLoaderRing(size: height * 0.44, ink: ink),
-            )
-          : FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (leading != null) ...[
-                    leading!,
-                    const SizedBox(width: Space.xs),
-                  ],
-                  Text(
-                    label,
-                    maxLines: 1,
-                    style: AppTheme.money(
-                      theme.textTheme.titleSmall!,
-                      fontSize: font,
-                      colour: text,
-                    ),
+      // A key standing on its card (the depth ladder's raised step): its
+      // top edge lit and its foot in shade, under the price, as every key's.
+      child: DepthFace(
+        radius: Radii.pill,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: height * 0.22),
+          child: busy
+              ? Center(
+                  child: GameLoaderRing(size: height * 0.44, ink: ink),
+                )
+              : FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (leading != null) ...[
+                        leading!,
+                        const SizedBox(width: Space.xs),
+                      ],
+                      Text(
+                        label,
+                        maxLines: 1,
+                        style: AppTheme.money(
+                          theme.textTheme.titleSmall!,
+                          fontSize: font,
+                          colour: text,
+                        ),
+                      ),
+                      const SizedBox(width: Space.sm),
+                      Container(
+                        width: disc,
+                        height: disc,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: ink,
+                        ),
+                        child: Icon(
+                          Icons.arrow_forward_rounded,
+                          size: disc * 0.66,
+                          color: arrow,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: Space.sm),
-                  Container(
-                    width: disc,
-                    height: disc,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: ink,
-                    ),
-                    child: Icon(
-                      Icons.arrow_forward_rounded,
-                      size: disc * 0.66,
-                      color: arrow,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+                ),
+        ),
+      ),
     );
   }
 }

@@ -177,10 +177,18 @@ class GlassColors extends ThemeExtension<GlassColors> {
     cardHighlight: Color(0xFFFFFFFF),
     cardMuted: Color(0xFF6B6F78),
     // The slate-blue shadow the light theme casts everywhere (shadowFor), at
-    // an alpha a white card needs and no more.
+    // an alpha a white card needs and no more: a tight contact shadow and a
+    // soft ambient one pooled beneath it — the depth pass (28 Sep 2026) let
+    // the ambient reach a little further (0x14 over 20dp, 8 down, before), so
+    // a white card stands off the pale room rather than lying on it.
     cardShadow: [
-      BoxShadow(color: Color(0x0D0E1220), blurRadius: 3, offset: Offset(0, 1)),
-      BoxShadow(color: Color(0x140E1220), blurRadius: 20, offset: Offset(0, 8)),
+      BoxShadow(color: Color(0x0F0E1220), blurRadius: 3, offset: Offset(0, 1)),
+      BoxShadow(
+        color: Color(0x1A0E1220),
+        blurRadius: 26,
+        spreadRadius: -3,
+        offset: Offset(0, 11),
+      ),
     ],
     glowStrength: 0.05,
     glowReach: 0.56,

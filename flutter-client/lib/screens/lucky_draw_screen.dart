@@ -8,6 +8,7 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/depth.dart';
 import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/lucky_prizes.dart';
@@ -419,6 +420,7 @@ class _LuckyDrawScreenState extends State<LuckyDrawScreen>
                       child: PremiumGlassPanel(
                         mode: GlassMode.auto,
                         priority: 20,
+                        depth: Elevation.overlay,
                         radius: Radii.lg,
                         // Obsidian glass over the dimmed lobby by night; by
                         // day the lobby's own card, warmed to a cream, since

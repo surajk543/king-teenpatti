@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../theme/app_theme.dart';
+import '../theme/depth.dart';
 import '../theme/theme_colors.dart';
 
 /// The app's one raised-surface treatment: a tinted gradient, a lit edge in an
@@ -54,12 +55,16 @@ class PremiumSurface extends StatelessWidget {
   final double? tint;
   final bool elevated;
 
-  /// How deep the lit top edge runs.
+  /// Whether the surface's edge catches the light: 0 asks for none, anything
+  /// else (and null, the default) lights it as the depth ladder lights a card
+  /// ([SurfaceLight]) — a line along the top edge that curls into the
+  /// corners, and a shade along the foot.
   ///
-  /// It used to be the corner radius, which is right for a card and absurd for
-  /// the felt: at `radius: h / 2` the highlight washed over the top half of the
-  /// table. Light catches a bevel, and a bevel is a couple of pixels whatever
-  /// the corner does.
+  /// It was the depth of a straight band of light across the top, and before
+  /// that the corner radius, which is right for a card and absurd for the
+  /// felt: at `radius: h / 2` the highlight washed over the top half of the
+  /// table. Light catches a bevel, and a bevel is a line whatever the corner
+  /// does.
   final double? bevel;
 
   /// The alpha of the accent bloom under the surface.
@@ -93,6 +98,13 @@ class PremiumSurface extends StatelessWidget {
     final shadow = AppTheme.shadowFor(theme.brightness);
     final bloomAlpha = bloom ?? (dark ? 0.14 : 0.13);
     final lip = bevel ?? math.min(radius, 3.0);
+    // The light the surface catches as a card on the depth ladder: its top
+    // edge lit — as brightly as its bevel always was — curling into its
+    // corners, its foot in shade, and by night a breath of light over its
+    // upper part. Under what is on it.
+    final light = Depth.of(context)
+        .light(Elevation.card)
+        .copyWith(rim: Colors.white.withValues(alpha: dark ? 0.14 : 0.34));
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -138,37 +150,104 @@ class PremiumSurface extends StatelessWidget {
         borderRadius: BorderRadius.circular(radius),
         child: Stack(
           children: [
-            glint ? Glint(child: child) : child,
-            // Light catching the top bevel. Two or three pixels of brightness
-            // along the upper edge is what separates a panel from a rectangle
-            // of colour, and it costs nothing to draw.
+            // Light catching the top edge, and the shade along the foot. A
+            // lit edge is what separates a panel from a rectangle of colour,
+            // and it costs nothing to draw. A bevel of 0 asks for none.
             if (lip > 0)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: lip,
+              Positioned.fill(
                 child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.white.withValues(alpha: dark ? 0.14 : 0.34),
-                          Colors.white.withValues(alpha: 0),
-                        ],
-                      ),
-                    ),
+                  child: CustomPaint(
+                    painter: SurfaceLight(radius: radius, light: light),
                   ),
                 ),
               ),
+            glint ? Glint(child: child) : child,
           ],
         ),
       ),
     );
   }
 }
+
+/// The depth ladder's light ([Depth], [SurfaceLight]) on a rounded surface
+/// that is not a glass panel — a key, a pill, a plate, a tile, a well: laid
+/// over the surface's own body and under [child], so nothing on the surface
+/// is covered and nothing about its size or place changes.
+///
+/// Put it between the surface's decoration and its content, sized as the
+/// surface is: `DecoratedBox(decoration, child: DepthFace(child: content))`.
+class DepthFace extends StatelessWidget {
+  const DepthFace({
+    super.key,
+    required this.radius,
+    required this.child,
+    this.level = Elevation.raised,
+    this.brightness,
+    this.strength = 1,
+  });
+
+  /// The surface's corner radius; a capsule may pass [Radii.pill].
+  final double radius;
+
+  /// Where the surface stands on the ladder.
+  final Elevation level;
+
+  /// The ladder of a surface that is one brightness whatever the theme —
+  /// the dark plates and the wallet on the table; null follows the theme.
+  final Brightness? brightness;
+
+  /// How much of the light a surface takes: less on a saturated fill, and on
+  /// a key pressed in.
+  final double strength;
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = brightness == null
+        ? Depth.of(context)
+        : Depth.forBrightness(brightness!);
+    return CustomPaint(
+      painter: SurfaceLight(
+        radius: radius,
+        light: scheme.light(level).scaled(strength),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// The corner radius of a button's [shape], for its face's light: a capsule
+/// for a stadium or a circle (and for no shape at all, Material 3's own
+/// button shape), the top-left corner of a rounded rectangle.
+double radiusOfShape(ShapeBorder? shape) => switch (shape) {
+  RoundedRectangleBorder(:final borderRadius) =>
+    borderRadius.resolve(TextDirection.ltr).topLeft.x,
+  ContinuousRectangleBorder(:final borderRadius) =>
+    borderRadius.resolve(TextDirection.ltr).topLeft.x,
+  _ => Radii.pill,
+};
+
+/// A button's background builder ([ButtonStyle.backgroundBuilder]) that lays
+/// the ladder's [Elevation.raised] light on the key under its label: lit
+/// while it can be pressed, a third of it while a finger holds it down, and
+/// none at all when it cannot be pressed — a dead key sits flush, as its
+/// shadow already does ([AppTheme.liftElevation]).
+ButtonLayerBuilder raisedKeyFace({
+  required double radius,
+  double strength = 1,
+  Brightness? brightness,
+}) => (context, states, child) {
+  if (child == null || states.contains(WidgetState.disabled)) {
+    return child ?? const SizedBox.shrink();
+  }
+  return DepthFace(
+    radius: radius,
+    brightness: brightness,
+    strength: states.contains(WidgetState.pressed) ? strength / 3 : strength,
+    child: child,
+  );
+};
 
 /// How a glass panel renders.
 ///
@@ -219,9 +298,18 @@ class PremiumGlassPanel extends StatefulWidget {
     this.clipBehavior = Clip.antiAlias,
     this.surface = GlassSurface.pane,
     this.edge,
+    this.depth = Elevation.card,
   });
 
   final Widget child;
+
+  /// Where the panel stands on the depth ladder ([Elevation]): what it casts
+  /// and how its edge is lit. A [Elevation.card] by default — a lobby card, a
+  /// seat pod, a pane on the room; [Elevation.overlay] for a dialog, a drawer
+  /// or a sheet laid over the room; [Elevation.raised] for a chip or a pill.
+  /// A lobby card ([GlassSurface.card]) at [Elevation.card] keeps the theme's
+  /// own card shadow ([GlassColors.cardShadow]).
+  final Elevation depth;
 
   /// The panel's own inset. No default: see the class doc.
   final EdgeInsetsGeometry padding;
@@ -367,14 +455,37 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
         : [widget.edge ?? glass.borderTop, glass.borderBottom];
     final border = widget.live ? [live, live] : rest;
 
+    // Where the panel stands on the depth ladder: what it casts, and the
+    // light along its edges. Under the panel, the shadow a card has always
+    // cast — the theme's own card shadow for a lobby card, the pane's for a
+    // pane — or a raised capsule's small one; an overlay keeps that and
+    // throws its far reach round itself, outside its body only, so neither a
+    // blur behind the glass nor the glass itself is darkened by it. A panel
+    // at card height keeps the theme's own lit top line
+    // ([GlassColors.cardHighlight], [GlassColors.highlight]) along its edge.
+    final depth = Depth.of(context);
+    final level = widget.depth;
+    final atCard = level == Elevation.card;
+    final raised = level == Elevation.raised;
+    final shadows = !widget.elevated
+        ? null
+        : raised
+        ? depth.shadows(Elevation.raised)
+        : card
+        ? glass.cardShadow
+        : depth.shadows(Elevation.card);
+    final reach = widget.elevated && level == Elevation.overlay
+        ? depth.overlayReach
+        : const <BoxShadow>[];
+    var light = depth.light(level);
+    if (atCard) {
+      light = light.copyWith(rim: card ? glass.cardHighlight : glass.highlight);
+    }
+
     final panel = DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(widget.radius),
-        boxShadow: !widget.elevated
-            ? null
-            : card
-            ? glass.cardShadow
-            : AppTheme.glassShadow(theme.brightness),
+        boxShadow: shadows,
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(widget.radius),
@@ -410,25 +521,15 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
             ),
             if (widget.behind != null)
               Positioned.fill(child: IgnorePointer(child: widget.behind!)),
-            // A fixed 2dp sheen, never the corner radius.
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 2,
+            // The light the panel catches at its height on the ladder: its top
+            // edge lit and its foot in shade, just inside the hairline, and by
+            // night a breath of light over its upper part. It replaces a flat
+            // 2dp sheen straight across the top, which the corners cut off
+            // and which said nothing about the foot.
+            Positioned.fill(
               child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        card ? glass.cardHighlight : glass.highlight,
-                        (card ? glass.cardHighlight : glass.highlight)
-                            .withValues(alpha: 0),
-                      ],
-                    ),
-                  ),
+                child: CustomPaint(
+                  painter: SurfaceLight(radius: widget.radius, light: light),
                 ),
               ),
             ),
@@ -445,10 +546,48 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
       ),
     );
 
+    // An overlay's far reach, round it and never under it.
+    final lifted = reach.isEmpty
+        ? panel
+        : CustomPaint(
+            painter: OuterShadow(radius: widget.radius, shadows: reach),
+            child: panel,
+          );
+
     // A blur is an offscreen pass; keeping it off its neighbours' repaints is
     // the whole point of paying for one at all.
-    return blurring ? RepaintBoundary(child: panel) : panel;
+    return blurring ? RepaintBoundary(child: lifted) : lifted;
   }
+}
+
+/// [DepthScheme.shadows] at [level] cast by a translucent rounded surface —
+/// glass, a veil of colour, a pill of the room's ink — round it and never
+/// under it ([OuterShadow]), so the surface keeps its own colour: put it
+/// round the surface, `DepthShadow(radius: r, child: surface)`.
+class DepthShadow extends StatelessWidget {
+  const DepthShadow({
+    super.key,
+    required this.radius,
+    required this.child,
+    this.level = Elevation.raised,
+  });
+
+  /// The surface's corner radius; a capsule may pass [Radii.pill].
+  final double radius;
+
+  /// Where the surface stands on the ladder.
+  final Elevation level;
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+    painter: OuterShadow(
+      radius: radius,
+      shadows: Depth.of(context).shadows(level),
+    ),
+    child: child,
+  );
 }
 
 /// How many blurred panels may exist at once, and who currently holds them.

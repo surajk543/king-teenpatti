@@ -9,6 +9,7 @@ import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
+import '../theme/depth.dart';
 import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
 import 'edge_fade.dart';
@@ -1006,6 +1007,7 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
         child: PremiumGlassPanel(
           mode: GlassMode.auto,
           priority: 20,
+          depth: Elevation.overlay,
           radius: Radii.lg,
           padding: const EdgeInsets.fromLTRB(
             Space.lg,

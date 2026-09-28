@@ -183,6 +183,7 @@ king-teenpatti/
     │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4)
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
     │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4); CasinoTableColors (the casino table's, §8.4)
+    │   ├── theme/depth.dart      the depth ladder (28 Sep 2026, §8.4): Elevation, Depth/DepthScheme (every shadow and edge light), SurfaceLight, OuterShadow
     │   ├── widgets/glass_components.dart  tapHaptic, PressScale, GlassCard, GlassButton, GlassTextField, GlassThemeSwitcher
     │   ├── state/theme_preference.dart  themeMode read/write (+ legacy darkMode); state/consent.dart  the no-winnings flag
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
@@ -3567,6 +3568,43 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `_raisedButtons` = state-driven elevation (`liftElevation`: disabled 0, pressed rest/3, hover 2×),
   tinted `shadowFor`, transparent surfaceTint; text buttons flat. `PremiumSurface` = the one raised
   treatment (3 shadows + bevel + optional `Glint`).
+- **The depth pass** (owner, 28 Sep 2026: "Do not redesign the UI. Preserve the exact current layout and visual language.
+  Make the existing UI feel physically layered and naturally elevated using depth, luminance separation, soft ambient
+  shadows, subtle inner highlights, translucent surfaces and nested elevation. Keep the same colors, typography, spacing,
+  card shapes, buttons and icons. Improve depth, not decoration."; presentation only — no size, padding, position, radius,
+  type, colour token or icon moved, and every geometry test passes unchanged). **One ladder**, `theme/depth.dart`:
+  `Elevation {ground, well, card, raised, overlay}`, NESTED — a surface's shadow says how far it stands above the surface
+  directly under it, so a key on a card casts the key's small shadow on the card (`raised`, 2dp contact + 9dp ambient),
+  a pane on the room the pane's (`card` = exactly what `AppTheme.glassShadow` always cast), and a dialog, drawer or sheet
+  that plus a far soft reach round itself (`overlay`, `DepthScheme.overlayReach`, 48dp, 22 down). `Depth.of(context)` (lerped
+  on `GlassColors.dayShare`, so it cross-fades with the theme) or `Depth.forBrightness` (the plates and the wallet, dark in
+  both themes) holds every number: per level its shadow pair in `AppTheme.shadowFor`, and the light it catches
+  (`SurfaceLight`, `DepthLight`) — a line just inside the hairline lit along the top edge and curling down into the
+  corners, a shade along the foot, and by night a breath of light over the upper half (0.04–0.05 white: luminance
+  separation, since on obsidian a shadow cannot show). A **well** is the light turned over (shaded top inside edge, lit lip,
+  no shadow). **A translucent surface casts round itself and never under itself** (`OuterShadow`, `DepthShadow`: the shadow
+  clipped to outside its shape) — under glass or a veil of colour a `BoxDecoration` shadow shows through and changes the
+  surface's own colour (the first cut turned the lobby's wallet pill grey by day and near-black by night, and darkened
+  the Lucky page through its blur). **Where**: `PremiumGlassPanel.depth` (default `card`; its flat 2dp sheen is now
+  `SurfaceLight`, rimmed in the theme's own `highlight`/`cardHighlight` at card height); `overlay` for `GlassDialog`,
+  `GlassDrawerPanel`, `NoticeToast`, the lobby's two drawers, the store, the picture picker, the level screen, the
+  table-tax popup, the Lucky Draw and Friends pages, the consent and soft-update panels and the switching veil;
+  `GlassCapsule` at `raised` (the corner chips, the level and Friends keys); `GlassCard.depth`; `PremiumSurface`'s straight
+  3px bevel → `SurfaceLight`. On anything else a `DepthFace` (the light under a surface's content) and, for Material
+  buttons, `raisedKeyFace` (a `ButtonStyle.backgroundBuilder`: lit while pressable, a third while pressed in, none when
+  dead — a dead key sits flush, as its shadow does): `MachinedKey` (not the struck-gold face, which has its own lit edge),
+  `StepperKey`, `RailKey`, `GlassButton` (primary at 0.35, text flat), the lobby card's View tables key, the store's price
+  key; `Plate` (its flat 1px top line → the dark ladder's edge), the table's `WalletPill` and the lobby's wallet and bar
+  pills (`DepthShadow`); nested cards one step above their sheet — `LevelCard`, `LuckyPrizeTile` (shadowed by night too
+  now), the settings groups, `PerformanceStatCard` (light only: by night it is glass on glass and casts nothing); wells —
+  the pod's stack pill and `GlassThemeSwitcher`'s track. By day the lobby cards' ambient reaches a little further
+  (`GlassColors.light.cardShadow`: 0x1A over 26dp, 11 down, spread −3; 0x14 over 20dp before). Static paint only (every
+  painter compares all its inputs), no new blur and no new colour; left as they were: the store's navigation keys, the
+  picture tiles, the casino table, the cards, the Shop and Chaal gold. `test/depth_ladder_test.dart` (the ladder's order and
+  colours, the pane's shadow unchanged, night and day light, the well, the cross-fade, the light moving nothing, a key lit
+  only while pressable, overlays' reach, and a translucent pill's middle pixel unchanged by its shadow — proven to fail with
+  a shadow painted under it); the rest of the suite unchanged (on this Mac the same 43 Indic-font failures as master);
+  pictures by hand with the `*_shots.dart` harnesses.
 - **The Google photo on the picture shelf** (owner, 28 Sep 2026: "in profile picture selection show his google profile image
   also, which he can select again after selecting different profile picture"; `picture_shelf.dart` `providerPictureOf`,
   `providerPictureKey`, `shelfCount`). The account's own sign-in photo (`user.providerAvatarUrl`) is the FIRST tile of the All
@@ -3900,6 +3938,9 @@ own colours `CasinoTableColors` (one painter, both themes); a console key states
 console, never a second. **A card** is a `PlayingCard` at a height and nothing else: where anything on its face goes is
 `CardFaceMetrics`, its corner `PlayingCard.cornerShare`, its shadows `PlayingCard.shadows`, and the viewer's fan `HandFan`
 — never a second card widget, a literal card radius or a fan's numbers written out again.
+**Depth** is the ladder's (`theme/depth.dart`, §8.4 "The depth pass"): a new surface states its `Elevation` —
+`PremiumGlassPanel.depth`, `DepthFace`, `raisedKeyFace`, `DepthShadow` — rather than a shadow, an edge light or a sheen of
+its own; a translucent surface casts round itself (`DepthShadow`), never through a `BoxDecoration.boxShadow` under it.
 
 ---
 
