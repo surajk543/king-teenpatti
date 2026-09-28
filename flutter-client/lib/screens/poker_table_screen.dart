@@ -328,9 +328,11 @@ class _PokerFeltState extends State<_PokerFelt>
   @override
   Iterable<Rect> emojiCoversOver(Rect? Function(GlobalKey key) rectOf) => [
     ?rectOf(_handKey),
-    ?_handZone,
     for (final key in widget.covers.all) ?rectOf(key),
   ];
+
+  @override
+  Rect? get emojiHandZone => _handZone;
 
   @override
   Widget build(BuildContext context) {
@@ -459,10 +461,10 @@ class _PokerFeltState extends State<_PokerFelt>
               emoji: state.emojiOver(s?.userId),
               emojiUrl: state.absoluteUrl(state.emojiOver(s?.userId)?.url),
               // Moved beside or above the pod where its own place would meet
-              // another seat's emoji, and never under anything drawn after
-              // the seat (EmojiPlacement).
+              // another seat's emoji, or onto the pod where no place beside
+              // it would do; never under anything drawn after the seat
+              // (EmojiPlacement).
               emojiPlace: emojiPlaceOf(s?.userId),
-              emojiShift: emojiShiftOf(s?.userId),
               emojiKey: emojiKeyAt(viewIndex),
               bubbleSide: viewIndex == 0
                   ? BubbleSide.above

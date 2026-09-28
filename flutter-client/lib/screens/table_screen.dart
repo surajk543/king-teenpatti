@@ -826,9 +826,11 @@ class _FeltState extends State<_Felt>
   @override
   Iterable<Rect> emojiCoversOver(Rect? Function(GlobalKey key) rectOf) => [
     ?rectOf(_handKey),
-    ?_handZone,
     for (final key in widget.covers.all) ?rectOf(key),
   ];
+
+  @override
+  Rect? get emojiHandZone => _handZone;
 
   /// The strike's clock, 0 to 1 over [HammerTiming.total]. Created by the
   /// first strike, never in advance and never by [dispose] (CLAUDE.md §12.3).
@@ -1444,10 +1446,10 @@ class _FeltState extends State<_Felt>
               emoji: state.emojiOver(s?.userId),
               emojiUrl: state.absoluteUrl(state.emojiOver(s?.userId)?.url),
               // Moved beside or above the pod where its own place would meet
-              // another seat's emoji, and never under anything drawn after
-              // the seat (EmojiPlacement).
+              // another seat's emoji, or onto the pod where no place beside
+              // it would do; never under anything drawn after the seat
+              // (EmojiPlacement).
               emojiPlace: emojiPlaceOf(s?.userId),
-              emojiShift: emojiShiftOf(s?.userId),
               emojiKey: emojiKeyAt(viewIndex),
               // A bubble opens towards the middle of the table: seats on the
               // left speak to the right, seats on the right to the left, and

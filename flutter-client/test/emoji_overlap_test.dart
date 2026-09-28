@@ -1,11 +1,13 @@
 // Emojis never land on each other (owner, 28 Sep 2026: "when two players send
 // emoji in any game table then their emoji should not overlap, if overlap then
 // change the direction so that it does not overlap"). An emoji plays in its
-// bubble's own place; one that would meet an emoji already playing moves
-// beside or above its sender's pod, and keeps that place while it plays —
-// never under anything painted after it: a seat the felt paints later, the
-// viewer's own hand, the keys and controls the screen stands over the felt.
-// At a poker room too.
+// bubble's own place; one whose place will not do moves beside or above its
+// sender's pod — never over another seat's pod or into another seat's own
+// place — and where none of those will do, onto its sender's own pod, which
+// is always free. Wherever it plays it keeps that place while it plays, stays
+// on the felt, and is never under anything painted after it: a seat the felt
+// paints later, the viewer's own hand, the keys and controls the screen stands
+// over the felt. In every order the players send in, at a poker room too.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:teenpatti/models/dtos.dart';
@@ -156,15 +158,14 @@ Finder _plaqueOf(String userId) => find
     .descendant(of: _podOf(userId), matching: find.byType(GestureDetector))
     .first;
 
-/// [userId]'s emoji, if it has moved from its own place, stands over nothing
-/// the felt or the screen paints after it: it is seen whole.
+/// [userId]'s emoji, wherever it plays, stands over nothing the felt or the
+/// screen paints after it: it is seen whole.
 void _expectOnTop(
   WidgetTester tester,
   String userId,
   List<String> seated, {
   bool poker = false,
 }) {
-  if (_placeOf(tester, userId) == EmojiPlace.column) return;
   final emoji = tester.getRect(_emojiOf(userId));
   for (final MapEntry(key: what, value: r) in _paintedOver(
     tester,
@@ -192,6 +193,165 @@ void _expectOnScreen(WidgetTester tester, List<String> ids, Size size) {
   }
 }
 
+/// Every order [ids] can be sent in (all 120 of five).
+List<List<String>> _orders(List<String> ids) => ids.length <= 1
+    ? [ids]
+    : [
+        for (final first in ids)
+          for (final rest in _orders([
+            for (final id in ids)
+              if (id != first) id,
+          ]))
+            [first, ...rest],
+      ];
+
+/// The felt's own box, which every emoji plays inside.
+Rect _feltOf(WidgetTester tester, {bool poker = false}) => tester.getRect(
+  find
+      .descendant(
+        of: _private(poker ? '_PokerFelt' : '_Felt'),
+        matching: find.byType(LayoutBuilder),
+      )
+      .first,
+);
+
+/// Every emoji playing on the felt, by its sender: where it stands and in
+/// which of its seat's places — found in one walk of the tree.
+Map<String, ({Rect rect, EmojiPlace place})> _playing(WidgetTester tester) => {
+  for (final element in find.byKey(const ValueKey('seat-emoji')).evaluate())
+    if (element.findAncestorWidgetOfExactType<SeatPod>() case final seat?)
+      if ((seat.seat?.userId, element.renderObject) case (
+        final String id,
+        final RenderBox box,
+      ))
+        id: (
+          rect: Rect.fromPoints(
+            box.localToGlobal(Offset.zero),
+            box.localToGlobal(box.size.bottomRight(Offset.zero)),
+          ),
+          place: seat.emojiPlace,
+        ),
+};
+
+/// What every emoji is held to, measured once: the felt, each seat and its
+/// pod, and what is painted over each seat ([_paintedOver]). None of it moves
+/// while emojis come and go — an emoji takes no room in its seat.
+typedef _Stage = ({
+  Rect felt,
+  Map<String, Rect> seats,
+  Map<String, Rect> pods,
+  Map<String, Map<String, Rect>> over,
+});
+
+_Stage _stageOf(
+  WidgetTester tester,
+  List<String> seated, {
+  bool poker = false,
+}) => (
+  felt: _feltOf(tester, poker: poker),
+  seats: {for (final id in seated) id: tester.getRect(_podOf(id))},
+  pods: {for (final id in seated) id: tester.getRect(_plaqueOf(id))},
+  over: {
+    for (final id in seated) id: _paintedOver(tester, id, seated, poker: poker),
+  },
+);
+
+/// What is wrong with the emojis of [playing] as they stand ([now]), or
+/// null: one missing; off the felt (3); moved from where it [settled] (4);
+/// not at its sender's seat — hung off its column, beside or above its pod,
+/// or on it (5); under anything painted after its seat (2); meeting another
+/// (1).
+String? _faultIn(
+  List<String> playing,
+  Map<String, ({Rect rect, EmojiPlace place})> now,
+  Map<String, Rect> settled,
+  _Stage stage,
+) {
+  for (final id in playing) {
+    final emoji = now[id];
+    if (emoji == null) return '$id\'s emoji is not playing';
+    final (:rect, :place) = emoji;
+    final where = '$rect (${place.name})';
+    final on = stage.felt.inflate(1);
+    if (!on.contains(rect.topLeft) || !on.contains(rect.bottomRight)) {
+      return '$id\'s emoji $where is off the felt ${stage.felt}';
+    }
+    if (settled[id] case final was?
+        when (rect.topLeft - was.topLeft).distance >= 1 ||
+            (rect.width - was.width).abs() >= 1) {
+      return '$id\'s emoji moved from $was to $where';
+    }
+    final seat = stage.seats[id]!;
+    final pod = stage.pods[id]!;
+    final atSeat = switch (place) {
+      EmojiPlace.column => rect.inflate(pod.width * 0.1).overlaps(seat),
+      EmojiPlace.pod =>
+        pod.inflate(0.5).contains(rect.topLeft) &&
+            pod.inflate(0.5).contains(rect.bottomRight),
+      _ => rect.inflate(pod.width * 0.1).overlaps(pod),
+    };
+    if (!atSeat) return '$id\'s emoji $where is away from its seat $seat';
+    for (final MapEntry(key: what, value: over) in stage.over[id]!.entries) {
+      if (over.overlaps(rect.deflate(1))) {
+        return '$id\'s emoji $where is under $what $over';
+      }
+    }
+  }
+  for (final a in playing) {
+    for (final b in playing) {
+      if (a.compareTo(b) >= 0) continue;
+      if (now[a]!.rect.deflate(2).overlaps(now[b]!.rect.deflate(2))) {
+        return '$a\'s emoji ${now[a]!.rect} (${now[a]!.place.name}) meets '
+            '$b\'s ${now[b]!.rect} (${now[b]!.place.name})';
+      }
+    }
+  }
+  return null;
+}
+
+/// Sends each of [orders] at the table [state] is at — one emoji a player,
+/// 300 ms apart — checking every emoji playing after each send, and lets them
+/// all end before the next order. The orders that went wrong, each with its
+/// first fault; and how often each place was taken ([places]).
+Future<List<String>> _sweep(
+  WidgetTester tester,
+  GameState state,
+  List<List<String>> orders,
+  List<String> seated, {
+  bool poker = false,
+  Map<EmojiPlace, int>? places,
+}) async {
+  final stage = _stageOf(tester, seated, poker: poker);
+  final faults = <String>[];
+  var clock = 100000;
+  for (final order in orders) {
+    final settled = <String, Rect>{};
+    String? fault;
+    for (var i = 0; i < order.length; i++) {
+      clock += 300;
+      state.handleChat(_emoji(order[i], order[i], clock));
+      // The frame that lays it out in its own place and places it, then the
+      // frame it plays in where it was placed, 300 ms on.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      final now = _playing(tester);
+      fault ??= _faultIn(order.sublist(0, i + 1), now, settled, stage);
+      if (now[order[i]] case final sent?) {
+        settled[order[i]] = sent.rect;
+        places?.update(sent.place, (n) => n + 1, ifAbsent: () => 1);
+      }
+    }
+    if (fault != null) faults.add('${order.join(' > ')}: $fault');
+    await tester.pump(GameState.emojiBubbleFor);
+    await tester.pump();
+    expect(_playing(tester), isEmpty, reason: '${order.join(' > ')} ended');
+  }
+  return faults;
+}
+
+String _report(List<String> faults, int of) =>
+    '${faults.length} of $of orders went wrong\n${faults.take(12).join('\n')}';
+
 const _phones = [
   (Size(592, 360), 1.25),
   (Size(640, 360), 1.0),
@@ -205,8 +365,225 @@ const _phones = [
 String _nameOf(Size size, double scale) =>
     '${size.width.toInt()}x${size.height.toInt()} x$scale';
 
+/// A table of [places] places, everyone seated and nobody sending.
+TableScene _placesScene(int places) => TableScene('$places-places', (s) {
+  s.config = s.config.copyWith(maxPlayers: places);
+  s.handleState(placesRoom(places));
+});
+
+/// [userId]'s pod has its emoji ON it ([EmojiPlace.pod]): fitted inside the
+/// pod's box, exactly where [SeatPod.emojiOnPod] says.
+void _expectOnPod(WidgetTester tester, String userId) {
+  expect(_placeOf(tester, userId), EmojiPlace.pod, reason: userId);
+  final pod = tester.getRect(_plaqueOf(userId));
+  final mine = tester.getRect(_emojiOf(userId));
+  final want = SeatPod.emojiOnPod(pod);
+  expect(
+    (mine.topLeft - want.topLeft).distance,
+    lessThan(0.5),
+    reason: '$userId $mine, not $want',
+  );
+  expect(
+    (mine.bottomRight - want.bottomRight).distance,
+    lessThan(0.5),
+    reason: userId,
+  );
+  expect(pod.contains(mine.topLeft) && pod.contains(mine.bottomRight), isTrue);
+}
+
 void main() {
   const everyone = ['u0', 'u1', 'u2', 'u3', 'u4'];
+
+  // Every order the five players can send in, 300 ms apart (the second review
+  // of 28 Sep 2026: with every emoji sent at once the viewer is always placed
+  // first, and the orders in which it is not were never tried — in half of
+  // them two emojis met). After every send, every emoji playing is checked:
+  // none meets another (1), none is under anything painted after its seat
+  // (2), none is off the felt (3), none has moved since it landed (4), and
+  // each is at its sender's seat (5). All 120 orders at each size.
+  for (final (size, scale) in const [
+    (Size(640, 360), 1.0),
+    (Size(915, 412), 1.25),
+    (Size(592, 360), 1.25),
+    (Size(844, 390), 1.25),
+  ]) {
+    testWidgets('at ${_nameOf(size, scale)}, every order of five emojis '
+        '300 ms apart', (tester) async {
+      final orders = _orders(everyone);
+      final state = await _mount(
+        tester,
+        _scene('17-dealing'),
+        size: size,
+        textScale: scale,
+      );
+      final faults = await _sweep(tester, state, orders, everyone);
+      expect(faults, isEmpty, reason: _report(faults, orders.length));
+      expect(tester.takeException(), isNull);
+      await _unmount(tester, state);
+    });
+  }
+
+  // And on the poker felt: the room of the scene of every poker seat at once
+  // (15b, whose emojis are set without the clock that ends them, so the sweep
+  // takes the same room from 15).
+  for (final (size, scale) in const [
+    (Size(640, 360), 1.0),
+    (Size(915, 412), 1.25),
+  ]) {
+    testWidgets('at ${_nameOf(size, scale)}, a poker room: every order of '
+        'five emojis 300 ms apart', (tester) async {
+      final orders = _orders(everyone);
+      final state = await _mount(
+        tester,
+        _scene('15-poker-holdem'),
+        size: size,
+        textScale: scale,
+      );
+      final faults = await _sweep(tester, state, orders, everyone, poker: true);
+      expect(faults, isEmpty, reason: _report(faults, orders.length));
+      expect(tester.takeException(), isNull);
+      await _unmount(tester, state);
+    });
+  }
+
+  // The tables of two, three and four places: every order too.
+  for (final (size, scale) in const [
+    (Size(592, 360), 1.25),
+    (Size(640, 360), 1.0),
+    (Size(915, 412), 1.25),
+  ]) {
+    for (final places in const [2, 3, 4]) {
+      testWidgets('at ${_nameOf(size, scale)}, $places places: every order '
+          '300 ms apart', (tester) async {
+        final seated = everyone.take(places).toList();
+        final orders = _orders(seated);
+        final state = await _mount(
+          tester,
+          _placesScene(places),
+          size: size,
+          textScale: scale,
+        );
+        final faults = await _sweep(tester, state, orders, seated);
+        expect(faults, isEmpty, reason: _report(faults, orders.length));
+        expect(tester.takeException(), isNull);
+        await _unmount(tester, state);
+      });
+    }
+  }
+
+  // The review's own cases: Ravi's, then Meera's, then the viewer's — and
+  // Meera's then the viewer's. The viewer's own place meets Meera's; beside
+  // their pod is their hand on one side and Missile and Pack on the other;
+  // above it and to the left is Ravi's own place (where the first fix slid
+  // it, and where Ravi's met it). So it plays on the viewer's own pod — and
+  // Ravi's, sent after it, still plays in its own place.
+  for (final (size, scale) in const [
+    (Size(592, 360), 1.25),
+    (Size(640, 360), 1.0),
+    (Size(640, 360), 1.25),
+    (Size(640, 360), 1.3),
+    (Size(732, 412), 1.0),
+    (Size(800, 360), 1.0),
+    (Size(844, 390), 1.0),
+    (Size(844, 390), 1.25),
+    (Size(891, 411), 1.0),
+    (Size(915, 412), 1.0),
+    (Size(915, 412), 1.25),
+    (Size(1024, 600), 1.0),
+  ]) {
+    testWidgets('at ${_nameOf(size, scale)}, Ravi\'s, Meera\'s, then the '
+        'viewer\'s: the viewer\'s plays on their pod', (tester) async {
+      final state = await _mount(
+        tester,
+        _scene('17-dealing'),
+        size: size,
+        textScale: scale,
+      );
+      await _send(tester, state, _emoji('u1', 'Ravi', 1000));
+      await _send(tester, state, _emoji('u2', 'Meera', 1300));
+      await _send(tester, state, _emoji('u0', 'Priya', 1600));
+      expect(_placeOf(tester, 'u1'), EmojiPlace.column);
+      expect(_placeOf(tester, 'u2'), EmojiPlace.column);
+      _expectOnPod(tester, 'u0');
+      _expectOnScreen(tester, const ['u0', 'u1', 'u2'], size);
+      _expectApart(tester, const ['u0', 'u1', 'u2']);
+      for (final id in const ['u0', 'u1', 'u2']) {
+        _expectOnTop(tester, id, everyone);
+      }
+      expect(tester.takeException(), isNull);
+      await tester.pump(GameState.emojiBubbleFor);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('at ${_nameOf(size, scale)}, Meera\'s then the viewer\'s, '
+        'then Ravi\'s: Ravi\'s own place was kept for him', (tester) async {
+      final state = await _mount(
+        tester,
+        _scene('17-dealing'),
+        size: size,
+        textScale: scale,
+      );
+      await _send(tester, state, _emoji('u2', 'Meera', 1000));
+      await _send(tester, state, _emoji('u0', 'Priya', 1300));
+      expect(_placeOf(tester, 'u2'), EmojiPlace.column);
+      _expectOnPod(tester, 'u0');
+      await _send(tester, state, _emoji('u1', 'Ravi', 1600));
+      expect(_placeOf(tester, 'u1'), EmojiPlace.column);
+      _expectOnPod(tester, 'u0');
+      _expectApart(tester, const ['u0', 'u1', 'u2']);
+      for (final id in const ['u0', 'u1', 'u2']) {
+        _expectOnTop(tester, id, everyone);
+      }
+      expect(tester.takeException(), isNull);
+      await tester.pump(GameState.emojiBubbleFor);
+      await _unmount(tester, state);
+    });
+  }
+
+  // Where a seat's own emoji plays, as the felt reckons it before anything
+  // is drawn there (SeatPod.emojiHome), is where it does play: every seat,
+  // at every number of places and on the poker felt.
+  for (final (size, scale) in const [
+    (Size(592, 360), 1.25),
+    (Size(640, 360), 1.0),
+    (Size(915, 412), 1.25),
+  ]) {
+    for (final (label, scene, seated) in [
+      for (final places in const [2, 3, 4, 5])
+        (
+          '$places places',
+          _placesScene(places),
+          everyone.take(places).toList(),
+        ),
+      ('a poker room', _scene('15-poker-holdem'), everyone),
+    ]) {
+      testWidgets('at ${_nameOf(size, scale)}, $label: each seat\'s own place '
+          'is where the felt reckons it', (tester) async {
+        final state = await _mount(tester, scene, size: size, textScale: scale);
+        for (final id in seated) {
+          await _send(tester, state, _emoji(id, id, 1000));
+          expect(_placeOf(tester, id), EmojiPlace.column);
+          final seatPod = tester.widget<SeatPod>(_podOf(id));
+          final pod = tester.getRect(_plaqueOf(id));
+          final home = seatPod.emojiHome(
+            seat: tester.getRect(_podOf(id)),
+            pod: pod,
+            bubble: SeatPod.emojiBubbleSize(pod.width),
+          );
+          final mine = tester.getRect(_emojiOf(id));
+          expect(
+            (mine.topLeft - home.topLeft).distance,
+            lessThan(0.5),
+            reason: '$id $mine, not $home',
+          );
+          expect((mine.bottomRight - home.bottomRight).distance, lessThan(0.5));
+          await tester.pump(GameState.emojiBubbleFor);
+        }
+        expect(tester.takeException(), isNull);
+        await _unmount(tester, state);
+      });
+    }
+  }
 
   for (final (size, scale) in _phones) {
     final name = _nameOf(size, scale);
@@ -228,11 +605,11 @@ void main() {
       await _unmount(tester, state);
     });
 
-    // The review of 28 Sep 2026: the viewer's emoji, moved off Meera's, stood
-    // beside their pod over their own cards — and the felt paints the hand
-    // after the viewer's seat, so the cards covered three quarters of it; its
-    // other side was under Missile and Pack. Either way round, the one that
-    // moves is seen whole.
+    // The first review of 28 Sep 2026: the viewer's emoji, moved off Meera's,
+    // stood beside their pod over their own cards — and the felt paints the
+    // hand after the viewer's seat, so the cards covered three quarters of it;
+    // its other side was under Missile and Pack. Either way round, the one
+    // that moves is seen whole.
     for (final (first, then) in const [('u2', 'u0'), ('u0', 'u2')]) {
       testWidgets('at $name, $then\'s after $first\'s: the one that moves '
           'stands over nothing painted after it', (tester) async {
@@ -273,11 +650,8 @@ void main() {
               reason: key,
             );
           }
-          // And it still points at the viewer's pod: over it, a step clear.
-          final pod = tester.getRect(_plaqueOf('u0'));
-          expect(mine.bottom, lessThanOrEqualTo(pod.top));
-          expect(mine.right, greaterThan(pod.left - 2));
-          expect(mine.left, lessThan(pod.right));
+          // And it is plainly the viewer's: on their own pod.
+          _expectOnPod(tester, 'u0');
         }
         await tester.pump(GameState.emojiBubbleFor);
         await tester.pump(const Duration(milliseconds: 400));
@@ -367,23 +741,18 @@ void main() {
     final state = await _mount(tester, _scene('17-dealing'));
     // Meera's first, in its own place under her pod; the viewer's own place,
     // over their pod, would meet it. Beside their pod is their own hand on
-    // one side and Missile and Pack on the other, both drawn over it, so
-    // theirs stands above their pod, slid off Meera's (review, 28 Sep 2026).
+    // one side and Missile and Pack on the other, both drawn over it, and
+    // above it to the left is Ravi's own place: theirs plays on their own pod
+    // (the second review, 28 Sep 2026).
     await _send(tester, state, _emoji('u2', 'Meera', 1000));
     expect(_placeOf(tester, 'u2'), EmojiPlace.column);
     final meera = tester.getRect(_emojiOf('u2'));
     await _send(tester, state, _emoji('u0', 'Priya', 2000));
     expect(_placeOf(tester, 'u2'), EmojiPlace.column);
     _expectAt(tester.getRect(_emojiOf('u2')), meera);
-    expect(_placeOf(tester, 'u0'), EmojiPlace.above);
-    expect(tester.widget<SeatPod>(_podOf('u0')).emojiShift, lessThan(0));
+    _expectOnPod(tester, 'u0');
     _expectApart(tester, ['u0', 'u2']);
-    // Pointing at its own pod: over it, a step clear, standing over some of
-    // it.
-    final pod = tester.getRect(_plaqueOf('u0'));
     final mine = tester.getRect(_emojiOf('u0'));
-    expect(mine.bottom, lessThanOrEqualTo(pod.top));
-    expect(mine.right, greaterThan(pod.left - 1));
 
     // Meera's ends; the viewer's stays where it is rather than jumping back.
     // Meera's was sent 0.4s before the viewer's: at 5.2s hers has gone and
@@ -407,7 +776,8 @@ void main() {
     await _send(tester, state, _emoji('u2', 'Meera', 2000));
     expect(_placeOf(tester, 'u0'), EmojiPlace.column);
     _expectAt(tester.getRect(_emojiOf('u0')), mine);
-    expect(_placeOf(tester, 'u2'), isNot(EmojiPlace.column));
+    // Beside her pod, towards the middle of the table.
+    expect(_placeOf(tester, 'u2'), EmojiPlace.right);
     _expectApart(tester, ['u0', 'u2']);
     await tester.pump(GameState.emojiBubbleFor);
     await tester.pump(const Duration(milliseconds: 400));
