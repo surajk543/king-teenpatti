@@ -336,7 +336,7 @@ git status --short --untracked-files=no           # must print nothing
 git checkout --detach "$TAG"
 bash go-server/ops/build.sh
 ./go-server/bin/gameplay -version                 # names the tag
-(cd go-server && sudo -u deploy env NODE_ENV=production ./bin/gameplay -migrate) && sudo systemctl restart gameplay
+(cd go-server && sudo -u "$(systemctl show gameplay -p User --value)" env NODE_ENV=production ./bin/gameplay -migrate) && sudo systemctl restart gameplay
 #   ^ the tag's migrations first (the unit's User= and NODE_ENV: the production guards), and the restart ONLY if they
 #     succeeded — one line, so a failed migration leaves the old build serving even when the block is pasted
 sudo systemctl status gameplay --no-pager

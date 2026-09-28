@@ -4348,7 +4348,7 @@ runs without `--allow-downgrade`, and any tag older than `go-server/v1.7.0`; it 
 session or Ctrl-C; every run is logged in `.git/deploy-logs/`. Never run the migration files with `psql -f` as `postgres`:
 tables it created would be owned by `postgres` and the server could not write to them. The host's checkout sits on a
 detached HEAD at the tag it runs (since the by-hand v1.10.2 deploy); `git pull origin master` is no longer part of a deploy.
-The by-hand fallback (fetch --force, checkout --detach the tag, build.sh, `sudo -u deploy ./bin/gameplay -migrate`, restart,
+The by-hand fallback (fetch --force, checkout --detach the tag, build.sh, `sudo -u "$(systemctl show gameplay -p User --value)" ./bin/gameplay -migrate` — production's unit runs as `gameplay`, not the template's `deploy`, restart,
 wait for `/health`) and the first run's command are in `steps.txt` and DEPLOY.md §3 "One-command deploy". The history
 below describes the hosts and the switch to Go.
 
