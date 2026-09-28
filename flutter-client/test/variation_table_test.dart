@@ -624,7 +624,9 @@ void main() {
           expect(_optionKeys, findsNWidgets(7));
           for (final element in _optionKeys.evaluate()) {
             final size = element.size!;
-            expect(size.height, greaterThanOrEqualTo(44));
+            // The touch floor exactly: a hairline drawn by a padding box
+            // once made every key 46 and the panel 4dp taller than its sum.
+            expect(size.height, 44);
             expect(size.width, greaterThanOrEqualTo(44));
           }
           // Two rows, four keys then three — never a third row, which is
@@ -642,8 +644,9 @@ void main() {
             find.text(Strings(lang).variationName(Variation.fiveCard)),
             findsOneWidget,
           );
-          // Nothing in it grows with the text scale: the panel is the 169dp
-          // its doc comment adds up to, inside the 230dp it is given.
+          // Nothing in it grows with the text scale: the panel is the 166dp
+          // its doc comment adds up to, inside the 230dp it is given — to the
+          // dp, so the sum and the widget cannot drift apart unnoticed.
           final plate = tester.getRect(
             find
                 .descendant(
@@ -652,7 +655,7 @@ void main() {
                 )
                 .first,
           );
-          expect(plate.height, lessThanOrEqualTo(170));
+          expect(plate.height, moreOrLessEquals(166, epsilon: 0.5));
           final panel = tester.getRect(find.byType(VariationPrompt));
           for (final element in _optionKeys.evaluate()) {
             final box = element.renderObject! as RenderBox;
@@ -675,6 +678,24 @@ void main() {
         expect(find.text(t.variationName(wire)), findsOneWidget);
         expect(find.text(t.variationNote(wire)), findsOneWidget);
       }
+      // The keys that carry a note are 64dp, and the panel the 224 its doc
+      // comment adds up to.
+      for (final element in _optionKeys.evaluate()) {
+        expect(element.size!.height, 64);
+      }
+      expect(
+        tester
+            .getRect(
+              find
+                  .descendant(
+                    of: find.byType(VariationPrompt),
+                    matching: find.byType(DecoratedBox),
+                  )
+                  .first,
+            )
+            .height,
+        moreOrLessEquals(224, epsilon: 0.5),
+      );
       await tester.pumpWidget(const SizedBox.shrink());
 
       // A short screen drops the notes and keeps the names.
@@ -749,10 +770,20 @@ void main() {
   });
 
   group('at the table', () {
+    // Every phone the table is laid out for, the narrowest to a tablet, at
+    // both text scales: the panel is the same height at each (nothing in it
+    // grows with the text), and it has to clear the hand wherever it stands.
     for (final (screen, scale) in [
-      (const Size(640, 360), 1.25),
-      (const Size(891, 411), 1.0),
-      (const Size(1280, 800), 1.0),
+      for (final screen in const [
+        Size(592, 360),
+        Size(640, 360),
+        Size(732, 412),
+        Size(844, 390),
+        Size(891, 411),
+        Size(915, 412),
+        Size(1280, 800),
+      ])
+        for (final scale in const [1.0, 1.25]) (screen, scale),
     ]) {
       final name = '${screen.width.toInt()}x${screen.height.toInt()} x$scale';
       testWidgets('at $name the chooser gets seven keys, clear of their hand', (
@@ -773,6 +804,12 @@ void main() {
               )
               .first,
         );
+        // The panel is its doc comment's sum on this screen, whatever the
+        // text scale: 166dp where the keys are 44, 224 where they are 64.
+        final roomy =
+            screen.height >= Breaks.shortHeight &&
+            screen.width >= Breaks.compact;
+        expect(panel.height, moreOrLessEquals(roomy ? 224 : 166, epsilon: 0.5));
         final hand = tester.getRect(_private('_OwnHand'));
         expect(
           panel.bottom,
