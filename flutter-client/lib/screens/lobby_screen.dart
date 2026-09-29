@@ -27,8 +27,10 @@ import '../widgets/fireworks.dart';
 import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/avatar_badge.dart';
+import '../widgets/card_coins.dart';
 import '../widgets/entry_wallet.dart';
 import '../widgets/glass_panels.dart';
+import '../widgets/info_wave.dart';
 import '../widgets/lobby_level_bar.dart';
 import '../widgets/open_lock.dart';
 import '../widgets/own_record.dart';
@@ -2138,9 +2140,13 @@ class _GroupCard extends StatelessWidget {
                                     ),
                                   )
                                 else
-                                  LivelyChipStack(
-                                    size: m.titleSize * 0.62,
-                                    colours: [accent, palette.rimLow],
+                                  // The owner's coins in the card's
+                                  // colour (29 Sep 2026), as tall as the
+                                  // two-chip pile they replaced.
+                                  CardCoins(
+                                    size: m.titleSize * 0.62 * 1.22,
+                                    fallbackInk: palette.ink,
+                                    tint: accent,
                                   ),
                                 SizedBox(width: m.markGap),
                                 // The card's name in the room's own
@@ -2893,6 +2899,13 @@ class _TableCard extends StatelessWidget {
             children: [
               _CardCornerKey(
                 icon: Icons.info_outline_rounded,
+                // The owner's info Lottie in the card's colour (29 Sep
+                // 2026), its waves rippling to the disc's hairline.
+                glyph: InfoWave(
+                  size: _cornerDisc - 2,
+                  fallbackInk: palette.ink,
+                  tint: palette.accent,
+                ),
                 label: state.t.tableInfoTitle,
                 palette: palette,
                 onTap: () => _showTableInfo(
@@ -3736,10 +3749,12 @@ class _CategoryBadgeState extends State<_CategoryBadge>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        SpinningChip(
-                          colour: palette.accent,
-                          size: h * 0.58,
-                          delay: widget.delay,
+                        // The owner's coins in the card's colour (29 Sep
+                        // 2026), where the spinning chip was.
+                        CardCoins(
+                          size: h * 0.72,
+                          fallbackInk: palette.ink,
+                          tint: palette.accent,
                         ),
                         SizedBox(width: h * 0.24),
                         Flexible(

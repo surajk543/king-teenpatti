@@ -284,7 +284,7 @@ void main() {
 
       // A table card's corner keys: each its own click, once, and the card
       // under it neither clicks nor opens (no door, no seat).
-      await tap(find.byIcon(Icons.info_outline_rounded).first, clicks: 1);
+      await tap(find.byKey(const ValueKey('info-wave')).first, clicks: 1);
       await _closeAll(tester, state);
       await tap(find.byKey(const ValueKey('rule-book')).first, clicks: 1);
       await _closeAll(tester, state);
@@ -360,7 +360,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.text(t.viewTables).first);
     await _settle(tester);
-    await tester.tap(find.byIcon(Icons.info_outline_rounded).first);
+    await tester.tap(find.byKey(const ValueKey('info-wave')).first);
     await _closeAll(tester, state);
     await tester.tap(find.byIcon(Icons.arrow_back_rounded));
     await _settle(tester);
@@ -507,7 +507,7 @@ void main() {
       await _settle(tester);
       await once('the Seen card', find.text(t.viewTables).first);
       await _settle(tester);
-      await once('ⓘ', find.byIcon(Icons.info_outline_rounded).first);
+      await once('ⓘ', find.byKey(const ValueKey('info-wave')).first);
       await _closeAll(tester, state);
       await once(
         'the rules key',

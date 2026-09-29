@@ -2525,7 +2525,20 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   flicking its pages over its shadow, 2 s, 500 units square, in the card's colour like the other three (outline and pages
   as drawn); its whole loop (76–423 × 7–441) fits `_ruleBookSize` 22dp, centred in the key's 28dp disc where the 16dp
   glyph was, and it always plays (the keys work on a shut card too). `test/rule_book_test.dart`; `lobby_click_sound_test`
-  and `table_tax_test` find the key by `ValueKey('rule-book')`. The four marks are one
+  and `table_tax_test` find the key by `ValueKey('rule-book')`. **The coins at a card's top left play the owner's
+  `assets/animations/Coins.json`** (the same day: "use this animation in lobby cards on top left for coin and change
+  color acc to card"; `widgets/card_coins.dart` `CardCoins`): a pile of gold coins, the front one spinning and a sparkle
+  crossing it, 2 s, 800 units square, in the card's colour — beside every category card's name (where the two-chip
+  `LivelyChipStack` was, as tall as it: `titleSize × 0.62 × 1.22`) and in every table card's badge (where the
+  `SpinningChip` was, `h × 0.72`). The boot row's chip pile and the engine cards' `ChipShuffle` are as they were. Its whole
+  loop (30–728 × 122–684) fits the box by its width. `test/card_coins_test.dart`. **Every table card's ⓘ key plays the
+  owner's `assets/animations/Info icon wave.json`** (the same day: "use this icon for info on top right … and change
+  color acc to card type"; `widgets/info_wave.dart` `InfoWave`, `_CardCornerKey.glyph`): an "i" in a ring with waves
+  rippling out, 2 s, 120 units square, in the card's colour; the waves at their widest (46–74) fill 26dp, inside the key's
+  28dp disc and its hairline. The file's "i" (layer `i Outlines`, #ACB6C3) is 2.1:1 on the white card, so by day it is a
+  slate (`infoWaveDayGlyph` #5B6574, 5.9:1) in the card's colour; by night the file's grey (7.4:1). The table info popup
+  keeps the plain icon. `test/info_wave_test.dart`; `lobby_click_sound_test` and `table_tax_test` find the key by
+  `ValueKey('info-wave')`. The marks are one
   widget, `widgets/fact_mark.dart` `FactMark` over a `FactMarkArt` (asset, canvas, where the art sits at rest, fallback
   icon, gradient stops, a brightness recolour): the box, the `OverflowBox`, the memo, the render cache.
   `test/entry_wallet_test.dart`, `test/pot_piggy_test.dart` (the rest pose, the fanned reach and the ground measured off

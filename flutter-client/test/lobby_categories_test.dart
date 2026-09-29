@@ -28,9 +28,9 @@ import 'package:teenpatti/screens/lobby_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/widgets/card_coins.dart';
 import 'package:teenpatti/widgets/chip_shuffle.dart';
 import 'package:teenpatti/widgets/game_card.dart';
-import 'package:teenpatti/widgets/poker_chip.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 
 /// The Teen Patti part of the server's default menu: one seen table, blind at
@@ -672,7 +672,8 @@ void main() {
             expect(after[i].$2, same(subtree));
           }
 
-          // Inside an engine the category cards keep their settling pile.
+          // Inside an engine the category cards carry the owner's coins
+          // (29 Sep 2026), not the shuffle.
           await _tapInRail(
             tester,
             find.text(t.viewGames, skipOffstage: false).first,
@@ -680,10 +681,7 @@ void main() {
           await _settleLevel(tester);
           expect(tester.takeException(), isNull);
           expect(find.byType(ChipShuffle, skipOffstage: false), findsNothing);
-          expect(
-            find.byType(LivelyChipStack, skipOffstage: false),
-            findsNWidgets(3),
-          );
+          expect(find.byType(CardCoins, skipOffstage: false), findsNWidgets(3));
 
           await _unmount(tester);
           state.dispose();

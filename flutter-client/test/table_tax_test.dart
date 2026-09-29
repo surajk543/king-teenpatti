@@ -1258,7 +1258,7 @@ void main() {
           tester,
           TableCategory.blind,
           2000000,
-          Icons.info_outline_rounded,
+          const ValueKey('info-wave'),
         );
         expect(find.text(t.winningTaxLabel), findsOneWidget);
         // In the popup, and on no card behind it.
@@ -1279,7 +1279,7 @@ void main() {
           tester,
           TableCategory.blind,
           200,
-          Icons.info_outline_rounded,
+          const ValueKey('info-wave'),
         );
         expect(find.text(t.winningTaxLabel), findsNothing);
         expect(find.text(t.yourLevelLabel), findsNothing);
@@ -2275,7 +2275,7 @@ void main() {
             tester,
             TableCategory.variation,
             2000000,
-            Icons.info_outline_rounded,
+            const ValueKey('info-wave'),
           );
           expect(tester.takeException(), isNull);
           for (final row in [t.winningTaxLabel, t.yourLevelLabel]) {
