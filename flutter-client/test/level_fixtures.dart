@@ -161,12 +161,12 @@ Map<String, Object?> missionAt(
 
 String badgeUrl(String code) => 'https://drive.test/badges/$code.json';
 
-/// The levels the owner has sent art for so far (29 Sep 2026: "Instead of
-/// using icons use lottie animations json for showing player Level"), as the
-/// server's seed has them: Levels 1 to 14. The fixtures give each a Lottie at
-/// [levelArtUrl] ([primeLevelArt] answers it); the levels above have none,
-/// and the app shows an empty mark.
-const int levelsWithArt = 14;
+/// The levels the owner has sent art for (29 Sep 2026: "Instead of using
+/// icons use lottie animations json for showing player Level"), as the
+/// server's seed has them: all 50. The fixtures give each a Lottie at
+/// [levelArtUrl] ([primeLevelArt] answers it). A level with no art — which a
+/// server can still send — is written by hand where a test needs one.
+const int levelsWithArt = 50;
 
 String levelArtUrl(int level) => 'https://drive.test/levels/$level.json';
 

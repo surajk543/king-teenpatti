@@ -1637,8 +1637,8 @@ void main() {
           expect(_inDrawer(_key('seat-player-level')), findsOneWidget);
           await _closeDrawer(tester);
 
-          // No art at either: Vikramaditya's Level 44 has none yet, and
-          // Meera's profile has no level at all.
+          // No art at either: Vikramaditya's profile sends his Level 44 with
+          // none, and Meera's has no level at all.
           for (final id in ['u4', 'u2']) {
             await _tapPod(tester, id);
             expect(_inDrawer(_key('seat-player-picture')), findsOneWidget);

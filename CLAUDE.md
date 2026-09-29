@@ -884,10 +884,18 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   every `GET /api/levels` rung and a friend profile's `level`. **The seed fills a level's art only where `asset_url` IS NULL**
   (a guarded `UPDATE … FROM (VALUES …)` right after the ladder's INSERT in `V1.0.1__seed.sql`), every boot: a URL added to that
   list reaches every database at its next boot, production's included, while an owner's own URL — or `''`, none on purpose —
-  is never touched. Levels 1–14 have art so far (the rest NULL: the owner is sending them); each file was checked for what a
-  phone cannot play (§12.3) — Level 1's upload swung its leaves with `loopOut('pingpong')`, so it is served by this server as
-  the baked copy `go-server/public/levels/newbie.json` (`/levels/newbie.json`, served in production like `profiles/`;
-  `TestTheLevelArtServedHereIsInThePublicDir`), the others are the owner's Drive files. The emoji (`icon`) stays in the table and
+  is never touched. **All 50 levels have art** (the owner's list, 29 Sep 2026: 14 first, the other 36 the same evening); each
+  file was checked for what a phone cannot play (§12.3) and played in the app's own Lottie player, and FIVE are served by this
+  server as fixed copies in `go-server/public/levels/` (served in production like `profiles/`;
+  `TestTheLevelArtServedHereIsInThePublicDir` holds each to a Lottie with no `loopOut`): Level 1 `newbie.json` and 41
+  `overlord.json` (their `loopOut('pingpong')` baked, `tools/lottie/bake_loop_expressions.py`), 25 `supreme-ace.json` (43
+  `loopOut`s baked), 22 `royal-ace.json` (a `Math.sin` bob of the whole badge, sampled into a keyframe a frame) and 32
+  `royal-titan.json` (two paths that copied other layers' paths by expression — empty on a phone — given those paths). The
+  other 45 are the owner's Drive files; what expressions they keep a phone skips harmlessly (overshoot and inertial-bounce
+  finishes; 28's and 40's `time × Rotation Speed` spins, whose speed is 0). Heavy: Level 20 (High Roller) is 4.1 MB of 161
+  embedded images and 47 (Immortal King) 1.6 MB of 102 — downloaded once per phone (PictureCache) but a long first fetch. The
+  `or` a check finds on a star shape (`sr`) is its outer ROUNDNESS, not 3D orientation. A changed URL goes into the seed's
+  VALUES and `levels_test.go`'s `ownersLevelArt` together. The emoji (`icon`) stays in the table and
   on the wire for anything with no art to draw. **The app** (`widgets/level_art.dart` `LevelArt`, over `EmojiArt` with its
   stand-in off, handing back the same subtree while its inputs hold so the one-second tick never rebuilds the Lottie) draws
   the art wherever the emoji was: the level screen's medal (`level-emblem-art`) and every rung of All levels (one size,
@@ -900,7 +908,7 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   emoji any more ("Level 10 · Rising Star", "77 XP to Rookie", the level-up toast). Tests: `internal/db/levels_test.go`
   (the seeded art, the fill rule across a reboot, the served file), `upgrade_boot_test.go`, `db_test.go`; Flutter
   `level_screen_test` (the medal, every rung), `lobby_level_bar_test`, `table_tax_test` (the pill: badge only), with the
-  fixtures' `levelArtUrl`/`primeLevelArt` (Levels 1–14, as the seed).
+  fixtures' `levelArtUrl`/`primeLevelArt` (all 50, as the seed; a level with no art is written by hand where a test needs one).
   **Every player's level on their pod** (owner, 29 Sep 2026: "In gametable In every player pod show their game level icon on
   top right of player pod"): `room:state.seats[].level` = `{level, assetUrl?, assetFormat?}` (`game.SeatLevel`, `SeatView.Level`,
   ABSENT for a seat whose level is not known and on an empty chair) — the level and its art and nothing else of the standing (no
