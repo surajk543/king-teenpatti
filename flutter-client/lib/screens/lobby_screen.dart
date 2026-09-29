@@ -26,7 +26,7 @@ import '../widgets/edge_fade.dart';
 import '../widgets/fireworks.dart';
 import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
-import '../widgets/lobby_card_badge.dart';
+import '../widgets/avatar_badge.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/lobby_level_bar.dart';
 import '../widgets/own_record.dart';
@@ -1124,6 +1124,10 @@ class _TopBar extends StatelessWidget {
                                   url: state.avatarUrl,
                                   fallback: user?.displayName ?? '',
                                   diameter: avatarD,
+                                  // The badge the player holds, on the
+                                  // picture's top-right (owner, 29 Sep
+                                  // 2026), where the game cards carried it.
+                                  badge: true,
                                 ),
                               ),
                             ),
@@ -1513,13 +1517,15 @@ class _CountUp extends StatelessWidget {
 ///
 /// The mark sits inside the portrait's box rather than hanging off it, so the
 /// avatar's footprint stays exactly [diameter] and the top rail's arithmetic
-/// holds at every height.
+/// holds at every height. So does the badge ([badge]): painted over the
+/// picture's top-right rim, it takes no layout.
 class _AvatarWithPip extends StatelessWidget {
   const _AvatarWithPip({
     required this.url,
     required this.fallback,
     required this.diameter,
     this.ringed = false,
+    this.badge = false,
   });
 
   final String? url;
@@ -1532,6 +1538,12 @@ class _AvatarWithPip extends StatelessWidget {
   /// is measured from this footprint and wears the plain hairline.
   final bool ringed;
 
+  /// The badge the player holds on the picture's top-right ([AvatarBadge]) —
+  /// the top bar's picture and the Settings drawer's (owner, 29 Sep 2026:
+  /// "add a badge on profile pic top right lobby", "In settings profile also
+  /// u need to add badge").
+  final bool badge;
+
   static const double _ringWidth = 2;
   static const double _ringGap = 2;
 
@@ -1541,9 +1553,14 @@ class _AvatarWithPip extends StatelessWidget {
     final brightness = theme.brightness;
     final glass = GlassColors.of(context);
     final pip = diameter * 0.34;
+    final art = AvatarBadge.sizeFor(diameter);
+    final centre = AvatarBadge.centreFor(diameter);
 
     return Stack(
       alignment: Alignment.bottomRight,
+      // The badge's canvas reaches past the picture's box; only its emblem,
+      // on the rim, shows.
+      clipBehavior: Clip.none,
       children: [
         Avatar(
           url: url,
@@ -1587,6 +1604,16 @@ class _AvatarWithPip extends StatelessWidget {
             color: _goldInk(brightness),
           ),
         ),
+        // Over the picture and its edit mark, and never in the way of a tap:
+        // a tap on the badge is a tap on the picture.
+        if (badge)
+          Positioned(
+            left: centre.dx - art / 2,
+            top: centre.dy - art / 2,
+            width: art,
+            height: art,
+            child: IgnorePointer(child: AvatarBadge(size: art)),
+          ),
       ],
     );
   }
@@ -1981,11 +2008,6 @@ class _CategoryCard extends StatelessWidget {
       palette: _categoryPalette(Theme.of(context).colorScheme, category),
       tables: state.lobbyTablesIn(category, engine: engine),
       action: t.viewTables,
-      badge: const {
-        TableCategory.seen,
-        TableCategory.blind,
-        TableCategory.variation,
-      }.contains(category),
       onOpen: () =>
           context.read<GameState>().openLobbyCategory(category, engine: engine),
     );
@@ -2014,7 +2036,6 @@ class _GroupCard extends StatelessWidget {
     required this.action,
     required this.onOpen,
     this.shuffle = false,
-    this.badge = false,
   });
 
   /// The card's title, already in the player's language.
@@ -2037,11 +2058,6 @@ class _GroupCard extends StatelessWidget {
   /// on the front (owner, 23 Sep 2026) — rather than the settling pile a
   /// category's card keeps.
   final bool shuffle;
-
-  /// Whether the card carries, at the end of its name's line, the badge that
-  /// brings the player's winning tax lowest ([LobbyCardBadge]) — the Seen,
-  /// Blind and Variation cards (owner, 27 Sep 2026).
-  final bool badge;
 
   @override
   Widget build(BuildContext context) {
@@ -2142,14 +2158,6 @@ class _GroupCard extends StatelessWidget {
                                     ),
                                   ),
                                 ),
-                                // The top-right corner: the badge that
-                                // sets the lowest rate the player holds,
-                                // over that rate. The name gives way
-                                // (scales) before the badge does.
-                                if (badge) ...[
-                                  SizedBox(width: m.markGap / 2),
-                                  LobbyCardBadge(artSize: m.titleSize * 1.5),
-                                ],
                               ],
                             ),
                             if (blurb.isNotEmpty) ...[
@@ -2516,9 +2524,6 @@ class _TableCard extends StatelessWidget {
     // card of its own with its own name and its own line about what happens
     // there.
     final variation = category == TableCategory.variation;
-    // Whether the winner of each hand here pays winning tax (owner, 26–27 Sep
-    // 2026: every public Seen, Blind and Variation table) — the menu's word.
-    final taxes = table.taxesWinner;
     // A poker table is a different game altogether: its badge names the game
     // (Texas Hold'em, Omaha, 5-Card Draw, 3-Card Poker), its blurb says how
     // that game is played, and its facts are the blinds or the ante, the
@@ -2655,48 +2660,24 @@ class _TableCard extends StatelessWidget {
                         ),
                         keepClear: keys,
                         children: [
-                          // The top line: the table's plate and, at a
-                          // table that taxes its winners, the corner the
-                          // Seen, Blind and Variation cards carry (owner,
-                          // 27 Sep 2026: "in these all cards show the same
-                          // badge and level icon on top right with minimum
-                          // tax which u show in lobby card") — the level's
-                          // mark, the badge that sets the rate, and the
-                          // rate the player pays. The column stops this
-                          // line short of the corner keys (keepClear), and
-                          // the plate's name gives way before the corner.
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Flexible(
-                                child: _CategoryBadge(
-                                  label: _tableName(state, table),
-                                  palette: palette,
-                                  height: m.plateH,
-                                  // The two cards at the same stake sit
-                                  // side by side, so their badges are
-                                  // offset rather than pulsing together.
-                                  // The variation card takes the beat
-                                  // between them.
-                                  delay: Duration(
-                                    milliseconds: blind
-                                        ? 900
-                                        : variation
-                                        ? 450
-                                        : poker
-                                        ? 300
-                                        : 0,
-                                  ),
-                                ),
-                              ),
-                              if (taxes) ...[
-                                SizedBox(width: m.markGap / 2),
-                                LobbyCardBadge(
-                                  key: const ValueKey('table-card-badge'),
-                                  artSize: m.plateH * 1.5,
-                                ),
-                              ],
-                            ],
+                          _CategoryBadge(
+                            label: _tableName(state, table),
+                            palette: palette,
+                            height: m.plateH,
+                            // The two cards at the same stake sit side
+                            // by side, so their badges are offset
+                            // rather than pulsing together. The
+                            // variation card takes the beat between
+                            // them.
+                            delay: Duration(
+                              milliseconds: blind
+                                  ? 900
+                                  : variation
+                                  ? 450
+                                  : poker
+                                  ? 300
+                                  : 0,
+                            ),
                           ),
                           CardGap(m.headGap),
                           // The boot is what a player chooses a table
@@ -2744,8 +2725,10 @@ class _TableCard extends StatelessWidget {
                           // Under the figure by a hair more than its
                           // line, which its comma hangs below. (The "20%
                           // TAX" pill that hung on this line went on 27 Sep
-                          // 2026 — owner: "remove the text 20% Tax" — the
-                          // rate is in the corner now, with the badge.)
+                          // 2026 — owner: "remove the text 20% Tax" — and
+                          // the corner that took its place, the level's
+                          // mark, the badge and the rate, on 29 Sep: the
+                          // badge is on the top bar's picture now.)
                           caption,
                           CardGap(m.gap),
                           // One blurb line a card, so every card
@@ -5400,6 +5383,10 @@ class _SettingsDrawerState extends State<_SettingsDrawer> {
                         fallback: state.user?.displayName ?? '',
                         diameter: 72,
                         ringed: true,
+                        // The badge, as on the top bar's picture (owner,
+                        // 29 Sep 2026: "In settings profile also u need to
+                        // add badge").
+                        badge: true,
                       ),
                       const SizedBox(height: Space.sm),
                       Text(

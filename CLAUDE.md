@@ -180,7 +180,8 @@ king-teenpatti/
     │   │                         CardFacePainter/CardStockPainter (the printed face; the stock's gold edge, faces and backs), cardRankFit, CardPips/SuitMark/paintPip
     │   ├── widgets/hand_fan.dart  HandFan (25 Sep 2026): the viewer's own fan as pure geometry — places, lean, which card is on top — for `_OwnHand` and SeatRing
     │   ├── widgets/              premium_surface, game_card (the lobby's one card shell, and CardColumn/CardGap/CardRule/CardSpace — its words, §8.4), seat_pod, poker_chip, liquid_fill,
-    │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet, own_record (the lobby's Stats drawer, §8.4),
+    │   │                         fireworks, avatar, avatar_badge (the badge on the player's picture, §6.6), buy_chips, chip_store, picture_shelf,
+    │   │                         rules_sheet, own_record (the lobby's Stats drawer, §8.4),
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
     │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4)
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
@@ -1011,26 +1012,26 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   the table popup too), a screen reader pressing each tab and Close, no badges at all, the ladder's heads, the table popup's two
   panes, and every tab
   at 592x360–1280x800 ×1.0/×1.25 in all five languages and both themes); pictures by hand, `test/level_shots.dart` (fixtures in
-  `test/level_fixtures.dart`). Lobby cards carry the rate pill; **the Seen, Blind and Variation cards carry the badge**
-  (owner, 27 Sep 2026: "On Lobby in top right of card show the badge with minimum tax user holding" — "show badge only on
-  seen, blind and variation card"; `widgets/lobby_card_badge.dart` `LobbyCardBadge`): at the right end of the card's name
-  line, its top-right corner, the badge that brings the player's rate lowest (`User.shownBadge` — Regular for everybody, a
-  Royal badge where one runs; the first on a tie) as its own Lottie (`BadgeArt`, 1.5 × the name's size), with the player's
-  **level mark** before it (owner, 27 Sep 2026: "on top right also show player level icon along with badge and under that show
-  tax percentage minimum of badge or level" — `playerLevel.icon`, `levelShare` 0.5 of the art, its middle on the emblem's,
-  `lobby-card-level`), and under both the rate the player PAYS — `LobbyCardBadge.rateOf`: the server's `user.taxBps`, which is
-  the lower of the level's and every running badge's, else the lower of the level's and the shown badge's (Level 10 under
-  Regular reads 17.43%, a Royal badge 0%; it read the badge's own "20%" until then) — on the tax pill's amber, the pill tucked
-  into the foot of the art's canvas (`tuck` 0.2). No badge (an older server): the level and its rate alone; neither: nothing.
-  A screen reader hears "Level 10, Regular badge, 17.43% winning tax" (`cardRateSemantics` where there is no badge). Never on the private
-  card, an engine's card or a poker game's; nothing where the player holds no badge. The card watches GameState and hands
-  it a new widget every second, so it `select`s only its figures and hands back the SAME subtree while they, its size and
-  the brightness hold (a State that keeps what it built): the tick never rebuilds the art — `level_screen_test`'s "rebuilds
-  nothing" check, with the lobby behind the level screen, caught the first cut rebuilding its Lottie. It takes no taps (a tap is the card's), and a screen reader hears "Regular badge,
-  20% winning tax" (`cardBadgeSemantics`, all five languages). The name gives way (scales) before it does.
-  `test/lobby_card_badge_test.dart` (which cards, which badge, a purchase while open, the tap, the tick, and inside its
-  card's top-right quarter clear of the name at 592x360–1280x800 ×1.0/×1.25, every language, both themes); pictures by hand,
-  `test/lobby_card_badge_shots.dart` (`BADGES_DIR` for the owner's Lotties). The table info
+  `test/level_fixtures.dart`). **No lobby card carries the player's standing** (owner, 29 Sep 2026: "Remove the badge and
+  level symbol and tax text from card, seen card, variation, all card, instead add a badge on profile pic top right lobby"):
+  the Seen, Blind and Variation cards and every taxing table card carried, from 27 Sep 2026, a corner of the level's mark,
+  the badge that sets the rate and the rate paid (`LobbyCardBadge`, which replaced the "20% TAX" pill on the boot's line);
+  it went, with its two strings (`cardBadgeSemantics`/`cardRateSemantics`). **The badge is on the player's picture instead**
+  — the top bar's and, the same day ("In settings profile also u need to add badge"), the Settings drawer's 72dp portrait
+  (`widgets/avatar_badge.dart` `AvatarBadge`, laid by `_AvatarWithPip(badge: true)`): the badge that brings the player's
+  rate lowest (`User.shownBadge` — Regular for everybody, a Royal badge where one runs) as its own Lottie (`BadgeArt`),
+  `AvatarBadge.sizeFor` 0.74 of the picture's diameter, its middle on the rim at the picture's top-right
+  (`centreFor`: 0.82, 0.17 of the diameter — at 0.84 the Regular rosette's ribbons reached the name on a 640dp phone), over
+  the picture and its edit pip. No level mark and no rate (the level is the line under the name; the rate the level screen's
+  and the ⓘ popup's). It takes no layout (a `Positioned` in the picture's `Stack`, `Clip.none`: the name keeps its box, the
+  top rail's arithmetic holds) and no taps (`IgnorePointer`: a tap on it is a tap on the picture). No badge (an older
+  server): nothing. The top bar watches GameState and hands it a new widget every second, so it `select`s only its figures
+  and hands back the SAME subtree while they and its size hold: the tick never rebuilds the Lottie — `level_screen_test`'s
+  "rebuilds nothing" check, with the lobby behind the level screen, holds it. A screen reader hears "Regular badge"
+  (`avatarBadgeSemantics`, all five languages). `test/avatar_badge_test.dart` (no badge, level mark or rate on any card —
+  front, category tables, engines and poker games; which badge; none without one; a purchase while open; the tick; taps;
+  the words; the Settings portrait; and on the picture's top-right, on screen, clear of the name, the name's box unchanged
+  at 592x360–1280x800 ×1.0/×1.25, English and Hindi, both themes). The table info
   says "No tax on winnings under 50 Lakh."; the store's last shelf is **Badges** (`StoreTab.badges`): each listed badge's Lottie,
   name, "0% Winning Tax", validity, and its price on the key — the key opening Play for a Play badge, else the support popup
   (address to copy, a `mailto:` key). Every string in all five languages. A mission a `player:level` shows completed is
