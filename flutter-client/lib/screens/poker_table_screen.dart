@@ -197,9 +197,9 @@ class _PokerTableScreenState extends State<PokerTableScreen> {
 /// and the viewer's own hand.
 ///
 /// Stateful for its emojis alone: where each seat's plays, apart from every
-/// other and under nothing drawn after it ([EmojiPlacement], 28 Sep 2026 —
-/// the Teen Patti felt's own rule, which a held or resumed poker seat still
-/// meets).
+/// other, in its emoji layer over every seat and under nothing drawn after
+/// it ([EmojiPlacement], 28 Sep 2026 — the Teen Patti felt's own rule, which
+/// a held or resumed poker seat still meets).
 class _PokerFelt extends StatefulWidget {
   const _PokerFelt({required this.covers});
 
@@ -398,7 +398,7 @@ class _PokerFeltState extends State<_PokerFelt>
           final handLeft = seatPlaces[0].dx * w + podW / 2 + Space.md;
           _handZone = Rect.fromLTRB(handLeft, _potDy * h, w, h);
 
-          Widget pod(int viewIndex) {
+          SeatPod pod(int viewIndex) {
             final s = viewIndex < seats.length ? seats[viewIndex] : null;
             final reveal = s == null ? null : result?.revealOf(s.userId);
             final outcome = t.pokerOutcome(reveal?.outcome);
@@ -406,8 +406,8 @@ class _PokerFeltState extends State<_PokerFelt>
             // badge while their friend request waits.
             final other = playerDrawerSeat(state, s);
             return SeatPod(
-              // The whole seat, measured as what an emoji drawn in an
-              // earlier seat must not be put under (EmojiPlacement).
+              // The whole seat, measured as what the emoji of a seat painted
+              // before it is kept clear of (EmojiPlacement).
               key: viewIndex < _seatKeys.length ? _seatKeys[viewIndex] : null,
               podKey: viewIndex < _podKeys.length ? _podKeys[viewIndex] : null,
               poker: true,
@@ -462,10 +462,14 @@ class _PokerFeltState extends State<_PokerFelt>
               emojiUrl: state.absoluteUrl(state.emojiOver(s?.userId)?.url),
               // Moved beside or above the pod where its own place would meet
               // another seat's emoji, or onto the pod where no place beside
-              // it would do; never under anything drawn after the seat, and
-              // pinned where it lands while it plays (EmojiPlacement).
+              // it would do; drawn over every seat and clear of the hand and
+              // the keys, and pinned where it lands while it plays
+              // (EmojiPlacement).
               emojiPin: emojiPinOf(s?.userId),
               emojiKey: emojiKeyAt(viewIndex),
+              // Where the seat stands, for the emoji layer to hold its emoji
+              // to (EmojiPlacement.emojiLayer).
+              emojiLink: emojiLinkAt(viewIndex),
               speechKey: speechKeyAt(viewIndex),
               bubbleSide: viewIndex == 0
                   ? BubbleSide.above
@@ -475,6 +479,10 @@ class _PokerFeltState extends State<_PokerFelt>
               reversed: viewIndex == 0,
             );
           }
+
+          // Every place's seat, built once: the Stack stands each where it
+          // sits, and the emoji layer draws their emojis.
+          final seatPods = [for (var i = 0; i < seatPlaces.length; i++) pod(i)];
 
           // Positioned by centre, and never past either edge (the Teen Patti
           // felt's `at`).
@@ -622,15 +630,18 @@ class _PokerFeltState extends State<_PokerFelt>
                 ),
 
               for (var i = 1; i < seatPlaces.length; i++)
-                at(seatPlaces[i], pod(i), key: ValueKey('seat-$i')),
+                at(seatPlaces[i], seatPods[i], key: ValueKey('seat-$i')),
 
               Positioned(
                 key: const ValueKey('seat-me'),
                 left: seatPlaces[0].dx * w - podW / 2,
                 bottom: h * 0.012,
                 width: podW,
-                child: pod(0),
+                child: seatPods[0],
               ),
+              // Every seat's emoji, over every seat and under the viewer's
+              // own hand (EmojiPlacement, 29 Sep 2026).
+              emojiLayer(seatPods, layerKey: const ValueKey('emoji-layer')),
               Positioned(
                 key: const ValueKey('own-hand'),
                 left: handLeft,

@@ -796,8 +796,8 @@ class _FeltState extends State<_Felt>
   final GlobalKey _stageKey = GlobalKey(debugLabel: 'felt');
 
   /// One key per place, naming its whole seat (the [SeatPod]: pod, cards,
-  /// bet) — what an emoji moved beside an earlier-painted pod must not be
-  /// drawn under ([EmojiPlacement]).
+  /// bet) — what an emoji moved beside an earlier-painted pod is kept clear
+  /// of ([EmojiPlacement]).
   final List<GlobalKey> _seatKeys = List.generate(
     SeatRing.maxSeats,
     (i) => GlobalKey(debugLabel: 'seat $i'),
@@ -1344,7 +1344,7 @@ class _FeltState extends State<_Felt>
           final handCeiling = _potDy * h + potPlate / 2 + Space.sm;
           _handZone = Rect.fromLTRB(handLeft, handCeiling, w, h);
 
-          Widget pod(SeatSpot spot) {
+          SeatPod pod(SeatSpot spot) {
             final viewIndex = spot.view;
             final angle = spot.angle;
             final seated = viewIndex < seats.length ? seats[viewIndex] : null;
@@ -1393,8 +1393,8 @@ class _FeltState extends State<_Felt>
             final other = playerDrawerSeat(state, s);
 
             return SeatPod(
-              // The whole seat, measured as what an emoji drawn in an
-              // earlier seat must not be put under (EmojiPlacement).
+              // The whole seat, measured as what the emoji of a seat painted
+              // before it is kept clear of (EmojiPlacement).
               key: viewIndex < _seatKeys.length ? _seatKeys[viewIndex] : null,
               // Another player's pod opens their card; the viewer's own opens
               // their record and their friends (owner, 27 Sep 2026).
@@ -1463,10 +1463,14 @@ class _FeltState extends State<_Felt>
               emojiUrl: state.absoluteUrl(state.emojiOver(s?.userId)?.url),
               // Moved beside or above the pod where its own place would meet
               // another seat's emoji, or onto the pod where no place beside
-              // it would do; never under anything drawn after the seat, and
-              // pinned where it lands while it plays (EmojiPlacement).
+              // it would do; drawn over every seat and clear of the hand and
+              // the keys, and pinned where it lands while it plays
+              // (EmojiPlacement).
               emojiPin: emojiPinOf(s?.userId),
               emojiKey: emojiKeyAt(viewIndex),
+              // Where the seat stands, for the emoji layer to hold its emoji
+              // to (EmojiPlacement.emojiLayer).
+              emojiLink: emojiLinkAt(viewIndex),
               speechKey: speechKeyAt(viewIndex),
               // A bubble opens towards the middle of the table: seats on the
               // left speak to the right, seats on the right to the left, and
@@ -1503,6 +1507,12 @@ class _FeltState extends State<_Felt>
               winnerTax: paid ? state.winnerTax : 0,
             );
           }
+
+          // Every place's seat, built once: the Stack stands each where it
+          // sits, and the emoji layer draws their emojis.
+          final seatPods = <int, SeatPod>{
+            for (final spot in [...ring.rim, me]) spot.view: pod(spot),
+          };
 
           // Positioned by centre, so a seat stays put as its own column grows
           // and shrinks with the hand — but never past either edge, which is
@@ -1888,13 +1898,13 @@ class _FeltState extends State<_Felt>
                     // and stands where the pod would.
                     child: Align(
                       alignment: Alignment.topLeft,
-                      child: pod(spot),
+                      child: seatPods[spot.view]!,
                     ),
                   )
                 else
                   atPoint(
                     spot.anchor,
-                    pod(spot),
+                    seatPods[spot.view]!,
                     key: ValueKey('seat-${spot.view}'),
                   ),
 
@@ -1908,7 +1918,15 @@ class _FeltState extends State<_Felt>
                 left: me.anchor.dx - podW / 2,
                 bottom: h - me.anchor.dy,
                 width: podW,
-                child: pod(me),
+                child: seatPods[me.view]!,
+              ),
+              // Every seat's emoji, over every seat — so nothing a seat says
+              // after one has landed is drawn over it — and under the
+              // viewer's own hand, which the placement keeps them clear of
+              // (EmojiPlacement, 29 Sep 2026).
+              emojiLayer(
+                seatPods.values,
+                layerKey: const ValueKey('emoji-layer'),
               ),
               // The viewer's own badge and total ride over their cards rather
               // than under their pod: the pod stands on the floor, so a stack

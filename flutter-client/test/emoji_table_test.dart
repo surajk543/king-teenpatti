@@ -284,8 +284,10 @@ Future<void> _openEmojiPage(WidgetTester tester) async {
 Finder _podOf(String userId) =>
     find.byWidgetPredicate((w) => w is SeatPod && w.seat?.userId == userId);
 
+/// [userId]'s emoji where the felt draws it: in its emoji layer, over every
+/// seat (SeatEmoji).
 Finder _seatEmoji(String userId) => find.descendant(
-  of: _podOf(userId),
+  of: find.byWidgetPredicate((w) => w is SeatEmoji && w.userId == userId),
   matching: find.byKey(const ValueKey('seat-emoji')),
 );
 
