@@ -1,10 +1,13 @@
 // Each player's level on their pod at the table (owner, 29 Sep 2026: "In
 // gametable In every player pod show their game level icon on top right of
-// player pod"): the level's art (the owner's Lottie, `room:state` seats[].level)
-// on the top-right corner of every pod — the viewer's too — a little past the
-// corner, taking no layout and no taps; nothing where the level has no art yet
-// or the server sent none; the one-second tick never rebuilding its Lottie;
-// and nothing overflowing at 592x360–915x412, x1.0 and x1.25.
+// player pod"; then "Level icon on pod should be inside a circular container
+// and increase its size also"): the level's art (the owner's Lottie,
+// `room:state` seats[].level) in a disc in the top-right corner of every pod —
+// the viewer's too — taking no layout and no taps, clear of the picture;
+// the name line kept clear of it; nothing where the level has no art yet or
+// the server sent none; the one-second tick never rebuilding its Lottie; and,
+// at two to five places on every phone size, no disc off the screen or over
+// another seat, the pot, the viewer's cards, the tag or a key.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lottie/lottie.dart';
@@ -12,13 +15,19 @@ import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/net/picture_cache.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/widgets/avatar.dart';
+import 'package:teenpatti/widgets/buy_chips.dart';
 import 'package:teenpatti/widgets/level_art.dart';
+import 'package:teenpatti/widgets/picture_shelf.dart';
+import 'package:teenpatti/widgets/playing_card.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 import 'package:teenpatti/widgets/seat_pod.dart';
+import 'package:teenpatti/widgets/table_chrome.dart';
 
 import 'level_fixtures.dart';
 import 'table_scenes.dart';
 
+final _mark = find.byKey(const ValueKey('seat-level-mark'));
 final _art = find.byKey(const ValueKey('seat-level-art'));
 
 Future<GameState> _pump(
@@ -26,6 +35,8 @@ Future<GameState> _pump(
   Size screen = const Size(891, 411),
   double scale = 1.0,
   bool dark = true,
+  RoomState Function()? room,
+  int maxPlayers = 5,
 }) async {
   tester.view.physicalSize = screen;
   tester.view.devicePixelRatio = 1;
@@ -35,7 +46,10 @@ Future<GameState> _pump(
   final feedback = await silentFeedback();
   addTearDown(feedback.dispose);
   final state = sceneState(
-    TableScene('levels', (s) => s.handleState(levelsRoom())),
+    TableScene('levels', (s) {
+      s.config = s.config.copyWith(maxPlayers: maxPlayers);
+      s.handleState((room ?? levelsRoom)());
+    }),
   );
   await tester.pumpWidget(
     tableApp(
@@ -52,23 +66,35 @@ Future<GameState> _pump(
 
 Future<void> _unmount(WidgetTester tester) async {
   await tester.pumpWidget(const SizedBox.shrink());
-  await tester.pump(const Duration(seconds: 1));
+  await tester.pump(const Duration(seconds: 10));
 }
+
+/// A private widget of the table, by its class name.
+Finder _private(String name) =>
+    find.byWidgetPredicate((w) => w.runtimeType.toString() == name);
 
 /// The pod of the seat at [index].
 Finder _podOf(int index) =>
     find.byWidgetPredicate((w) => w is SeatPod && w.seat?.seatIndex == index);
 
 /// The pod's own box (the plaque, and the turn ring round it while on turn):
-/// the Stack the art is laid over.
-Rect _podBox(WidgetTester tester, Finder art) =>
-    tester.getRect(find.ancestor(of: art, matching: find.byType(Stack)).first);
+/// the Stack the disc is laid over.
+Rect _podBox(WidgetTester tester, Finder mark) =>
+    tester.getRect(find.ancestor(of: mark, matching: find.byType(Stack)).first);
 
 /// The glass plaque itself.
 Rect _plaque(WidgetTester tester, int index) => tester.getRect(
   find
       .descendant(of: _podOf(index), matching: find.byType(PremiumGlassPanel))
       .first,
+);
+
+/// Every place taken, each player at a level with art — a disc on every pod.
+RoomState _allLevelled(int places) => placesRoom(
+  places,
+  levels: {
+    for (var i = 0; i < places; i++) i: seatLevelJson([10, 3, 13, 6, 1][i]),
+  },
 );
 
 void main() {
@@ -97,10 +123,9 @@ void main() {
     expect(SeatLevel.maybe('x'), isNull);
   });
 
-  testWidgets('every pod with a level\'s art wears it on its top-right '
-      'corner, the viewer\'s too; none where there is no art or no level', (
-    tester,
-  ) async {
+  testWidgets('every pod with a level\'s art wears it in a disc on its '
+      'top-right corner, the viewer\'s too; none where there is no art or no '
+      'level', (tester) async {
     await _pump(tester);
     expect(tester.takeException(), isNull);
     for (final (index, url) in [
@@ -108,32 +133,51 @@ void main() {
       (1, levelArtUrl(3)),
       (4, levelArtUrl(1)),
     ]) {
-      final art = find.descendant(of: _podOf(index), matching: _art);
-      expect(art, findsOneWidget, reason: 'seat $index');
-      expect(tester.widget<LevelArt>(art).assetUrl, url);
-      final a = tester.getRect(art);
-      final box = _podBox(tester, art);
+      final mark = find.descendant(of: _podOf(index), matching: _mark);
+      expect(mark, findsOneWidget, reason: 'seat $index');
+      final disc = tester.getRect(mark);
+      final box = _podBox(tester, mark);
       final side = box.width * SeatPod.levelShare;
-      expect(a.width, closeTo(side, 0.5), reason: 'seat $index');
-      // On the pod's top-right corner, a little past it each way.
+
+      // A disc: a circle, gold-rimmed, casting a shadow.
+      final decoration =
+          tester.widget<Container>(mark).decoration! as BoxDecoration;
+      expect(decoration.shape, BoxShape.circle, reason: 'seat $index');
+      expect(decoration.border, isNotNull);
+      expect(decoration.boxShadow, isNotEmpty);
+      expect(disc.width, closeTo(side, 0.5), reason: 'seat $index');
+      expect(disc.height, closeTo(side, 0.5), reason: 'seat $index');
+
+      // In the pod's top-right corner: flush with its right edge, a hair
+      // over its top.
+      expect(disc.right, closeTo(box.right, 0.5), reason: 'seat $index');
       expect(
-        a.right,
-        closeTo(box.right + side * SeatPod.levelOverhang, 1.0),
-        reason: 'seat $index',
-      );
-      expect(
-        a.top,
-        closeTo(box.top - side * SeatPod.levelOverhang, 1.0),
+        disc.top,
+        closeTo(box.top - box.width * SeatPod.levelLift, 0.5),
         reason: 'seat $index',
       );
       // Over the plaque's own corner (the viewer's, on turn, inside its ring).
       final plaque = _plaque(tester, index);
       expect(
-        a.contains(plaque.topRight + const Offset(-1, 1)),
+        disc.contains(plaque.topRight + const Offset(-1, 1)),
         isTrue,
-        reason: 'seat $index: $a over $plaque',
+        reason: 'seat $index: $disc over $plaque',
       );
-      // Drawn: the Lottie is there.
+
+      // The art inside it, centred, bigger than the bare art it replaced
+      // (0.3 of the pod), and drawn.
+      final art = find.descendant(of: mark, matching: _art);
+      expect(art, findsOneWidget);
+      expect(tester.widget<LevelArt>(art).assetUrl, url);
+      final a = tester.getRect(art);
+      expect(a.width, closeTo(side * SeatLevelMark.artShare, 0.5));
+      expect(a.width, greaterThan(box.width * 0.3));
+      expect((a.center - disc.center).distance, lessThan(0.5));
+      // Clipped to the disc.
+      expect(
+        find.ancestor(of: art, matching: find.byType(ClipOval)),
+        findsOneWidget,
+      );
       expect(
         find.descendant(of: art, matching: find.byType(LottieBuilder)),
         findsOneWidget,
@@ -141,17 +185,58 @@ void main() {
     }
     for (final index in [2, 3]) {
       expect(
-        find.descendant(of: _podOf(index), matching: _art),
+        find.descendant(of: _podOf(index), matching: _mark),
         findsNothing,
         reason: 'seat $index',
       );
     }
     // It takes no taps: a tap is the pod's.
     final guard = tester.widget<IgnorePointer>(
-      find.ancestor(of: _art.first, matching: find.byType(IgnorePointer)).first,
+      find
+          .ancestor(of: _mark.first, matching: find.byType(IgnorePointer))
+          .first,
     );
     expect(guard.ignoring, isTrue);
     await _unmount(tester);
+  });
+
+  testWidgets('the name line keeps clear of the disc, and only where one is '
+      'worn', (tester) async {
+    for (final scale in [1.0, 1.25]) {
+      await _pump(
+        tester,
+        screen: const Size(640, 360),
+        scale: scale,
+        room: () => placesRoom(
+          5,
+          // Vikramaditya (seat 4) wears one; Meera (seat 2) does not.
+          levels: {
+            for (final i in [0, 1, 3, 4]) i: seatLevelJson(i + 2),
+          },
+        ),
+      );
+      for (var i = 0; i < 5; i++) {
+        final pod = _podOf(i);
+        final name = tester.getRect(
+          find.descendant(of: pod, matching: find.byType(SeatName)),
+        );
+        final plaque = _plaque(tester, i);
+        final mark = find.descendant(of: pod, matching: _mark);
+        if (mark.evaluate().isEmpty) {
+          // No disc: the name centred on the pod, as it always was.
+          expect(i, 2);
+          expect(name.center.dx, closeTo(plaque.center.dx, 1.0));
+          continue;
+        }
+        final disc = tester.getRect(mark);
+        expect(
+          name.right,
+          lessThanOrEqualTo(disc.left + 0.5),
+          reason: 'x$scale seat $i: the name $name under the disc $disc',
+        );
+      }
+      await _unmount(tester);
+    }
   });
 
   testWidgets('the one-second tick never rebuilds a pod\'s level art', (
@@ -200,32 +285,120 @@ void main() {
     await _unmount(tester);
   });
 
+  testWidgets('both themes draw the disc and nothing overflows', (
+    tester,
+  ) async {
+    for (final dark in [true, false]) {
+      await _pump(tester, screen: const Size(640, 360), dark: dark);
+      expect(tester.takeException(), isNull);
+      expect(_mark, findsNWidgets(3));
+      await _unmount(tester);
+    }
+  });
+
   for (final size in const [
     Size(592, 360),
     Size(640, 360),
+    Size(732, 412),
     Size(844, 390),
+    Size(891, 411),
     Size(915, 412),
+    Size(1280, 800),
   ]) {
     for (final scale in [1.0, 1.25]) {
-      testWidgets('${size.width.toInt()}x${size.height.toInt()} x$scale: '
-          'nothing overflows, every art on screen', (tester) async {
-        for (final dark in [true, false]) {
-          await _pump(tester, screen: size, scale: scale, dark: dark);
-          expect(tester.takeException(), isNull);
-          expect(_art, findsNWidgets(3));
-          for (final e in _art.evaluate()) {
-            final r = tester.getRect(find.byWidget(e.widget));
-            expect(
-              r.left >= 0 &&
-                  r.top >= 0 &&
-                  r.right <= size.width &&
-                  r.bottom <= size.height,
-              isTrue,
-              reason: '${dark ? 'dark' : 'light'}: $r off the screen',
+      final label = '${size.width.toInt()}x${size.height.toInt()} x$scale';
+      testWidgets('$label, two to five places: every disc on the screen and '
+          'over nothing but its own pod, and clear of its picture', (
+        tester,
+      ) async {
+        final screen = Offset.zero & size;
+        final problems = <String>[];
+        for (var n = 2; n <= 5; n++) {
+          await _pump(
+            tester,
+            screen: size,
+            scale: scale,
+            room: () => _allLevelled(n),
+            maxPlayers: n,
+          );
+          expect(tester.takeException(), isNull, reason: '$label $n');
+          expect(_mark, findsNWidgets(n), reason: '$label $n');
+
+          // Everything a disc may not lie on.
+          Rect union(Finder f) {
+            var rect = tester.getRect(f.first);
+            for (var i = 1; i < f.evaluate().length; i++) {
+              rect = rect.expandToInclude(tester.getRect(f.at(i)));
+            }
+            return rect;
+          }
+
+          Rect keysOf(String corner) => union(
+            find.descendant(
+              of: _private(corner),
+              matching: find.byWidgetPredicate(
+                (w) => w is MachinedKey || w is StepperKey,
+              ),
+            ),
+          );
+          final others = <String, Rect>{
+            'pot': tester.getRect(_private('_Pot')),
+            "viewer's cards": union(
+              find.descendant(
+                of: _private('_OwnHand'),
+                matching: find.byType(PlayingCard),
+              ),
+            ),
+            'category tag': tester.getRect(_private('_CategoryTag')),
+            'key cluster': keysOf('_ActionCluster'),
+            'pack key': keysOf('_PackKey'),
+            'missile key': keysOf('_MissileKey'),
+            'shop key': tester.getRect(find.byType(ShopButton)),
+            'wallet': tester.getRect(find.byType(WalletPill)),
+            'rail': union(find.byType(RailKey)),
+          };
+
+          for (var i = 0; i < n; i++) {
+            final mark = find.descendant(of: _podOf(i), matching: _mark);
+            final disc = tester.getRect(mark);
+            if (!screen.inflate(0.5).contains(disc.topLeft) ||
+                !screen.inflate(0.5).contains(disc.bottomRight)) {
+              problems.add('$label, $n places: seat $i disc $disc off screen');
+            }
+            void clear(String what, Rect r) {
+              final o = disc.intersect(r);
+              if (o.width > 0.5 && o.height > 0.5) {
+                problems.add(
+                  '$label, $n places: seat $i disc $disc over $what $r',
+                );
+              }
+            }
+
+            others.forEach(clear);
+            // Nor on its own pod's picture: two circles apart.
+            final picture = tester.getRect(
+              find
+                  .descendant(of: _podOf(i), matching: find.byType(Avatar))
+                  .first,
             );
+            final gap =
+                (picture.center - disc.center).distance -
+                picture.width / 2 -
+                disc.width / 2;
+            if (gap < -0.5) {
+              problems.add(
+                '$label, $n places: seat $i disc $disc over its picture '
+                '$picture by ${(-gap).toStringAsFixed(1)}',
+              );
+            }
+            // Every other seat's column: pod, cards, bet.
+            for (var j = 0; j < n; j++) {
+              if (j != i) clear('seat $j', tester.getRect(_podOf(j)));
+            }
           }
           await _unmount(tester);
         }
+        expect(problems, isEmpty);
       });
     }
   }

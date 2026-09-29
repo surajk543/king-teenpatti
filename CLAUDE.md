@@ -909,14 +909,26 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   (`SettleResult.Levels`, read from the same `Standing` the settle's `player:level` is — `Table.adoptLevels`, on the first
   attempt or the Settler's retry; a level below 1 is ignored), carried by a switch or consolidation move (`SeatInfo.Level`) and
   kept in the snapshot (`SnapshotSeat.Level`; an invalid one is dropped on restore, never a refused table). The app
-  (`Seat.level`, `SeatLevel` in `dtos.dart`) lays its `LevelArt` (`seat-level-art`) on the pod's top-right corner, the viewer's
-  pod too: `SeatPod.levelShare` 0.3 of the pod, `levelOverhang` 0.3 of itself past the corner each way, a `Positioned` in the pod's
-  outer Stack (`Clip.none`) — so it takes no layout and no seat moves — under an `IgnorePointer` (a tap is the pod's), placed from
-  the pod's box, so it does not jump when the turn ring grows round the plaque. Nothing where the level has no art yet or the
-  server sent none. Tests: `internal/game/seatlevel_test.go` (every viewer sees it, a level-up adopted from the settle, the
-  restore), `internal/app/tabletax_test.go` (real sockets: Level 1's art on every seat), Flutter `test/seat_level_test.dart` (the
-  wire, the corner, none without art, the tick rebuilding nothing under it, 592x360–915x412 ×1.0/×1.25 both themes; scene
-  `levelsRoom()` in `table_scenes.dart`).
+  (`Seat.level`, `SeatLevel` in `dtos.dart`) draws it in a DISC in the pod's top-right corner, the viewer's pod too (owner, the same
+  day: "Level icon on pod should be inside a circular container and increase its size also"; `SeatLevelMark` in `seat_pod.dart`,
+  `seat-level-mark`): the table's charcoal in both themes (the tax pill's and the plates') under a 1.5dp gold rim, the raised step
+  of the depth ladder's shadow and light, and the `LevelArt` (`seat-level-art`) at `artShare` 0.88 of it, clipped to the circle.
+  `SeatPod.levelShare` 0.36 of the pod (the bare art it replaced was 0.3), flush with the pod's right edge and `levelLift` 0.03 of
+  the pod over its top — INSIDE the corner, not centred on it: the seat ring sets the pods against the screen's edge, the head seat
+  6dp under the top, and the far seats against the category tag and the wallet, so a disc centred on the corner ran off the screen
+  or over them at every phone size (the first cut); 0.36 is the most the corner holds clear of the picture, the viewer's included.
+  **The name line gives the disc its room** (`SeatPod.levelReserve`: the disc's width less the pod's padding, on the right only,
+  so a short name sits left of centre beside it) — which costs a long name: `SeatName` sets it down to 0.78 and then cuts it, and
+  at 640x360 a guest's "Guest0E00B" is cut at ×1.0 and ×1.25 on a pod that wears a disc (whole without one, set smaller at ×1.25). A `Positioned`
+  in the pod's outer Stack (`Clip.none`) — no layout, no seat moves — under an `IgnorePointer` (a tap is the pod's), placed from the
+  pod's box, so it does not move when the turn ring grows round the plaque. Nothing where the level has no art yet or the server
+  sent none. Tests: `internal/game/seatlevel_test.go` (every viewer sees it, a level-up adopted from the settle, the restore),
+  `internal/app/tabletax_test.go` (real sockets: Level 1's art on every seat), Flutter `test/seat_level_test.dart` (the wire; the
+  disc — a gold-rimmed circle with a shadow, its size, its corner, the art centred, clipped and larger than before; none without
+  art; the name line clear of it and centred where there is none; the tick rebuilding nothing under it; both themes; and at two to
+  five places at 592x360–1280x800 ×1.0/×1.25 every disc on the screen and over no other seat, the pot, the viewer's cards, the
+  tag, a key, the Shop key, the wallet or its own picture; scene `levelsRoom()` and `placesRoom(levels:)` / `seatLevelJson` in
+  `table_scenes.dart`).
 - **Badges** (`badges`, `user_badges`, `badge_purchases`): held BESIDE the level, many per player, each grant with an
   `expires_at` filled from `validity_days` by the `user_badges_expiry` trigger (0 = for ever). The rate a player pays is the
   **lowest of their level's and every unexpired badge's** (`playerLevelJoins`, the one statement of the rule; `db.Standing`,
@@ -2556,8 +2568,13 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   chair (`playerDrawerSeat`), the plaque only — opens `PlayerDrawer`, the tables' Scaffold `endDrawer` (right side,
   `TableSpace.drawerW`, `TableScrim.drawer`, `endDrawerEnableOpenDragGesture: false`; the Scaffold still watches nothing;
   back closes it first; the variation window closes it as it does the left drawer): the player's picture and name at
-  once from the seat, then `GET /api/players/{id}/profile` — and with it their **level** under the name ("Level 10 · 🌟
-  Rising Star", `_LevelLine`, gold, on `levelStrut`, set smaller rather than cut; owner, 27 Sep 2026: "In game table each
+  once from the seat — the picture LARGE, 68dp (`_Head.pictureRadius` 34; 22 before), with their level's disc on its
+  top-right (owner, 29 Sep 2026: "profile pic should be big and in top right of profile pic it should show his level
+  icon"): the pods' own `SeatLevelMark` (`seat-player-level-mark` / `-art`), 0.44 of the picture, its middle on the
+  picture's rim at 45°, the seat's level at once and the profile's (the fresher) once it has come, none where neither has
+  art — then `GET /api/players/{id}/profile` — and with it their **level** under the name ("Level 10 · Rising Star" —
+  its art, which stood before the words, is the portrait's disc now; `_LevelLine`, gold, on `levelStrut`, set smaller
+  rather than cut; owner, 27 Sep 2026: "In game table each
   player can see each other level of player also by clicking other player pod … but players should not able to see each
   other total winnings and biggest pot"; the profile's `level {level, title, icon}` — `auth.ProfileLevel`, read through
   `playerLevelJoins` like every account's, absent where the ladder has none — and nothing else of the standing: no XP, no
@@ -2567,7 +2584,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   re-reads and shows its note in the drawer — for a friend, **"Friends for 3 days"** under the name in the head (owner,
   26 Sep 2026: "show each other at the top how long they are friends in time"; `_FriendsFor`, from the friend list's
   `friendsSince` via `FriendsState.friendsSinceOf`, the same moment for both, in the largest whole unit — minutes, hours,
-  days, months of 30 days, years — or "Friends since just now", counted again every 30 s; `Strings.friendsFor`, which
+  days, months of 30 days, years — or "Friends since just now", counted again every 30 s, up to three lines beside the
+  large portrait; `Strings.friendsFor`, which
   added months and years to the time units) — and the record through the ONE `PlayerStatsGrid`
   (`widgets/player_profile.dart`, `RecordSurface.lobby|table`, shared with the lobby profile; the lobby's Stats drawer drew
   it too, as `PlayerStatsGrid.own` — removed with its chip tiles — until its own presentation of 27 Sep 2026, "The Stats drawer" below): since Player stats v2 (27 Sep 2026) a game switch — All · Teen Patti ·

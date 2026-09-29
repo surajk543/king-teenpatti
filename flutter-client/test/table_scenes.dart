@@ -256,22 +256,10 @@ RoomState seenTurnRoom({
 /// yet (20), and one whose level is not known (no key).
 RoomState levelsRoom() {
   final levels = <int, Map<String, dynamic>>{
-    0: {
-      'level': 10,
-      'assetUrl': 'https://drive.test/levels/10.json',
-      'assetFormat': 'LOTTIE',
-    },
-    1: {
-      'level': 3,
-      'assetUrl': 'https://drive.test/levels/3.json',
-      'assetFormat': 'LOTTIE',
-    },
-    2: {'level': 20},
-    4: {
-      'level': 1,
-      'assetUrl': 'https://drive.test/levels/1.json',
-      'assetFormat': 'LOTTIE',
-    },
+    0: seatLevelJson(10),
+    1: seatLevelJson(3),
+    2: seatLevelJson(20, art: false),
+    4: seatLevelJson(1),
   };
   return _room(
     category: 'seen',
@@ -284,6 +272,14 @@ RoomState levelsRoom() {
     you: _you(blind: false, cards: const ['As', 'Kd', 'Qh'], blindMovesLeft: 0),
   );
 }
+
+/// A seat's `level` as the server sends it: the level and, with [art], the
+/// URL level_fixtures' `levelArtUrl` gives it.
+Map<String, dynamic> seatLevelJson(int level, {bool art = true}) => {
+  'level': level,
+  if (art) 'assetUrl': 'https://drive.test/levels/$level.json',
+  if (art) 'assetFormat': 'LOTTIE',
+};
 
 /// Somebody else's turn at a blind table: nothing on the console to press.
 RoomState opponentTurnRoom({int handNo = 7, String roomId = 'r1'}) => _room(
@@ -972,8 +968,12 @@ RoomState wildCardRoom() => _room(
 
 /// A seen hand at a table of [places] places, every place taken but [empty],
 /// the viewer looking at their cards and the last seat round the table on
-/// turn.
-RoomState placesRoom(int places, {List<int> empty = const []}) => _room(
+/// turn. [levels] gives a seat its `level` ([seatLevelJson]).
+RoomState placesRoom(
+  int places, {
+  List<int> empty = const [],
+  Map<int, Map<String, dynamic>> levels = const {},
+}) => _room(
   category: 'seen',
   maxPot: 2000000,
   turnSeat: places - 1,
@@ -982,13 +982,16 @@ RoomState placesRoom(int places, {List<int> empty = const []}) => _room(
       if (empty.contains(i))
         {'seatIndex': i, 'status': 'empty', 'cardCount': 0}
       else
-        _seat(
-          i,
-          chips: [245000, 1820000, 96000, 12500000, 530000][i],
-          blind: i.isOdd,
-          lastBet: i.isOdd ? 400 : 800,
-          contributed: [2600, 1400, 2600, 1800, 3400][i],
-        ),
+        {
+          ..._seat(
+            i,
+            chips: [245000, 1820000, 96000, 12500000, 530000][i],
+            blind: i.isOdd,
+            lastBet: i.isOdd ? 400 : 800,
+            contributed: [2600, 1400, 2600, 1800, 3400][i],
+          ),
+          'level': ?levels[i],
+        },
   ],
   you: _you(blind: false, cards: const ['As', 'Kd', 'Qh'], blindMovesLeft: 0),
 );

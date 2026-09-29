@@ -40,6 +40,7 @@ import 'package:teenpatti/theme/table_theme.dart';
 import 'package:teenpatti/widgets/avatar.dart';
 import 'package:teenpatti/widgets/glass_panels.dart';
 import 'package:teenpatti/widgets/hammer_flight.dart';
+import 'package:teenpatti/widgets/level_art.dart';
 import 'package:teenpatti/widgets/player_drawer.dart';
 import 'package:teenpatti/widgets/own_record.dart';
 import 'package:teenpatti/widgets/own_seat_drawer.dart';
@@ -50,6 +51,7 @@ import 'package:teenpatti/widgets/seat_pod.dart';
 import 'package:teenpatti/widgets/table_chrome.dart';
 
 import 'friends_fixture.dart';
+import 'level_fixtures.dart' show levelArtJson, levelArtUrl, primeLevelArt;
 import 'script_fonts.dart';
 import 'table_scenes.dart' show silentFeedback, tableApp;
 
@@ -83,51 +85,61 @@ int get _now => DateTime.now().millisecondsSinceEpoch;
 
 /// A seen table, the viewer (Priya, u0) at seat 0, [empty] seats free. With
 /// [choosing], a variation table whose window is open for the viewer.
-RoomState _teenPatti({List<int> empty = const [], bool choosing = false}) =>
-    RoomState.fromJson({
-      'roomId': 'r1',
-      'code': 'ABCD2345',
-      'isPrivate': false,
-      'category': choosing ? 'variation' : 'seen',
-      'chipsHidden': choosing,
-      'state': 'betting',
-      'handNo': 7,
-      'dealerSeat': 3,
-      'maxPlayers': 5,
-      'minPlayers': 2,
-      'bootAmount': 200,
-      'turnTimeoutMs': 25000,
-      'startsAt': 0,
-      'pot': 6800,
-      'maxPot': choosing ? 0 : 2000000,
-      'stake': 400,
-      'turn': choosing
-          ? {'seatIndex': -1, 'userId': null, 'deadline': 0}
-          : {'seatIndex': 2, 'userId': 'u2', 'deadline': _now + 20000},
-      'you': {
-        'seatIndex': 0,
-        'chips': 1820000,
-        'status': 'active',
-        'isBlind': false,
-        'blindMovesLeft': 0,
-        'contributed': 1400,
-        'missedTurns': 0,
-        'maxMissedTurns': 3,
-        'cards': ['As', 'Kd', 'Qh'],
+/// [levels] gives a player's seat its `level`, by user id.
+RoomState _teenPatti({
+  List<int> empty = const [],
+  bool choosing = false,
+  Map<String, Map<String, Object?>> levels = const {},
+}) => RoomState.fromJson({
+  'roomId': 'r1',
+  'code': 'ABCD2345',
+  'isPrivate': false,
+  'category': choosing ? 'variation' : 'seen',
+  'chipsHidden': choosing,
+  'state': 'betting',
+  'handNo': 7,
+  'dealerSeat': 3,
+  'maxPlayers': 5,
+  'minPlayers': 2,
+  'bootAmount': 200,
+  'turnTimeoutMs': 25000,
+  'startsAt': 0,
+  'pot': 6800,
+  'maxPot': choosing ? 0 : 2000000,
+  'stake': 400,
+  'turn': choosing
+      ? {'seatIndex': -1, 'userId': null, 'deadline': 0}
+      : {'seatIndex': 2, 'userId': 'u2', 'deadline': _now + 20000},
+  'you': {
+    'seatIndex': 0,
+    'chips': 1820000,
+    'status': 'active',
+    'isBlind': false,
+    'blindMovesLeft': 0,
+    'contributed': 1400,
+    'missedTurns': 0,
+    'maxMissedTurns': 3,
+    'cards': ['As', 'Kd', 'Qh'],
+  },
+  'seats': [
+    for (var i = 0; i < 5; i++)
+      {
+        ..._seat(i, empty: empty.contains(i)),
+        if (!empty.contains(i)) 'level': ?levels['u$i'],
       },
-      'seats': [for (var i = 0; i < 5; i++) _seat(i, empty: empty.contains(i))],
-      if (choosing)
-        'variation': {
-          'selecting': true,
-          'userId': 'u0',
-          'displayName': 'Priya',
-          'seatIndex': 0,
-          'startedAt': _now - 1000,
-          'deadline': _now + 9000,
-          'timeoutMs': 10000,
-          'options': ['MUFLIS', 'AK47', 'JOKER', 'HUKAM'],
-        },
-    });
+  ],
+  if (choosing)
+    'variation': {
+      'selecting': true,
+      'userId': 'u0',
+      'displayName': 'Priya',
+      'seatIndex': 0,
+      'startedAt': _now - 1000,
+      'deadline': _now + 9000,
+      'timeoutMs': 10000,
+      'options': ['MUFLIS', 'AK47', 'JOKER', 'HUKAM'],
+    },
+});
 
 /// A Texas Hold'em room, the viewer (u0) at seat 0.
 RoomState _poker({List<int> empty = const []}) => RoomState.fromJson({
@@ -190,7 +202,12 @@ FakeFriendsServer _server() {
   server.profiles['u1'] = {
     ...cardJson('u1', 'Ravi'),
     'friendStatus': 'NONE',
-    'level': {'level': 10, 'title': 'Rising Star', 'icon': '🌟'},
+    'level': {
+      'level': 10,
+      'title': 'Rising Star',
+      'icon': '🌟',
+      ...levelArtJson(10),
+    },
     'stats': {
       ...statsJson(played: 88, won: 30, lost: 50, left: 8, winRate: 34.09),
       // Were a server ever to send them, another player's chip figures are
@@ -1541,6 +1558,121 @@ void main() {
         expect(_inDrawer(_key('seat-player-level')), findsNothing);
         await _unmount(tester, state);
       }, () => server.client);
+    });
+
+    // Owner, 29 Sep 2026: "when i click on Player pod and it opens player
+    // drawer then profile pic should be big and in top right of profile pic
+    // it should show his level icon".
+    group('on the portrait', () {
+      setUp(primeLevelArt);
+      final mark = _key('seat-player-level-mark');
+
+      testWidgets('the picture is large, with the level\'s disc on its '
+          'top-right: the seat\'s level at once, the profile\'s once it has '
+          'come', (tester) async {
+        final server = _server()
+          ..holdPath = '/api/players/u1/profile'
+          ..hold = Completer<void>();
+        await http.runWithClient(() async {
+          final state = _state();
+          await _mount(
+            tester,
+            state,
+            _teenPatti(
+              levels: {
+                'u1': {'level': 3, ...levelArtJson(3)},
+              },
+            ),
+          );
+          await tester.tap(_plaqueOf('u1'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 400));
+
+          final picture = tester.getRect(
+            _inDrawer(_key('seat-player-picture')),
+          );
+          // The portrait, large: 68 across, and its ring round it.
+          expect(picture.width, 71);
+          expect(picture.height, 71);
+
+          // Before the profile: the seat's level.
+          expect(_inDrawer(mark), findsOneWidget);
+          final art = _inDrawer(_key('seat-player-level-art'));
+          expect(tester.widget<LevelArt>(art).assetUrl, levelArtUrl(3));
+
+          // A gold-rimmed disc, its middle on the picture's rim at the
+          // top-right, the art inside it.
+          final disc = tester.getRect(_inDrawer(mark));
+          expect(disc.width, closeTo(68 * 0.44, 0.5));
+          final off = disc.center - picture.center;
+          expect(off.dx, closeTo(picture.width / 2 * 0.7071, 0.5));
+          expect(off.dy, closeTo(-picture.width / 2 * 0.7071, 0.5));
+          final decoration =
+              tester.widget<Container>(_inDrawer(mark)).decoration!
+                  as BoxDecoration;
+          expect(decoration.shape, BoxShape.circle);
+          expect(decoration.border, isNotNull);
+          expect(tester.getRect(art).center.dx, closeTo(disc.center.dx, 0.5));
+          // Inside the drawer, and clear of the name beside it.
+          final panel = tester.getRect(
+            _inDrawer(find.byType(PremiumGlassPanel)).first,
+          );
+          expect(disc.top, greaterThanOrEqualTo(panel.top));
+          expect(
+            tester.getRect(_inDrawer(_key('seat-player-name'))).left,
+            greaterThanOrEqualTo(disc.right),
+          );
+
+          // The profile's level replaces it; its words stay under the name,
+          // with no second copy of the art beside them.
+          server.hold!.complete();
+          await _settle(tester);
+          expect(
+            tester
+                .widget<LevelArt>(_inDrawer(_key('seat-player-level-art')))
+                .assetUrl,
+            levelArtUrl(10),
+          );
+          expect(_inDrawer(find.byType(LevelArt)), findsOneWidget);
+          expect(_inDrawer(_key('seat-player-level')), findsOneWidget);
+          await _closeDrawer(tester);
+
+          // No art at either: Vikramaditya's Level 44 has none yet, and
+          // Meera's profile has no level at all.
+          for (final id in ['u4', 'u2']) {
+            await _tapPod(tester, id);
+            expect(_inDrawer(_key('seat-player-picture')), findsOneWidget);
+            expect(_inDrawer(mark), findsNothing, reason: id);
+            await _closeDrawer(tester);
+          }
+          await _unmount(tester, state);
+        }, () => server.client);
+      });
+
+      testWidgets('the head fits at 640x360 x1.25 in every language, both '
+          'themes', (tester) async {
+        for (final brightness in Brightness.values) {
+          for (final lang in AppLang.values) {
+            final server = _server();
+            await http.runWithClient(() async {
+              final state = _state(lang: lang);
+              await _mount(tester, state, _teenPatti(), brightness: brightness);
+              await _tapPod(tester, 'u1');
+              expect(_inDrawer(mark), findsOneWidget, reason: lang.name);
+              final where = '${lang.name} ${brightness.name}';
+              _expectDrawerFits(tester, where);
+              final disc = tester.getRect(_inDrawer(mark));
+              final name = tester.getRect(_inDrawer(_key('seat-player-name')));
+              expect(
+                name.left,
+                greaterThanOrEqualTo(disc.right),
+                reason: where,
+              );
+              await _unmount(tester, state);
+            }, () => server.client);
+          }
+        }
+      });
     });
 
     testWidgets('no winnings, no biggest pot — even were the server to send '

@@ -18,9 +18,9 @@ import 'game_loader.dart';
 import 'own_seat_drawer.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
-import 'level_art.dart';
 import 'player_profile.dart';
 import 'report_player.dart';
+import 'seat_pod.dart' show SeatLevelMark;
 import 'table_chrome.dart';
 import 'table_tax.dart' show levelStrut;
 
@@ -201,6 +201,7 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                       level: _friends.seatProfile?.userId == who.userId
                           ? _friends.seatProfile?.level
                           : null,
+                      seatLevel: _seatLevelOf(who.userId),
                     ),
                     const MenuRule(),
                   ],
@@ -239,6 +240,15 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
         ),
       ),
     );
+  }
+
+  /// The level [userId]'s seat carries at the table (`room:state`), for the
+  /// portrait's disc before their profile has come.
+  SeatLevel? _seatLevelOf(String userId) {
+    for (final seat in context.read<GameState>().room?.seats ?? const []) {
+      if (seat.userId == userId) return seat.level;
+    }
+    return null;
   }
 
   List<Widget> _body(BuildContext context, Strings t, PlayerCard who) {
@@ -292,9 +302,12 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
   }
 }
 
-/// Who the drawer is about: their picture and their name, as the seat drew
-/// them, and the key that closes it — their level under the name once their
-/// profile has said it ("🌟 Level 10 · Rising Star"; owner, 27 Sep 2026:
+/// Who the drawer is about: their picture — large, with their level's disc on
+/// its top-right (owner, 29 Sep 2026: "profile pic should be big and in top
+/// right of profile pic it should show his level icon") — and their name, as
+/// the seat drew them, and the key that closes it — their level in words
+/// under the name once their profile has said it ("Level 10 · Rising Star";
+/// owner, 27 Sep 2026:
 /// "each player can see each other level of player also by clicking other
 /// player pod") — and, when the two are friends, how long they have been
 /// ("Friends for 3 days"), which each of them sees of the other (owner, 26
@@ -305,6 +318,7 @@ class _Head extends StatelessWidget {
     required this.player,
     this.friendsSince,
     this.level,
+    this.seatLevel,
   });
 
   final Strings t;
@@ -317,9 +331,34 @@ class _Head extends StatelessWidget {
   /// server sends none.
   final ProfileLevel? level;
 
-  /// The picture's radius: the drawer's one portrait, a step over a chat
-  /// line's and under a pod's.
-  static const double pictureRadius = 22;
+  /// Their level as their seat carries it (`room:state`): the portrait's disc
+  /// from the moment the drawer opens, until the profile's — the fresher —
+  /// has come.
+  final SeatLevel? seatLevel;
+
+  /// The picture's radius: the drawer's portrait, large — the player the
+  /// drawer is about, the one picture on it (22 until 29 Sep 2026).
+  static const double pictureRadius = 34;
+
+  /// The picture's ring, outside [pictureRadius] (Avatar's own width).
+  static const double pictureRing = 1.5;
+
+  /// The level's disc on the portrait: this share of the picture's diameter,
+  /// its middle on the picture's rim at the top-right (45°), as a badge sits
+  /// on a round portrait.
+  static const double levelShare = 0.44;
+
+  /// The level art the portrait's disc shows: the profile's, else the seat's;
+  /// none where neither has art.
+  (String, String, int)? get _levelArt {
+    if (level case final lv? when lv.hasArt) {
+      return (lv.assetUrl, lv.assetFormat, lv.level);
+    }
+    if (seatLevel case final lv? when lv.hasArt) {
+      return (lv.assetUrl, lv.assetFormat, lv.level);
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -333,13 +372,7 @@ class _Head extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Avatar(
-            key: const ValueKey('seat-player-picture'),
-            url: context.read<GameState>().absoluteUrl(player.pictureUrl),
-            fallback: player.displayName,
-            radius: pictureRadius,
-            animate: true,
-          ),
+          _portrait(context),
           const SizedBox(width: Space.md),
           Expanded(
             child: Column(
@@ -372,14 +405,55 @@ class _Head extends StatelessWidget {
       ),
     );
   }
+
+  /// The picture, large, with the level's disc on its top-right. The disc
+  /// stands a little past the picture's box — into the head's top padding and
+  /// the gap before the name — and takes no layout, so the head is as tall as
+  /// the picture whether or not a level shows.
+  Widget _portrait(BuildContext context) {
+    const disc = pictureRadius * 2 * levelShare;
+    // The picture's outer edge — its ring grows outwards from the radius —
+    // and on it the top-right point, 45° round from the top.
+    const outer = pictureRadius + pictureRing;
+    const rimX = outer * (1 + 0.70710678);
+    const rimY = outer * (1 - 0.70710678);
+    final art = _levelArt;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Avatar(
+          key: const ValueKey('seat-player-picture'),
+          url: context.read<GameState>().absoluteUrl(player.pictureUrl),
+          fallback: player.displayName,
+          radius: pictureRadius,
+          ringWidth: pictureRing,
+          animate: true,
+        ),
+        if (art case (final url, final format, final number))
+          Positioned(
+            left: rimX - disc / 2,
+            top: rimY - disc / 2,
+            width: disc,
+            height: disc,
+            child: SeatLevelMark(
+              assetUrl: url,
+              assetFormat: format,
+              size: disc,
+              label: t.levelNumber(number),
+              markKey: const ValueKey('seat-player-level-mark'),
+              artKey: const ValueKey('seat-player-level-art'),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
-/// The player's level under their name in the drawer's head: its art (the
-/// owner's Lottie, 29 Sep 2026 — the emoji it replaced stood here) and
-/// "Level 10 · Rising Star" ([levelNameOf]'s words), in the gold a level is
-/// written in on the table's pill, on the level's own line height
-/// ([levelStrut]). A long title is set smaller rather than cut; a level with
-/// no art yet is the words alone.
+/// The player's level under their name in the drawer's head: "Level 10 ·
+/// Rising Star" ([levelNameOf]'s words), in the gold a level is written in on
+/// the table's pill, on the level's own line height ([levelStrut]). A long
+/// title is set smaller rather than cut. Its art is on the portrait's disc
+/// (29 Sep 2026), not here: it stood before these words until then.
 class _LevelLine extends StatelessWidget {
   const _LevelLine({required this.t, required this.level});
 
@@ -403,14 +477,6 @@ class _LevelLine extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (level.hasArt) ...[
-                LevelArt.profile(
-                  level,
-                  key: const ValueKey('seat-player-level-art'),
-                  size: (style.fontSize ?? 12) * (style.height ?? 1.3) * 1.3,
-                ),
-                const SizedBox(width: Space.xxs),
-              ],
               Text(
                 t.levelName(level.level, level.title),
                 key: const ValueKey('seat-player-level'),
@@ -432,7 +498,8 @@ class _LevelLine extends StatelessWidget {
 /// the friendship's own moment (the same for both of them), in the largest
 /// whole unit ([Strings.friendsFor]). It counts on by itself while the drawer
 /// is open — "Friends since just now" becomes "Friends for 1 minute" — every
-/// 30 s, and wraps rather than being cut in a narrow drawer.
+/// 30 s, and wraps (up to three lines) rather than being cut in a narrow
+/// drawer.
 class _FriendsFor extends StatefulWidget {
   const _FriendsFor({required this.t, required this.since});
 
@@ -490,7 +557,9 @@ class _FriendsForState extends State<_FriendsFor> {
           Expanded(
             child: Text(
               widget.t.friendsFor(since),
-              maxLines: 2,
+              // Three: beside the large portrait (29 Sep 2026) "Friends since
+              // just now" takes three at text x1.25 on a 640dp phone.
+              maxLines: 3,
               overflow: TextOverflow.ellipsis,
               style: style,
             ),

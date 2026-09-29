@@ -182,15 +182,35 @@ class SeatPod extends StatelessWidget {
   /// chair never takes one.
   final VoidCallback? onTap;
 
+  /// The player's level on the pod's top-right corner ([SeatLevelMark]): a
+  /// disc this share of the pod's width (owner, 29 Sep 2026: "Level icon on
+  /// pod should be inside a circular container and increase its size also" —
+  /// the bare art was 0.3 of the pod).
+  ///
+  /// It stands INSIDE the corner, flush with the pod's right edge: the seat
+  /// ring sets the pods against the screen's edge, the category tag and the
+  /// wallet (SeatRing), so a disc standing past the corner ran off the screen
+  /// or over them at every phone size. 0.36 is as large as it can be there
+  /// and still clear the picture, the viewer's (the largest) included.
+  static const double levelShare = 0.36;
+
+  /// How far the disc stands above the pod's top, as a share of the pod's
+  /// width: the little the head seat has over it at every screen, which takes
+  /// the disc clear of the viewer's picture.
+  static const double levelLift = 0.03;
+
+  /// The room the name line leaves at its right for the level's disc, on a
+  /// pod [podWidth] wide: all the disc covers of it, past the pod's own
+  /// padding. The name is set in what is left (smaller before it is cut,
+  /// [SeatName]), so no letter is ever under the disc; the dealer's button
+  /// beside a name moves with it.
+  static double levelReserve(double podWidth) =>
+      math.max(0, podWidth * levelShare - podWidth * _kPad);
+
   /// A badge for the lower-left corner of the player's picture while their
   /// friend request waits for the viewer ([SeatRequestBadge]). On the picture
   /// rather than the pod's top corner, where it stood over the first letter
   /// of a long name ("Vikramaditya" read "ikramaditya").
-  /// The level's art on the pod's top-right corner: this share of the pod's
-  /// width, and this share of itself past the corner each way.
-  static const double levelShare = 0.3;
-  static const double levelOverhang = 0.3;
-
   final Widget? requestBadge;
 
   /// A mark for the lower-right corner of the player's picture while they are
@@ -642,6 +662,10 @@ class SeatPod extends StatelessWidget {
 
     final type = TableType.seat(theme, width);
 
+    // The player's level, drawn on the pod's corner when it has art (below).
+    final level = s.level;
+    final showLevel = level != null && level.hasArt;
+
     // Glass, with the player's own colour behind it (owner's decision, 11 Sep
     // 2026: the lobby's cards, at pod size). What the plaque used to say with
     // its border, wash and bloom now rides on the glass — a gold hairline and a
@@ -702,31 +726,37 @@ class SeatPod extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Flexible(
-                        child: SeatName(
-                          isMe ? 'YOU' : s.displayName,
-                          // 'YOU' is a fixed Latin string the code owns, so it
-                          // can be tracked capitals. A display name never can:
-                          // toUpperCase() does nothing to Devanagari or
-                          // Bengali, and tracked RAVI beside untracked मीरा is
-                          // worse than either alone.
-                          style: isMe
-                              ? type.you(
-                                  colour: dark
-                                      ? AppTheme.goldBright
-                                      : AppTheme.goldDeep,
-                                )
-                              : type.name(),
+                  Padding(
+                    // Clear of the level's disc on the pod's corner.
+                    padding: EdgeInsets.only(
+                      right: showLevel ? levelReserve(width) : 0,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Flexible(
+                          child: SeatName(
+                            isMe ? 'YOU' : s.displayName,
+                            // 'YOU' is a fixed Latin string the code owns, so it
+                            // can be tracked capitals. A display name never can:
+                            // toUpperCase() does nothing to Devanagari or
+                            // Bengali, and tracked RAVI beside untracked मीरा is
+                            // worse than either alone.
+                            style: isMe
+                                ? type.you(
+                                    colour: dark
+                                        ? AppTheme.goldBright
+                                        : AppTheme.goldDeep,
+                                  )
+                                : type.name(),
+                          ),
                         ),
-                      ),
-                      if (isDealer) ...[
-                        SizedBox(width: width * 0.035),
-                        _DealerButton(size: width * _kDealer * 2),
+                        if (isDealer) ...[
+                          SizedBox(width: width * 0.035),
+                          _DealerButton(size: width * _kDealer * 2),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                   // A laurel rule under the winner's name. The border alone
                   // cannot carry the moment while the pod is also the brightest
@@ -842,11 +872,12 @@ class SeatPod extends StatelessWidget {
 
     // The player's level on the pod's top-right corner (owner, 29 Sep 2026:
     // "In gametable In every player pod show their game level icon on top
-    // right of player pod"): its art, a little past the corner as a badge
-    // stands, painted over the pod and taking no layout, so no seat moves for
-    // it; no taps (a tap is the pod's). Nothing where the level has no art
-    // yet, or the server sent no level.
-    final level = s.level;
+    // right of player pod"; "inside a circular container"): its disc, in the
+    // corner ([levelShare]), painted over the pod and taking no layout, so no
+    // seat moves for it; no taps (a tap is the pod's). Placed from the pod's
+    // box, which the turn ring grows inside, so it does not move when the
+    // turn comes. Nothing where the level has no art yet, or the server sent
+    // no level.
     final levelSide = width * levelShare;
     return PodImpact(
       key: podKey,
@@ -872,18 +903,17 @@ class SeatPod extends StatelessWidget {
               ),
             ),
           panel,
-          if (level != null && level.hasArt)
+          if (showLevel)
             Positioned(
-              top: -levelSide * levelOverhang,
-              right: -levelSide * levelOverhang,
+              top: -width * levelLift,
+              right: 0,
               width: levelSide,
               height: levelSide,
               child: IgnorePointer(
-                child: LevelArt(
-                  key: const ValueKey('seat-level-art'),
-                  size: levelSide,
+                child: SeatLevelMark(
                   assetUrl: level.assetUrl,
                   assetFormat: level.assetFormat,
+                  size: levelSide,
                   label: context.read<GameState>().t.levelNumber(level.level),
                 ),
               ),
@@ -2027,6 +2057,99 @@ class _BubbleSkin extends CustomPainter {
       old.tailSide != tailSide ||
       old.blur != blur ||
       old.dy != dy;
+}
+
+/// A player's level on their pod ([SeatPod.levelShare]) — and on their
+/// portrait in the table's player drawer: the level's art
+/// (the owner's Lottie, [LevelArt]) in a disc of its own (owner, 29 Sep 2026:
+/// "Level icon on pod should be inside a circular container").
+///
+/// The disc is the table's charcoal in both themes — the tax pill's and the
+/// plates' ([Plate]) — lit from its upper left, under a gold rim: every
+/// level's art is drawn to read on it, and it stands out on the white pod by
+/// day as on the dark one by night. It casts the raised step of the depth
+/// ladder ([Elevation.raised]) — it stands on the pod, not on the room — and
+/// catches the light a raised surface does ([SurfaceLight]). The art fills
+/// [artShare] of it, fitted whole and clipped to the circle. The one-second
+/// tick never rebuilds the art under it
+/// ([LevelArt] hands back what it built).
+class SeatLevelMark extends StatelessWidget {
+  const SeatLevelMark({
+    super.key,
+    required this.assetUrl,
+    required this.assetFormat,
+    required this.size,
+    this.label,
+    this.markKey = const ValueKey('seat-level-mark'),
+    this.artKey = const ValueKey('seat-level-art'),
+  });
+
+  /// The level's art ([LevelArt]).
+  final String assetUrl;
+  final String assetFormat;
+
+  /// The disc's and the art's keys: a pod's by default; the player drawer's
+  /// portrait wears the same disc under its own.
+  final Key markKey;
+  final Key artKey;
+
+  /// The disc's diameter.
+  final double size;
+
+  /// What a screen reader calls it ("Level 10").
+  final String? label;
+
+  /// The art's share of the disc's diameter. Clipped to the disc, so a
+  /// canvas that reaches its corners never pokes past the rim.
+  static const double artShare = 0.88;
+
+  /// The gold rim's width.
+  static const double rimWidth = 1.5;
+
+  /// The disc's charcoal, lit ([high]) to shaded ([low]).
+  static const Color high = Color(0xFF3A3D44);
+  static const Color low = AppTheme.ink900;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: markKey,
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const RadialGradient(
+          center: Alignment(-0.35, -0.45),
+          radius: 0.95,
+          colors: [high, low],
+        ),
+        border: Border.all(
+          color: AppTheme.goldBright.withValues(alpha: 0.9),
+          width: rimWidth,
+        ),
+        // Opaque, so its shadow can lie under it.
+        boxShadow: Depth.of(context).shadows(Elevation.raised),
+      ),
+      child: CustomPaint(
+        painter: SurfaceLight(
+          radius: size / 2,
+          light: Depth.forBrightness(Brightness.dark).light(Elevation.raised),
+          inset: 0,
+        ),
+        child: ClipOval(
+          child: Center(
+            child: LevelArt(
+              key: artKey,
+              size: size * artShare,
+              assetUrl: assetUrl,
+              assetFormat: assetFormat,
+              label: label,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// A seat's BLIND/SEEN badge and what it has put in this hand.
