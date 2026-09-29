@@ -8,7 +8,12 @@ import 'package:flutter_test/flutter_test.dart';
 String _read(String path) => File(path).readAsStringSync();
 
 void main() {
-  test('the version is past the last tagged release, 1.6.1+15', () {
+  test('the version is past the last tagged release, 1.6.2+16', () {
+    // flutter-client/v1.6.2 is 1.6.2+16 (29 Sep 2026); 1.7.0+17 carries the
+    // levels' art (on every pod, the player drawer's portrait and the tax
+    // pill's badge), the hand-result animations, every owner sound playing
+    // again with the winner's sound, and the lobby's Lottie marks (the lock,
+    // wallet, piggy bank, rule book and shop).
     // flutter-client/v1.6.1 is 1.6.1+15 (29 Sep 2026); 1.6.2+16 carries the
     // review's fixes: progress while an emoji is bought in the drawer, and the
     // variation keys' true height and words.
@@ -36,7 +41,7 @@ void main() {
     expect(line, isNotNull);
     final build = int.parse(line!.group(4)!);
     final name = [1, 2, 3].map((i) => int.parse(line.group(i)!)).toList();
-    expect(build, greaterThan(15));
+    expect(build, greaterThan(16));
     // The name moves with it: 1.2.2 is the tagged release.
     final isAfter122 =
         name[0] > 1 ||
