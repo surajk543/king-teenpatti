@@ -114,7 +114,7 @@ var ownersLevelArt = map[int]string{
 	17: "https://drive.google.com/uc?export=download&id=1ec87R_lGM3EZHXAVIhjt0eYDslLzKk95",
 	18: "https://drive.google.com/uc?export=download&id=1fq3eVEu739XZBBN5Jkt_m4TLc_P5zIUK",
 	19: "https://drive.google.com/uc?export=download&id=1_agD2lEmfPN-sQcgm853aqwG9ujd0R2K",
-	20: "https://drive.google.com/uc?export=download&id=1ABHkYZ0N3O_BDBI1UpBfoVvWilXPTnxf",
+	20: "/levels/high-roller.json",
 	21: "https://drive.google.com/uc?export=download&id=1UNCYMfWQ1FNKW_4skDQefTTPvP7lr_ja",
 	22: "/levels/royal-ace.json",
 	23: "https://drive.google.com/uc?export=download&id=1SkpRRudplWyT7IKEpOAucp0UPrrQG9iZ",
@@ -434,6 +434,31 @@ func TestTheLevelArtFillsWhatIsMissingAndKeepsAnOwnersOwn(t *testing.T) {
 // public dir — in production too, where ROOT_REDIRECT hides only the top
 // level — and a Lottie a phone can play all the way through: no loopOut()
 // left in it (CLAUDE.md §12.3).
+func TestLevel20sFirstArtIsMovedOntoItsReplacementAndNothingElse(t *testing.T) {
+	f := newFixture(t)
+	// A database that took the first list: Level 20 on its 4.1 MB upload.
+	// Level 21 on an owner's own URL stays whatever it is.
+	for _, q := range []string{
+		`UPDATE player_levels SET asset_url = 'https://drive.google.com/uc?export=download&id=1ABHkYZ0N3O_BDBI1UpBfoVvWilXPTnxf' WHERE level = 20`,
+		`UPDATE player_levels SET asset_url = 'https://owner.test/royal.json' WHERE level = 21`,
+	} {
+		if _, err := f.d.Pool.Exec(f.ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, err := db.Open(f.ctx, db.Options{URL: testURL(), Schema: f.d.Schema, PoolMax: 2})
+	if err != nil {
+		t.Fatalf("the boot: %v", err)
+	}
+	t.Cleanup(d.Close)
+	if got := levelOn(t, d, 20); got.AssetURL != "/levels/high-roller.json" || got.AssetFormat != "LOTTIE" {
+		t.Errorf("level 20 after a boot: %q %q, want the served replacement", got.AssetURL, got.AssetFormat)
+	}
+	if got := levelOn(t, d, 21).AssetURL; got != "https://owner.test/royal.json" {
+		t.Errorf("level 21 after a boot: %q, want the owner's own kept", got)
+	}
+}
+
 func TestTheLevelArtServedHereIsInThePublicDir(t *testing.T) {
 	for level, url := range ownersLevelArt {
 		if !strings.HasPrefix(url, "/") {

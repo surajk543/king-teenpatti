@@ -1030,7 +1030,7 @@ UPDATE player_levels AS l
          (17, 'https://drive.google.com/uc?export=download&id=1ec87R_lGM3EZHXAVIhjt0eYDslLzKk95'),
          (18, 'https://drive.google.com/uc?export=download&id=1fq3eVEu739XZBBN5Jkt_m4TLc_P5zIUK'),
          (19, 'https://drive.google.com/uc?export=download&id=1_agD2lEmfPN-sQcgm853aqwG9ujd0R2K'),
-         (20, 'https://drive.google.com/uc?export=download&id=1ABHkYZ0N3O_BDBI1UpBfoVvWilXPTnxf'),
+         (20, '/levels/high-roller.json'),
          (21, 'https://drive.google.com/uc?export=download&id=1UNCYMfWQ1FNKW_4skDQefTTPvP7lr_ja'),
          (22, '/levels/royal-ace.json'),
          (23, 'https://drive.google.com/uc?export=download&id=1SkpRRudplWyT7IKEpOAucp0UPrrQG9iZ'),
@@ -1064,6 +1064,18 @@ UPDATE player_levels AS l
        ) AS v (level, url)
  WHERE l.level = v.level
    AND l.asset_url IS NULL;
+
+-- A level whose first art was replaced (the fill above never touches a URL
+-- already there): Level 20's first upload was 4.1 MB of embedded images, and
+-- the owner sent a 43 KB one the same evening (29 Sep 2026). Moves exactly the
+-- old URL onto the new file, so an owner's own URL is never touched and a
+-- database seeded afresh finds nothing to do.
+UPDATE player_levels
+   SET asset_url    = '/levels/high-roller.json',
+       asset_format = 'LOTTIE',
+       updated_at   = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+ WHERE level = 20
+   AND asset_url = 'https://drive.google.com/uc?export=download&id=1ABHkYZ0N3O_BDBI1UpBfoVvWilXPTnxf';
 
 -- The badges (owner, 27 Sep 2026: "Vip is not a level, it is badge, User can
 -- hold multiple badges"; then "add validity column in badges so that when it

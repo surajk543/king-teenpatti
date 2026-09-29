@@ -885,15 +885,21 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   (a guarded `UPDATE … FROM (VALUES …)` right after the ladder's INSERT in `V1.0.1__seed.sql`), every boot: a URL added to that
   list reaches every database at its next boot, production's included, while an owner's own URL — or `''`, none on purpose —
   is never touched. **All 50 levels have art** (the owner's list, 29 Sep 2026: 14 first, the other 36 the same evening); each
-  file was checked for what a phone cannot play (§12.3) and played in the app's own Lottie player, and FIVE are served by this
+  file was checked for what a phone cannot play (§12.3) and played in the app's own Lottie player, and SIX are served by this
   server as fixed copies in `go-server/public/levels/` (served in production like `profiles/`;
   `TestTheLevelArtServedHereIsInThePublicDir` holds each to a Lottie with no `loopOut`): Level 1 `newbie.json` and 41
-  `overlord.json` (their `loopOut('pingpong')` baked, `tools/lottie/bake_loop_expressions.py`), 25 `supreme-ace.json` (43
-  `loopOut`s baked), 22 `royal-ace.json` (a `Math.sin` bob of the whole badge, sampled into a keyframe a frame) and 32
-  `royal-titan.json` (two paths that copied other layers' paths by expression — empty on a phone — given those paths). The
-  other 45 are the owner's Drive files; what expressions they keep a phone skips harmlessly (overshoot and inertial-bounce
-  finishes; 28's and 40's `time × Rotation Speed` spins, whose speed is 0). Heavy: Level 20 (High Roller) is 4.1 MB of 161
-  embedded images and 47 (Immortal King) 1.6 MB of 102 — downloaded once per phone (PictureCache) but a long first fetch. The
+  `overlord.json` (their `loopOut('pingpong')` baked, `tools/lottie/bake_loop_expressions.py`), 20 `high-roller.json` and 25
+  `supreme-ace.json` (their `loopOut`s baked), 22 `royal-ace.json` (a `Math.sin` bob of the whole badge, sampled into a
+  keyframe a frame) and 32 `royal-titan.json` (two paths that copied other layers' paths by expression — empty on a phone —
+  given those paths). Level 20's first upload was 4.1 MB of 161 embedded images; the owner replaced it the same evening
+  (43 KB), and the seed moves exactly that old URL onto the new file (`TestLevel20sFirstArtIsMovedOntoItsReplacementAndNothingElse`).
+  The other 44 are the owner's Drive files; what expressions they keep a phone skips harmlessly (overshoot and
+  inertial-bounce finishes; 28's and 40's `time × Rotation Speed` spins, whose speed is 0). Heaviest now: 47 (Immortal King),
+  1.6 MB of 102 embedded images. **Every level's art is kept on the phone** (owner, the same day: "Make sure you cache the all
+  level icons in phone"): reading the ladder (`GameState.loadLevelLadder`, at a sign-in when not held) hands every level's
+  art URL to `PictureCache.keep`, which fetches each one not yet on the disk, one after another, and writes it there WITHOUT
+  holding it in memory (the memory layer is 64 entries, the faces on screen); after the first run it costs a directory
+  lookup a URL and no network, and a level shown reads its file from the disk (`test/level_art_cache_test.dart`). The
   `or` a check finds on a star shape (`sr`) is its outer ROUNDNESS, not 3D orientation. A changed URL goes into the seed's
   VALUES and `levels_test.go`'s `ownersLevelArt` together. The emoji (`icon`) stays in the table and
   on the wire for anything with no art to draw. **The app** (`widgets/level_art.dart` `LevelArt`, over `EmojiArt` with its
