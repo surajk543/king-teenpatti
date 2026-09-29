@@ -94,8 +94,8 @@ void main() {
         expect(
           at,
           inInclusiveRange(
-            DealFlights.soundOf(k).inMilliseconds,
-            DealFlights.soundOf(k).inMilliseconds + 40,
+            DealFlights.soundOf(k, heard).inMilliseconds,
+            DealFlights.soundOf(k, heard).inMilliseconds + 40,
           ),
           reason: 'card $k',
         );
@@ -130,9 +130,11 @@ void main() {
       expect(sounds.nextDealCardVoice, card % FeedbackSettings.dealCardVoices);
     }
     // Enough voices for every card still sounding when the next one starts:
-    // the clip is heard for 440 ms and the cards go 115 ms apart.
+    // the clip is heard for 440 ms, and a two-second deal to five players
+    // sends its fifteen cards 71 ms apart.
     expect(
-      FeedbackSettings.dealCardVoices * DealFlights.stagger.inMilliseconds,
+      FeedbackSettings.dealCardVoices *
+          DealFlights.staggerFor(5 * DealFlights.cardsEach).inMilliseconds,
       greaterThanOrEqualTo(440),
     );
     sounds.dispose();

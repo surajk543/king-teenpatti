@@ -226,6 +226,13 @@ func newHarness(t *testing.T, variant Variant) *harness {
 // (RoomDeps.SettlementOwed).
 func newHarnessOwed(t *testing.T, variant Variant, owed func(req game.SettleRequest, owed bool)) *harness {
 	t.Helper()
+	return newHarnessTuned(t, variant, owed, nil)
+}
+
+// newHarnessTuned is newHarnessOwed with the room's config changed by tune
+// (nil: as it is) before the room opens.
+func newHarnessTuned(t *testing.T, variant Variant, owed func(req game.SettleRequest, owed bool), tune func(*Config)) *harness {
+	t.Helper()
 	clock := testclock.New(start)
 	rec := newRecorder()
 	b := &books{wallets: map[string]int64{}}
@@ -241,6 +248,9 @@ func newHarnessOwed(t *testing.T, variant Variant, owed func(req game.SettleRequ
 		MaxMissedTurns: 3,
 		MinBuyIn:       400,
 		MaxDiscards:    3,
+	}
+	if tune != nil {
+		tune(&cfg)
 	}
 	stats := &statsLog{}
 	table := NewTable(TableOptions{

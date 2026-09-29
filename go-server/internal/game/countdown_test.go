@@ -244,3 +244,96 @@ func TestTheSettleRetryBaseIsNotTheWindowBetweenHands(t *testing.T) {
 		}
 	}
 }
+
+// The deal the app plays after the countdown (owner, 29 Sep 2026: "card
+// distribution animation should be 2 seconds, you might need to update table
+// config acc to that to adjust time"): the first clock of a hand — the first
+// turn, or a variation table's window — starts once the cards are out.
+
+func TestDealHoldIsTheAppsDealOrNothingOnAQuickClock(t *testing.T) {
+	eq(t, DealAnimation, 2*time.Second, "the app's deal")
+	eq(t, DealHold(6*time.Second), DealAnimation, "a 6 s window: the deal")
+	eq(t, DealHold(StartCountdown), DealAnimation, "exactly the countdown")
+	eq(t, DealHold(150*time.Millisecond), time.Duration(0), "a quick clock waits for nothing")
+	eq(t, DealHold(0), time.Duration(0), "none")
+}
+
+func TestTheFirstTurnOfAHandStartsItsClockOnceTheCardsAreDealt(t *testing.T) {
+	cfg := tableConfig()
+	cfg.DealHold = DealAnimation
+	h := newHarness(t, cfg)
+	for _, id := range []string{"a", "b", "c"} {
+		h.seat(id, tableStart)
+	}
+	h.advance(StartDelay(cfg.NextHandDelay))
+	eq(t, h.hasHand(), true, "dealt")
+	dealt := h.clock.Now()
+
+	turn := h.rec.last("turn").(TurnEvent)
+	eq(t, turn.Deadline, Millis(dealt.Add(DealAnimation+cfg.TurnTimeout)), "the deadline counts from the deal's end")
+	eq(t, turn.TimeoutMs, cfg.TurnTimeout.Milliseconds(), "the clock is its own length")
+	eq(t, *h.view("a").Turn.Deadline, turn.Deadline, "room:state says the same")
+
+	// A whole turn clock after the deal the player is still on turn: the two
+	// seconds the cards took were not theirs.
+	first := h.turnUser()
+	h.advance(cfg.TurnTimeout)
+	eq(t, h.turnUser(), first, "still on turn")
+	eq(t, h.mustSeat(first).Status, SeatActive, "not packed")
+	h.advance(DealAnimation)
+	eq(t, h.mustSeat(first).Status, SeatPacked, "timed out at the held deadline")
+
+	// Every later turn has its plain clock.
+	next := h.turnUser()
+	turn = h.rec.last("turn").(TurnEvent)
+	eq(t, turn.Deadline, Millis(h.clock.Now().Add(cfg.TurnTimeout)), "the next turn: no hold")
+	h.mustAct(next, ActionChaal, ActRequest{})
+	turn = h.rec.last("turn").(TurnEvent)
+	eq(t, turn.Deadline, Millis(h.clock.Now().Add(cfg.TurnTimeout)), "after a move: no hold")
+}
+
+func TestATableWithNoDealHoldStartsTheFirstClockAtTheDeal(t *testing.T) {
+	h := newHarness(t, tableConfig()) // DealHold 0: every table before
+	h.seat("a", tableStart)
+	h.seat("b", tableStart)
+	h.advance(StartDelay(tableConfig().NextHandDelay))
+	turn := h.rec.last("turn").(TurnEvent)
+	eq(t, turn.Deadline, Millis(h.clock.Now().Add(tableConfig().TurnTimeout)), "at the deal")
+}
+
+func TestAVariationWindowWaitsForTheDealToo(t *testing.T) {
+	cfg := variationConfig()
+	cfg.DealHold = DealAnimation
+	h := newHarness(t, cfg, withLedger(emptyLedger), withID("variation-room", "VARIANT1"))
+	for _, id := range []string{"p0", "p1", "p2"} {
+		h.seatNamed(id, strings.ToUpper(id), sideshowStart)
+	}
+	h.advance(StartDelay(cfg.NextHandDelay))
+	dealt := h.clock.Now()
+	w := h.window("p0")
+	eq(t, w.Selecting, true, "the window is open")
+	eq(t, *w.Deadline, Millis(dealt.Add(DealAnimation+cfg.VariationSelectTimeout)), "its deadline counts from the deal's end")
+	eq(t, w.TimeoutMs, cfg.VariationSelectTimeout.Milliseconds(), "the window is its own length")
+
+	h.advance(cfg.VariationSelectTimeout)
+	eq(t, h.window("p0").Selecting, true, "a whole window after the deal: still choosing")
+	h.advance(DealAnimation)
+	eq(t, h.window("p0").Selecting, false, "closed by the clock at the held deadline")
+}
+
+func TestTheDealHoldIsKeptInTheSnapshot(t *testing.T) {
+	cfg := tableConfig()
+	cfg.DealHold = DealAnimation
+	sc := snapshotConfig(cfg)
+	eq(t, sc.DealHoldMs, int64(2000), "saved")
+	eq(t, tableConfigFrom(sc).DealHold, DealAnimation, "restored")
+	// A snapshot saved before the hold existed restores without it.
+	var old SnapshotConfig
+	if err := json.Unmarshal([]byte(`{"category":"seen","nextHandDelayMs":6000}`), &old); err != nil {
+		t.Fatal(err)
+	}
+	eq(t, tableConfigFrom(old).DealHold, time.Duration(0), "an older snapshot: no hold")
+	if strings.Contains(mustJSON(t, snapshotConfig(tableConfig())), "dealHoldMs") {
+		t.Fatal("a table with no hold saves no dealHoldMs")
+	}
+}

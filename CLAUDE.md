@@ -85,6 +85,7 @@ king-teenpatti/
 │   │   │   ├── handrank.go       Evaluate/Compare/PickWinner — the ONE hand ranking
 │   │   │   ├── variation.go      Variation Teen Patti's rules (§6.4): the six variations as a wild rule + a comparison direction laid over Evaluate
 │   │   │   ├── table_variation.go  the variation WINDOW: who chooses, the server's clock, closeVariation (exactly once), SelectVariation, snapshot/restore
+│   │   │   ├── countdown.go      the countdown before a deal and the deal's hold (29 Sep 2026, §6.1): StartCountdown/StartDelay/StartsInMs, DealAnimation/DealHold
 │   │   │   ├── deck.go           52 cards, crypto/rand shuffle, 2-char wire codes ("As","Td")
 │   │   │   ├── chat.go           in-memory per-room chat buffer (actor-owned)
 │   │   │   ├── constants.go      Category / TableState / SeatState / Action / WinReason + verbatim messages
@@ -179,6 +180,8 @@ king-teenpatti/
     │   ├── widgets/playing_card.dart  THE card (§8.4 "The playing cards"): PlayingCard (face, back, the turn), CardFaceMetrics (where everything on a face goes),
     │   │                         CardFacePainter/CardStockPainter (the printed face; the stock's gold edge, faces and backs), cardRankFit, CardPips/SuitMark/paintPip
     │   ├── widgets/hand_fan.dart  HandFan (25 Sep 2026): the viewer's own fan as pure geometry — places, lean, which card is on top — for `_OwnHand` and SeatRing
+    │   ├── widgets/start_countdown.dart  the 3-2-1 before a deal (29 Sep 2026, §8.4): the owner's Count Down.json cut to its 3-2-1, placed in the
+    │   │                         largest clear circle on the felt, its number set large by the table; state/start_countdown.dart keeps its timing
     │   ├── widgets/              premium_surface, game_card (the lobby's one card shell, and CardColumn/CardGap/CardRule/CardSpace — its words, §8.4), seat_pod, poker_chip, liquid_fill,
     │   │                         fireworks, avatar, buy_chips, chip_store, picture_shelf, rules_sheet, own_record (the lobby's Stats drawer, §8.4),
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
@@ -535,6 +538,23 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   on their second). The table only *emits* `kick`; RoomManager/socket layer removes the player — and an
   idle kick of a player with no live socket leaves a resume offer (§7.1). The app warns after every miss
   (§8.4 "The missed-turn warning").
+- **The countdown before a deal, and the deal** (owner, 29 Sep 2026: "whenever Game starts in any game table, instead of
+  showing text "Starting game .." show this count Down animation 3,2,1 … when countdown finishes then distribute card";
+  then "card distribution animation should be 2 seconds, you might need to update table config acc to that to adjust
+  time"; `game/countdown.go`, DECISIONS.md's two rows). The table is `starting` from the countdown's start to the deal and
+  every move is `no_hand` meanwhile. A FIRST deal (a second player sits down) comes `StartDelay(NextHandDelay)` after —
+  `StartCountdown` (3 s, the app's 3-2-1), or the window where a table is configured quicker; a deal after a hand at its
+  end + `NextHandDelay` (6 s by default now: the celebration, then the countdown in its last 3 s), every hand's end HOLDING
+  the next deal to that instant (`holdStartUntil`). `room:state.startsInMs` (Teen Patti and poker) is the time left, measured
+  as the snapshot is serialised, ABSENT unless `starting`. **The first clock of every hand then waits for the app's
+  two-second deal** (`DealAnimation`, `DealHold(NextHandDelay)` → `TableConfig.DealHold` / `poker.Config.DealHold`, set from
+  the spec, saved as `dealHoldMs`): the first turn's deadline (and timer) is the deal + 2 s + the turn clock
+  (`setTurnAfter`), a variation table's choosing window the same (`beginVariation`), a poker room's first street's first
+  turn the same; every later turn has its plain clock, and `timeoutMs` on the wire stays the clock's length, so a client's
+  clock stands full while the cards fly. Not a table_configs column: the app's figure, nothing to UPDATE; a quick test clock
+  (`NextHandDelay` under the countdown) holds nothing, and a table restored from a snapshot without `dealHoldMs` keeps
+  starting its first turn at the deal until it empties. The settle retry's back-off base is `SettleRetryBaseFor` (4 s, or a
+  quicker window), not the window. `countdown_test.go` (game and poker).
 - **Rounds** count when the turn steps *over* `startSeat` (by `_distance`, not equality).
   `round >= maxBetRounds` → forced showdown. `pot + stake > maxPot` → `POT_LIMIT` showdown.
 - **Show**: exactly 2 active seats; costs `showCost = chaal`; **null/unaffordable cost →
@@ -1929,7 +1949,7 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | `SIDESHOW_TIMEOUT_MS` / `SIDESHOW_MIN_PLAYERS` † | 6000 / 3 | |
 | `DISPLAY_NAME_MAX` | 24 | also hardcoded: providers.js `.slice(0,24)`, Flutter login/lobby `maxLength: 24` |
 | `PRIVATE_BOOT` / `PRIVATE_MAX_POT` / `PRIVATE_MAX_RAISE_STEPS` † | 200 / 500000 / 2 | db: the private templates (`is_private` rows, one per category); `privateBoot`/`privateMaxPot` on the wire are the seen template's |
-| `NEXT_HAND_DELAY_MS` † / `CONSOLIDATE_INTERVAL_MS` / `RECONNECT_GRACE_MS` | 4000 / 15000 / 60000 | only the first is a table key |
+| `NEXT_HAND_DELAY_MS` † / `CONSOLIDATE_INTERVAL_MS` / `RECONNECT_GRACE_MS` | 6000 / 15000 / 60000 | only the first is a table key. 6000 since 29 Sep 2026 (4000 before): the winner's celebration, then the app's 3-2-1 in the window's last 3 s (§6.1 "The countdown before a deal"); a catalogue seeded before keeps 4000 until changed by hand (DEPLOY.md "The countdown before a deal") |
 | `RESUME_OFFER_MS` | 600000 | how long a lapsed seat's table is offered back via `session:ready.resume` |
 | `BLIND_MAX_RAISE_STEPS` / `BLIND_MAX_BET_ROUNDS` / `BLIND_POT_LIMIT_MULTIPLIER` † | 0 / 0 / 0 | blind tables: 0 = unlimited (ladder to the stack, no per-bet ceiling, no forced showdown) |
 | `CHAT_MAX_HISTORY` / `CHAT_MAX_LENGTH` / `CHAT_RATE_LIMIT` / `CHAT_RATE_WINDOW_MS` | 100 / 140 / 5 / 5000 | Flutter's chat field allows **200** — chars 141–200 are dropped server-side |
@@ -2912,6 +2932,42 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   over the middle of the table were removed (owner, 10 Sep 2026): the scrim greyed every revealed
   hand a player wanted to compare against, and the result is announced on the winner's own pod by
   `_WinnerFlash` instead. `handLive` gates bet pills. While `you.unfundedDeadline` is set, `_Status` shows `buyChipsToStay` (amber, counting down) in place of the waiting/starting line.
+- **The countdown before a deal** (owner, 29 Sep 2026; server side §6.1; `widgets/start_countdown.dart`,
+  `state/start_countdown.dart`). The status slot no longer says "Starting game…": the owner's `assets/animations/Count
+  Down.json` (612×551, 9 to GO over 14.9 s) is cut on an isolate to its 3-2-1 (`StartCountdownArt.threeTwoOne`: the layers
+  from "3"'s in-point to "0"'s, frames 180–270, 78 layers of 285) and parsed once as the app starts, recoloured
+  (`StartCountdownColours`: the disc and stars in the table's gold — night `goldOnDark`, day `goldDeep` a step deeper, #765B16 —
+  cross-fading with the theme) and played in the last 3 s before the deal. **Timing** (`StartCountdown`): anchored to the
+  moment a snapshot ARRIVED plus its `startsInMs` (a server without it: `startsAt` on the phone's clock), the earliest estimate
+  of the same deal kept, never restarted by a later snapshot; joined late it starts at the number the time left names; after a
+  hand the celebration has the table first. It yields to a seat held for a chip purchase, a missile volley and (in the status
+  slot) the missed-turn warning's five seconds; it fades out 140 ms before the deal (`leaveAtMs`). **Big** (owner, the same
+  day: "count down text should be big"): on the Teen Patti felt it is as large as the table has room for
+  (`StartCountdownPlacement.largest`): on the vertical through the table's middle, at the height nearest the pot's place where
+  its circle is largest, clear of every seat's column (`_FeltState._columnKeys`, measured), the tag, the tax pill, the key
+  clusters and — at a head seat's table while it shows — the missed-turn pocket, at most `_Felt.countdownMaxDisc` (0.4 of the
+  felt, `StartCountdownLayer.bigDisc` 220 at most): 139–143dp on a 360dp phone at every table size and text scale (48dp before),
+  164 on a 412dp one. Its stars fly no further than that clear circle and fade out at its rim (a radial mask one point past its
+  square: drawn to the square's edge, a star left a line in its anti-aliased last column). The NUMBER is set by the table
+  (`StartCountdownDigit`: Inter bold, its figure half the disc tall, popping in over the first 0.16 of its second and fading over
+  the last 0.08) — the file's own digits are hidden (`transformOpacity` 0), since they stood 0.4 of the disc and were gone a fifth
+  of every second. While it shows, the pot (nothing in it between hands, `ValueKey('pot-plate')`) and the viewer's last hand
+  (`own-hand-clear`) fade out — the table clears for the deal, and the countdown is the same size before a first deal and after
+  a hand. Said aloud as each number comes up (§8.4 "Sounds"). A screen reader hears "Starting in 3". The poker felt keeps the
+  earlier placement (its disc in the pocket, `discFor`), with the table's own number. `test/start_countdown_test.dart` (the
+  timing, the colours by pixel, every size 592x360–1280x800 ×1.0/×1.25 at 2–5 places before and after a hand — the circle clear
+  of every seat, key, tag and tax, the disc ≥ 0.35 of the screen or its cap, the pot and the last hand faded —, the stars pixel for
+  pixel, the voice, the number's second, the clear circle); pictures by hand, `test/countdown_shots.dart`.
+- **The deal: two seconds** (owner, 29 Sep 2026: "Card Distribution animation make it slow and smooth, and card distribution
+  animation should be 2 seconds"; `widgets/deal_flight.dart`). Every deal takes `DealFlights.span`, 2 s, at any table: each card a
+  one-second flight (`trip`; 0.8 s before), eased along a true half cosine (π/2 its average pace at its fastest, where the cubic
+  ran three times it), the stagger what is left shared evenly (`staggerFor(n)`: 200 ms at two players, 125 at three, 91 at four,
+  71 at five — a fixed 115 ms made a deal 1.4 s at two and 2.4 s at five); `landsAt`, `total`, `soundOf(k, n)` follow. The
+  viewer's own three cards come down as the deal's flights to their seat land (`DealFlights.seatLandsAt`, `_Dealt.landsAt`),
+  round by round over the two seconds — only for a hand this phone saw dealt (`GameState.handDealtHere`: the next hand at the same
+  table), else, and for a 5-Card top-up, the old 95 ms beat. The server holds the first clock for the deal (§6.1). A poker room's
+  own hole cards keep a fixed 115 ms beat (`_arriveBeat`). `test/deal_flight_test.dart`, `deal_sound_test.dart`,
+  `premium_cards_test.dart` ("comes down with the deal").
 - **The missed-turn warning** (owner, 27 Sep 2026: "warn before the kick"; `widgets/missed_turns_notice.dart`). A turn
   clock running out packs the player (poker: checks where free, stands pat, else folds) and counts a miss; until
   then nothing on the table said so — `you.missedTurns` reached only `TurnBuzzer`'s vibration. Now `_Status` (and
@@ -3385,11 +3441,19 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   **The deal** (owner, 26 Sep 2026: "when card is being distributed then use this sound … remove old sound … 12 times if 4
   player plays and 15 times if 5 player plays, 6 times if 2 player plays"): `DealFlights` plays **`assets/sound/Card
   Distribute.mp3`** (`FeedbackSettings.dealCard`, full volume) once for EVERY card it deals — cards each × players dealt in
-  (`dealtSeats`), 115 ms apart — in place of the `tick` that clicked as each card landed (`tap()` still clicks the Sound
-  switch on). The clip rustles for 200 ms and swishes to a peak at 380 ms, so card k is heard at `DealFlights.soundOf(k)` =
-  `stagger × k + soundAt` (400 ms), its peak landing with the card; a late frame plays every card it passed, so the count is
-  always exact. It overlaps itself four deep, so it has `dealCardVoices` (5) players taken in turn — on the ONE player a clip
-  had, each card stopped the last before its swish began and only the final card was heard. **The hammer** (same day: "when
+  (`dealtSeats`), `DealFlights.staggerFor(cards)` apart (the two-second deal, below: 200 ms at two players, 71 ms at five;
+  115 ms at every table until 29 Sep 2026) — in place of the `tick` that clicked as each card landed (`tap()` still clicks the
+  Sound switch on). The clip rustles for 200 ms and swishes to a peak at 380 ms, so card k of n is heard at
+  `DealFlights.soundOf(k, n)` = `staggerFor(n) × k + soundAt` (600 ms: a card's one-second flight less 400 ms), its peak landing
+  with the card; a late frame plays every card it passed, so the count is always exact. It overlaps itself up to seven deep at
+  five players, so it has `dealCardVoices` (8; 5 until the two-second deal) players taken in turn — on the ONE player a clip
+  had, each card stopped the last before its swish began and only the final card was heard. **The countdown's voice**
+  (owner, 29 Sep 2026: "can u add sound also saying 3,2,1"): `assets/sound/countdown 3.mp3` / `2` / `1`
+  (`FeedbackSettings.countdownClip`, `countdown(n)`, full volume, behind the Sound switch), "three", "two", "one" in Piper's
+  LJSpeech voice (public-domain recordings; generated here, trimmed of silence and levelled, each under 0.4 s — replace the
+  three files with the owner's own recordings under the same names and nothing else changes), said as each number comes up
+  (`StartCountdownLayer.onNumber`, wired by the Teen Patti felt): once a number, never again for the same deal (a later
+  snapshot of it re-anchors nothing), a countdown joined at "2" says two and one, and nothing after the deal. **The hammer** (same day: "when
   someone hit force side show then this sound should be played"): **`assets/sound/hammer hit.mp3`** (`hammerHit()`, 0.85 —
   it strikes at full scale) for everybody at the table, as everybody sees the hammer — off the felt's hammer clock
   (`_thudIfDue`, the missile buzz's pattern) at `HammerTiming.sound` (810 ms): the clip strikes 90–100 ms in, so it lands
@@ -4150,7 +4214,7 @@ its own; a translucent surface casts round itself (`DepthShadow`), never through
   runs there, `vsync: this` looks up `TickerMode` on a deactivated element, the throw lands inside
   `_InactiveElements._unmount` and leaves the tree half unmounted — and the *next* screen dies on an
   `_ElementLifecycle.inactive` assertion when it reuses `tableScaffold` (the red screen after sit alone →
-  Leave → join a hand, 11 Sep 2026). `DealFlights` (`widgets/deal_flight.dart` since 14 Sep 2026, rebuilt when the owner found the deal not smooth: each card the same 0.8 s trip 115 ms behind the last, on a clock as long as the deal needs — the old one-clock version cut the last cards off mid-air at four or five players — and the back rendered once into an image that one painter draws, instead of a whole `PlayingCard` with shadows, an SVG, an Opacity and a rotation per card per frame, and only to seats with a player in the hand (`dealtSeats`) where both versions had dealt cards to empty chairs too; `test/deal_flight_test.dart`) touches its controller only when a deal arrives, so
+  Leave → join a hand, 11 Sep 2026). `DealFlights` (`widgets/deal_flight.dart` since 14 Sep 2026, rebuilt when the owner found the deal not smooth: each card the same 0.8 s trip 115 ms behind the last (since 29 Sep 2026 a 1 s trip and the whole deal 2 s, §8.4 "The deal: two seconds"), on a clock as long as the deal needs — the old one-clock version cut the last cards off mid-air at four or five players — and the back rendered once into an image that one painter draws, instead of a whole `PlayingCard` with shadows, an SVG, an Opacity and a rotation per card per frame, and only to seats with a player in the hand (`dealtSeats`) where both versions had dealt cards to empty chairs too; `test/deal_flight_test.dart`) touches its controller only when a deal arrives, so
   it is nullable and created on demand (`_controller ??=`, `_controller?.dispose()`). Any controller not
   read in `initState` or on every build path needs the same. The stack showed in `flutter run`'s
   console, not in `adb logcat`.

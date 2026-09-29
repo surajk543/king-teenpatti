@@ -31,6 +31,8 @@ func TestConfigForStillComposesWhatItAlwaysDid(t *testing.T) {
 			want := Config{
 				Category: v.Category(), Variant: Variants[v], BootAmount: wantBoot,
 				MaxPlayers: 5, MinPlayers: 2, TurnTimeout: 25 * time.Second, NextHandDelay: 6 * time.Second,
+				// The first turn of a hand waits for the app's deal (29 Sep 2026).
+				DealHold:      game.DealAnimation,
 				UnfundedGrace: 30 * time.Second, MaxMissedTurns: 3,
 				// Ten boots, and POKER_MAX_DISCARDS on EVERY variant, as ever.
 				MinBuyIn: wantBoot * 10, MaxDiscards: 3,

@@ -1002,8 +1002,10 @@ func TestRoomsCreateTableConfigIsExplicit(t *testing.T) {
 		SideshowMinPlayers: g.SideshowMinPlayers,
 		NextHandDelay:      g.NextHandDelay,
 		MissileRevealExtra: g.MissileRevealExtra,
-		ChatMaxHistory:     100,
-		ChatMaxLength:      140,
+		// The first clock of a hand waits for the app's two-second deal.
+		DealHold:       game.DealAnimation,
+		ChatMaxHistory: 100,
+		ChatMaxLength:  140,
 	}
 	seen := common
 	seen.Category, seen.BootAmount = game.CategorySeen, 200
@@ -2075,7 +2077,8 @@ func TestRoomsIdleKickAfterMissedTurns(t *testing.T) {
 	seatTwoAndDeal(t, f, table, rmStart)
 	idle := turnUser(t, table)
 
-	f.clock.Advance(f.cfg.TurnTimeout)
+	// The hand's first turn: its clock starts once the app's deal is done.
+	f.clock.Advance(game.DealHold(f.cfg.NextHandDelay) + f.cfg.TurnTimeout)
 
 	k := f.awaitKick(5 * time.Second)
 	if k.UserID != idle || k.Reason != game.KickReasonIdle || k.RoomID != table.ID() || k.Message != "Left the table after 1 missed turns" {

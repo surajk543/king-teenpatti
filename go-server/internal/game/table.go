@@ -55,6 +55,12 @@ type TableConfig struct {
 	// SettleRetryBaseFor(NextHandDelay): this, but never more than 4 s.
 	NextHandDelay time.Duration
 
+	// DealHold is how much later than the deal the first clock of a hand
+	// starts — the first turn, or a variation table's window: the app's
+	// two-second deal (DealHold(NextHandDelay), countdown.go). 0 = at once,
+	// every table before 29 Sep 2026 and every test config that names none.
+	DealHold time.Duration
+
 	// UnfundedGrace: how long a seat below the boot is held between hands
 	// before the insufficient_chips kick; 0 = at once (requirements 31/32).
 	UnfundedGrace time.Duration
@@ -1560,7 +1566,8 @@ func (t *Table) startHand() {
 		// just dealt from, so it can be in nobody's hand.
 		t.beginVariation(firstSeat, undealt)
 	} else {
-		t.setTurn(firstSeat, true)
+		// The first turn's clock waits for the app's deal (countdown.go).
+		t.setTurnAfter(firstSeat, true, t.cfg.DealHold)
 	}
 	t.emitState()
 	if t.onHandStart != nil {
@@ -1635,6 +1642,14 @@ func (t *Table) distance(from, to int) int {
 // — after a sideshow they asked for, say. Their one ask has been used, and
 // handing it back would let them ask again in the same turn.
 func (t *Table) setTurn(seatIndex int, freshTurn bool) {
+	t.setTurnAfter(seatIndex, freshTurn, 0)
+}
+
+// setTurnAfter is setTurn with the clock starting hold later: the hand's
+// first turn, which waits for the app's deal (TableConfig.DealHold,
+// countdown.go). The deadline carries the hold; timeoutMs stays the clock's
+// own length.
+func (t *Table) setTurnAfter(seatIndex int, freshTurn bool, hold time.Duration) {
 	if seatIndex < 0 || t.hand == nil {
 		return
 	}
@@ -1646,7 +1661,7 @@ func (t *Table) setTurn(seatIndex int, freshTurn bool) {
 	if freshTurn {
 		s.sideshowAskedThisTurn = false
 	}
-	deadline := t.clock.Now().Add(t.cfg.TurnTimeout)
+	deadline := t.clock.Now().Add(hold + t.cfg.TurnTimeout)
 	t.hand.turnDeadline = deadline
 
 	// Names this particular turn. The timeout that is armed below carries it,
@@ -1664,7 +1679,7 @@ func (t *Table) setTurn(seatIndex int, freshTurn bool) {
 	})
 
 	t.clearTurnTimer()
-	t.turnTimer = t.clock.AfterFunc(t.cfg.TurnTimeout, func() {
+	t.turnTimer = t.clock.AfterFunc(hold+t.cfg.TurnTimeout, func() {
 		_ = t.run(func() { t.onTurnTimeout(seatIndex, token) })
 	})
 }
@@ -3751,6 +3766,7 @@ func snapshotConfig(cfg TableConfig) SnapshotConfig {
 		ChatMaxLength:      cfg.ChatMaxLength,
 
 		MissileRevealExtraMs: cfg.MissileRevealExtra.Milliseconds(),
+		DealHoldMs:           cfg.DealHold.Milliseconds(),
 
 		VariationSelectTimeoutMs: cfg.VariationSelectTimeout.Milliseconds(),
 		FiveCardPickTimeoutMs:    cfg.FiveCardPickTimeout.Milliseconds(),
@@ -3779,6 +3795,7 @@ func tableConfigFrom(c SnapshotConfig) TableConfig {
 		NextHandDelay:      time.Duration(c.NextHandDelayMs) * time.Millisecond,
 		UnfundedGrace:      time.Duration(c.UnfundedGraceMs) * time.Millisecond,
 		MissileRevealExtra: time.Duration(c.MissileRevealExtraMs) * time.Millisecond,
+		DealHold:           time.Duration(c.DealHoldMs) * time.Millisecond,
 
 		VariationSelectTimeout: time.Duration(c.VariationSelectTimeoutMs) * time.Millisecond,
 		FiveCardPickTimeout:    time.Duration(c.FiveCardPickTimeoutMs) * time.Millisecond,

@@ -68,6 +68,10 @@ type SnapshotConfig struct {
 	// MissileRevealExtraMs is TableConfig.MissileRevealExtra; absent (0) in a
 	// snapshot saved before missiles existed, which restores without the extra.
 	MissileRevealExtraMs int64 `json:"missileRevealExtraMs,omitempty"`
+	// DealHoldMs is TableConfig.DealHold (29 Sep 2026); absent (0) in a
+	// snapshot saved before the two-second deal, which restores keeping the
+	// rule it was opened with: a first turn that starts at the deal.
+	DealHoldMs int64 `json:"dealHoldMs,omitempty"`
 	// VariationSelectTimeoutMs is TableConfig.VariationSelectTimeout; absent
 	// (0) in every snapshot of a seen or blind table.
 	VariationSelectTimeoutMs int64 `json:"variationSelectTimeoutMs,omitempty"`

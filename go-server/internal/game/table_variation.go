@@ -338,8 +338,11 @@ func (t *Table) beginVariation(seatIndex int, undealt []Card) {
 		extra:  drawExtraCards(h.contribOrder, undealt[1:]),
 	}
 	w.menu = menuFor(w.extra != nil)
+	// The window's clock, like a first turn's, waits for the app's deal
+	// (TableConfig.DealHold, countdown.go): the chooser gets the whole
+	// window once the cards are out.
 	if t.cfg.VariationSelectTimeout > 0 {
-		w.deadline = now.Add(t.cfg.VariationSelectTimeout)
+		w.deadline = now.Add(t.cfg.DealHold + t.cfg.VariationSelectTimeout)
 	}
 	h.variation = w
 
@@ -354,7 +357,7 @@ func (t *Table) beginVariation(seatIndex int, undealt []Card) {
 	})
 
 	if t.cfg.VariationSelectTimeout > 0 {
-		t.armVariationTimer(w, t.cfg.VariationSelectTimeout)
+		t.armVariationTimer(w, t.cfg.DealHold+t.cfg.VariationSelectTimeout)
 	}
 }
 

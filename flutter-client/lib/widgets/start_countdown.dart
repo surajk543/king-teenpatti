@@ -197,13 +197,17 @@ class StartCountdownColours {
   /// The number.
   final Color digit;
 
-  /// The recolour, by layer name: the discs are the layers named "c", the
-  /// stars "s", and each number its own digit's layer.
+  /// The recolour, by layer name: the discs are the layers named "c" and the
+  /// stars "s". Each number's own digit layer is hidden: the table sets the
+  /// number itself, large and steady for its whole second
+  /// ([StartCountdownDigit]; owner, 29 Sep 2026: "count down text should be
+  /// big") — the file's digit filled little of its disc and was gone for a
+  /// fifth of every second.
   List<ValueDelegate<Object>> get delegates => [
     ValueDelegate.color(const ['c', '**'], value: disc),
     ValueDelegate.color(const ['s', '**'], value: disc),
     for (final number in const ['3', '2', '1'])
-      ValueDelegate.color([number, '**'], value: digit),
+      ValueDelegate.transformOpacity([number], value: 0),
   ];
 
   @override
@@ -231,7 +235,7 @@ class StartCountdownColours {
 /// [StartCountdownLayer.feather]) — never over the disc itself.
 @immutable
 class StartCountdownPlacement {
-  const StartCountdownPlacement({required this.disc, this.bounds});
+  const StartCountdownPlacement({required this.disc, this.bounds, this.room});
 
   /// Where the disc stands at the top of its pulse.
   final Rect disc;
@@ -239,6 +243,74 @@ class StartCountdownPlacement {
   /// The box the countdown may draw in; an infinite edge is no edge. Null:
   /// anywhere.
   final Rect? bounds;
+
+  /// The clear circle the countdown stands in, as the square round it, when
+  /// it was placed by [StartCountdownPlacement.largest]: the stars fly no
+  /// further than it and fade out as they reach its rim. Null: [bounds]
+  /// alone limit them.
+  final Rect? room;
+
+  /// How much of its clear circle the disc takes: the rest is the stars'.
+  static const double discShare = 0.82;
+
+  /// The largest countdown the felt has room for (owner, 29 Sep 2026: "count
+  /// down text should be big"): its disc on the vertical through [centreX],
+  /// inside [area], as far from everything in [keepClear] — the seats' columns,
+  /// the viewer's own cards, the tag, the tax pill — as its stars need, and
+  /// never more than [maxDisc] across. Where it could stand as large at more
+  /// than one height, it stands nearest [preferY] (the middle of the table).
+  ///
+  /// It is found by walking the vertical in [step]s and asking, at each
+  /// height, how near the nearest of those boxes (or [area]'s edge) comes;
+  /// the circle that reaches it, less [gap], is the clear circle there
+  /// ([room]), and the disc takes [discShare] of it.
+  factory StartCountdownPlacement.largest({
+    required double centreX,
+    required Rect area,
+    required Iterable<Rect> keepClear,
+    required double preferY,
+    required double maxDisc,
+    double step = 2,
+  }) {
+    final boxes = [
+      for (final r in keepClear)
+        if (!r.isEmpty) r,
+    ];
+    final cap = maxDisc / 2 / discShare;
+    double clearAt(double y) {
+      var r = math.min(
+        math.min(y - area.top, area.bottom - y),
+        math.min(centreX - area.left, area.right - centreX),
+      );
+      for (final b in boxes) {
+        final near = Offset(
+          centreX.clamp(b.left, b.right),
+          y.clamp(b.top, b.bottom),
+        );
+        r = math.min(r, (near - Offset(centreX, y)).distance);
+      }
+      return math.min(r - gap, cap);
+    }
+
+    var bestY = preferY.clamp(area.top, area.bottom).toDouble();
+    var best = clearAt(bestY);
+    for (var y = area.top; y <= area.bottom; y += step) {
+      final r = clearAt(y);
+      if (r > best + 0.01 ||
+          (r > best - 0.01 && (y - preferY).abs() < (bestY - preferY).abs())) {
+        best = r;
+        bestY = y;
+      }
+    }
+    final room = math.max(best, least / 2 / discShare);
+    final disc = 2 * room * discShare;
+    final centre = Offset(centreX, bestY);
+    return StartCountdownPlacement(
+      disc: Rect.fromCenter(center: centre, width: disc, height: disc),
+      bounds: area,
+      room: Rect.fromCircle(center: centre, radius: room),
+    );
+  }
 
   /// How far inside [bounds] the disc stays.
   static const double gap = Space.xs;
@@ -303,10 +375,14 @@ class StartCountdownPlacement {
     );
   }
 
-  /// Where the art can show at all: its [reach] inside [bounds].
+  /// Where the art can show at all: its [reach] inside [bounds] — and inside
+  /// the square round its [room], where it has one (the art shows only
+  /// within the circle itself).
   Rect get painted {
     final b = bounds;
-    return b == null ? reach : reach.intersect(b);
+    final inBounds = b == null ? reach : reach.intersect(b);
+    final r = room;
+    return r == null ? inBounds : inBounds.intersect(r);
   }
 
   /// How far inside each edge of [bounds] the stars fade: the room between
@@ -334,9 +410,13 @@ class StartCountdownPlacement {
     if (far < 0.5 && (disc.width - target.disc.width).abs() < 0.5) {
       return target;
     }
+    final room = target.room;
     return StartCountdownPlacement(
       disc: Rect.lerp(disc, target.disc, 1 / 3)!,
       bounds: target.bounds,
+      // The clear circle eases with the disc it holds; a placement that had
+      // none takes the target's at once.
+      room: room == null ? null : Rect.lerp(this.room ?? room, room, 1 / 3),
     );
   }
 
@@ -344,13 +424,15 @@ class StartCountdownPlacement {
   bool operator ==(Object other) =>
       other is StartCountdownPlacement &&
       other.disc == disc &&
-      other.bounds == bounds;
+      other.bounds == bounds &&
+      other.room == room;
 
   @override
-  int get hashCode => Object.hash(disc, bounds);
+  int get hashCode => Object.hash(disc, bounds, room);
 
   @override
-  String toString() => 'StartCountdownPlacement($disc, bounds: $bounds)';
+  String toString() =>
+      'StartCountdownPlacement($disc, bounds: $bounds, room: $room)';
 }
 
 /// The countdown before a deal on the felt (owner, 29 Sep 2026: "whenever
@@ -383,23 +465,42 @@ class StartCountdownPlacement {
 /// seconds (owner, 27 Sep 2026: "missed turn text show only for 5 seconds");
 /// the countdown then comes in at the number the time left names.
 ///
-/// [onNumber] is a hook for a sound per number (3, then 2, then 1) — the
-/// owner did not ask for one, so nothing is passed and nothing plays.
+/// Given [keepClear] (the Teen Patti felt, since the owner's "count down text
+/// should be big", 29 Sep 2026), it is as large as the table has room for:
+/// its disc on the vertical through [anchor], at the height nearest
+/// [anchor] where it can be largest, clear of every box [keepClear] names —
+/// the seats' columns, the viewer's own cards, the tag, the tax pill — and
+/// its stars within that clear circle ([StartCountdownPlacement.largest]);
+/// [discSize] is then the most it may be. The number is set by the table,
+/// large, on the art's disc ([StartCountdownDigit]).
+///
+/// [onNumber] is told each number as it comes up: the felt says it aloud
+/// (FeedbackSettings.countdown; owner, 29 Sep 2026: "can u add sound also
+/// saying 3,2,1").
 class StartCountdownLayer extends StatefulWidget {
   const StartCountdownLayer({
     super.key,
     required this.anchor,
     required this.discSize,
     this.bounds,
+    this.keepClear,
     this.yieldToWarning = false,
     this.onNumber,
   });
 
-  /// Where the disc's middle stands, in this layer's box.
+  /// Where the disc's middle stands, in this layer's box — or, with
+  /// [keepClear], where it would rather stand.
   final Offset anchor;
 
-  /// The disc's diameter at the top of its pulse, in logical pixels.
+  /// The disc's diameter at the top of its pulse, in logical pixels — or,
+  /// with [keepClear], the most it may be.
   final double discSize;
+
+  /// Everything the countdown must keep clear of, in this layer's box, as the
+  /// felt was last laid out; null while any of it has not been laid out yet
+  /// (nothing is drawn that frame). Null itself: the disc stands at [anchor],
+  /// [discSize] across, as it always did (the poker felt).
+  final ValueGetter<List<Rect>?>? keepClear;
 
   /// The box the countdown may draw in, in this layer's box, as the felt was
   /// last laid out: the head seat's pod over it at a table of two or four
@@ -420,6 +521,10 @@ class StartCountdownLayer extends StatefulWidget {
   static double discFor(double room) => room.clamp(minDisc, maxDisc);
   static const double minDisc = 30;
   static const double maxDisc = 96;
+
+  /// The most a countdown placed in its clear circle ([keepClear]) is ever
+  /// across (29 Sep 2026: "count down text should be big").
+  static const double bigDisc = 220;
 
   /// The most the stars fade over as they reach an edge of [bounds].
   static const double feather = 14;
@@ -618,11 +723,27 @@ class _StartCountdownLayerState extends State<StartCountdownLayer>
   /// stands over them, as the felt was last laid out — an easing step from
   /// where it stood last frame.
   void _place() {
-    final target = StartCountdownPlacement.of(
-      anchor: widget.anchor,
-      size: widget.discSize,
-      bounds: widget.bounds?.call(),
-    );
+    final StartCountdownPlacement target;
+    if (widget.keepClear case final keepClear?) {
+      final clear = keepClear();
+      final area = widget.bounds?.call();
+      // Not laid out yet (the first frame of a table joined mid-countdown):
+      // nowhere is known to be clear, so nothing is drawn until it is.
+      if (clear == null || area == null) return;
+      target = StartCountdownPlacement.largest(
+        centreX: widget.anchor.dx,
+        area: area,
+        keepClear: clear,
+        preferY: widget.anchor.dy,
+        maxDisc: widget.discSize,
+      );
+    } else {
+      target = StartCountdownPlacement.of(
+        anchor: widget.anchor,
+        size: widget.discSize,
+        bounds: widget.bounds?.call(),
+      );
+    }
     final held = _placement;
     final next = held == null || _still ? target : held.towards(target);
     if (next != held) setState(() => _placement = next);
@@ -746,11 +867,57 @@ class _CountdownPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    drawable.setProgress(progress.value.clamp(0.0, 1.0));
+    final at = progress.value.clamp(0.0, 1.0);
+    drawable.setProgress(at);
+    _paintArt(canvas);
+    _digits.paint(canvas, placement.disc, at, colours.digit);
+  }
+
+  /// The number over the art, laid out once for each number and size.
+  final StartCountdownDigit _digits = StartCountdownDigit();
+
+  void _paintArt(Canvas canvas) {
     final composition = drawable.composition.bounds;
     final art = placement.artFor(
       Size(composition.width.toDouble(), composition.height.toDouble()),
     );
+    // In its clear circle ([StartCountdownPlacement.largest]): the stars fly
+    // no further than the circle's rim, fading out over the ring between it
+    // and the disc (at most [StartCountdownLayer.feather] wide).
+    if (placement.room case final room?) {
+      final r = room.width / 2;
+      if (r <= 0) return;
+      final inner = math.max(
+        placement.disc.width / 2,
+        r - StartCountdownLayer.feather,
+      );
+      canvas
+        ..save()
+        ..clipRect(room)
+        ..saveLayer(room, Paint());
+      drawable.draw(canvas, art, fit: BoxFit.fill);
+      // The mask a point past the square it clips to, so the square's
+      // anti-aliased edge is masked whole: drawn to the edge exactly, a star
+      // crossing the edge's last part-covered pixel column left a line of
+      // itself there, outside the circle.
+      canvas
+        ..drawRect(
+          room.inflate(1),
+          Paint()
+            ..blendMode = BlendMode.dstIn
+            ..shader = RadialGradient(
+              colors: const [
+                Color(0xFF000000),
+                Color(0xFF000000),
+                Color(0x00000000),
+              ],
+              stops: [0, (inner / r).clamp(0.0, 1.0), 1],
+            ).createShader(room),
+        )
+        ..restore()
+        ..restore();
+      return;
+    }
     final bounds = placement.bounds;
     final reach = placement.reach;
     final feather = placement.feather;
@@ -875,22 +1042,144 @@ class _PlainDisc extends StatelessWidget {
               color: colours.disc,
               shape: BoxShape.circle,
             ),
-            child: Center(
-              child: Text(
-                '$number',
-                textScaler: TextScaler.noScaling,
-                style: TextStyle(
-                  fontFamily: AppTheme.fontFamily,
-                  fontWeight: FontWeight.w700,
-                  fontSize: plain * 0.5,
-                  height: 1,
-                  color: colours.digit,
-                ),
-              ),
+          ),
+        ),
+        // The same number the art carries, at the top of its second.
+        Positioned.fill(
+          child: CustomPaint(
+            painter: _PlainDigitPainter(
+              disc: disc,
+              number: number,
+              digit: colours.digit,
             ),
           ),
         ),
       ],
     );
+  }
+}
+
+class _PlainDigitPainter extends CustomPainter {
+  _PlainDigitPainter({
+    required this.disc,
+    required this.number,
+    required this.digit,
+  });
+
+  final Rect disc;
+  final int number;
+  final Color digit;
+
+  @override
+  void paint(Canvas canvas, Size size) => StartCountdownDigit().paint(
+    canvas,
+    disc,
+    StartCountdownArt.peakOf(number),
+    digit,
+  );
+
+  @override
+  bool shouldRepaint(_PlainDigitPainter old) =>
+      old.disc != disc || old.number != number || old.digit != digit;
+}
+
+/// The countdown's number, set by the table on the art's disc (owner, 29 Sep
+/// 2026: "count down text should be big"): Inter bold, its figure
+/// [capShare] of the disc tall — the file's own digit stood about 0.4 of it
+/// and was hidden for a fifth of every second as the disc emptied — centred
+/// on the disc by its cap height, not its line box. Each number pops in over
+/// the first [popFor] of its second (from [popFrom] of its size, a little
+/// past whole, then settling), holds, and fades over the last [fadeFor], so
+/// the next one arrives on an empty disc as the file's did.
+class StartCountdownDigit {
+  /// The figure's height, as a share of the disc at the top of its pulse.
+  static const double capShare = 0.5;
+
+  /// Inter's cap height, as a share of its size (the card faces' rank uses
+  /// the same, `playing_card.dart`).
+  static const double _interCap = 0.727;
+
+  /// The pop, the size it pops from, and the fade, as shares of its second.
+  static const double popFor = 0.16;
+  static const double popFrom = 0.55;
+  static const double fadeFor = 0.08;
+
+  /// The number [progress] (0 to 1 over the whole 3-2-1) shows: 3, 2 or 1.
+  static int numberAt(double progress) =>
+      (StartCountdown.length.inSeconds - (progress * 3).floor()).clamp(1, 3);
+
+  /// How far into its own second the number at [progress] is, 0 to 1.
+  static double withinAt(double progress) {
+    final seconds = progress.clamp(0.0, 1.0) * 3;
+    return seconds >= 3 ? 1 : seconds - seconds.floor();
+  }
+
+  /// The number's size, as a share of its settled size, [within] its second.
+  static double scaleAt(double within) {
+    if (within >= popFor) return 1;
+    return popFrom +
+        (1 - popFrom) * Curves.easeOutBack.transform(within / popFor);
+  }
+
+  /// The number's strength [within] its second.
+  static double opacityAt(double within) {
+    if (within < fadeFor) return within / fadeFor;
+    if (within > 1 - fadeFor) return ((1 - within) / fadeFor).clamp(0.0, 1.0);
+    return 1;
+  }
+
+  final Map<(int, double, Color), TextPainter> _laid = {};
+
+  /// Paints the number [progress] shows on [disc], in [colour].
+  void paint(Canvas canvas, Rect disc, double progress, Color colour) {
+    final number = numberAt(progress);
+    final within = withinAt(progress);
+    final strength = opacityAt(within);
+    if (strength <= 0 || disc.width <= 0) return;
+    final size = disc.width * capShare / _interCap;
+    final text = _laid.putIfAbsent((number, size, colour), () {
+      if (_laid.length > 8) _laid.clear();
+      return TextPainter(
+        text: TextSpan(
+          text: '$number',
+          style: TextStyle(
+            fontFamily: AppTheme.fontFamily,
+            fontWeight: FontWeight.w700,
+            fontSize: size,
+            height: 1,
+            color: colour,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+        textScaler: TextScaler.noScaling,
+      )..layout();
+    });
+    // Centred by the figure itself: its middle is half its cap height above
+    // the baseline.
+    final baseline = text.computeDistanceToActualBaseline(
+      TextBaseline.alphabetic,
+    );
+    final origin = Offset(
+      disc.center.dx - text.width / 2,
+      disc.center.dy - baseline + size * _interCap / 2,
+    );
+    final scale = scaleAt(within);
+    canvas
+      ..save()
+      ..translate(disc.center.dx, disc.center.dy)
+      ..scale(scale)
+      ..translate(-disc.center.dx, -disc.center.dy);
+    if (strength < 1) {
+      canvas.saveLayer(
+        disc.inflate(disc.width),
+        Paint()..color = Color.fromRGBO(0, 0, 0, strength),
+      );
+      text.paint(canvas, origin);
+      canvas.restore();
+    } else {
+      text.paint(canvas, origin);
+    }
+    canvas.restore();
   }
 }

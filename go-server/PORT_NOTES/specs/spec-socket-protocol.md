@@ -912,6 +912,8 @@ S→C  42["friend:accepted",{"requestId":1,"player":{"userId":"<accepter>","disp
   "round": <hand?.round ?? 0>,
   "sideshow": { "fromUserId", "fromSeat", "toUserId", "toSeat", "expiresAt" } | null,   // never cards
   "turn": { "seatIndex": <int>, "userId": <id|null>, "deadline": <ms|null> } | null,    // null when no hand
+                                            // Go only (29 Sep 2026): a hand's FIRST turn — and a variation window — has its deadline
+                                            // game.DealHold (2 s, the app's deal) later than the deal plus the clock; timeoutMs is unchanged
   "you": {                                  // null when the viewer is not seated
     "seatIndex", "chips": <int>, "status", "isBlind": <bool>,
     "blindMovesLeft": <isBlind ? max(0, maxBlindMoves - blindMoves) : 0>,

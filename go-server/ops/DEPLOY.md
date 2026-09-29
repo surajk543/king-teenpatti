@@ -574,6 +574,20 @@ bots' sessions end and they come back to fresh tables). Nothing needs to wait on
 older tag need not undo the UPDATE — an older build plays the 6 s window with "Starting game…" in it; to put 4 s back,
 `UPDATE table_configs SET next_hand_delay_ms = 4000 WHERE next_hand_delay_ms = 6000` and restart.
 
+### The two-second deal (29 Sep 2026) — nothing to change on the host
+
+*(Owner, 29 Sep 2026: "card distribution animation should be 2 seconds, you might need to update table config acc to
+that to adjust time"; `DECISIONS.md` "The first clock of a hand waits for the app's deal".)* The app deals for two seconds
+at every table, and from this release the server starts a hand's first clock — the first turn, or a variation table's
+window — two seconds after the deal (`game.DealHold`), so the deal never eats into the first player's time. It is a figure
+in the code, not a `table_configs` column: no UPDATE, no drained table, and an older app (whose deal took 1.4–2.4 s) simply
+sees the first player's clock stand full a moment longer. A table restored from Redis across the deploy's restart was
+opened without it and keeps starting its first turn at the deal until it empties (its snapshot has no `dealHoldMs`).
+
+```bash
+curl -s 127.0.0.1:3000/health | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])'   # the new tag
+```
+
 ### The app version gate (28 Sep 2026) — minimum, latest and maintenance, per platform, with no restart
 
 *(`CLAUDE.md` §7.2 "The app version gate" is the reference; `internal/appversion`.)* The server decides, per app platform,

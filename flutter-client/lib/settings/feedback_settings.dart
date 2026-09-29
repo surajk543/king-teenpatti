@@ -90,11 +90,19 @@ class FeedbackSettings extends ChangeNotifier {
   /// card click does.
   static const xpNotificationClip = 'sound/notification.mp3';
 
-  /// How many of [dealCardClip] may sound at once. The deal sends a card
-  /// every 115 ms and the clip is heard for 440 ms, so four overlap; one voice
-  /// would stop each card's sound for the next one before its swish began,
-  /// and only the last card of a deal would ever be heard.
-  static const dealCardVoices = 5;
+  /// The countdown before a deal, spoken: "three", "two", "one" (owner,
+  /// 29 Sep 2026: "can u add sound also saying 3,2,1"), one clip a number,
+  /// each under 0.4 s so it is over well inside its second. Voiced with
+  /// Piper's LJSpeech voice (public-domain recordings), trimmed and levelled
+  /// to the owner's other clips.
+  static String countdownClip(int number) => 'sound/countdown $number.mp3';
+
+  /// How many of [dealCardClip] may sound at once. A two-second deal to five
+  /// players sends a card every 71 ms (DealFlights.staggerFor) and the clip
+  /// is heard for 440 ms, so seven overlap; one voice would stop each card's
+  /// sound for the next one before its swish began, and only the last card
+  /// of a deal would ever be heard.
+  static const dealCardVoices = 8;
   int _dealCardVoice = 0;
 
   /// The voice the next [dealCard] plays on.
@@ -193,6 +201,15 @@ class FeedbackSettings extends ChangeNotifier {
     final voice = _dealCardVoice;
     _dealCardVoice = (_dealCardVoice + 1) % dealCardVoices;
     unawaited(_playAsset(dealCardClip, volume: 1, voice: voice));
+  }
+
+  /// The number the countdown before a deal has just come to, said aloud
+  /// ([countdownClip]): 3, then 2, then 1, at full volume, heard by everybody
+  /// at the table as everybody sees the numbers. Any other number says
+  /// nothing.
+  void countdown(int number) {
+    if (number < 1 || number > 3) return;
+    unawaited(_playAsset(countdownClip(number), volume: 1));
   }
 
   /// A Force Sideshow's hammer coming down on its target ([hammerHitClip]),

@@ -835,7 +835,9 @@ class GameState extends ChangeNotifier {
   /// Raises the verdict when a hand's choice has just been made.
   void _announcePick(OwnHand? hand) {
     final no = room?.handNo;
-    if (no == null || hand == null || hand.picking || hand.pickedBy.isEmpty) return;
+    if (no == null || hand == null || hand.picking || hand.pickedBy.isEmpty) {
+      return;
+    }
     if (_pickAnnouncedFor == no) return;
     _pickAnnouncedFor = no;
     pickAnnounced = (
@@ -2044,6 +2046,18 @@ class GameState extends ChangeNotifier {
     }
   }
 
+  /// Whether this phone saw the hand now on the table dealt: the next hand
+  /// at the same table, not one it arrived in the middle of (a seat taken
+  /// mid-hand, a reconnect, a switch). Only then does the viewer's own fan
+  /// take its cards as the two-second deal brings them; anywhere else they
+  /// simply arrive.
+  bool get handDealtHere {
+    final r = room;
+    return r != null && _dealtHere == (r.roomId, r.handNo);
+  }
+
+  (String, int)? _dealtHere;
+
   /// A table snapshot, already redacted for this viewer.
   @visibleForTesting
   void handleState(RoomState s) {
@@ -2073,6 +2087,11 @@ class GameState extends ChangeNotifier {
     final windowClosed =
         !newHand && room?.variation?.selecting == true && !newTable;
     final wasChoosing = variationIsMine;
+    // The next hand at the same table: the one the felt deals card by card
+    // (DealFlights' own rule), so the viewer's fan keeps time with it.
+    if (!newTable && room != null && s.handNo == room!.handNo + 1) {
+      _dealtHere = (s.roomId, s.handNo);
+    }
     room = s;
     _trackMissedTurns(s);
     _followCountdown(s);

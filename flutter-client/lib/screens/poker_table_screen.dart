@@ -738,6 +738,12 @@ class _EmptySlot extends StatelessWidget {
 /// grows and fades in, once, keyed on the card so a redraw never replays it.
 /// [delay] holds it invisible first, so a hand's cards arrive one after
 /// another rather than all at once.
+/// The beat between one of the viewer's own cards arriving and the next: the
+/// deal's old stagger, kept when the deal became two seconds whatever its
+/// size (29 Sep 2026) — these cards also arrive after a draw, when there is
+/// no deal to keep time with.
+const Duration _arriveBeat = Duration(milliseconds: 115);
+
 class _Arrive extends StatelessWidget {
   const _Arrive({super.key, required this.child, this.delay = Duration.zero});
 
@@ -1293,7 +1299,7 @@ class _PokerHand extends StatelessWidget {
                           'own-${room.handNo}-$i-'
                           '${i < cards.length ? cards[i] : 'back'}',
                         ),
-                        delay: DealFlights.stagger * i,
+                        delay: _arriveBeat * i,
                         child: PlayingCard(
                           height: cardHeight,
                           code: i < cards.length ? cards[i] : null,

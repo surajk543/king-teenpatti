@@ -57,3 +57,26 @@ func StartsInMs(startsAt, now time.Time) int64 {
 	}
 	return left
 }
+
+// DealAnimation is how long the app takes to deal a hand: every card flying
+// from the deck to its seat, two seconds at any table (owner, 29 Sep 2026:
+// "card distribution animation should be 2 seconds, you might need to update
+// table config acc to that to adjust time"). The server deals at once; the
+// first clock of the hand waits it out (DealHold), so the cards are on the
+// table before anybody's time starts to run.
+const DealAnimation = 2 * time.Second
+
+// DealHold is how much longer than its own clock the first decision of a
+// hand is given — the first turn (Teen Patti, and each poker room's first
+// street), or a variation table's window to choose the hand's rules: the
+// app's DealAnimation. Nothing where the window between hands is quicker than
+// the countdown (StartDelay's rule: the tests' and parity profiles' quick
+// clocks, which never waited for an animation). The wire says so honestly —
+// the deadline is later, the timeout (the clock's length) is not — so a
+// client's clock stands full while the cards are dealt and then drains.
+func DealHold(nextHandDelay time.Duration) time.Duration {
+	if nextHandDelay < StartCountdown {
+		return 0
+	}
+	return DealAnimation
+}

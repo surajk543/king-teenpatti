@@ -17,8 +17,9 @@
 // lifted off the floor as far as the pot allows, never less than before.
 //
 // The motion: a hand turns over left to right, a card waits its beat before
-// turning, and a dealt hand has landed inside 0.7 s. The back: the crown still,
-// the SEEN green still, on the same gold-edged stock as the face.
+// turning, and a dealt hand comes down with the two-second deal. The back:
+// the crown still, the SEEN green still, on the same gold-edged stock as the
+// face.
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -31,6 +32,7 @@ import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/theme/table_theme.dart';
+import 'package:teenpatti/widgets/deal_flight.dart';
 import 'package:teenpatti/widgets/hand_fan.dart';
 import 'package:teenpatti/widgets/playing_card.dart';
 import 'package:teenpatti/widgets/seat_pod.dart';
@@ -755,8 +757,8 @@ void main() {
       );
     });
 
-    testWidgets('a dealt hand arrives from the middle of the table and has '
-        'landed inside 0.7 s', (tester) async {
+    testWidgets('a dealt hand arrives from the middle of the table with the '
+        'deal, and is down inside its two seconds', (tester) async {
       final state = await _mount(
         tester,
         _scene('01-opponent'),
@@ -764,6 +766,7 @@ void main() {
       );
       state.handleState(opponentTurnRoom(handNo: 8));
       await tester.pump();
+      expect(state.handDealtHere, isTrue, reason: 'the next hand, dealt here');
       final hand = _private('_OwnHand');
       final fades = find.descendant(
         of: hand,
@@ -779,13 +782,27 @@ void main() {
       // two frames begins at the next one.
       var elapsed = Duration.zero;
       var travelled = false;
-      while (elapsed < const Duration(milliseconds: 700)) {
+      var waited = false;
+      while (elapsed < DealFlights.span + const Duration(milliseconds: 250)) {
         await tester.pump(const Duration(milliseconds: 16));
         elapsed += const Duration(milliseconds: 16);
         travelled |= tester
             .widgetList<FractionalTranslation>(flights)
             .any((f) => f.translation.dy < -0.1);
+        // The fan waits for the deal: nothing of it shows before the deal's
+        // first flight to this seat is well on its way (a whole second).
+        if (elapsed <= const Duration(milliseconds: 600)) {
+          waited |= true;
+          expect(
+            tester
+                .widgetList<FadeTransition>(fades)
+                .map((f) => f.opacity.value),
+            everyElement(0.0),
+            reason: 'at ${elapsed.inMilliseconds} ms',
+          );
+        }
       }
+      expect(waited, isTrue);
       expect(travelled, isTrue, reason: 'from up the table, not in place');
       expect(
         tester.widgetList<FadeTransition>(fades).map((f) => f.opacity.value),

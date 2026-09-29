@@ -30,8 +30,11 @@ import 'playing_card.dart';
 /// rebuilt, laid out and rastered again each frame, with a new card widget
 /// made (and its SVG fetched) every time one set off. Now the deal's clock is
 /// as long as its cards need ([total]), every card makes the same [trip] a
-/// [stagger] behind the card before it, and the backs are one image rendered
-/// once and drawn by a single painter that repaints off the clock.
+/// stagger behind the card before it, and the backs are one image rendered
+/// once and drawn by a single painter that repaints off the clock. Since
+/// 29 Sep 2026 every deal takes [span], two seconds, at any table: each card
+/// a slower one-second flight, the stagger what is left shared between them
+/// ([staggerFor]).
 class DealFlights extends StatefulWidget {
   const DealFlights({
     super.key,
@@ -63,13 +66,24 @@ class DealFlights extends StatefulWidget {
 
   static const int cardsEach = 3;
 
-  /// One card's flight from the deck to its seat. Slower than feels necessary
-  /// on paper: rushing it is the difference between cards being dealt and
-  /// cards appearing.
-  static const Duration trip = Duration(milliseconds: 800);
+  /// A whole deal, from the first card leaving the deck to the last one
+  /// landing, at a table of any size (owner, 29 Sep 2026: "card distribution
+  /// animation make it slow and smooth, and card distribution animation
+  /// should be 2 seconds"). The server holds the first clock of every hand
+  /// for as long (go-server game.DealAnimation), so a deal never eats into
+  /// the first player's turn.
+  static const Duration span = Duration(seconds: 2);
 
-  /// How long after the card before it each card sets off.
-  static const Duration stagger = Duration(milliseconds: 115);
+  /// One card's flight from the deck to its seat: a whole second, so each
+  /// card is seen to be dealt (0.8 s until 29 Sep 2026).
+  static const Duration trip = Duration(milliseconds: 1000);
+
+  /// How long after the card before it each card of a deal of [cards] sets
+  /// off: what [span] leaves after one [trip], shared evenly — 200 ms at a
+  /// table of two, 125 ms at three, 91 ms at four, 71 ms at five. A fixed
+  /// 115 ms made a deal 1.4 s at two and 2.4 s at five.
+  static Duration staggerFor(int cards) =>
+      cards > 1 ? (span - trip) ~/ (cards - 1) : Duration.zero;
 
   /// How far into its flight a card's sound starts ([FeedbackSettings.dealCard],
   /// once per card: 6 at a table of two, 12 at four, 15 at five). The owner's
@@ -77,13 +91,36 @@ class DealFlights extends StatefulWidget {
   /// started 400 ms before the card comes down it peaks as the card lands.
   /// Started at the landing, as the tick it replaced was, the swish came 0.4 s
   /// after the card.
-  static const Duration soundAt = Duration(milliseconds: 400);
+  static const Duration soundAt = Duration(milliseconds: 600);
 
-  /// When card [index] of a deal is heard, from the deal's start.
-  static Duration soundOf(int index) => stagger * index + soundAt;
+  /// When card [index] of a deal of [cards] is heard, from the deal's start.
+  static Duration soundOf(int index, int cards) =>
+      staggerFor(cards) * index + soundAt;
 
-  /// A deal of [cards], from the first card leaving to the last one landing.
-  static Duration total(int cards) => trip + stagger * math.max(0, cards - 1);
+  /// When card [index] of a deal of [cards] lands, from the deal's start.
+  static Duration landsAt(int index, int cards) =>
+      staggerFor(cards) * index + trip;
+
+  /// A deal of [cards], from the first card leaving to the last one landing:
+  /// [span] for every deal of two cards or more.
+  static Duration total(int cards) =>
+      cards > 0 ? landsAt(cards - 1, cards) : Duration.zero;
+
+  /// When the [round]-th card dealt to the seat at [seatIndex] lands, in a
+  /// deal of [each] cards to every seat of [seats] that is dealt in — so the
+  /// viewer's own fan takes each card as the deal brings it. Null when that
+  /// seat is not dealt in.
+  static Duration? seatLandsAt(
+    List<Seat?> seats,
+    int seatIndex,
+    int round, {
+    int each = cardsEach,
+  }) {
+    final order = dealtSeats(seats);
+    final place = order.indexOf(seatIndex);
+    if (place < 0) return null;
+    return landsAt(round * order.length + place, order.length * each);
+  }
 
   @override
   State<DealFlights> createState() => _DealFlightsState();
@@ -120,17 +157,22 @@ class DealCard {
   final double scale;
 }
 
-/// Card [index] of a deal, [elapsed] after the deal began; null before that
-/// card has left the deck and once it has landed.
-DealCard? dealCardAt(int index, Duration elapsed) {
+/// Card [index] of a deal of [cards], [elapsed] after the deal began; null
+/// before that card has left the deck and once it has landed.
+DealCard? dealCardAt(int index, Duration elapsed, {required int cards}) {
   final ms =
-      elapsed.inMicroseconds / Duration.microsecondsPerMillisecond -
-      DealFlights.stagger.inMilliseconds * index;
+      (elapsed - DealFlights.staggerFor(cards) * index).inMicroseconds /
+      Duration.microsecondsPerMillisecond;
   if (ms <= 0) return null;
   final t = ms / DealFlights.trip.inMilliseconds;
   if (t >= 1) return null;
 
-  final along = Curves.easeInOutCubic.transform(t);
+  // Eased in and out along a true half cosine rather than a cubic (nor
+  // Curves.easeInOutSine, a Bézier that runs twice its average): the card
+  // still gathers and settles, but its fastest moment is π/2 its average
+  // pace rather than three times it, which is what reads as slow and smooth
+  // (29 Sep 2026).
+  final along = 0.5 - 0.5 * math.cos(math.pi * t);
   // Off the deck over the first 12% of the flight; handed over to the card the
   // seat already draws over the last 18%, rather than doubling it.
   final leaving = Curves.easeOut.transform(math.min(t / 0.12, 1.0));
@@ -247,7 +289,8 @@ class _DealFlightsState extends State<DealFlights>
   void _onTick() {
     final elapsed = (_run.duration ?? Duration.zero) * _run.value;
     var due = _sounded;
-    while (due < _targets.length && elapsed >= DealFlights.soundOf(due)) {
+    while (due < _targets.length &&
+        elapsed >= DealFlights.soundOf(due, _targets.length)) {
       due++;
     }
     if (due == _sounded) return;
@@ -375,7 +418,7 @@ class _DealPainter extends CustomPainter {
 
     // In the order dealt, so each card lands over the one dealt before it.
     for (var i = 0; i < targets.length; i++) {
-      final card = dealCardAt(i, elapsed);
+      final card = dealCardAt(i, elapsed, cards: targets.length);
       if (card == null) continue;
       final at =
           Offset.lerp(deck, targets[i], card.along)! -

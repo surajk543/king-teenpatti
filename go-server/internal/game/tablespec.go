@@ -37,6 +37,9 @@ func tableConfigFromSpec(resolved Category, spec config.TableSpec, chat config.C
 		NextHandDelay:      spec.NextHandDelay,
 		UnfundedGrace:      spec.UnfundedGrace,
 		MissileRevealExtra: spec.MissileRevealExtra,
+		// The first clock of every hand waits for the app's two-second deal
+		// (countdown.go): a figure of the app's, not a catalogue column.
+		DealHold: DealHold(spec.NextHandDelay),
 		// Whether it taxes its winners (owner, 26 Sep 2026), and from what
 		// pot (27 Sep 2026): false and 0 on every other spec, so such a
 		// table's config and snapshot are what they were.

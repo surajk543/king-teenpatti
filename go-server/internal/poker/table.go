@@ -19,8 +19,12 @@ type Config struct {
 	MinPlayers int
 	// TurnTimeout is how long each decision has (POKER_TURN_TIMEOUT_MS, else
 	// TURN_TIMEOUT_MS).
-	TurnTimeout    time.Duration
-	NextHandDelay  time.Duration
+	TurnTimeout   time.Duration
+	NextHandDelay time.Duration
+	// DealHold is how much later than the deal the hand's first turn starts
+	// its clock: the app's two-second deal (game.DealHold, set from
+	// NextHandDelay by ConfigFromSpec). 0 = at once.
+	DealHold       time.Duration
 	UnfundedGrace  time.Duration
 	MaxMissedTurns int
 	// MinBuyIn is the smallest stack that may sit down and be dealt in
@@ -1086,6 +1090,12 @@ func (t *Table) kick(s *seat, reason, message string) {
 
 // setTurn puts a seat on turn with a fresh clock and tells the room.
 func (t *Table) setTurn(seatIndex int) {
+	t.setTurnAfter(seatIndex, 0)
+}
+
+// setTurnAfter is setTurn with the clock starting hold later: the hand's
+// first turn, which waits for the app's deal (Config.DealHold).
+func (t *Table) setTurnAfter(seatIndex int, hold time.Duration) {
 	h := t.hand
 	if h == nil || seatIndex < 0 || seatIndex >= len(t.seats) {
 		return
@@ -1095,7 +1105,7 @@ func (t *Table) setTurn(seatIndex int) {
 		return
 	}
 	h.turnSeat = seatIndex
-	deadline := t.clock.Now().Add(t.cfg.TurnTimeout)
+	deadline := t.clock.Now().Add(hold + t.cfg.TurnTimeout)
 	h.turnDeadline = deadline
 	token := util.UUID()
 	h.turnToken = token
@@ -1108,7 +1118,7 @@ func (t *Table) setTurn(seatIndex int) {
 		Options:   t.options(s),
 	})
 	t.clearTurnTimer()
-	t.turnTimer = t.clock.AfterFunc(t.cfg.TurnTimeout, func() {
+	t.turnTimer = t.clock.AfterFunc(hold+t.cfg.TurnTimeout, func() {
 		_ = t.run(func() { t.onTurnTimeout(seatIndex, token) })
 	})
 }

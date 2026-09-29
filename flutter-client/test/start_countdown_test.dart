@@ -11,9 +11,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lottie/lottie.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/net/game_connection.dart' show ShowdownNews;
+import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/state/start_countdown.dart';
 import 'package:teenpatti/theme/app_theme.dart';
@@ -46,14 +48,15 @@ Future<GameState> _mount(
   int maxPlayers = 5,
   GlobalKey? boundary,
   ShowdownNews? showdown,
+  FeedbackSettings? feedback,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   tester.platformDispatcher.textScaleFactorTestValue = scale;
   addTearDown(tester.view.reset);
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-  final feedback = await silentFeedback();
-  addTearDown(feedback.dispose);
+  final sounds = feedback ?? await silentFeedback();
+  if (feedback == null) addTearDown(sounds.dispose);
   final state = sceneState(
     TableScene('countdown', (s) {
       s.user = countdownViewer();
@@ -69,7 +72,7 @@ Future<GameState> _mount(
       : AppTheme.light(sound: false);
   final app = tableApp(
     state: state,
-    feedback: feedback,
+    feedback: sounds,
     theme: lang == AppLang.english ? base : withScriptFallback(base),
   );
   await tester.pumpWidget(
@@ -124,7 +127,9 @@ Rect _disc(WidgetTester tester) =>
 
 /// Where the countdown stands and how far its stars may fly, in the screen's
 /// coordinates.
-({Rect disc, Rect painted, Rect? bounds}) _placed(WidgetTester tester) {
+({Rect disc, Rect painted, Rect? bounds, Rect? room}) _placed(
+  WidgetTester tester,
+) {
   final finder = find.byType(StartCountdownLayer);
   final placement = StartCountdownLayer.placementIn(finder.evaluate().single)!;
   final origin = tester.getTopLeft(finder);
@@ -132,6 +137,7 @@ Rect _disc(WidgetTester tester) =>
   return (
     disc: placement.disc.shift(origin),
     painted: placement.painted.shift(origin),
+    room: placement.room?.shift(origin),
     bounds: bounds == null
         ? null
         : Rect.fromLTRB(
@@ -141,6 +147,26 @@ Rect _disc(WidgetTester tester) =>
             bounds.bottom + origin.dy,
           ),
   );
+}
+
+/// Every number the felt asks to be said aloud.
+class _Said extends FeedbackSettings {
+  final said = <int>[];
+
+  @override
+  void countdown(int number) => said.add(number);
+}
+
+/// Every clip the settings would play, with the Sound switch still deciding.
+class _Clips extends FeedbackSettings {
+  final played = <String>[];
+
+  @override
+  Future<void> playClip(
+    String asset, {
+    required double volume,
+    required int voice,
+  }) async => played.add(asset);
 }
 
 void main() {
@@ -510,7 +536,9 @@ void main() {
           final data = (await image.toByteData(
             format: ui.ImageByteFormat.rawRgba,
           ))!;
-          final at = disc.center - Offset(disc.width * 0.34, 0);
+          // On the disc above its number (the table's own, large: the
+          // file's digit is hidden), where the gold shows whatever the font.
+          final at = disc.center - Offset(0, disc.height * 0.4);
           final i = (at.dy.round() * image.width + at.dx.round()) * 4;
           image.dispose();
           return Color.fromARGB(
@@ -801,13 +829,22 @@ void main() {
       final arriving = Completer<LottieComposition?>();
       StartCountdownArt.debugLoading = arriving.future;
       addTearDown(() => StartCountdownArt.debugComposition = art);
+      // The plain disc, saying [n]; the art's painter.
       Finder plain(int n) => find.descendant(
         of: find.byType(StartCountdownLayer),
-        matching: find.text('$n'),
+        matching: find.byWidgetPredicate(
+          (w) =>
+              w.runtimeType.toString() == '_PlainDisc' &&
+              (w as dynamic).number == n,
+        ),
       );
       Finder painted() => find.descendant(
         of: find.byType(StartCountdownLayer),
-        matching: find.byType(CustomPaint),
+        matching: find.byWidgetPredicate(
+          (w) =>
+              w is CustomPaint &&
+              w.painter.runtimeType.toString() == '_CountdownPainter',
+        ),
       );
       final state = await _mount(tester, countingDownRoom(leftMs: 2900));
       await _walk(tester, 100);
@@ -873,6 +910,11 @@ void main() {
       await _unmount(tester, state);
     });
   });
+
+  /// The least the countdown's disc is across on the Teen Patti felt, as a
+  /// share of the screen's height: 126dp on a 360dp phone, where the disc it
+  /// replaced was 48 (29 Sep 2026: "count down text should be big").
+  const bigAtLeast = 0.35;
 
   group('it never covers a seat, the pot, the tag, the tax or a key, and its '
       'stars never show through one', () {
@@ -944,53 +986,71 @@ void main() {
         greaterThanOrEqualTo(StartCountdownPlacement.least),
         reason: what,
       );
-      final seats = find.byWidgetPredicate((w) => w is SeatPod && !w.isMe);
       final others = <String, Finder>{
         'seat': find.byType(SeatPod),
         'tax': find.byType(WinningTaxTag),
         'tag': find.byKey(const ValueKey('tag')),
-        'pot': find.descendant(
-          of: find.byKey(const ValueKey('pot')),
-          matching: find.byType(Plate),
-        ),
         'key': find.byType(MachinedKey),
         'stepper': find.byType(StepperKey),
         'rail': find.byType(RailKey),
         'shop': find.byType(ShopButton),
         'wallet': find.byType(TableWallet),
       };
-      // Nothing vacuous: every seat, the tax, the tag, the pot and the keys
-      // were found to be measured against.
+      // Nothing vacuous: every seat, the tax, the tag and the keys were found
+      // to be measured against.
       expect(others['seat']!.evaluate().length, places, reason: what);
-      for (final name in ['tax', 'tag', 'pot', 'key', 'shop']) {
+      for (final name in ['tax', 'tag', 'key', 'shop']) {
         expect(others[name]!, findsWidgets, reason: '$what: $name');
       }
+      // Big (owner, 29 Sep 2026: "count down text should be big"): its disc
+      // takes its share of the clear circle it stands in, and is at least
+      // [bigAtLeast] of the screen's height across.
+      final room = placed.room!;
+      expect(
+        disc.width,
+        closeTo(room.width * StartCountdownPlacement.discShare, 0.01),
+        reason: what,
+      );
+      expect(
+        disc.width,
+        greaterThanOrEqualTo(
+          math.min(bigAtLeast * size.height, StartCountdownLayer.bigDisc),
+        ),
+        reason: '$what: ${disc.width.toStringAsFixed(1)} across',
+      );
+      // The disc and its stars' circle meet nothing: the stars fly no further
+      // than that circle, which is clear of every seat — the viewer's own
+      // included —, the viewer's cards, the tag, the tax pill and every key.
       for (final (name, rect) in boxes(tester, others)) {
-        // The disc is round: a box meets it only where it comes nearer its
-        // middle than its radius.
         final nearest = Offset(
-          disc.center.dx.clamp(rect.left, rect.right),
-          disc.center.dy.clamp(rect.top, rect.bottom),
+          room.center.dx.clamp(rect.left, rect.right),
+          room.center.dy.clamp(rect.top, rect.bottom),
         );
         expect(
-          (nearest - disc.center).distance,
-          greaterThanOrEqualTo(disc.width / 2),
-          reason: '$what: the disc meets the $name at $rect',
+          (nearest - room.center).distance,
+          greaterThanOrEqualTo(room.width / 2 - 0.01),
+          reason: '$what: the countdown meets the $name at $rect ($room)',
         );
       }
-      // The stars: as far as they ever fly here, inside the box the felt
-      // gave them, they reach no seat but the viewer's (whose glass they
-      // would show through), nor the tag, the tax pill or a key. The pot's
-      // plinth is the one plate they pass behind.
-      final painted = placed.painted.deflate(0.5);
-      for (final (name, rect) in boxes(tester, {...others, 'seat': seats})) {
-        if (name == 'pot') continue;
-        expect(
-          painted.overlaps(rect),
-          isFalse,
-          reason: '$what: the stars reach the $name at $rect ($painted)',
-        );
-      }
+      // The last hand's cards have cleared for it, and the pot, which holds
+      // nothing between hands, steps back while the numbers stand over its
+      // place.
+      expect(
+        tester
+            .widget<AnimatedOpacity>(
+              find.byKey(const ValueKey('own-hand-clear')),
+            )
+            .opacity,
+        0,
+        reason: '$what: the last hand clears',
+      );
+      expect(
+        tester
+            .widget<AnimatedOpacity>(find.byKey(const ValueKey('pot-plate')))
+            .opacity,
+        0,
+        reason: '$what: the pot steps back',
+      );
       await _unmount(tester, state);
     }
 
@@ -1323,5 +1383,161 @@ void main() {
         }
       }
     }
+  });
+
+  group('said aloud (29 Sep 2026: "can u add sound also saying 3,2,1")', () {
+    testWidgets('each number is said once as it comes up, and nothing after '
+        'the deal', (tester) async {
+      final said = _Said();
+      addTearDown(said.dispose);
+      final state = await _mount(
+        tester,
+        countingDownRoom(leftMs: 3000),
+        feedback: said,
+      );
+      await _walk(tester, 100);
+      expect(said.said, [3]);
+      await _walk(tester, 1000);
+      expect(said.said, [3, 2]);
+      // The same deal again (a chat line, a reconnect): nothing said twice.
+      state.handleState(countingDownRoom(leftMs: 1900));
+      await _walk(tester, 1000);
+      expect(said.said, [3, 2, 1]);
+      await _walk(tester, 1000);
+      state.handleState(countingDownRoom(leftMs: 0, state: 'betting'));
+      await _walk(tester, 2000);
+      expect(said.said, [3, 2, 1]);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('a countdown joined at "2" says two and one', (tester) async {
+      final said = _Said();
+      addTearDown(said.dispose);
+      final state = await _mount(
+        tester,
+        countingDownRoom(leftMs: 1800),
+        feedback: said,
+      );
+      await _walk(tester, 1900);
+      expect(said.said, [2, 1]);
+      await _unmount(tester, state);
+    });
+
+    test(
+      "the owner's three clips, one a number, behind the Sound switch",
+      () async {
+        for (final n in [1, 2, 3]) {
+          expect(
+            File('assets/${FeedbackSettings.countdownClip(n)}').existsSync(),
+            isTrue,
+            reason: '$n',
+          );
+        }
+        SharedPreferences.setMockInitialValues({'soundOn': true});
+        final clips = _Clips();
+        await clips.load();
+        clips
+          ..countdown(3)
+          ..countdown(2)
+          ..countdown(1)
+          ..countdown(0)
+          ..countdown(4);
+        await Future<void>.delayed(Duration.zero);
+        expect(clips.played, [
+          'sound/countdown 3.mp3',
+          'sound/countdown 2.mp3',
+          'sound/countdown 1.mp3',
+        ]);
+        await clips.setSound(false);
+        clips.played.clear();
+        clips.countdown(3);
+        await Future<void>.delayed(Duration.zero);
+        expect(clips.played, isEmpty, reason: 'the Sound switch off');
+        clips.dispose();
+      },
+    );
+  });
+
+  group('big (29 Sep 2026: "count down text should be big")', () {
+    test("the number's second: it pops in, holds, and fades as the next "
+        'comes', () {
+      expect(StartCountdownDigit.numberAt(0), 3);
+      expect(StartCountdownDigit.numberAt(0.34), 2);
+      expect(StartCountdownDigit.numberAt(0.67), 1);
+      expect(StartCountdownDigit.numberAt(1), 1);
+      expect(StartCountdownDigit.withinAt(0.5), closeTo(0.5, 1e-9));
+      expect(StartCountdownDigit.opacityAt(0), 0);
+      expect(StartCountdownDigit.scaleAt(0), StartCountdownDigit.popFrom);
+      for (final within in [0.2, 0.47, 0.8]) {
+        expect(StartCountdownDigit.opacityAt(within), 1, reason: '$within');
+        expect(StartCountdownDigit.scaleAt(within), 1, reason: '$within');
+      }
+      expect(StartCountdownDigit.opacityAt(0.99), lessThan(0.2));
+      // Still (reduce motion): each number at the top of its second, whole.
+      for (final n in [3, 2, 1]) {
+        final at = StartCountdownArt.peakOf(n);
+        expect(StartCountdownDigit.numberAt(at), n);
+        expect(
+          StartCountdownDigit.opacityAt(StartCountdownDigit.withinAt(at)),
+          1,
+        );
+      }
+    });
+
+    test('it stands in the largest clear circle on the vertical, nearest the '
+        'middle of the table where it could be as large higher or lower', () {
+      const area = Rect.fromLTWH(0, 0, 600, 360);
+      // A seat to the right of the vertical, low down.
+      const seat = Rect.fromLTRB(360, 200, 460, 330);
+      final placed = StartCountdownPlacement.largest(
+        centreX: 300,
+        area: area,
+        keepClear: const [seat],
+        preferY: 250,
+        maxDisc: 400,
+      );
+      final room = placed.room!;
+      final nearest = Offset(
+        room.center.dx.clamp(seat.left, seat.right),
+        room.center.dy.clamp(seat.top, seat.bottom),
+      );
+      expect(
+        (nearest - room.center).distance,
+        greaterThanOrEqualTo(room.width / 2),
+      );
+      expect((placed.disc.center - room.center).distance, lessThan(1e-9));
+      expect(
+        placed.disc.width,
+        closeTo(room.width * StartCountdownPlacement.discShare, 1e-9),
+      );
+      // Pushed up from the seat, as far as it needed.
+      expect(room.center.dy, lessThan(250));
+      // With room to spare it keeps its preferred height and its cap.
+      final roomy = StartCountdownPlacement.largest(
+        centreX: 300,
+        area: area,
+        keepClear: const [],
+        preferY: 180,
+        maxDisc: 120,
+      );
+      expect(
+        (roomy.disc.center - const Offset(300, 180)).distance,
+        lessThan(1e-9),
+      );
+      expect(roomy.disc.width, closeTo(120, 1e-9));
+    });
+
+    testWidgets('its number is set on the disc, large, and the file\'s own '
+        'digit is hidden', (tester) async {
+      final delegates = StartCountdownColours.night.delegates;
+      for (final n in ['3', '2', '1']) {
+        expect(
+          delegates.any((d) => d.keyPath.join('/') == n && d.value == 0),
+          isTrue,
+          reason: 'the file\'s $n hidden',
+        );
+      }
+      expect(StartCountdownDigit.capShare, greaterThanOrEqualTo(0.5));
+    });
   });
 }

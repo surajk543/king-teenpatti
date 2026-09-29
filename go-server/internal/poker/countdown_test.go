@@ -138,3 +138,37 @@ func TestAPokerRoomRetriesARefusedSettleAfterFourSecondsNotTheWindow(t *testing.
 		t.Fatalf("retried %d times at 4 s, want once", count()-1)
 	}
 }
+
+// A poker room's first turn waits for the app's two-second deal as a Teen
+// Patti table's does (game.DealHold); every later turn has its plain clock.
+func TestAPokerRoomsFirstTurnWaitsForTheDeal(t *testing.T) {
+	h := newHarnessTuned(t, TexasHoldem, nil, func(c *Config) { c.DealHold = game.DealAnimation })
+	h.seat("a", 5000)
+	h.seat("b", 5000)
+	h.clock.Advance(game.StartCountdown)
+	if h.handID() == "" {
+		t.Fatal("dealt at the end of the countdown")
+	}
+	dealt := h.clock.Now()
+	v := h.view("a")
+	if v.Turn.Deadline == nil || *v.Turn.Deadline != game.Millis(dealt.Add(game.DealAnimation+h.cfg.TurnTimeout)) {
+		t.Fatalf("the first turn's deadline %v, want the deal's end plus a whole clock", v.Turn.Deadline)
+	}
+	first := h.turn()
+	h.clock.Advance(h.cfg.TurnTimeout)
+	if h.turn() != first {
+		t.Fatal("a whole clock after the deal the first player is still on turn")
+	}
+	h.mustAct(first, ActionCall)
+	v = h.view("a")
+	if *v.Turn.Deadline != game.Millis(h.clock.Now().Add(h.cfg.TurnTimeout)) {
+		t.Fatalf("the next turn's deadline %v, want a plain clock", *v.Turn.Deadline)
+	}
+	if got := snapshotConfig(h.cfg).DealHoldMs; got != 2000 {
+		t.Fatalf("saved dealHoldMs %d, want 2000", got)
+	}
+	back, err := configFrom(snapshotConfig(h.cfg))
+	if err != nil || back.DealHold != game.DealAnimation {
+		t.Fatalf("restored DealHold %v (%v), want 2 s", back.DealHold, err)
+	}
+}

@@ -37,6 +37,49 @@ Seat _seat(int i) => Seat.fromJson({
 });
 
 void main() {
+  test('every deal takes two seconds, at a table of two to five and at every '
+      "poker room's count (owner, 29 Sep 2026)", () {
+    for (var players = 2; players <= 5; players++) {
+      for (final each in [2, 3, 4, 5]) {
+        final cards = players * each;
+        expect(
+          (DealFlights.total(cards) - DealFlights.span).inMilliseconds.abs(),
+          lessThanOrEqualTo(1),
+          reason: '$players players, $each each',
+        );
+        // The cards set off evenly, each a whole-second flight.
+        expect(DealFlights.trip, const Duration(seconds: 1));
+        expect(
+          DealFlights.landsAt(0, cards),
+          DealFlights.trip,
+          reason: 'the first card is down after one flight',
+        );
+      }
+    }
+    // Slower than it was at a table of two (115 ms apart), never a flicker at
+    // five.
+    expect(DealFlights.staggerFor(6).inMilliseconds, 200);
+    expect(DealFlights.staggerFor(15).inMilliseconds, 71);
+  });
+
+  test("a seat's cards land round by round, in the order the deal goes "
+      'round the table', () {
+    final seats = <Seat?>[_seat(0), null, _seat(2), _seat(3)];
+    // Three players, nine cards, 125 ms apart: seat 2 is second in the round.
+    for (var round = 0; round < 3; round++) {
+      expect(
+        DealFlights.seatLandsAt(seats, 2, round),
+        DealFlights.landsAt(round * 3 + 1, 9),
+      );
+    }
+    expect(DealFlights.seatLandsAt(seats, 1, 0), isNull, reason: 'no one');
+    expect(
+      DealFlights.seatLandsAt(seats, 3, 2),
+      DealFlights.total(9),
+      reason: 'the last seat takes the last card',
+    );
+  });
+
   test('at a table of two to five, every card lands before the deal ends', () {
     for (var players = 2; players <= 5; players++) {
       final cards = players * DealFlights.cardsEach;
@@ -44,7 +87,7 @@ void main() {
       for (var i = 0; i < cards; i++) {
         final flying = [
           for (final at in _frames(total))
-            if (dealCardAt(i, at) != null) at,
+            if (dealCardAt(i, at, cards: cards) != null) at,
         ];
         final label = '$players players, card $i';
         expect(flying, isNotEmpty, reason: label);
@@ -54,29 +97,41 @@ void main() {
           reason: label,
         );
         expect(flying.last, lessThan(total), reason: label);
-        expect(dealCardAt(i, total), isNull, reason: label);
+        expect(dealCardAt(i, total, cards: cards), isNull, reason: label);
       }
     }
   });
 
   test('a card fades in at the deck and out at the seat, never jumping', () {
-    final until = DealFlights.total(15);
-    for (var i = 0; i < 15; i++) {
-      final path = [for (final at in _frames(until)) ?dealCardAt(i, at)];
+    for (final cards in [6, 15]) {
+      final until = DealFlights.total(cards);
+      for (var i = 0; i < cards; i++) {
+        final path = [
+          for (final at in _frames(until)) ?dealCardAt(i, at, cards: cards),
+        ];
 
-      expect(path.first.alpha, lessThan(0.1), reason: 'no pop at the deck');
-      expect(path.first.along, lessThan(0.01));
-      expect(path.first.lift, lessThan(0.01));
-      expect(path.last.alpha, lessThan(0.1), reason: 'no pop at the seat');
-      expect(path.last.along, greaterThan(0.99));
-      expect(path.last.lift, lessThan(0.01));
-      expect(path.map((c) => c.alpha).reduce(math.max), 1.0);
+        expect(path.first.alpha, lessThan(0.1), reason: 'no pop at the deck');
+        expect(path.first.along, lessThan(0.01));
+        expect(path.first.lift, lessThan(0.01));
+        expect(path.last.alpha, lessThan(0.1), reason: 'no pop at the seat');
+        expect(path.last.along, greaterThan(0.99));
+        expect(path.last.lift, lessThan(0.01));
+        expect(path.map((c) => c.alpha).reduce(math.max), 1.0);
 
-      for (var k = 1; k < path.length; k++) {
-        expect((path[k].alpha - path[k - 1].alpha).abs(), lessThan(0.15));
-        expect((path[k].along - path[k - 1].along).abs(), lessThan(0.02));
-        expect((path[k].lift - path[k - 1].lift).abs(), lessThan(0.02));
-        expect((path[k].turn - path[k - 1].turn).abs(), lessThan(0.02));
+        for (var k = 1; k < path.length; k++) {
+          expect((path[k].alpha - path[k - 1].alpha).abs(), lessThan(0.15));
+          expect((path[k].along - path[k - 1].along).abs(), lessThan(0.02));
+          expect((path[k].lift - path[k - 1].lift).abs(), lessThan(0.02));
+          expect((path[k].turn - path[k - 1].turn).abs(), lessThan(0.02));
+        }
+        // Slow and smooth: at its fastest a card covers under 0.7% of its way
+        // in a 4 ms step — its average pace half as fast again, where the
+        // cubic ease it replaced ran three times its average mid-flight.
+        var fastest = 0.0;
+        for (var k = 1; k < path.length; k++) {
+          fastest = math.max(fastest, path[k].along - path[k - 1].along);
+        }
+        expect(fastest, lessThan(0.007));
       }
     }
   });

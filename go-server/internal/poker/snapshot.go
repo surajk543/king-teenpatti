@@ -58,8 +58,11 @@ type SnapshotConfig struct {
 	MaxMissedTurns  int           `json:"maxMissedTurns"`
 	MinBuyIn        int64         `json:"minBuyIn"`
 	MaxDiscards     int           `json:"maxDiscards"`
-	ChatMaxHistory  int           `json:"chatMaxHistory"`
-	ChatMaxLength   int           `json:"chatMaxLength"`
+	// DealHoldMs is Config.DealHold (29 Sep 2026); absent (0) in a snapshot
+	// saved before the two-second deal, which restores without it.
+	DealHoldMs     int64 `json:"dealHoldMs,omitempty"`
+	ChatMaxHistory int   `json:"chatMaxHistory"`
+	ChatMaxLength  int   `json:"chatMaxLength"`
 }
 
 // SnapshotSeat is one occupied seat.
@@ -209,6 +212,7 @@ func snapshotConfig(cfg Config) SnapshotConfig {
 		TurnTimeoutMs: cfg.TurnTimeout.Milliseconds(), NextHandDelayMs: cfg.NextHandDelay.Milliseconds(),
 		UnfundedGraceMs: cfg.UnfundedGrace.Milliseconds(), MaxMissedTurns: cfg.MaxMissedTurns,
 		MinBuyIn: cfg.MinBuyIn, MaxDiscards: cfg.MaxDiscards, ChatMaxHistory: cfg.ChatMaxHistory, ChatMaxLength: cfg.ChatMaxLength,
+		DealHoldMs: cfg.DealHold.Milliseconds(),
 	}
 }
 
@@ -227,6 +231,7 @@ func configFrom(c SnapshotConfig) (Config, error) {
 		TurnTimeout: time.Duration(c.TurnTimeoutMs) * time.Millisecond, NextHandDelay: time.Duration(c.NextHandDelayMs) * time.Millisecond,
 		UnfundedGrace: time.Duration(c.UnfundedGraceMs) * time.Millisecond, MaxMissedTurns: c.MaxMissedTurns,
 		MinBuyIn: c.MinBuyIn, MaxDiscards: c.MaxDiscards, ChatMaxHistory: c.ChatMaxHistory, ChatMaxLength: c.ChatMaxLength,
+		DealHold: time.Duration(c.DealHoldMs) * time.Millisecond,
 	}, nil
 }
 

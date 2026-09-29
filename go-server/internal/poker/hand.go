@@ -241,17 +241,23 @@ func (t *Table) beginStreet(i int) {
 	}
 	t.listener.OnStreet(t.view, StreetEvent{Street: street, Community: game.CardCodes(h.community), Pot: h.pot})
 
+	// The hand's first street waits for the app's deal before its first
+	// clock runs (Config.DealHold, game/countdown.go).
+	var hold time.Duration
+	if i == 0 {
+		hold = t.cfg.DealHold
+	}
 	switch {
 	case street.IsBetting():
 		if !t.streetHasSomeoneToAct() {
 			t.endStreet()
 			return
 		}
-		t.setTurn(t.firstToAct())
+		t.setTurnAfter(t.firstToAct(), hold)
 	case street == StreetDraw:
-		t.setTurn(t.nextSeat(h.button, func(s *seat) bool { return s.inHand() && !s.drew }))
+		t.setTurnAfter(t.nextSeat(h.button, func(s *seat) bool { return s.inHand() && !s.drew }), hold)
 	case street == StreetDecision:
-		t.setTurn(t.nextSeat(h.button, func(s *seat) bool { return s.inHand() && !s.acted }))
+		t.setTurnAfter(t.nextSeat(h.button, func(s *seat) bool { return s.inHand() && !s.acted }), hold)
 	}
 	// The snapshot that carries the new street, its board and the options of
 	// the player now on turn: a street that opened from a previous street's

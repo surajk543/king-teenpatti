@@ -627,6 +627,14 @@ class _Felt extends StatefulWidget {
   /// How tall the status slot's notice may stand, centred on [statusY]: twice
   /// the room between that line and the top of the pot's plate (centred at
   /// [potY]), less a step — so a notice there can never reach the pot.
+  /// The most the countdown before a deal may be across on a felt [h] tall:
+  /// two fifths of it — its number then a fifth of the felt tall — and never
+  /// more than [StartCountdownLayer.bigDisc], as large as it gets on a
+  /// tablet. Where the seats leave less room, that decides
+  /// ([StartCountdownPlacement.largest]).
+  static double countdownMaxDisc(double h) =>
+      math.min(h * 0.4, StartCountdownLayer.bigDisc);
+
   static double statusRoom(
     TextScaler scaler,
     ThemeData theme, {
@@ -765,25 +773,45 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     return box.localToGlobal(Offset.zero, ancestor: stage) & box.size;
   }
 
-  /// The foot of the head seat's unit — its pod, and the cards and bet
-  /// beside it — in the felt's coordinates, as the felt was last laid out;
-  /// null before its pod has been (an empty chair has no pod key). The unit
-  /// hangs from [top] with the column beside the pod centred on the pod's
-  /// height, so it ends as far below the pod's middle as its top stands
-  /// above it. What the countdown before a deal stands under (29 Sep 2026):
-  /// the pod is taller than it is wide where it shows a stack, and after a
-  /// hand, which [SeatRing.headPod] does not know.
-  double? _headSeatFoot(int view, double top) {
-    if (view < 0 || view >= _podKeys.length) return null;
-    final pod = _laidOut(_podKeys[view]);
-    if (pod == null) return null;
-    return math.max(pod.bottom, 2 * pod.center.dy - top);
-  }
-
   /// The winning tax's pill, measured for the countdown before a deal: its
   /// lines can stand taller than [_Felt.taxPillHeight] reckons (an emoji in
   /// the level's title).
   final GlobalKey _taxKey = GlobalKey(debugLabel: 'tax pill');
+
+  /// One key per place, naming that place's whole column — its pod, cards,
+  /// bet and stack, or the head seat's unit — as laid out: what the
+  /// countdown before a deal keeps clear of (29 Sep 2026).
+  final List<GlobalKey> _columnKeys = List.generate(
+    SeatRing.maxSeats,
+    (i) => GlobalKey(debugLabel: 'column $i'),
+  );
+
+  /// The viewer's own cards and what rides over them, measured for the same.
+  final GlobalKey _handKey = GlobalKey(debugLabel: 'own hand');
+
+  /// What the countdown before a deal keeps clear of, in the felt's
+  /// coordinates, as the felt was last laid out: every seat's column,
+  /// [extra] (the tag, the tax pill), and the viewer's own cards where they
+  /// have any and they are [withHand] — not while the table counts down, when
+  /// the last hand's cards clear for it. Null while a seat has not been laid
+  /// out yet.
+  List<Rect>? _countdownKeepClear(
+    Iterable<int> views,
+    List<Rect> extra, {
+    required bool withHand,
+  }) {
+    final clear = <Rect>[...extra];
+    for (final view in views) {
+      if (view < 0 || view >= _columnKeys.length) continue;
+      final column = _laidOut(_columnKeys[view]);
+      if (column == null) return null;
+      clear.add(column);
+    }
+    if (withHand) {
+      if (_laidOut(_handKey) case final hand?) clear.add(hand);
+    }
+    return clear;
+  }
 
   /// One key per place, naming that place's pod. A column's middle is known
   /// from the [SeatRing], but where the pod sits in it depends on everything
@@ -1828,39 +1856,71 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 width: math.min(w * 0.37, h * 0.53),
                 key: const ValueKey('centrepiece'),
               ),
-              // The 3-2-1 before a deal (29 Sep 2026), where the starting line
-              // stood: on the cloth, under the tag, the pot and every seat.
-              // What stands over its slot is glass — the tag, the tax pill,
-              // and at a table of two or four places the head seat's pod,
-              // faded while it sits a hand out — so it stays under them: its
-              // disc clear, its stars fading out there ([bounds]).
+              // The 3-2-1 before a deal (29 Sep 2026), as large as the table
+              // has room for (owner, the same day: "count down text should be
+              // big"): on the vertical through the middle of the table, nearest
+              // the pot's place, clear of every seat's column, the viewer's own
+              // cards, the tag and the tax pill — all glass, which its stars
+              // would show through — and said aloud as each number comes up
+              // ("can u add sound also saying 3,2,1"). The pot, nothing in it
+              // between hands, steps back while it counts. Under the tag, the
+              // pot and every seat, on the cloth.
               Positioned.fill(
                 key: const ValueKey('start-countdown'),
                 child: StartCountdownLayer(
-                  anchor: Offset(0.5 * w, statusY),
-                  discSize: StartCountdownLayer.discFor(
-                    _Felt.statusRoom(
-                      MediaQuery.textScalerOf(context),
-                      Theme.of(context),
-                      statusY: statusY,
-                      potY: _potDy * h,
-                    ),
+                  anchor: Offset(0.5 * w, _potDy * h),
+                  discSize: _Felt.countdownMaxDisc(h),
+                  bounds: () => Offset.zero & Size(w, h),
+                  keepClear: () => _countdownKeepClear(
+                    [for (final spot in ring.spots) spot.view],
+                    [
+                      Rect.fromCenter(
+                        center: tagSlot.center,
+                        width: tagSlot.width,
+                        height: _Felt.plateHeight(
+                          taxScaler,
+                          TableType.boot(taxTheme),
+                        ),
+                      ),
+                      if (room.taxesWinner)
+                        _laidOut(_taxKey) ??
+                            Rect.fromLTRB(
+                              0.5 * w - taxWidth / 2,
+                              tagFoot,
+                              0.5 * w + taxWidth / 2,
+                              taxBottom,
+                            ),
+                      if (noticePocket != null &&
+                          state.missedTurnsNoticeShowing)
+                        noticePocket,
+                      // The key cluster in the corner it is pressed in, and
+                      // Missile and Pack in the other: on the narrowest
+                      // phone the numbers would reach the cluster's top.
+                      Rect.fromLTRB(
+                        SeatRing.keysLeftFor(MediaQuery.sizeOf(context), w),
+                        SeatRing.keysTopFor(MediaQuery.sizeOf(context), h),
+                        w,
+                        h,
+                      ),
+                      Rect.fromLTRB(
+                        0,
+                        SeatRing.keysTopFor(MediaQuery.sizeOf(context), h),
+                        SeatRing.leftKeysRightFor(MediaQuery.sizeOf(context)),
+                        h,
+                      ),
+                    ],
+                    // The last hand's cards clear as the numbers come up.
+                    withHand: state.startCountdown == null,
                   ),
-                  bounds: () {
-                    final head = ring.head;
-                    final seat = head == null
-                        ? null
-                        : _headSeatFoot(head.view, head.anchor.dy) ??
-                              headPod?.bottom;
-                    final tax = room.taxesWinner
-                        ? _laidOut(_taxKey)?.bottom ?? taxBottom
-                        : null;
-                    return Rect.fromLTRB(
-                      double.negativeInfinity,
-                      [tagFoot, ?tax, ?seat].reduce(math.max),
-                      double.infinity,
-                      double.infinity,
-                    );
+                  onNumber: (number) {
+                    try {
+                      Provider.of<FeedbackSettings>(
+                        context,
+                        listen: false,
+                      ).countdown(number);
+                    } on ProviderNotFoundException {
+                      // No sounds in scope (a bare widget test).
+                    }
                   },
                   // The missed-turn warning's slot too, but at a head seat's
                   // table: it keeps its five seconds, the countdown waits.
@@ -2003,25 +2063,31 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
               at(
                 const Offset(0.5, _potDy),
                 Center(
-                  // One plinth per table: a switch lands on a pot that was
-                  // never this player's to watch grow, and must not count up
-                  // to it from the last table's.
-                  child: KeyedSubtree(
-                    key: ValueKey('pot-${room.roomId}'),
-                    child: _PotPulse(
-                      pot: pot,
-                      child: _Pot(
-                        room: room,
+                  // The countdown before a deal stands over the pot's place,
+                  // large (29 Sep 2026), and between hands the pot holds
+                  // nothing: it steps back while the numbers show, and comes
+                  // back with the deal's boots.
+                  child: AnimatedOpacity(
+                    key: const ValueKey('pot-plate'),
+                    opacity: state.countdownShowing ? 0 : 1,
+                    duration: StartCountdownLayer.fadeIn,
+                    child: KeyedSubtree(
+                      key: ValueKey('pot-${room.roomId}'),
+                      child: _PotPulse(
                         pot: pot,
-                        chipSize: (podW * 0.17).clamp(12.0, 20.0),
-                        pileKey: _pileKey,
-                        // The pot crossing to the winner: the figure falls as
-                        // the chips leave the pile, and holds the whole pot
-                        // until they do.
-                        leaving: pays
-                            ? party?.left ?? kAlwaysDismissedAnimation
-                            : null,
-                        paying: state.winnerPot,
+                        child: _Pot(
+                          room: room,
+                          pot: pot,
+                          chipSize: (podW * 0.17).clamp(12.0, 20.0),
+                          pileKey: _pileKey,
+                          // The pot crossing to the winner: the figure falls as
+                          // the chips leave the pile, and holds the whole pot
+                          // until they do.
+                          leaving: pays
+                              ? party?.left ?? kAlwaysDismissedAnimation
+                              : null,
+                          paying: state.winnerPot,
+                        ),
                       ),
                     ),
                   ),
@@ -2070,13 +2136,16 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                     // and stands where the pod would.
                     child: Align(
                       alignment: Alignment.topLeft,
-                      child: pod(spot),
+                      child: KeyedSubtree(
+                        key: _columnKeys[spot.view],
+                        child: pod(spot),
+                      ),
                     ),
                   )
                 else
                   atPoint(
                     spot.anchor,
-                    pod(spot),
+                    KeyedSubtree(key: _columnKeys[spot.view], child: pod(spot)),
                     key: ValueKey('seat-${spot.view}'),
                   ),
 
@@ -2090,7 +2159,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 left: me.anchor.dx - podW / 2,
                 bottom: h - me.anchor.dy,
                 width: podW,
-                child: pod(me),
+                child: KeyedSubtree(key: _columnKeys[me.view], child: pod(me)),
               ),
               // The viewer's own badge and total ride over their cards rather
               // than under their pod: the pod stands on the floor, so a stack
@@ -2116,58 +2185,72 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   least: TableSpace.handLift,
                   most: HandFan.liftFor(HandFan.cardHeightFor(handH)),
                   ceiling: _potDy * h + potPlate / 2 + Space.sm,
-                  child: Column(
-                    key: const ValueKey('own-hand-column'),
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // The viewer's own hand name at a showdown, over their
-                      // cards, so the seat that matters most to them is not the
-                      // one seat that has to work out what it won with — and
-                      // after a sideshow they won, which it names the same way.
-                      if (ownHandName != null) ...[
-                        if (ownHandNameIsLive)
-                          // Keyed on the hand, so the one-second tick cannot
-                          // restart the wait.
-                          _AfterTheTurn(
-                            key: ValueKey('own-hand-name-${room.handNo}'),
-                            // Nothing turns in a hand with no wild card, so
-                            // there is nothing to wait for but the flip.
-                            turns: room.you?.hand?.wild.isNotEmpty ?? false,
-                            child: _OwnHandName(name: ownHandName),
-                          )
-                        else
-                          _OwnHandName(name: ownHandName),
-                        const SizedBox(height: Space.xxs),
-                      ],
-                      if (myBetShown) ...[
-                        // Scaled against a wider pod than the viewer actually
-                        // has: this is their own bet, read every turn, and it
-                        // earns a size the rim seats' copies do not — a step,
-                        // not more (final table polish, 26 Sep 2026: "SECONDARY:
-                        // Current pot amount. SUPPORTING: Individual player
-                        // contribution"). At 1.22 its figure was 14dp on a
-                        // 891dp phone, the size of the Chaal key's name, and
-                        // its plaque wider than the pot's.
-                        SeatBet(
-                          seat: myShown,
-                          width: podW * _myBetScale,
-                          totalFirst: true,
-                        ),
-                        const SizedBox(height: TableSpace.hand),
-                      ],
-                      // The showdown's copy of their own hand, so a player who
-                      // paid for a show while still blind sees what they were
-                      // holding: the server withholds `you.cards` until they
-                      // look, and it never turns that off.
-                      _OwnHand(
-                        cardHeight: HandFan.cardHeightFor(handH),
-                        revealed: myReveal?.cards,
-                        wild: myReveal?.wild ?? myPeek?.wild ?? const [],
-                        playsAs:
-                            myReveal?.playsAs ?? myPeek?.playsAs ?? const [],
-                        best: myReveal?.best ?? myPeek?.best ?? const [],
+                  // The last hand's cards clear from the table as the
+                  // countdown to the next deal comes up (29 Sep 2026): its
+                  // numbers stand large in the middle of the table, where
+                  // they lay, and the deal brings the new ones in.
+                  child: AnimatedOpacity(
+                    key: const ValueKey('own-hand-clear'),
+                    opacity: state.countdownShowing ? 0 : 1,
+                    duration: StartCountdownLayer.fadeIn,
+                    child: KeyedSubtree(
+                      key: _handKey,
+                      child: Column(
+                        key: const ValueKey('own-hand-column'),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // The viewer's own hand name at a showdown, over their
+                          // cards, so the seat that matters most to them is not the
+                          // one seat that has to work out what it won with — and
+                          // after a sideshow they won, which it names the same way.
+                          if (ownHandName != null) ...[
+                            if (ownHandNameIsLive)
+                              // Keyed on the hand, so the one-second tick cannot
+                              // restart the wait.
+                              _AfterTheTurn(
+                                key: ValueKey('own-hand-name-${room.handNo}'),
+                                // Nothing turns in a hand with no wild card, so
+                                // there is nothing to wait for but the flip.
+                                turns: room.you?.hand?.wild.isNotEmpty ?? false,
+                                child: _OwnHandName(name: ownHandName),
+                              )
+                            else
+                              _OwnHandName(name: ownHandName),
+                            const SizedBox(height: Space.xxs),
+                          ],
+                          if (myBetShown) ...[
+                            // Scaled against a wider pod than the viewer actually
+                            // has: this is their own bet, read every turn, and it
+                            // earns a size the rim seats' copies do not — a step,
+                            // not more (final table polish, 26 Sep 2026: "SECONDARY:
+                            // Current pot amount. SUPPORTING: Individual player
+                            // contribution"). At 1.22 its figure was 14dp on a
+                            // 891dp phone, the size of the Chaal key's name, and
+                            // its plaque wider than the pot's.
+                            SeatBet(
+                              seat: myShown,
+                              width: podW * _myBetScale,
+                              totalFirst: true,
+                            ),
+                            const SizedBox(height: TableSpace.hand),
+                          ],
+                          // The showdown's copy of their own hand, so a player who
+                          // paid for a show while still blind sees what they were
+                          // holding: the server withholds `you.cards` until they
+                          // look, and it never turns that off.
+                          _OwnHand(
+                            cardHeight: HandFan.cardHeightFor(handH),
+                            revealed: myReveal?.cards,
+                            wild: myReveal?.wild ?? myPeek?.wild ?? const [],
+                            playsAs:
+                                myReveal?.playsAs ??
+                                myPeek?.playsAs ??
+                                const [],
+                            best: myReveal?.best ?? myPeek?.best ?? const [],
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -3731,6 +3814,18 @@ class _OwnHand extends StatelessWidget {
                       // The two cards of a top-up arrive as the first two of a deal
                       // did, not after a pause for three cards that are not coming.
                       index: i < 3 ? i : i - 3,
+                      // The three the deal brings come down as its flights to
+                      // this seat do, round by round over its two seconds
+                      // (29 Sep 2026) — a hand this phone saw dealt; one it
+                      // arrived in the middle of, and a top-up, keep the
+                      // quick beat.
+                      landsAt: i < 3 && state.handDealtHere
+                          ? DealFlights.seatLandsAt(
+                              room.seats,
+                              you.seatIndex,
+                              i,
+                            )
+                          : null,
                       // A card leans by where it stands along the run.
                       restAngle: HandFan.angleAt(placeOf(slotOf[i]), run),
                       // On a variation table a wild card turns into the card it
@@ -3966,18 +4061,27 @@ class _BestThreeStageState extends State<_BestThreeStage> {
 /// small, comes in over [_travel] of its time a little larger than life — in
 /// the air, nearer the eye — turning into its place in the fan and just past
 /// it, and in the rest sets down onto the cloth at its own size and lean.
-/// Under half a second a card and [_beat] between them: the three cards of a
-/// hand are down in 0.65 s.
+/// Under half a second a card. Each of the three a deal brings sets off so it
+/// comes down as the deal's own flight to this seat lands (the deal is two
+/// seconds, 29 Sep 2026, so the fan fills with it); a top-up's cards are
+/// [_beat] apart.
 class _Dealt extends StatefulWidget {
   const _Dealt({
     super.key,
     required this.index,
     required this.child,
     this.restAngle = 0,
+    this.landsAt,
   });
 
   final int index;
   final Widget child;
+
+  /// When, from the deal's start, this card should be down on the cloth: the
+  /// moment the deal's flight carrying it to this seat lands
+  /// ([DealFlights.seatLandsAt]). Null — a top-up, or a seat the deal did not
+  /// reach — is the old beat, [_beat] after the card before it.
+  final Duration? landsAt;
 
   /// Where this card comes to rest in the fan.
   final double restAngle;
@@ -4007,10 +4111,19 @@ class _DealtState extends State<_Dealt> with SingleTickerProviderStateMixin {
     curve: const Interval(0, 0.3),
   );
 
+  /// How long this card waits before it sets off: so that its travel ends as
+  /// the deal's flight lands, or the old beat.
+  Duration get _delay {
+    final lands = widget.landsAt;
+    if (lands == null) return _beat * widget.index;
+    final wait = lands - _landFor * _travel;
+    return wait.isNegative ? Duration.zero : wait;
+  }
+
   @override
   void initState() {
     super.initState();
-    Future<void>.delayed(_beat * widget.index, () {
+    Future<void>.delayed(_delay, () {
       if (mounted) _c.forward();
     });
   }

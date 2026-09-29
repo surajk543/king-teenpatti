@@ -58,6 +58,7 @@ func ConfigFromSpec(category game.Category, spec config.TableSpec, chat config.C
 		MinPlayers:     spec.MinPlayers,
 		TurnTimeout:    spec.TurnTimeout,
 		NextHandDelay:  spec.NextHandDelay,
+		DealHold:       game.DealHold(spec.NextHandDelay),
 		UnfundedGrace:  spec.UnfundedGrace,
 		MaxMissedTurns: spec.MaxMissedTurns,
 		MinBuyIn:       spec.MinBuyIn,
