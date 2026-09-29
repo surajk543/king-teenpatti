@@ -1946,7 +1946,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 taxScaler,
                 taxTheme,
                 lines: WinningTaxTag.linesFor(
-                  titled: state.user?.playerLevel != null,
+                  titled: state.user?.shownBadge != null,
                 ),
               );
           var taxHalf = tagSlot.width * _Felt.taxPillShare / 2;
@@ -2132,17 +2132,14 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   child: Center(
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: taxWidth),
-                      // The viewer's level title, then the badge they hold
-                      // and the rate their seat pays (owner, 27 Sep 2026:
-                      // "Show text Player Title and then tax percent", "In
-                      // table top also the badge name current player
-                      // holding").
+                      // The badge the viewer holds — its art, its name — over
+                      // the rate their seat pays, and nothing else (owner,
+                      // 29 Sep 2026: "In gametable in tax pill only show
+                      // badge icon and badge name and tax"): the level that
+                      // stood here is on every player's pod now.
                       child: WinningTaxTag(
                         tax: taxPillLabel(state.t, bps: state.myTaxBps),
-                        title: state.user?.playerLevel?.title,
-                        // The level's art before its title (29 Sep 2026).
-                        titleArt: state.user?.playerLevel,
-                        badge: switch (state.user?.shownBadge) {
+                        title: switch (state.user?.shownBadge) {
                           final badge? => badgeTitleOf(badge),
                           null => null,
                         },
@@ -2154,7 +2151,6 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                         },
                         semanticLabel: [
                           state.t.winningTaxTitle,
-                          ?state.user?.playerLevel?.title,
                           ?state.user?.shownBadge?.title,
                           taxPillLabel(state.t, bps: state.myTaxBps),
                         ].join(', '),
@@ -2589,7 +2585,7 @@ Rect tableNoticeArea(BuildContext context) {
   double plate(TextStyle style) => _Felt.plateHeight(scaler, style);
   final headPod = ring.headPod;
   // Under the winning tax's pill too, where the table has one — two lines
-  // where it names the viewer's level: a notice never covers the table's
+  // where it names the viewer's badge: a notice never covers the table's
   // own terms.
   final game = context.read<GameState>();
   final underTag = game.tableTaxesWinner
@@ -2598,7 +2594,7 @@ Rect tableNoticeArea(BuildContext context) {
               scaler,
               theme,
               lines: WinningTaxTag.linesFor(
-                titled: game.user?.playerLevel != null,
+                titled: game.user?.shownBadge != null,
               ),
             ) +
             Space.sm

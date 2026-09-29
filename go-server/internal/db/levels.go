@@ -225,6 +225,15 @@ type Standing struct {
 	TaxBps int `json:"taxBps"`
 }
 
+// SeatLevel is the standing's level as a table shows it on the player's pod
+// (game.SeatLevel: the number and the art); nil for a ladder with no level.
+func (s Standing) SeatLevel() *game.SeatLevel {
+	if s.PlayerLevel.Level <= 0 {
+		return nil
+	}
+	return &game.SeatLevel{Level: s.PlayerLevel.Level, AssetURL: s.PlayerLevel.AssetURL, AssetFormat: s.PlayerLevel.AssetFormat}
+}
+
 // playerLevelJoins are the joins that resolve the standing of the player a
 // query reads as `u` (users) at the instant %[1]d (epoch ms, baked in with
 // fmt.Sprintf — every query that uses them is formatted, and they hold no

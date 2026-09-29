@@ -13,6 +13,7 @@ import '../theme/table_theme.dart';
 import 'avatar.dart';
 import 'emoji_art.dart';
 import 'hammer_flight.dart';
+import 'level_art.dart';
 import 'liquid_fill.dart';
 import 'playing_card.dart';
 import 'poker_chip.dart';
@@ -185,6 +186,11 @@ class SeatPod extends StatelessWidget {
   /// friend request waits for the viewer ([SeatRequestBadge]). On the picture
   /// rather than the pod's top corner, where it stood over the first letter
   /// of a long name ("Vikramaditya" read "ikramaditya").
+  /// The level's art on the pod's top-right corner: this share of the pod's
+  /// width, and this share of itself past the corner each way.
+  static const double levelShare = 0.3;
+  static const double levelOverhang = 0.3;
+
   final Widget? requestBadge;
 
   /// A mark for the lower-right corner of the player's picture while they are
@@ -834,6 +840,14 @@ class SeatPod extends StatelessWidget {
       ),
     );
 
+    // The player's level on the pod's top-right corner (owner, 29 Sep 2026:
+    // "In gametable In every player pod show their game level icon on top
+    // right of player pod"): its art, a little past the corner as a badge
+    // stands, painted over the pod and taking no layout, so no seat moves for
+    // it; no taps (a tap is the pod's). Nothing where the level has no art
+    // yet, or the server sent no level.
+    final level = s.level;
+    final levelSide = width * levelShare;
     return PodImpact(
       key: podKey,
       clock: impact,
@@ -858,6 +872,22 @@ class SeatPod extends StatelessWidget {
               ),
             ),
           panel,
+          if (level != null && level.hasArt)
+            Positioned(
+              top: -levelSide * levelOverhang,
+              right: -levelSide * levelOverhang,
+              width: levelSide,
+              height: levelSide,
+              child: IgnorePointer(
+                child: LevelArt(
+                  key: const ValueKey('seat-level-art'),
+                  size: levelSide,
+                  assetUrl: level.assetUrl,
+                  assetFormat: level.assetFormat,
+                  label: context.read<GameState>().t.levelNumber(level.level),
+                ),
+              ),
+            ),
         ],
       ),
     );

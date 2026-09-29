@@ -1316,22 +1316,31 @@ void main() {
   });
 
   group('the felt', () {
-    testWidgets('the pill: the badge at the left of the words, the level\'s '
-        'art at the right, both from the plate\'s top to its bottom; none at '
-        'the right for a level with no art yet', (tester) async {
+    testWidgets('the pill: the badge\'s art, its name over the tax, and '
+        'nothing of the level — not its title, not its art (owner, 29 Sep '
+        '2026: "only show badge icon and badge name and tax")', (tester) async {
       final state = _tableState(level: _level10WithArt());
       await _pumpTable(tester, state);
-      final plate = tester.getRect(
+      final tag = tester.widget<WinningTaxTag>(find.byType(WinningTaxTag));
+      expect(tag.title, 'Regular');
+      expect(tag.badge, isNull);
+      expect(tag.tax, '17.43% TAX');
+      expect(
         find.descendant(
           of: find.byType(WinningTaxTag),
-          matching: find.byType(Plate),
+          matching: find.byType(LevelArt),
         ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(WinningTaxTag),
+          matching: find.text('Rising Star'),
+        ),
+        findsNothing,
       );
       final badge = tester.getRect(
         find.byKey(const ValueKey('winning-tax-badge-art')),
-      );
-      final level = tester.getRect(
-        find.byKey(const ValueKey('winning-tax-level-art')),
       );
       final title = tester.getRect(
         find.byKey(const ValueKey('winning-tax-title')),
@@ -1340,37 +1349,8 @@ void main() {
         find.byKey(const ValueKey('winning-tax-rate-words')),
       );
       expect(badge.right, lessThanOrEqualTo(title.left));
-      expect(badge.right, lessThanOrEqualTo(rate.left));
-      expect(level.left, greaterThanOrEqualTo(title.right));
-      expect(level.left, greaterThanOrEqualTo(rate.right));
-      expect(level.height, closeTo(badge.height, 0.5));
-      expect(level.height, closeTo(plate.height, 0.5));
-      expect(plate.right - level.right, lessThan(Space.xs));
-      expect(
-        tester
-            .widget<LevelArt>(
-              find.byKey(const ValueKey('winning-tax-level-art')),
-            )
-            .assetUrl,
-        _level10Art,
-      );
-      // The title is the words alone: no emoji before it any more.
-      expect(
-        tester
-            .widget<Text>(find.byKey(const ValueKey('winning-tax-title')))
-            .data,
-        'Rising Star',
-      );
+      expect(title.center.dy, lessThan(rate.center.dy));
       await _unmount(tester, state);
-
-      final bare = _tableState();
-      await _pumpTable(tester, bare);
-      expect(find.byKey(const ValueKey('winning-tax-level-art')), findsNothing);
-      expect(
-        find.byKey(const ValueKey('winning-tax-badge-art')),
-        findsOneWidget,
-      );
-      await _unmount(tester, bare);
     });
 
     testWidgets('hangs the pill under the tag of a taxing table only', (
@@ -1379,16 +1359,15 @@ void main() {
       final state = _tableState();
       await _pumpTable(tester, state);
       expect(find.byType(WinningTaxTag), findsOneWidget);
-      // The level's title, then the rate the seat pays (owner, 27 Sep 2026:
-      // "Show text Player Title and then tax percent").
+      // The badge they hold, by name, over the rate the seat pays — the
+      // level's title that led it went on 29 Sep 2026 (owner: "In gametable
+      // in tax pill only show badge icon and badge name and tax"):
+      // everyone's Regular, its Lottie playing beside the name ("it should
+      // show the lottie animation near that badge").
       final tag = tester.widget<WinningTaxTag>(find.byType(WinningTaxTag));
-      expect(tag.title, 'Rising Star');
+      expect(tag.title, 'Regular');
       expect(tag.tax, '17.43% TAX');
-      // The badge they hold (owner, 27 Sep 2026: "In table top also the
-      // badge name current player holding"): everyone's Regular, its Lottie
-      // playing beside the name ("it should show the lottie animation near
-      // that badge").
-      expect(tag.badge, 'Regular');
+      expect(tag.badge, isNull);
       expect(tag.badgeArt?.code, 'REGULAR');
       expect(
         find.byKey(const ValueKey('winning-tax-badge-art')),
@@ -1435,9 +1414,9 @@ void main() {
           )
           .text
           .toPlainText();
-      // The title over the badge and the rate.
-      expect(words('winning-tax-title'), 'Rising Star');
-      expect(words('winning-tax-rate-words'), 'Regular · 17.43% TAX');
+      // The badge's name over the rate.
+      expect(words('winning-tax-title'), 'Regular');
+      expect(words('winning-tax-rate-words'), '17.43% TAX');
       expect(
         tester.getCenter(find.byKey(const ValueKey('winning-tax-title'))).dy,
         lessThan(
@@ -1446,7 +1425,7 @@ void main() {
               .dy,
         ),
       );
-      // No percent mark before a title: the level's own mark leads.
+      // No percent mark before a title: the badge's own art leads.
       expect(
         find.descendant(
           of: find.byType(WinningTaxTag),
@@ -1461,14 +1440,14 @@ void main() {
       expect(find.byType(WinningTaxTag), findsNothing);
       await _unmount(tester, plain);
 
-      // A Gold badge holder: their level's title, the badge — Gold, the one
-      // that brings their rate lowest, not Regular — and the badge's rate,
-      // which is what they pay.
+      // A Gold badge holder: the badge — Gold, the one that brings their
+      // rate lowest, not Regular — and the badge's rate, which is what they
+      // pay.
       final gold = _goldTable();
       await _pumpTable(tester, gold);
       final goldTag = tester.widget<WinningTaxTag>(find.byType(WinningTaxTag));
-      expect(goldTag.title, 'Newbie');
-      expect(goldTag.badge, '🏅 Gold');
+      expect(goldTag.title, '🏅 Gold');
+      expect(goldTag.badge, isNull);
       // Gold is shown by its emoji, which its name already carries.
       expect(goldTag.badgeArt, isNull);
       expect(goldTag.tax, '5% TAX');
@@ -1489,7 +1468,7 @@ void main() {
       );
       await _pumpTable(tester, royal);
       final royalTag = tester.widget<WinningTaxTag>(find.byType(WinningTaxTag));
-      expect(royalTag.badge, 'Royal King');
+      expect(royalTag.title, 'Royal King');
       expect(royalTag.badgeArt?.code, 'ROYAL_KING');
       expect(royalTag.tax, '0% TAX');
       expect(
@@ -1498,7 +1477,7 @@ void main() {
       );
       await _unmount(tester, royal);
 
-      // No level known: the percent mark and the rate alone.
+      // No badge known: the percent mark and the rate alone.
       final unknown = _tableState()..user = _user(chips: 900000000);
       await _pumpTable(tester, unknown);
       final bare = tester.widget<WinningTaxTag>(find.byType(WinningTaxTag));

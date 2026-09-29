@@ -892,15 +892,31 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   stand-in off, handing back the same subtree while its inputs hold so the one-second tick never rebuilds the Lottie) draws
   the art wherever the emoji was: the level screen's medal (`level-emblem-art`) and every rung of All levels (one size,
   `LevelRow.markSize` 30), the top bar's "Lv 10" line (`lobby-level-art`, 1.3× the line, painted past it so the row is no
-  taller), the lobby's level key (its medal glyph where there is no art — a key is never an empty disc), the table's tax pill
-  (**the level's art at the pill's RIGHT, the badge's at its LEFT**, both from the plate's top to its bottom — owner, the same
-  day: "On the gameplay table show level icon on right of tax text, and in left badge which u already showing"), the player
-  drawer's level line, the Stats drawer's head and a level up on the mission bar. A level with no art yet shows an empty
+  taller), the lobby's level key (its medal glyph where there is no art — a key is never an empty disc), **every player's
+  pod at the table** (below), the player drawer's level line, the Stats drawer's head and a level up on the mission bar. The
+  table's tax pill carried the level's art at its right for an hour and then no level at all (owner, the same day: "In
+  gametable in tax pill only show badge icon and badge name and tax" — §6.6 "The app"). A level with no art yet shows an empty
   square where the mark has a fixed place (the medal, a rung) and nothing where it stands before words; words never carry the
   emoji any more ("Level 10 · Rising Star", "77 XP to Rookie", the level-up toast). Tests: `internal/db/levels_test.go`
   (the seeded art, the fill rule across a reboot, the served file), `upgrade_boot_test.go`, `db_test.go`; Flutter
-  `level_screen_test` (the medal, every rung), `lobby_level_bar_test`, `table_tax_test` (the pill's two emblems), with the
+  `level_screen_test` (the medal, every rung), `lobby_level_bar_test`, `table_tax_test` (the pill: badge only), with the
   fixtures' `levelArtUrl`/`primeLevelArt` (Levels 1–14, as the seed).
+  **Every player's level on their pod** (owner, 29 Sep 2026: "In gametable In every player pod show their game level icon on
+  top right of player pod"): `room:state.seats[].level` = `{level, assetUrl?, assetFormat?}` (`game.SeatLevel`, `SeatView.Level`,
+  ABSENT for a seat whose level is not known and on an empty chair) — the level and its art and nothing else of the standing (no
+  XP, rate or badge of another player), public on every viewer's snapshot, at Teen Patti tables (a poker room's view carries none).
+  Taken at sit-down (`NewPlayer.Level` ← `db.User.Player()` ← `Standing.SeatLevel()`), refreshed by every hand-end settle
+  (`SettleResult.Levels`, read from the same `Standing` the settle's `player:level` is — `Table.adoptLevels`, on the first
+  attempt or the Settler's retry; a level below 1 is ignored), carried by a switch or consolidation move (`SeatInfo.Level`) and
+  kept in the snapshot (`SnapshotSeat.Level`; an invalid one is dropped on restore, never a refused table). The app
+  (`Seat.level`, `SeatLevel` in `dtos.dart`) lays its `LevelArt` (`seat-level-art`) on the pod's top-right corner, the viewer's
+  pod too: `SeatPod.levelShare` 0.3 of the pod, `levelOverhang` 0.3 of itself past the corner each way, a `Positioned` in the pod's
+  outer Stack (`Clip.none`) — so it takes no layout and no seat moves — under an `IgnorePointer` (a tap is the pod's), placed from
+  the pod's box, so it does not jump when the turn ring grows round the plaque. Nothing where the level has no art yet or the
+  server sent none. Tests: `internal/game/seatlevel_test.go` (every viewer sees it, a level-up adopted from the settle, the
+  restore), `internal/app/tabletax_test.go` (real sockets: Level 1's art on every seat), Flutter `test/seat_level_test.dart` (the
+  wire, the corner, none without art, the tick rebuilding nothing under it, 592x360–915x412 ×1.0/×1.25 both themes; scene
+  `levelsRoom()` in `table_scenes.dart`).
 - **Badges** (`badges`, `user_badges`, `badge_purchases`): held BESIDE the level, many per player, each grant with an
   `expires_at` filled from `validity_days` by the `user_badges_expiry` trigger (0 = for ever). The rate a player pays is the
   **lowest of their level's and every unexpired badge's** (`playerLevelJoins`, the one statement of the rule; `db.Standing`,
@@ -971,9 +987,11 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   name, icon, kind, `type` (DAILY), `playMinutes`/`hand`, xp, times) and the cap — and since 28 Sep 2026 **`missions`**, the active
   ONE_TIME ones with a target (`type` ONE_TIME, `target`, `scope`), NEVER among `xpSources`: an older app sums every `xpSources`
   entry into the day's "108 XP" and files an unknown kind under "More ways to earn XP".
-- **The app** (`widgets/table_tax.dart`): on a taxing table's felt, under the tag, a pill — the level's title over the badge the
-  player holds that brings their rate lowest (`User.shownBadge`) and the rate: "🌱 Newbie" over "Regular · 20% TAX", with that
-  badge's Lottie as the pill's EMBLEM at its left, from the plate's top edge to its bottom (`WinningTaxTag.emblemSize`: both lines
+- **The app** (`widgets/table_tax.dart`): on a taxing table's felt, under the tag, a pill — since 29 Sep 2026 the badge alone
+  (owner: "In gametable in tax pill only show badge icon and badge name and tax"): the NAME of the badge the player holds that
+  brings their rate lowest (`User.shownBadge`, `badgeTitleOf`) over the rate: "Regular" over "17.43% TAX" (the level's title
+  over "Regular · 20% TAX" before; with no badge known, an older server, the rate alone), with that badge's Lottie as the pill's
+  EMBLEM at its left, from the plate's top edge to its bottom (`WinningTaxTag.emblemSize`: both lines
   and their padding — the felt reserves exactly that, so it moves nothing; owner, 27 Sep 2026: "increase the badge icon size which
   is shown in game table"; a line tall before), scaled with the words where the slot is narrow; tapped, **the lobby's level screen** — its three tabs, below — since 27 Sep 2026 (owner: "when i click the
   text on my level in gametable, it should pop the same UI which it shows in Lobby about player level, daily xp and levels";

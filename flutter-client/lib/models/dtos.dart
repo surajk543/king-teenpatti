@@ -1912,6 +1912,7 @@ class Seat {
     this.streetBet = 0,
     this.allIn = false,
     this.dealer = false,
+    this.level,
   });
 
   final int seatIndex;
@@ -1947,6 +1948,12 @@ class Seat {
   final bool allIn;
   final bool dealer;
 
+  /// The player's level on their pod — its number and art — which every
+  /// viewer's snapshot carries (owner, 29 Sep 2026: "In gametable In every
+  /// player pod show their game level icon on top right of player pod").
+  /// Null where the server sent none (an empty seat, a server from before).
+  final SeatLevel? level;
+
   bool get occupied => status != SeatState.empty;
   bool get inHand => status == SeatState.active;
 
@@ -1970,6 +1977,7 @@ class Seat {
     streetBet: streetBet,
     allIn: allIn,
     dealer: dealer,
+    level: level,
   );
 
   factory Seat.fromJson(Map<String, dynamic> j) => Seat(
@@ -1989,7 +1997,48 @@ class Seat {
     streetBet: _int(j['streetBet']),
     allIn: j['allIn'] == true,
     dealer: j['dealer'] == true,
+    level: SeatLevel.maybe(j['level']),
   );
+}
+
+/// A seated player's level as the table shows it on their pod: the number
+/// and the level's art (the owner's Lottie); never their XP, rate or badges.
+class SeatLevel {
+  const SeatLevel({
+    required this.level,
+    this.assetUrl = '',
+    this.assetFormat = '',
+  });
+
+  final int level;
+  final String assetUrl;
+  final String assetFormat;
+
+  /// Whether [assetUrl] is art the app can draw: a Lottie.
+  bool get hasArt => assetUrl.isNotEmpty && assetFormat == 'LOTTIE';
+
+  /// Null unless [raw] names a level of 1 or above.
+  static SeatLevel? maybe(Object? raw) {
+    if (raw is! Map) return null;
+    final j = Map<String, dynamic>.from(raw);
+    final level = _int(j['level']);
+    if (level < 1) return null;
+    return SeatLevel(
+      level: level,
+      assetUrl: _str(j['assetUrl']).trim(),
+      assetFormat: _str(j['assetFormat']).trim().toUpperCase(),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is SeatLevel &&
+      other.level == level &&
+      other.assetUrl == assetUrl &&
+      other.assetFormat == assetFormat;
+
+  @override
+  int get hashCode => Object.hash(level, assetUrl, assetFormat);
 }
 
 /// What a poker player may do on their turn: `you.options` at a poker table.

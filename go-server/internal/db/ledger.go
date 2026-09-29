@@ -305,8 +305,12 @@ func (l *Ledger) Settle(ctx context.Context, req game.SettleRequest) (game.Settl
 				return err
 			}
 			result.TaxBps = make(map[string]int, len(standings))
+			result.Levels = make(map[string]game.SeatLevel, len(standings))
 			for userID, standing := range standings {
 				result.TaxBps[userID] = standing.TaxBps
+				if level := standing.SeatLevel(); level != nil {
+					result.Levels[userID] = *level
+				}
 			}
 			for _, userID := range changed {
 				settled.Levels[userID] = standings[userID]

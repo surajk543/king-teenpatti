@@ -249,6 +249,42 @@ RoomState seenTurnRoom({
   ),
 );
 
+/// Each player's level on their pod (owner, 29 Sep 2026: "In every player
+/// pod show their game level icon on top right of player pod"): the seen
+/// table on the viewer's turn, the seats' levels as the server sends them —
+/// the viewer (Level 10) and two others with art, one at a level with no art
+/// yet (20), and one whose level is not known (no key).
+RoomState levelsRoom() {
+  final levels = <int, Map<String, dynamic>>{
+    0: {
+      'level': 10,
+      'assetUrl': 'https://drive.test/levels/10.json',
+      'assetFormat': 'LOTTIE',
+    },
+    1: {
+      'level': 3,
+      'assetUrl': 'https://drive.test/levels/3.json',
+      'assetFormat': 'LOTTIE',
+    },
+    2: {'level': 20},
+    4: {
+      'level': 1,
+      'assetUrl': 'https://drive.test/levels/1.json',
+      'assetFormat': 'LOTTIE',
+    },
+  };
+  return _room(
+    category: 'seen',
+    maxPot: 2000000,
+    turnSeat: 0,
+    seats: [
+      for (final seat in _seenSeats())
+        {...seat, 'level': ?levels[seat['seatIndex']]},
+    ],
+    you: _you(blind: false, cards: const ['As', 'Kd', 'Qh'], blindMovesLeft: 0),
+  );
+}
+
 /// Somebody else's turn at a blind table: nothing on the console to press.
 RoomState opponentTurnRoom({int handNo = 7, String roomId = 'r1'}) => _room(
   roomId: roomId,

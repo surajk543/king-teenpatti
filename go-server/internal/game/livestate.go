@@ -266,6 +266,9 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 			kickPending:           ss.KickPending,
 			taxBps:                ss.TaxBps,
 		}
+		if ss.Level.valid() {
+			s.level = ss.Level.clone()
+		}
 		if ss.AvatarURL != nil {
 			s.avatarURL = StrPtr(*ss.AvatarURL)
 		}

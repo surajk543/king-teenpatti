@@ -145,12 +145,25 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 		if you, _ := state["you"].(map[string]any); you["taxBps"] != want {
 			t.Errorf("%s's you.taxBps %v, want %v", p.id, you["taxBps"], want)
 		}
+		levels := 0
 		for _, s := range state["seats"].([]any) {
 			if seat, _ := s.(map[string]any); seat != nil {
 				if _, ok := seat["taxBps"]; ok {
 					t.Errorf("a seat carries a rate: %v", seat)
 				}
+				// Every player's level on their pod, for every viewer (owner,
+				// 29 Sep 2026): both are new accounts, Level 1 with its art.
+				if seat["status"] == "empty" {
+					continue
+				}
+				if got, _ := json.Marshal(seat["level"]); string(got) != `{"assetFormat":"LOTTIE","assetUrl":"/levels/newbie.json","level":1}` {
+					t.Errorf("%s's snapshot: seat %v's level %s", p.id, seat["userId"], got)
+				}
+				levels++
 			}
+		}
+		if levels != 2 {
+			t.Errorf("%s's snapshot shows %d levels, want both players'", p.id, levels)
 		}
 		onTurn, _ = jsonPath(mustRaw(t, state), "turn.userId").(string)
 	}

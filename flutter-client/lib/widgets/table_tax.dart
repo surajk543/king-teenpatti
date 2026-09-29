@@ -464,7 +464,6 @@ class WinningTaxTag extends StatelessWidget {
     required this.semanticLabel,
     required this.onTap,
     this.title,
-    this.titleArt,
     this.badge,
     this.badgeArt,
   });
@@ -472,16 +471,11 @@ class WinningTaxTag extends StatelessWidget {
   /// The rate the viewer's seat pays, as the pill says it: "17.43% TAX".
   final String tax;
 
-  /// The viewer's level title ("Rising Star"), the pill's first line; null
-  /// where the level is not known.
+  /// The pill's first line, over the rate: the badge the viewer holds, by
+  /// name ("Regular") — the felt's only use since 29 Sep 2026 (owner: "In
+  /// gametable in tax pill only show badge icon and badge name and tax");
+  /// the level's title stood here until then. Null: the rate alone.
   final String? title;
-
-  /// The viewer's level, whose art ([LevelArt]) is the pill's RIGHT emblem
-  /// where the owner has sent one (29 Sep 2026: "On the gameplay table show
-  /// level icon on right of tax text, and in left badge which u already
-  /// showing"): as tall as the badge's at the left ([emblemSize]), so the
-  /// pill stands no taller for it. A level with no art yet has none there.
-  final PlayerLevel? titleArt;
 
   /// The badge the viewer holds, with its mark where it has one ("🏅 Gold"),
   /// before the rate; null where they hold none this phone knows of.
@@ -563,53 +557,33 @@ class WinningTaxTag extends StatelessWidget {
     // no text metrics yet — CLAUDE.md, the bonus chips); scaled with the
     // words as one where the slot is narrow, so it shrinks with them rather
     // than crowding them.
-    //
-    // The level's art, where the owner has sent it, is the emblem at the
-    // RIGHT (29 Sep 2026), the same height as the badge's.
     final art = badgeArt;
-    final level = titleArt?.hasArt == true ? titleArt : null;
     final Widget content;
     final EdgeInsets padding;
-    if (art != null || level != null) {
-      final emblem = emblemSize(
-        MediaQuery.textScalerOf(context),
-        theme,
-        lines: lines,
-      );
+    if (art != null) {
       content = FittedBox(
         fit: BoxFit.scaleDown,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (art != null) ...[
-              BadgeArt.held(
-                art,
-                key: const ValueKey('winning-tax-badge-art'),
-                size: emblem,
+            BadgeArt.held(
+              art,
+              key: const ValueKey('winning-tax-badge-art'),
+              size: emblemSize(
+                MediaQuery.textScalerOf(context),
+                theme,
+                lines: lines,
               ),
-              const SizedBox(width: Space.xs),
-            ],
+            ),
+            const SizedBox(width: Space.xs),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: Space.xs),
               child: text,
             ),
-            if (level != null) ...[
-              const SizedBox(width: Space.xs),
-              LevelArt.of(
-                level,
-                key: const ValueKey('winning-tax-level-art'),
-                size: emblem,
-              ),
-            ],
           ],
         ),
       );
-      padding = EdgeInsets.fromLTRB(
-        art != null ? Space.xxs : Space.md,
-        0,
-        level != null ? Space.xxs : Space.md,
-        0,
-      );
+      padding = const EdgeInsets.fromLTRB(Space.xxs, 0, Space.md, 0);
     } else if (title != null) {
       // The title over the rate, scaled as one: it shrinks on a small
       // screen rather than losing a word to an ellipsis.

@@ -183,6 +183,9 @@ type NewPlayer struct {
 	// tabletax.go). The seat keeps it, refreshed by every hand-end settle, and
 	// pays it on a win at a table that taxes its winners.
 	TaxBps int
+	// Level is the player's level and its art (SeatLevel), read with their
+	// account when they sat down; nil where not known. Shown on their pod.
+	Level *SeatLevel
 }
 
 // ActRequest is the client's move (socket game:action → table.act payload).
@@ -276,6 +279,10 @@ type seat struct {
 	// NewPlayer.TaxBps when they sat down, refreshed from every hand-end
 	// settle. A hand captures it when it is dealt (contribution.taxBps).
 	taxBps int
+
+	// level is the player's level on their pod (SeatLevel): NewPlayer.Level
+	// when they sat down, refreshed from every hand-end settle.
+	level *SeatLevel
 }
 
 // contribution is hand.contributions[userId] — owned by the HAND, not the
@@ -1167,6 +1174,7 @@ func (s *seat) info() *SeatInfo {
 		DisconnectedAt:        disconnectedAt,
 		KickPending:           s.kickPending,
 		TaxBps:                s.taxBps,
+		Level:                 s.level.clone(),
 	}
 }
 
@@ -1211,6 +1219,7 @@ func (t *Table) addPlayer(p NewPlayer) (*SeatInfo, error) {
 		isBlind:      true,
 		joinedAt:     t.clock.Now(),
 		taxBps:       p.TaxBps,
+		level:        p.Level.clone(),
 	}
 	t.seats[seatIndex] = s
 	t.refreshPlayerCount()
@@ -3428,8 +3437,10 @@ func (t *Table) endHand(winnerID *string, reason WinReason, reveals []Reveal) {
 			entry.chipsWritten = entry.chips
 		}
 		// The XP this settle awarded may have raised a level: every seat it
-		// names deals its next hand at the rate its level carries now.
+		// names deals its next hand at the rate its level carries now, and
+		// shows that level on its pod.
 		t.adoptTaxRates(settled.TaxBps)
+		t.adoptLevels(settled.Levels)
 		t.recordStats(settleReq.Stats)
 	}
 	// The players who left this hand still owed part of it are written now,
@@ -3507,6 +3518,7 @@ func (t *Table) onSettleLanded(req SettleRequest, result SettleResult) {
 		}
 	}
 	t.adoptTaxRates(result.TaxBps)
+	t.adoptLevels(result.Levels)
 	t.emitState()
 }
 
@@ -3595,6 +3607,7 @@ func (t *Table) snapshot() *Snapshot {
 			KickPending:           s.kickPending,
 			JoinedAt:              Millis(s.joinedAt),
 			TaxBps:                s.taxBps,
+			Level:                 s.level.clone(),
 		}
 		if s.unfundedUntil != nil {
 			snap.UnfundedUntil = Int64Ptr(Millis(*s.unfundedUntil))
@@ -3903,6 +3916,8 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 			// Public, so the table can say who it is waiting on; the cards
 			// they are choosing between stay their own (owner, 19 Sep 2026).
 			Picking: s.picking && len(s.picked) == 0,
+			// Public too: the player's level on their pod (29 Sep 2026).
+			Level: s.level.clone(),
 		}
 		if s.avatarURL != nil {
 			entry.AvatarURL = StrPtr(*s.avatarURL)

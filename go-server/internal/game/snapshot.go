@@ -237,6 +237,9 @@ type SnapshotSeat struct {
 	// refreshed by every hand-end settle. Kept so a restart does not reach
 	// back into the database for it; absent when 0.
 	TaxBps int `json:"taxBps,omitempty"`
+	// Level is the seat's level on its pod (SeatLevel), kept so a restart
+	// shows it without reading the account; absent where not known.
+	Level *SeatLevel `json:"level,omitempty"`
 }
 
 // HandSummaryEntry is one contributor in hands.summary_json and in the
