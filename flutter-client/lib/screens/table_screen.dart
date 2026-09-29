@@ -807,6 +807,20 @@ class _FeltState extends State<_Felt>
   /// fan — which the felt paints after every seat.
   final GlobalKey _handKey = GlobalKey(debugLabel: 'own hand');
 
+  /// Where the viewer's hand column comes to rest, in the felt's box, as its
+  /// last layout reckoned it ([_HandPlacement]): at the lift it is gliding
+  /// TO, not the one it stands at this frame. When the hand's name arrives at
+  /// a showdown the column is laid out a line taller at once and glides back
+  /// towards the floor by the lift it gives up (at most 7dp, over
+  /// [Motion.slow]); measured as it stood, its box rose over the corner of the
+  /// upper-left seat's emoji for those 300 ms at 592x360 x1.25, and the emoji
+  /// was moved off its own place (the fourth look at the emoji placement, 29
+  /// Sep 2026). What the column holds there is the name's capsule, centred
+  /// on the fan, which in the app's own face stays clear of that emoji even
+  /// for the widest name (test/emoji_real_font_test.dart): nothing is drawn
+  /// over it.
+  Rect? _handAtRest;
+
   /// Where the viewer's hand may stand, not only where it stands now: from
   /// its left edge to the felt's right and from under the pot's plate to the
   /// felt's foot, as the last layout gave them. Between hands the hand is
@@ -825,7 +839,9 @@ class _FeltState extends State<_Felt>
 
   @override
   Iterable<Rect> emojiCoversOver(Rect? Function(GlobalKey key) rectOf) => [
-    ?rectOf(_handKey),
+    // The hand where it comes to rest ([_handAtRest]); as it stands before its
+    // first layout has been reckoned.
+    ?(_handAtRest ?? rectOf(_handKey)),
     for (final key in widget.covers.all) ?rectOf(key),
   ];
 
@@ -1918,6 +1934,7 @@ class _FeltState extends State<_Felt>
                   least: TableSpace.handLift,
                   most: HandFan.liftFor(HandFan.cardHeightFor(handH)),
                   ceiling: handCeiling,
+                  atRest: (rect) => _handAtRest = rect,
                   child: KeyedSubtree(
                     key: _handKey,
                     child: Column(
@@ -3096,6 +3113,7 @@ class _LiftedHand extends StatefulWidget {
     required this.most,
     required this.ceiling,
     required this.child,
+    this.atRest,
   });
 
   final double left;
@@ -3104,6 +3122,10 @@ class _LiftedHand extends StatefulWidget {
   final double most;
   final double ceiling;
   final Widget child;
+
+  /// Told, at every layout, the box the column comes to rest in once any
+  /// glide is over (the felt keeps emojis from under it, EmojiPlacement).
+  final void Function(Rect rect)? atRest;
 
   @override
   State<_LiftedHand> createState() => _LiftedHandState();
@@ -3168,6 +3190,7 @@ class _LiftedHandState extends State<_LiftedHand>
       ceiling: widget.ceiling,
       lift: _liftFor,
       glide: _glide,
+      atRest: widget.atRest,
     ),
     child: widget.child,
   );
@@ -3183,6 +3206,7 @@ class _HandPlacement extends SingleChildLayoutDelegate {
     required this.ceiling,
     required this.lift,
     required Listenable glide,
+    this.atRest,
   }) : super(relayout: glide);
 
   final double left;
@@ -3193,6 +3217,9 @@ class _HandPlacement extends SingleChildLayoutDelegate {
 
   /// The lift to stand the column at, given the one its height asks for.
   final double Function(double target) lift;
+
+  /// Told where the column comes to rest: at the lift its height asks for.
+  final void Function(Rect rect)? atRest;
 
   @override
   BoxConstraints getConstraintsForChild(BoxConstraints constraints) =>
@@ -3205,6 +3232,7 @@ class _HandPlacement extends SingleChildLayoutDelegate {
   Offset getPositionForChild(Size size, Size childSize) {
     final room = floor - childSize.height - ceiling;
     final target = math.max(least, math.min(most, room));
+    atRest?.call(Offset(left, floor - target - childSize.height) & childSize);
     return Offset(left, floor - lift(target) - childSize.height);
   }
 
@@ -3832,17 +3860,18 @@ class _DealtState extends State<_Dealt> with SingleTickerProviderStateMixin {
             final settle = Curves.easeOut.transform(
               ((v - _travel) / (1 - _travel)).clamp(0.0, 1.0),
             );
-            // Out of the middle of the table, up and to the right of the fan,
-            // leaning the other way (29 Sep 2026: from up and to its LEFT, the
-            // first card crossed the corner of the viewer's own emoji, which
-            // plays over their pod left of the fan — for its first 100 ms,
-            // fading in, under the card the felt paints after every seat).
-            // So no card comes in from the left of where it lands.
-            const from = Offset(0.5, -0.9);
+            // Out of the middle of the table, which stands above the fan:
+            // down onto its place from straight over it (29 Sep 2026). From
+            // half a card to its LEFT, as it came until then, the first card
+            // crossed the corner of the viewer's own emoji, which plays over
+            // their pod left of the fan, for its first 100 ms — under the card,
+            // which the felt paints after every seat; from half a card to its
+            // right, the last one crossed the corner of the Force Sideshow key.
+            const from = Offset(0, -0.9);
             // A touch past its place, then back onto it.
-            final past = rest - 0.035;
+            final past = rest + 0.035;
             final angle = v < _travel
-                ? 0.2 + (past - 0.2) * travel
+                ? -0.2 + (past + 0.2) * travel
                 : past + (rest - past) * settle;
             final scale = v < _travel
                 ? 0.9 + 0.14 * travel

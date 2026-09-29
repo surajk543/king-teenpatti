@@ -75,7 +75,8 @@ class FeltCovers {
 /// their column), and each place is chosen against the most room each seat
 /// can still take while it plays — a pod's turn ring and winner's rule, the
 /// status line over the viewer's pod, the words a later seat is saying
-/// ([SeatPod.podReach], [SeatPod.seatReach]). And after every build while an
+/// ([SeatPod.podReach], [SeatPod.emojiCovers]) — and the viewer's hand where
+/// it comes to rest ([emojiCoversOver]). And after every build while an
 /// emoji plays the placement looks again: an emoji that something has come to
 /// lie over — a player sitting down in an empty chair, a column the rules
 /// above did not foresee — is placed again, the earliest sent keeping their
@@ -94,13 +95,15 @@ mixin EmojiPlacement<T extends StatefulWidget> on State<T> {
   /// cards, bet — in view order. Its widget says where that seat's own
   /// emojis play ([SeatPod.emojiHome]), how the felt holds it
   /// ([SeatPod.emojiAnchor]) and how far it may still grow
-  /// ([SeatPod.seatReach]).
+  /// ([SeatPod.emojiCovers]).
   List<GlobalKey> get emojiSeats;
 
   /// What the felt paints over every seat and the screen stands over the
-  /// felt, in the felt's coordinates: the viewer's hand as it stands and the
-  /// corner controls. [rectOf] measures a key's box there, wherever in the
-  /// screen it is; null when it is not laid out.
+  /// felt, in the felt's coordinates: the viewer's hand where it comes to
+  /// rest (a hand whose lift is gliding is reckoned where the glide ends,
+  /// not where this frame has it) and the corner controls. [rectOf] measures
+  /// a key's box there, wherever in the screen it is; null when it is not
+  /// laid out.
   Iterable<Rect> emojiCoversOver(Rect? Function(GlobalKey key) rectOf);
 
   /// Where the viewer's hand may stand, not only where it stands now — from
@@ -270,8 +273,10 @@ mixin EmojiPlacement<T extends StatefulWidget> on State<T> {
         at: line.at,
       ));
     }
-    int byTime(({String id, int view, int at}) a, ({String id, int view, int at}) b) =>
-        a.at != b.at ? a.at.compareTo(b.at) : a.view.compareTo(b.view);
+    int byTime(
+      ({String id, int view, int at}) a,
+      ({String id, int view, int at}) b,
+    ) => a.at != b.at ? a.at.compareTo(b.at) : a.view.compareTo(b.view);
     settled.sort(byTime);
     fresh.sort(byTime);
 
@@ -284,8 +289,17 @@ mixin EmojiPlacement<T extends StatefulWidget> on State<T> {
     bool offPods(Rect r, int view, Map<int, Rect> of) => !of.entries.any(
       (e) => e.key != view && e.value.deflate(2).overlaps(r.deflate(2)),
     );
-    bool under(Rect r, Iterable<Rect> over) =>
-        over.any((c) => c.overlaps(r.deflate(1)));
+    // Whether anything of [over] lies more than [slack] inside [r]'s edge.
+    // What stands over a seat as a place is chosen is held to 1dp. What may
+    // only come later while the emoji plays — a turn's ring round a pod, a
+    // winner's rule, a status line, a hand come to rest — is let reach 2dp
+    // into the bubble's edge, as it is where an emoji already playing is
+    // kept: a bubble's corners and a pod's are rounded, so nothing is drawn
+    // over anything there. (At 592x360 x1.25 on a seen table, in the app's
+    // own face, the viewer's turn ring would reach 1.1dp into the corner of
+    // Ravi's own place, and a lone emoji of his played on his pod.)
+    bool under(Rect r, Iterable<Rect> over, {double slack = 1}) =>
+        over.any((c) => c.overlaps(r.deflate(slack)));
 
     // The rim in view order, then the viewer's: a seat drawn later than
     // [view]'s has a greater rank.
@@ -340,7 +354,7 @@ mixin EmojiPlacement<T extends StatefulWidget> on State<T> {
       if (onFelt(at) &&
           meetsNone(at) &&
           offPods(at, e.view, pods) &&
-          !under(at, paintedOver(e.view, seatNow))) {
+          !under(at, paintedOver(e.view, seatNow), slack: 2)) {
         placed.add(at);
       } else {
         unpinned.add(e);
@@ -358,7 +372,10 @@ mixin EmojiPlacement<T extends StatefulWidget> on State<T> {
       }
       final bubble = SeatPod.emojiBubbleSize(widget.width);
       final own = widget.emojiHome(seat: seat, pod: pod, bubble: bubble);
-      final covers = paintedOver(f.view, seatReach, speaking: true);
+      // What is over the seat now, and what may come over it while this
+      // emoji plays.
+      final coversNow = paintedOver(f.view, seatNow, speaking: true);
+      final coversLater = paintedOver(f.view, seatReach);
       // Every other seat's own place, where its emojis can play.
       final homes = [
         for (final view in pods.keys)
@@ -371,7 +388,8 @@ mixin EmojiPlacement<T extends StatefulWidget> on State<T> {
           onFelt(r) &&
           meetsNone(r) &&
           offPods(r, f.view, podReach) &&
-          !under(r, covers);
+          !under(r, coversNow) &&
+          !under(r, coversLater, slack: 2);
       bool movable(Rect r) =>
           fits(r) &&
           !(zone != null && zone.overlaps(r.deflate(1))) &&
@@ -422,7 +440,11 @@ mixin EmojiPlacement<T extends StatefulWidget> on State<T> {
           ? (EmojiPlace.column, own)
           : moved.where((o) => movable(o.$2)).firstOrNull ??
                 (EmojiPlace.pod, SeatPod.emojiOnPod(pod));
-      next[f.id] = EmojiPin(place, at.topLeft - widget.emojiAnchor(seat), at.size);
+      next[f.id] = EmojiPin(
+        place,
+        at.topLeft - widget.emojiAnchor(seat),
+        at.size,
+      );
       placed.add(at);
     }
 

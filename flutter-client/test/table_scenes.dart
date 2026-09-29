@@ -1270,31 +1270,32 @@ RoomState youWonRoom({int handNo = 7}) {
 }
 
 /// The show that [youWonRoom] ends with: the viewer's trail over Meera's
-/// high card.
-void youWonShowdown(GameState s) => s.handleShowdown((
-  reveals: [
-    Reveal.fromJson({
-      'userId': 'u0',
-      'displayName': 'Priya',
-      'cards': ['Ah', 'Ad', 'Ac'],
-      'handName': 'Trail',
-      'won': true,
-    }),
-    Reveal.fromJson({
-      'userId': 'u2',
-      'displayName': 'Meera',
-      'cards': ['9h', '8h', '2c'],
-      'handName': 'High Card',
-      'won': false,
-    }),
-  ],
-  result: 'show',
-  winnerId: 'u0',
-  winnerName: 'Priya',
-  pot: 14200,
-  nextHandAt: _now + 60000,
-  reason: 'show',
-));
+/// high card — or, named [handName], whatever the viewer's hand is called.
+void youWonShowdown(GameState s, {String handName = 'Trail'}) =>
+    s.handleShowdown((
+      reveals: [
+        Reveal.fromJson({
+          'userId': 'u0',
+          'displayName': 'Priya',
+          'cards': ['Ah', 'Ad', 'Ac'],
+          'handName': handName,
+          'won': true,
+        }),
+        Reveal.fromJson({
+          'userId': 'u2',
+          'displayName': 'Meera',
+          'cards': ['9h', '8h', '2c'],
+          'handName': 'High Card',
+          'won': false,
+        }),
+      ],
+      result: 'show',
+      winnerId: 'u0',
+      winnerName: 'Priya',
+      pot: 14200,
+      nextHandAt: _now + 60000,
+      reason: 'show',
+    ));
 
 /// [pokerRoom] on a new street: the turn card dealt and nobody's bet on it
 /// yet, so every seat's street bet has gone from its badge.

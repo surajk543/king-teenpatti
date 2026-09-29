@@ -194,9 +194,7 @@ void main() {
         }
         final state = await _mount(
           tester,
-          tableScenes.firstWhere(
-            (s) => s.name.startsWith('01-opponent-turn'),
-          ),
+          tableScenes.firstWhere((s) => s.name.startsWith('01-opponent-turn')),
           size: const Size(592, 360),
           textScale: scale,
           lang: lang,
