@@ -105,6 +105,11 @@ type PlayerLevel struct {
 	Level int    `json:"level"`
 	Title string `json:"title"`
 	Icon  string `json:"icon"`
+	// AssetURL and AssetFormat are the level's art (player_levels.asset_url —
+	// the owner's Lottie, 29 Sep 2026), which the app draws in the emoji's
+	// place; ABSENT on a level with none yet.
+	AssetURL    string `json:"assetUrl,omitempty"`
+	AssetFormat string `json:"assetFormat,omitempty"`
 	// XP is the player's lifetime XP (player_xp.xp; 0 with no row). It is only
 	// ever added to.
 	XP int64 `json:"xp"`
@@ -165,6 +170,9 @@ type NextLevel struct {
 	Icon   string `json:"icon"`
 	MinXP  int64  `json:"minXp"`
 	TaxBps int    `json:"taxBps"`
+	// AssetURL and AssetFormat are the level's art, as PlayerLevel's.
+	AssetURL    string `json:"assetUrl,omitempty"`
+	AssetFormat string `json:"assetFormat,omitempty"`
 }
 
 // XPToday is PlayerLevel.Today, sent only where an owner has set a daily cap:
@@ -217,6 +225,15 @@ type Standing struct {
 	TaxBps int `json:"taxBps"`
 }
 
+// SeatLevel is the standing's level as a table shows it on the player's pod
+// (game.SeatLevel: the number and the art); nil for a ladder with no level.
+func (s Standing) SeatLevel() *game.SeatLevel {
+	if s.PlayerLevel.Level <= 0 {
+		return nil
+	}
+	return &game.SeatLevel{Level: s.PlayerLevel.Level, AssetURL: s.PlayerLevel.AssetURL, AssetFormat: s.PlayerLevel.AssetFormat}
+}
+
 // playerLevelJoins are the joins that resolve the standing of the player a
 // query reads as `u` (users) at the instant %[1]d (epoch ms, baked in with
 // fmt.Sprintf — every query that uses them is formatted, and they hold no
@@ -242,14 +259,14 @@ type Standing struct {
 const playerLevelJoins = `
   LEFT JOIN player_xp px ON px.user_id = u.id
   LEFT JOIN LATERAL (
-       SELECT pl.level, pl.title, pl.icon, pl.tax_bps
+       SELECT pl.level, pl.title, pl.icon, pl.tax_bps, pl.asset_url, pl.asset_format
          FROM player_levels pl
         ORDER BY (pl.min_xp <= COALESCE(px.xp, 0)) DESC,
                  CASE WHEN pl.min_xp <= COALESCE(px.xp, 0) THEN pl.level END DESC NULLS LAST,
                  pl.level
         LIMIT 1) lv ON TRUE
   LEFT JOIN LATERAL (
-       SELECT pl.level, pl.title, pl.icon, pl.min_xp, pl.tax_bps
+       SELECT pl.level, pl.title, pl.icon, pl.min_xp, pl.tax_bps, pl.asset_url, pl.asset_format
          FROM player_levels pl
         WHERE pl.level > lv.level
         ORDER BY pl.level
@@ -281,8 +298,8 @@ const playerLevelJoins = `
 
 // playerLevelColumns are what playerLevelJoins resolve, in levelRow's order.
 const playerLevelColumns = `COALESCE(px.xp, 0), COALESCE(px.window_start, 0), COALESCE(px.window_xp, 0),
-       lv.level, lv.title, lv.icon, lv.tax_bps,
-       nx.level, nx.title, nx.icon, nx.min_xp, nx.tax_bps,
+       lv.level, lv.title, lv.icon, lv.tax_bps, COALESCE(lv.asset_url, ''), COALESCE(lv.asset_format, ''),
+       nx.level, nx.title, nx.icon, nx.min_xp, nx.tax_bps, COALESCE(nx.asset_url, ''), COALESCE(nx.asset_format, ''),
        xs.daily_cap, COALESCE(xs.window_ms, 0),
        bd.tax_bps, COALESCE(bd.list, '[]'::json), COALESCE(dc.claimed, '{}'::json),
        COALESCE(om.list, '[]'::json)`
@@ -294,11 +311,14 @@ type levelRow struct {
 	level           *int
 	title, icon     *string
 	taxBps          *int
+	art, artFormat  string // the level's art ('' for none)
 	nextLevel       *int
 	nextTitle       *string
 	nextIcon        *string
 	nextMinXP       *int64
 	nextTaxBps      *int
+	nextArt         string
+	nextArtFormat   string
 	dailyCap        *int // nil: no daily cap
 	windowMs        int64
 	badgeTaxBps     *int
@@ -310,8 +330,8 @@ type levelRow struct {
 // targets are levelRow's Scan destinations, in playerLevelColumns' order.
 func (r *levelRow) targets() []any {
 	return []any{&r.xp, &r.windowStart, &r.windowXP,
-		&r.level, &r.title, &r.icon, &r.taxBps,
-		&r.nextLevel, &r.nextTitle, &r.nextIcon, &r.nextMinXP, &r.nextTaxBps,
+		&r.level, &r.title, &r.icon, &r.taxBps, &r.art, &r.artFormat,
+		&r.nextLevel, &r.nextTitle, &r.nextIcon, &r.nextMinXP, &r.nextTaxBps, &r.nextArt, &r.nextArtFormat,
 		&r.dailyCap, &r.windowMs,
 		&r.badgeTaxBps, &r.badges, &r.claimed, &r.missions}
 }
@@ -364,8 +384,9 @@ func (r levelRow) playerLevel(nowMs int64) PlayerLevel {
 	if r.taxBps != nil {
 		p.TaxBps = *r.taxBps
 	}
+	p.AssetURL, p.AssetFormat = r.art, r.artFormat
 	if r.nextLevel != nil && r.nextMinXP != nil {
-		next := &NextLevel{Level: *r.nextLevel, MinXP: *r.nextMinXP}
+		next := &NextLevel{Level: *r.nextLevel, MinXP: *r.nextMinXP, AssetURL: r.nextArt, AssetFormat: r.nextArtFormat}
 		if r.nextTitle != nil {
 			next.Title = *r.nextTitle
 		}
@@ -993,6 +1014,10 @@ type LadderLevel struct {
 	Icon   string `json:"icon"`
 	MinXP  int64  `json:"minXp"`
 	TaxBps int    `json:"taxBps"`
+	// AssetURL and AssetFormat are the level's art (player_levels.asset_url,
+	// the owner's Lottie); ABSENT on a level with none yet.
+	AssetURL    string `json:"assetUrl,omitempty"`
+	AssetFormat string `json:"assetFormat,omitempty"`
 }
 
 // LadderBadge is one badge of LevelLadder: its code, title and icon, the rate
@@ -1051,13 +1076,14 @@ type LadderSource struct {
 func (x *XP) Ladder(ctx context.Context) (LevelLadder, error) {
 	out := LevelLadder{Levels: []LadderLevel{}, Badges: []LadderBadge{}, XPSources: []LadderSource{}, Missions: []LadderSource{}}
 	rows, err := x.db.Pool.Query(ctx,
-		`SELECT level, title, icon, min_xp, tax_bps FROM player_levels ORDER BY level`)
+		`SELECT level, title, icon, min_xp, tax_bps, COALESCE(asset_url, ''), COALESCE(asset_format, '')
+		   FROM player_levels ORDER BY level`)
 	if err != nil {
 		return LevelLadder{}, fmt.Errorf("read player_levels: %w", err)
 	}
 	for rows.Next() {
 		var l LadderLevel
-		if err := rows.Scan(&l.Level, &l.Title, &l.Icon, &l.MinXP, &l.TaxBps); err != nil {
+		if err := rows.Scan(&l.Level, &l.Title, &l.Icon, &l.MinXP, &l.TaxBps, &l.AssetURL, &l.AssetFormat); err != nil {
 			rows.Close()
 			return LevelLadder{}, fmt.Errorf("read player_levels: %w", err)
 		}

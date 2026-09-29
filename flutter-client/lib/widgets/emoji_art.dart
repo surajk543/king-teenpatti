@@ -34,6 +34,7 @@ class EmojiArt extends StatefulWidget {
     this.animate = true,
     this.semanticLabel,
     this.fit = BoxFit.contain,
+    this.standIn = true,
   });
 
   /// Absolute — the caller has made a server-relative path loadable
@@ -52,6 +53,11 @@ class EmojiArt extends StatefulWidget {
   /// How the canvas meets the square: whole (an emoji), or cropped to it —
   /// a badge whose 16:9 canvas holds its art in the middle (Royal Ace).
   final BoxFit fit;
+
+  /// Whether the quiet smiley stands in until the art is drawn. False leaves
+  /// the square empty meanwhile — a level's mark (LevelArt), where a smiley
+  /// would say something the level does not.
+  final bool standIn;
 
   @override
   State<EmojiArt> createState() => _EmojiArtState();
@@ -110,7 +116,9 @@ class _EmojiArtState extends State<EmojiArt> {
   Widget build(BuildContext context) {
     final size = widget.size;
     final bytes = _bytes;
-    final Widget stand = _StandIn(size: size);
+    final Widget stand = widget.standIn
+        ? _StandIn(size: size)
+        : const SizedBox.shrink();
     final Widget art = bytes == null
         ? stand
         : Lottie.memory(

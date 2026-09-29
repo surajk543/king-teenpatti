@@ -161,6 +161,21 @@ Map<String, Object?> missionAt(
 
 String badgeUrl(String code) => 'https://drive.test/badges/$code.json';
 
+/// The levels the owner has sent art for (29 Sep 2026: "Instead of using
+/// icons use lottie animations json for showing player Level"), as the
+/// server's seed has them: all 50. The fixtures give each a Lottie at
+/// [levelArtUrl] ([primeLevelArt] answers it). A level with no art — which a
+/// server can still send — is written by hand where a test needs one.
+const int levelsWithArt = 50;
+
+String levelArtUrl(int level) => 'https://drive.test/levels/$level.json';
+
+/// A level's art as the wire carries it: its URL and format, or nothing for
+/// a level with none yet.
+Map<String, Object?> levelArtJson(int level) => level <= levelsWithArt
+    ? {'assetUrl': levelArtUrl(level), 'assetFormat': 'LOTTIE'}
+    : const {};
+
 /// The whole ladder as `GET /api/levels` sends it; [levels] replaces the
 /// owner's titles (a long name). [withMissions] adds the one-time missions
 /// (a server of 28 Sep 2026 or later); without, it is a server from before
@@ -177,6 +192,7 @@ Map<String, Object?> ladderJson({
         'icon': icon,
         'minXp': minXp,
         'taxBps': taxBps,
+        ...levelArtJson(level),
       },
   ],
   'badges': [
@@ -263,6 +279,7 @@ Map<String, Object?> levelAt(
     'icon': icon,
     'xp': xp ?? minXp + into,
     'taxBps': taxBps,
+    ...levelArtJson(n),
     if (next != null)
       'next': {
         'level': next.$1,
@@ -270,6 +287,7 @@ Map<String, Object?> levelAt(
         'icon': next.$4,
         'minXp': next.$2,
         'taxBps': next.$5,
+        ...levelArtJson(next.$1),
       },
     if (resetsIn != null)
       'daily': {
@@ -381,7 +399,9 @@ final Uint8List standInLottie = Uint8List.fromList(
 );
 
 /// Every badge's Lottie answered from memory: [real] maps a code to the
-/// owner's own file where the pictures want it, else the stand-in.
+/// owner's own file where the pictures want it, else the stand-in. The
+/// levels' art too ([primeLevelArt]), which every screen that shows a badge
+/// shows beside it.
 void primeBadges([Map<String, Uint8List> real = const {}]) {
   for (final code in [
     'REGULAR',
@@ -389,6 +409,15 @@ void primeBadges([Map<String, Uint8List> real = const {}]) {
     'ROYAL_SUPREME_LONG',
   ]) {
     PictureCache.prime(badgeUrl(code), real[code] ?? standInLottie);
+  }
+  primeLevelArt();
+}
+
+/// Every level's art answered from memory: [real] maps a level to the
+/// owner's own file where the pictures want it, else the stand-in.
+void primeLevelArt([Map<int, Uint8List> real = const {}]) {
+  for (var level = 1; level <= levelsWithArt; level++) {
+    PictureCache.prime(levelArtUrl(level), real[level] ?? standInLottie);
   }
 }
 

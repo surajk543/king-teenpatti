@@ -981,6 +981,102 @@ VALUES
   (50, 2000000, 'King of Kings',    '👑👑',  600)
     ON CONFLICT (level) DO NOTHING;
 
+-- Each level's ART (owner, 29 Sep 2026: "Instead of using icons use lottie
+-- animations json for showing player Level … if there is no url, you show
+-- empty icon … meanwhile i will provide u other urls for level"): the owner's
+-- Lotties, as each arrives. A level missing here keeps asset_url NULL and the
+-- app shows an empty mark in its place.
+--
+-- Filled only where asset_url IS NULL, so it reaches a database whose ladder
+-- was seeded before the art existed (production's) and every URL added to
+-- this list later reaches every database at its next boot — while an owner's
+-- own URL, or '' for a level deliberately shown with none, is never touched.
+--
+-- Every level but Level 1 is the owner's Drive upload as given, each checked
+-- for what a phone cannot play (CLAUDE.md §12.3): no 3D, no image or font
+-- fetched from elsewhere (Player's three WebP images and Expert's six glyphs
+-- are in their files), and no expression a phone would miss — Contender's
+-- three inertial-bounce expressions only overshoot scale keyframes that
+-- play, as Sporty Avocado's "Kleaner" ones do.
+-- Level 1's upload (350x350, 4 s) swings its leaves with two
+-- loopOut('pingpong') expressions over frames 0–20 of 101, which the phones'
+-- player does not run (CLAUDE.md §12.3): they would sway for 0.8 s and hold
+-- still for the other 3.2 s of every loop. So Level 1 is served from this
+-- server as the copy tools/lottie/bake_loop_expressions.py wrote, the loop
+-- written out as keyframes (public/levels/, served in production like
+-- profiles/); its "Kleaner" overshoot, which no phone runs either, is left as
+-- it is.
+UPDATE player_levels AS l
+   SET asset_url    = v.url,
+       asset_format = 'LOTTIE',
+       updated_at   = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+  FROM (VALUES
+         (1, '/levels/newbie.json'),
+         (2, 'https://drive.google.com/uc?export=download&id=1X5ONeIYMh2Q6348MsQGU9YO1Ut9j0RjR'),
+         (3, 'https://drive.google.com/uc?export=download&id=1046FnHvyBeXHRzuQAyflU-Z994XLMuZG'),
+         (4, 'https://drive.google.com/uc?export=download&id=1UteuLgAVMFKBXSDGtMs_7LCJKixrZhP8'),
+         (5, 'https://drive.google.com/uc?export=download&id=1o0Ch-l1nosmMomDocrKO061DnCAIOOcR'),
+         (6, 'https://drive.google.com/uc?export=download&id=1JBH14iM0z78skBTliTzYlU1aHl3-c6S2'),
+         (7, 'https://drive.google.com/uc?export=download&id=16LUCeHS--xT7pWcup9xWLOzI7slpIDba'),
+         (8, 'https://drive.google.com/uc?export=download&id=1DVOEYt6eBhpjhfYqNI-0XTzAXmWsDg7c'),
+         (9, 'https://drive.google.com/uc?export=download&id=1-oNEE7AIBgDltplByb_hUT4TjyNU4TQ8'),
+         (10, 'https://drive.google.com/uc?export=download&id=11E2kIWN-I3d1Df_ZiikOlbfJVR8bCkkd'),
+         (11, 'https://drive.google.com/uc?export=download&id=1uPdZgu0zaHe3Cxev7RxRFe5bdDFJ9uax'),
+         (12, 'https://drive.google.com/uc?export=download&id=1v7t6TppF5xMO1tHiZaUiM0Vk_hWDtpru'),
+         (13, 'https://drive.google.com/uc?export=download&id=1p-DiB6Ywhwg9nu1o22MoObJU4dp5pQa2'),
+         (14, 'https://drive.google.com/uc?export=download&id=12TiIf1ghpANIC9CTpHN7-DPgSjqCekN7'),
+         (15, 'https://drive.google.com/uc?export=download&id=1KbguHCl0hnDNPiD5mC4WBUqfjoNqrXHO'),
+         (16, 'https://drive.google.com/uc?export=download&id=1St9AZX05qFedF40zf0rZhQ6ATFTkCytQ'),
+         (17, 'https://drive.google.com/uc?export=download&id=1ec87R_lGM3EZHXAVIhjt0eYDslLzKk95'),
+         (18, 'https://drive.google.com/uc?export=download&id=1fq3eVEu739XZBBN5Jkt_m4TLc_P5zIUK'),
+         (19, 'https://drive.google.com/uc?export=download&id=1_agD2lEmfPN-sQcgm853aqwG9ujd0R2K'),
+         (20, '/levels/high-roller.json'),
+         (21, 'https://drive.google.com/uc?export=download&id=1UNCYMfWQ1FNKW_4skDQefTTPvP7lr_ja'),
+         (22, '/levels/royal-ace.json'),
+         (23, 'https://drive.google.com/uc?export=download&id=1SkpRRudplWyT7IKEpOAucp0UPrrQG9iZ'),
+         (24, 'https://drive.google.com/uc?export=download&id=1tStW2xVARGhsutKETNaJna5gj4opBSAv'),
+         (25, '/levels/supreme-ace.json'),
+         (26, 'https://drive.google.com/uc?export=download&id=1_aeUxyPcY8y8vjS5XCGle2GVJ58H1W_S'),
+         (27, 'https://drive.google.com/uc?export=download&id=1JJf7FXDtLbABcU6QV4dDC3AjTaB42d9G'),
+         (28, 'https://drive.google.com/uc?export=download&id=1waubm1JDH69aO-Wi_SJ2NPU2LuhAmLul'),
+         (29, 'https://drive.google.com/uc?export=download&id=1IQv0oHWum_kyAvvuNLhvV6UsiEdf7u8S'),
+         (30, 'https://drive.google.com/uc?export=download&id=1NVhpS0i9DiahWamLqOsqlCPh9FpJEgqZ'),
+         (31, 'https://drive.google.com/uc?export=download&id=1t5mpo6BYOrECuoRAsPTgAmwTJEGSwH9Z'),
+         (32, '/levels/royal-titan.json'),
+         (33, 'https://drive.google.com/uc?export=download&id=1wLDxV_GkYrhpyLDDSP9cC7zUi4Hh9Cnz'),
+         (34, 'https://drive.google.com/uc?export=download&id=1J0cl9aGb3Gvhgbov49FCyPjtuo7W96az'),
+         (35, 'https://drive.google.com/uc?export=download&id=1gvFRTrz1C_faOiIZUoe8y8adVdCyXM57'),
+         (36, 'https://drive.google.com/uc?export=download&id=1SqX6So-jtLzeOpoqdXzdIGJgquZXZiJk'),
+         (37, 'https://drive.google.com/uc?export=download&id=1Ngplvi2rKX0rjFxzXOR4ODx9L38UQDHE'),
+         (38, 'https://drive.google.com/uc?export=download&id=1AoW8XeczJTYOC3Q0H8DjCXVwbudMoGcP'),
+         (39, 'https://drive.google.com/uc?export=download&id=1jaEC17ASGxNDJAyyulBVhO0NBVmI_iAa'),
+         (40, 'https://drive.google.com/uc?export=download&id=15go9POUg8_3nsjz6xPHmZqxzYxnMNcu7'),
+         (41, '/levels/overlord.json'),
+         (42, 'https://drive.google.com/uc?export=download&id=1eZF7faadc4hjZ-lUxGMggz99gT03tGEM'),
+         (43, 'https://drive.google.com/uc?export=download&id=1W6PhSsxNDQbxLwWiFHhOfc0INgw-exov'),
+         (44, 'https://drive.google.com/uc?export=download&id=1kF5cZ7xd6k6QEklwo0BGee6NteAdvXBM'),
+         (45, 'https://drive.google.com/uc?export=download&id=1Mt08RZaAuazPJORoXaWkBBvdpOzGX1qU'),
+         (46, 'https://drive.google.com/uc?export=download&id=1vN8VIjlRK6NOKTlQ_7YBZIQMDGelamjM'),
+         (47, 'https://drive.google.com/uc?export=download&id=1xcnpkXAsum0i6DwbrK5AhAC4qbXB9adX'),
+         (48, 'https://drive.google.com/uc?export=download&id=1W33Jv1LFLAvh_0wmKOWh9ktpUK5aFzQX'),
+         (49, 'https://drive.google.com/uc?export=download&id=11X5XK7q6HExMJZ-zUPoxZW9vYFDD5B3r'),
+         (50, 'https://drive.google.com/uc?export=download&id=1IyDWBxn-9lcQeZVkTQQY1gzE3zTBuZdA')
+       ) AS v (level, url)
+ WHERE l.level = v.level
+   AND l.asset_url IS NULL;
+
+-- A level whose first art was replaced (the fill above never touches a URL
+-- already there): Level 20's first upload was 4.1 MB of embedded images, and
+-- the owner sent a 43 KB one the same evening (29 Sep 2026). Moves exactly the
+-- old URL onto the new file, so an owner's own URL is never touched and a
+-- database seeded afresh finds nothing to do.
+UPDATE player_levels
+   SET asset_url    = '/levels/high-roller.json',
+       asset_format = 'LOTTIE',
+       updated_at   = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+ WHERE level = 20
+   AND asset_url = 'https://drive.google.com/uc?export=download&id=1ABHkYZ0N3O_BDBI1UpBfoVvWilXPTnxf';
+
 -- The badges (owner, 27 Sep 2026: "Vip is not a level, it is badge, User can
 -- hold multiple badges"; then "add validity column in badges so that when it
 -- expires, player will not get tax benefit"). REGULAR is every player's by default, with no

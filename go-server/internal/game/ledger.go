@@ -284,6 +284,11 @@ type SettleResult struct {
 	// keeps no levels. A Teen Patti table adopts it onto their seats, for the
 	// hands they are dealt after (Table.adoptTaxRates).
 	TaxBps map[string]int
+	// Levels is userId → the player's level AFTER the XP this settle awarded
+	// (SeatLevel: its number and art), read with TaxBps; nil from a ledger
+	// that keeps no levels. A Teen Patti table puts it on their pods
+	// (Table.adoptLevels), so a level up shows at the hand that earned it.
+	Levels map[string]SeatLevel
 }
 
 // PackedActionID is the chip_ledger.action_id of a pack checkpoint:
@@ -356,6 +361,10 @@ type MemoryLedgerHooks struct {
 	// entries, AFTER the per-entry Checkpoint calls, and returns the
 	// post-hand balances. Nil → Settle returns an empty map.
 	Settle func(req SettleRequest, entries []SettleEntry) (map[string]int64, error)
+	// Levels, if set, is called after a Settle that succeeded and supplies
+	// SettleResult.Levels — the players' levels now. Nil → no levels, and
+	// every seat keeps the one it shows.
+	Levels func(req SettleRequest) map[string]SeatLevel
 	// TaxBps, if set, is called after a Settle that succeeded and supplies
 	// SettleResult.TaxBps — the rates the players' levels carry now. Nil →
 	// no rates, and every seat keeps the one it has.
@@ -408,6 +417,9 @@ func (m *MemoryLedger) Settle(ctx context.Context, req SettleRequest) (SettleRes
 		if balances != nil {
 			result.Balances = balances
 		}
+	}
+	if m.Hooks.Levels != nil {
+		result.Levels = m.Hooks.Levels(req)
 	}
 	if m.Hooks.TaxBps != nil {
 		result.TaxBps = m.Hooks.TaxBps(req)

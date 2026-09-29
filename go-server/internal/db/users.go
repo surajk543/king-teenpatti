@@ -201,7 +201,7 @@ func (l *LaidTablePicture) ForTable(userID string) *game.TablePicture {
 // Standing.TaxBps), which their seat captures when they sit down.
 func (u *User) Player() game.Player {
 	return game.Player{ID: u.ID, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, TablePicture: u.TablePicture.ForTable(u.ID), Chips: u.Chips,
-		TaxBps: u.TaxBps}
+		TaxBps: u.TaxBps, Level: u.SeatLevel()}
 }
 
 // Profile is a verified login identity (auth providers → UpsertFromProfile).

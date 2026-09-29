@@ -527,7 +527,20 @@ class GameState extends ChangeNotifier {
     notifyListeners();
     try {
       final ladder = await _api.levels();
-      if (ladder != null) levelLadder = ladder;
+      if (ladder != null) {
+        levelLadder = ladder;
+        // Every level's art onto the phone now, not when each level is first
+        // seen (29 Sep 2026: "Make sure you cache the all level icons in
+        // phone"): fetched once per phone, ever, and read from its disk after.
+        unawaited(
+          PictureCache.keep(
+            [
+              for (final level in ladder.levels)
+                if (level.hasArt) absoluteUrl(level.assetUrl),
+            ].nonNulls,
+          ),
+        );
+      }
       levelLadderFailed = levelLadder == null;
     } catch (_) {
       levelLadderFailed = levelLadder == null;
@@ -1935,10 +1948,9 @@ class GameState extends ChangeNotifier {
     }
     final barSaysLevelUp = missions.any((m) => m.levelUp != null);
     if (!barSaysLevelUp && before != null && level.level > before.level) {
-      final name = [
-        if (level.icon.isNotEmpty) level.icon,
-        t.levelName(level.level, level.title),
-      ].join(' ');
+      // Words only: a level's mark is its art, which a toast has no place
+      // for (29 Sep 2026).
+      final name = t.levelName(level.level, level.title);
       notice = taxNow != null
           ? t.levelUp(name, formatTaxRate(taxNow))
           : t.levelUpOnly(name);

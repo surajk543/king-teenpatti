@@ -291,6 +291,65 @@ class PictureCache {
     }
   }
 
+  /// Fetches every one of [urls] that is not on the phone yet onto its disk,
+  /// one after another, WITHOUT holding it in memory: for a set the app shows
+  /// a few of at a time but should never fetch twice — every level's art
+  /// (owner, 29 Sep 2026: "Make sure you cache the all level icons in
+  /// phone"), fifty files, which [warm] would push through the
+  /// [_memoryLimit] entries the faces on screen live in.
+  ///
+  /// A URL in memory, being fetched, or already on disk is left alone, so
+  /// after the first run this costs a directory lookup per URL and no
+  /// network. One at a time, so a first sign-in's downloads never crowd the
+  /// ones a screen is waiting on; a widget asking for a URL while it is being
+  /// kept joins that fetch ([load]). A failure is silent and the file is not
+  /// written: the next call — or the icon being shown — tries again. With no
+  /// disk (a unit test with no platform channel) it does nothing.
+  static Future<void> keep(Iterable<String> urls) async {
+    final dir = await _directory();
+    if (dir == null) return;
+    for (final url in urls.toSet()) {
+      if (url.isEmpty ||
+          _memory.containsKey(url) ||
+          _inFlight.containsKey(url)) {
+        continue;
+      }
+      final file = File('${dir.path}/${_key(url)}');
+      try {
+        if (file.existsSync() && file.lengthSync() > 0) continue;
+      } on FileSystemException {
+        continue;
+      }
+      final fetch = _keep(url, file).whenComplete(() {
+        _inFlight.remove(url);
+      });
+      _inFlight[url] = fetch;
+      await fetch;
+    }
+  }
+
+  /// [url] fetched and written to [file], not to memory.
+  static Future<Uint8List?> _keep(String url, File file) async {
+    final fetched = await _download(url);
+    if (fetched == null) return null;
+    try {
+      final tmp = File('${file.path}.part');
+      await tmp.writeAsBytes(fetched, flush: true);
+      await tmp.rename(file.path);
+    } on FileSystemException {
+      // Out of space: the icon is fetched again when it is shown.
+    }
+    return fetched;
+  }
+
+  /// Points the disk layer at [dir] (null: none), for tests that exercise it
+  /// without the platform channel.
+  @visibleForTesting
+  static void debugUseDirectory(Directory? dir) {
+    _dir = dir;
+    _dirOpening = dir == null ? Future<Directory?>.value(null) : null;
+  }
+
   /// Forgets everything held in memory. The files stay: this is for tests and
   /// for a sign-out, neither of which should cost the next player a re-fetch.
   static void clearMemory() {

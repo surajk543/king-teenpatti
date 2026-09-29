@@ -32,6 +32,9 @@ type Player struct {
 	// (NewPlayer.TaxBps), which pays it on a win at a table that taxes its
 	// winners.
 	TaxBps int
+	// Level is the player's level and its art (SeatLevel), shown on their pod
+	// to everybody at the table; nil where not known.
+	Level *SeatLevel
 }
 
 // LobbyOptions is RoomManager.lobbyOptions(): the menu the client renders
@@ -1772,6 +1775,7 @@ func (rm *RoomManager) seatHeld(table Room, user Player, socketID string) error 
 		Chips:        user.Chips,
 		SocketID:     socketID,
 		TaxBps:       user.TaxBps,
+		Level:        user.Level,
 	})
 
 	rm.mu.Lock()
@@ -2427,8 +2431,9 @@ func (rm *RoomManager) movePlayer(source, target Room, admit func(chips int64) b
 		TablePicture: seat.TablePicture,
 		Chips:        seat.Chips,
 		// The seat's rate moves with it, as its chips do: a consolidation
-		// move is not a sit-down that reads the account.
+		// move is not a sit-down that reads the account. So does its level.
 		TaxBps: seat.TaxBps,
+		Level:  seat.Level,
 	}
 	socketID := seat.SocketID
 	fromRoomID := source.ID()

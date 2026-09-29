@@ -11,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
 import 'avatar.dart';
 import 'glass_components.dart';
+import 'level_art.dart';
 import 'player_profile.dart' show EvenGrid, HandIcon, countText;
 import 'premium_surface.dart';
 import 'table_tax.dart' show badgeTitleOf, levelLineOf, levelStrut, xpTodayOf;
@@ -351,13 +352,35 @@ class PlayerStatsHeader extends StatelessWidget {
                 ),
                 if (lvl != null || badges.isNotEmpty) ...[
                   const SizedBox(height: Space.xxs),
-                  _LevelAndBadges(
-                    level: lvl == null ? null : levelLineOf(t, lvl),
-                    badges: badges.isEmpty
-                        ? null
-                        : badges.map(badgeTitleOf).join(' · '),
-                    levelStyle: levelStyle,
-                    badgeStyle: quiet,
+                  // The level's art before its line (the owner's Lottie,
+                  // 29 Sep 2026 — the emoji it replaced was in the words),
+                  // and the line and the badges measured in what is left.
+                  Row(
+                    children: [
+                      if (lvl != null && lvl.hasArt) ...[
+                        LevelArt.of(
+                          lvl,
+                          key: const ValueKey('stats-level-art'),
+                          size:
+                              MediaQuery.textScalerOf(context).scale(
+                                (levelStyle.fontSize ?? 12.5) *
+                                    (levelStyle.height ?? 1.3),
+                              ) *
+                              1.3,
+                        ),
+                        const SizedBox(width: Space.xxs),
+                      ],
+                      Expanded(
+                        child: _LevelAndBadges(
+                          level: lvl == null ? null : levelLineOf(t, lvl),
+                          badges: badges.isEmpty
+                              ? null
+                              : badges.map(badgeTitleOf).join(' · '),
+                          levelStyle: levelStyle,
+                          badgeStyle: quiet,
+                        ),
+                      ),
+                    ],
                   ),
                   if (lvl?.today case final today?)
                     _XpTodayLine(today: today, style: quiet),
@@ -372,10 +395,11 @@ class PlayerStatsHeader extends StatelessWidget {
   }
 }
 
-/// The level line and the badges held: on ONE line — "Level 1 · 🌱 Newbie ·
-/// 23 XP · Regular", the badges in the quieter ink — wherever both fit at
-/// their size, so the head stays the name over one line (the owner's brief:
-/// the name over "Level 1 · 🌱 Newbie · 23 XP"), and where they do not, the
+/// The level line and the badges held: on ONE line — "Level 1 · Newbie ·
+/// 23 XP · Regular", the badges in the quieter ink, the level's art before
+/// it all — wherever both fit at their size, so the head stays the name over
+/// one line (the owner's brief: the name over "Level 1 · 🌱 Newbie · 23 XP"),
+/// and where they do not, the
 /// level line ([_FitLine]) over the badges on a line of their own rather than
 /// either one cut or set small.
 class _LevelAndBadges extends StatelessWidget {

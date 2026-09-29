@@ -229,6 +229,34 @@ class FriendsState extends ChangeNotifier {
   /// What the last move from the drawer was refused with, to say in it.
   String? seatNote;
 
+  /// The last profile read for each player whose drawer has been opened
+  /// (owner, 29 Sep 2026: "if i close that pod, open again it should show
+  /// previous fetched record and meanwhile it will async api to fetch latest
+  /// record"): a drawer opened again shows it at once while the profile is
+  /// read again, takes the fresh one when it lands, and keeps it when the
+  /// read fails. Kept current by every change to what a player is to the
+  /// viewer (a request, an accept, a removal), so a reopened drawer never
+  /// offers a move from before it; forgotten at sign-out ([reset]); at most
+  /// [seatCacheSize] players, the longest unopened going first.
+  final Map<String, PublicProfile> _seatCache = {};
+
+  /// How many players' profiles [_seatCache] keeps: a table's worth many
+  /// times over.
+  static const int seatCacheSize = 64;
+
+  /// The profile [userId]'s drawer showed last, or null.
+  PublicProfile? cachedSeatProfile(String userId) => _seatCache[userId];
+
+  /// [profile] kept as [_seatCache]'s newest.
+  void _cacheSeat(PublicProfile profile) {
+    _seatCache
+      ..remove(profile.userId)
+      ..[profile.userId] = profile;
+    while (_seatCache.length > seatCacheSize) {
+      _seatCache.remove(_seatCache.keys.first);
+    }
+  }
+
   // ------------------------------------------------------------ lifecycle
 
   Timer? _poll;
@@ -329,6 +357,7 @@ class FriendsState extends ChangeNotifier {
     clearSearch(notify: false);
     closeProfile(notify: false);
     closeSeat(notify: false);
+    _seatCache.clear();
     _notify();
   }
 
@@ -716,6 +745,7 @@ class FriendsState extends ChangeNotifier {
       }
       if (lookup?.player.userId == userId) lookupNote = code;
       if (profileFor == userId && profile != null) profileNote = code;
+      if (code == 'player_not_found') _seatCache.remove(userId);
       if (seatPlayer?.userId == userId) {
         if (code == 'player_not_found') {
           // Gone: there is no profile left to offer a move on.
@@ -863,11 +893,15 @@ class FriendsState extends ChangeNotifier {
   }
 
   /// A seat was tapped at a table: the player drawer opens on [who], drawn at
-  /// once as the seat has them, and their profile is read now. A second tap
-  /// on the same player keeps what is on show while it is read again.
+  /// once as the seat has them — with the profile read for them last time,
+  /// when there was one ([_seatCache]) — and their profile is read now. A
+  /// second tap on the same player keeps what is on show while it is read
+  /// again.
   Future<void> openSeat(PlayerCard who) {
     ownOpen = false;
-    if (seatPlayer?.userId != who.userId) seatProfile = null;
+    if (seatPlayer?.userId != who.userId) {
+      seatProfile = _seatCache[who.userId];
+    }
     seatPlayer = who;
     seatError = null;
     seatNote = null;
@@ -896,12 +930,18 @@ class FriendsState extends ChangeNotifier {
       final got = await _api.playerProfile(token, who.userId);
       if (seq != _seatSeq || _token() != token) return;
       seatProfile = got;
+      _cacheSeat(got);
     } catch (e) {
       if (seq != _seatSeq || _token() != token) return;
       final code = _codeOf(e);
       seatError = code;
-      // A player the server no longer knows has no profile left to show.
-      if (code == 'player_not_found') seatProfile = null;
+      // A player the server no longer knows has no profile left to show; any
+      // other failure leaves the profile last read on show (the drawer says
+      // nothing of it while it has one).
+      if (code == 'player_not_found') {
+        seatProfile = null;
+        _seatCache.remove(who.userId);
+      }
     } finally {
       if (seq == _seatSeq) {
         seatLoading = false;
@@ -1089,6 +1129,10 @@ class FriendsState extends ChangeNotifier {
         FriendStatus.isPending(seatProfile!.friendStatus)) {
       _restateSeat(seatProfile!.withStatus(FriendStatus.none));
     }
+    final cached = _seatCache[userId];
+    if (cached != null && FriendStatus.isPending(cached.friendStatus)) {
+      _seatCache[userId] = cached.withStatus(FriendStatus.none);
+    }
   }
 
   /// What [userId] now is to this player, on the search card, the profile
@@ -1112,6 +1156,13 @@ class FriendsState extends ChangeNotifier {
           presence: presenceOf(userId),
         ),
       );
+    } else if (_seatCache[userId] case final cached?) {
+      // Not on show: the copy a reopened drawer will show at once.
+      _seatCache[userId] = cached.withStatus(
+        status,
+        requestId: requestId,
+        presence: presenceOf(userId),
+      );
     }
   }
 
@@ -1122,6 +1173,7 @@ class FriendsState extends ChangeNotifier {
     _seatSeq++;
     seatLoading = false;
     seatProfile = now;
+    _cacheSeat(now);
   }
 
   /// An accept or a reject refused: said in the player's language, and where

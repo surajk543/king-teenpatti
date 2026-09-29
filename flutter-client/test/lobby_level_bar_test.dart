@@ -20,6 +20,7 @@ import 'package:teenpatti/net/picture_cache.dart';
 import 'package:teenpatti/screens/lobby_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
+import 'package:teenpatti/widgets/level_art.dart';
 import 'package:teenpatti/widgets/level_screen.dart';
 import 'package:teenpatti/widgets/lobby_level_bar.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
@@ -149,12 +150,25 @@ void main() {
       (49, 1850000, '18.5 Lakh / 20 Lakh XP', 0.625),
       (50, 2150000, 'MAX LEVEL', 1.0),
     ]) {
-      testWidgets('level $n: the mark, the number, "$figure" and a bar at '
+      testWidgets('level $n: the art, the number, "$figure" and a bar at '
           '$fraction', (tester) async {
         final state = _state(level: levelAt(n, xp: xp));
         await _pump(tester, state);
-        final (_, _, _, icon, _) = ownersLevels[n - 1];
-        expect(_text(tester, _tag), '$icon Lv $n');
+        // The level's art before the word where the owner has sent it (29
+        // Sep 2026), and never the emoji; the word alone where not yet.
+        expect(_text(tester, _tag), 'Lv $n');
+        final art = find.byKey(const ValueKey('lobby-level-art'));
+        if (n <= levelsWithArt) {
+          expect(art, findsOneWidget, reason: 'level $n has art');
+          expect(tester.widget<LevelArt>(art).assetUrl, levelArtUrl(n));
+          expect(
+            tester.getRect(art).right,
+            lessThanOrEqualTo(tester.getRect(_tag).left),
+            reason: 'the art stands before the word',
+          );
+        } else {
+          expect(art, findsNothing, reason: 'level $n has none yet');
+        }
         expect(_text(tester, _figure), figure);
         expect(_target(tester), closeTo(fraction, 1e-9));
         // Settled: the bar draws what it says.

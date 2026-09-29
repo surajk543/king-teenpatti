@@ -438,13 +438,30 @@ class PlayerStats {
 /// other player pod"): its number, title and mark — nothing else of their
 /// standing (no XP, no rate, no badge) is sent.
 class ProfileLevel {
-  const ProfileLevel({required this.level, this.title = '', this.icon = ''});
+  const ProfileLevel({
+    required this.level,
+    this.title = '',
+    this.icon = '',
+    this.assetUrl = '',
+    this.assetFormat = '',
+  });
 
   final int level;
   final String title;
 
   /// The owner's emoji for the level, exactly as sent; empty for none.
   final String icon;
+
+  /// The level's art (owner, 29 Sep 2026: "Instead of using icons use lottie
+  /// animations json for showing player Level"): the owner's Lottie at
+  /// [assetUrl], which the app draws wherever it showed [icon] (LevelArt).
+  /// Empty while the owner has not given one, and the app shows an empty
+  /// mark.
+  final String assetUrl;
+  final String assetFormat;
+
+  /// Whether [assetUrl] is art the app can draw: a Lottie.
+  bool get hasArt => assetUrl.isNotEmpty && assetFormat == 'LOTTIE';
 
   /// The level in [j], or null where there is none (a server from before
   /// levels, or a ladder with no level).
@@ -456,6 +473,8 @@ class ProfileLevel {
       level: level,
       title: _str(j['title']),
       icon: _str(j['icon']),
+      assetUrl: _str(j['assetUrl']).trim(),
+      assetFormat: _str(j['assetFormat']).trim().toUpperCase(),
     );
   }
 }

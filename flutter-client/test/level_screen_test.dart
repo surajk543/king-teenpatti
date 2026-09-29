@@ -4,7 +4,7 @@
 //
 // Held here: My level at levels 1, 2, 10, 25 and 50 (the top: MAX LEVEL, no
 // next level); the Winning Tax with the rate the account says; "23 / 100 XP"
-// and "77 XP to 🔰 Rookie" and the bar's fraction from the ladder; a Royal
+// and "77 XP to Rookie" and the bar's fraction from the ladder; a Royal
 // badge's Lottie and the time its grant has left, one about to run out, and
 // one that runs out while the screen is open; a player with Regular alone;
 // the Daily XP part-earned, complete ("Daily XP Complete" only when every
@@ -29,6 +29,7 @@ import 'package:teenpatti/net/picture_cache.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/widgets/level_art.dart';
 import 'package:teenpatti/widgets/level_screen.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 import 'package:teenpatti/widgets/table_tax.dart';
@@ -229,6 +230,22 @@ void main() {
           ),
           findsOneWidget,
         );
+        // The medal holds the level's art (29 Sep 2026), drawn — never the
+        // emoji; empty where the owner has sent none yet.
+        final emblem = tester.widget<LevelArt>(
+          find.byKey(const ValueKey('level-emblem-art')),
+        );
+        expect(emblem.assetUrl, n <= levelsWithArt ? levelArtUrl(n) : '');
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('level-emblem-art')),
+            matching: find.byKey(
+              ValueKey(n <= levelsWithArt ? 'level-art' : 'level-art-empty'),
+            ),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text(ownersLevels[n - 1].$4), findsNothing);
         // Winning Tax, with the rate the account pays and what sets it.
         final rate = find.byKey(const ValueKey('winning-tax-rate'));
         expect(
@@ -251,7 +268,7 @@ void main() {
         );
         expect(
           _text(tester, const ValueKey('level-xp-to-next')),
-          t.xpToNext(formatChips(next.$2 - xp), '${next.$4} ${next.$3}'),
+          t.xpToNext(formatChips(next.$2 - xp), next.$3),
         );
         expect(
           _barFraction(tester, const ValueKey('winning-tax-progress')),
@@ -260,7 +277,7 @@ void main() {
         expect(
           _text(tester, const ValueKey('level-next')),
           t.levelNextLine(
-            t.levelName(next.$1, '${next.$4} ${next.$3}'),
+            t.levelName(next.$1, next.$3),
             formatChips(next.$2),
             formatTaxRate(next.$5),
           ),
@@ -270,13 +287,13 @@ void main() {
       });
     }
 
-    testWidgets('level 1 at 23 XP reads "23 / 100 XP" and "77 XP to 🔰 '
+    testWidgets('level 1 at 23 XP reads "23 / 100 XP" and "77 XP to '
         'Rookie"', (tester) async {
       final state = await _open(tester, level: levelAt(1, xp: 23));
       expect(_text(tester, const ValueKey('level-xp-of')), '23 / 100 XP');
       expect(
         _text(tester, const ValueKey('level-xp-to-next')),
-        '77 XP to 🔰 Rookie',
+        '77 XP to Rookie',
       );
       expect(
         _barFraction(tester, const ValueKey('winning-tax-progress')),
@@ -1362,9 +1379,8 @@ void main() {
       await unmountLevel(tester, state);
     });
 
-    testWidgets('every rung\'s mark stands at one size, one emoji or two', (
-      tester,
-    ) async {
+    testWidgets('every rung\'s mark is its art at one size — an empty square '
+        'of that size where the owner has sent none yet', (tester) async {
       final state = await _open(
         tester,
         level: levelAt(25, xp: 94400),
@@ -1372,26 +1388,55 @@ void main() {
         screen: const Size(592, 360),
         scale: 1.25,
       );
-      final heights = <double>{};
+      var drawn = 0, empty = 0;
       for (final e
           in find
               .byKey(const ValueKey('ladder-mark'), skipOffstage: false)
               .evaluate()) {
-        final text = find.descendant(
-          of: find.byElementPredicate((x) => identical(x, e)),
-          matching: find.byType(RichText, skipOffstage: false),
+        final slot = find.byElementPredicate((x) => identical(x, e));
+        final art = tester.widget<LevelArt>(
+          find.descendant(
+            of: slot,
+            matching: find.byType(LevelArt, skipOffstage: false),
+          ),
         );
-        if (text.evaluate().isEmpty) continue;
-        heights.add(tester.getSize(text).height.roundToDouble());
-        final scales = _fitScales(
-          tester,
-          find.byElementPredicate((x) => identical(x, e)),
-        );
-        for (final scale in scales.values) {
-          expect(scale, greaterThanOrEqualTo(0.99));
+        expect(art.size, LevelRow.markSize);
+        if (find
+            .descendant(
+              of: slot,
+              matching: find.byKey(
+                const ValueKey('level-art'),
+                skipOffstage: false,
+              ),
+            )
+            .evaluate()
+            .isNotEmpty) {
+          drawn++;
+          expect(art.assetUrl, startsWith('https://drive.test/levels/'));
+        } else {
+          empty++;
+          expect(
+            find.descendant(
+              of: slot,
+              matching: find.byKey(
+                const ValueKey('level-art-empty'),
+                skipOffstage: false,
+              ),
+            ),
+            findsOneWidget,
+          );
         }
+        // No emoji any more.
+        expect(
+          find.descendant(
+            of: slot,
+            matching: find.byType(RichText, skipOffstage: false),
+          ),
+          findsNothing,
+        );
       }
-      expect(heights.length, 1, reason: '$heights');
+      expect(drawn, greaterThan(0), reason: 'some rungs built with art');
+      expect(drawn + empty, greaterThan(0));
       await unmountLevel(tester, state);
     });
   });

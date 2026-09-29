@@ -151,6 +151,9 @@ class FakeFriendsServer {
   /// Every list read answers 500 while this is true.
   bool failLists = false;
 
+  /// Every profile read answers 500 while this is true.
+  bool failProfiles = false;
+
   /// Every route answers 404 `not_found`: a server from before Friends.
   bool unsupported = false;
 
@@ -197,6 +200,7 @@ class FakeFriendsServer {
         segments[1] == 'players') {
       final id = segments[2];
       if (segments.length == 4 && segments[3] == 'profile') {
+        if (failProfiles) return _json({'error': 'internal'}, 500);
         final profile = profiles[id];
         if (profile == null) return refusal('player_not_found', 404);
         return _json({'profile': profile});

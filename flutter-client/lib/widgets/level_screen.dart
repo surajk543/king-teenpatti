@@ -15,6 +15,7 @@ import 'chip_store.dart';
 import 'edge_fade.dart';
 import 'game_loader.dart';
 import 'glass_components.dart';
+import 'level_art.dart';
 import 'premium_surface.dart';
 import 'table_chrome.dart';
 import 'table_tax.dart';
@@ -1305,8 +1306,9 @@ class LevelTag extends StatelessWidget {
 
 // --------------------------------------------------------------- the hero
 
-/// The level's medal: its mark in a struck-gold ring, its number on a gold
-/// chip at the foot.
+/// The level's medal: its art in a struck-gold ring — the owner's Lottie
+/// (29 Sep 2026), which replaced the level's emoji; the ring empty until the
+/// owner sends it — its number on a gold chip at the foot.
 class LevelEmblem extends StatelessWidget {
   const LevelEmblem({super.key, required this.level, this.size = 60});
 
@@ -1345,25 +1347,14 @@ class LevelEmblem extends StatelessWidget {
                 shape: BoxShape.circle,
                 color: dark ? AppTheme.ink900 : glass.cardFill,
               ),
-              child: level.icon.isEmpty
-                  ? Icon(
-                      Icons.military_tech_rounded,
-                      size: size * 0.5,
-                      color: goldInk(theme.brightness),
-                    )
-                  // Half the medal tall, and wide enough for a mark of two
-                  // emoji ("👑⚔️") to stand at nearly that height rather than
-                  // be squeezed to half of it.
-                  : SizedBox(
-                      width: size * 0.78,
-                      height: size * 0.5,
-                      child: FittedBox(
-                        child: Text(
-                          level.icon,
-                          style: const TextStyle(height: 1),
-                        ),
-                      ),
-                    ),
+              // Most of the ring: the owner's Lotties draw inside a canvas
+              // with room round the art, and the ring's inside is the
+              // medal less its 2.5dp band.
+              child: LevelArt.of(
+                level,
+                key: const ValueKey('level-emblem-art'),
+                size: size * 0.76,
+              ),
             ),
           ),
           Positioned(
@@ -1696,7 +1687,7 @@ class LevelXpCard extends StatelessWidget {
                   ? t.topLevelNote
                   : t.xpToNext(
                       formatChips(math.max(0, next.minXp - level.xp)),
-                      levelTitle(next.icon, next.title),
+                      next.title,
                     ),
               key: const ValueKey('level-xp-to-next'),
               maxLines: 2,
@@ -1714,7 +1705,7 @@ class LevelXpCard extends StatelessWidget {
             const SizedBox(height: Space.sm),
             Text(
               t.levelNextLine(
-                t.levelName(next.level, levelTitle(next.icon, next.title)),
+                t.levelName(next.level, next.title),
                 formatChips(next.minXp),
                 formatTaxRate(next.taxBps),
               ),
@@ -2552,9 +2543,11 @@ class LevelRow extends StatelessWidget {
 
   bool get you => level.level == mine;
 
-  /// A rung's mark: set at one size, in a slot wide enough for two emoji
-  /// side by side at it.
-  static const double markSize = 16;
+  /// A rung's mark: its art (the owner's Lottie, 29 Sep 2026) at one size on
+  /// every rung, centred in the slot the two-emoji marks it replaced were set
+  /// in, so the titles keep their column; an empty slot until the owner
+  /// sends it.
+  static const double markSize = 30;
   static const double markWidth = 42;
 
   @override
@@ -2628,21 +2621,9 @@ class LevelRow extends StatelessWidget {
           SizedBox(
             key: const ValueKey('ladder-mark'),
             width: LevelRow.markWidth,
-            child: level.icon.isEmpty
-                ? null
-                : FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      level.icon,
-                      // A mark is an icon: one size on every rung, one emoji
-                      // or two, and not grown with the text.
-                      textScaler: TextScaler.noScaling,
-                      style: const TextStyle(
-                        fontSize: LevelRow.markSize,
-                        height: 1,
-                      ),
-                    ),
-                  ),
+            // A mark is an icon: one size on every rung, not grown with the
+            // text.
+            child: Center(child: LevelArt.rung(level, size: LevelRow.markSize)),
           ),
           const SizedBox(width: Space.sm),
           Expanded(

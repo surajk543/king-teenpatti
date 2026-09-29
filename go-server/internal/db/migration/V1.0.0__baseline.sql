@@ -1447,14 +1447,48 @@ CREATE TABLE IF NOT EXISTS player_levels (
   title      TEXT     NOT NULL,
   -- The level's emoji, exactly as the owner gave it — some are two emoji, and
   -- the crossed swords, shield, medal and infinity carry a U+FE0F variation
-  -- selector that must not be lost. Sent as user.playerLevel.icon; the app
-  -- draws it from the phone's colour emoji font.
+  -- selector that must not be lost. Sent as user.playerLevel.icon; since
+  -- 29 Sep 2026 the app draws the level's art (asset_url) instead, and the
+  -- emoji is for anything that has no art to draw (a log line, an older app).
   icon       TEXT     NOT NULL,
   -- The winning tax in basis points: 2000 = 20.00%, 10000 = all the winnings.
   tax_bps    INTEGER  NOT NULL CHECK (tax_bps BETWEEN 0 AND 10000),
+  -- The level's ART (owner, 29 Sep 2026: "Instead of using icons use lottie
+  -- animations json for showing player Level"): a LOTTIE at asset_url, drawn
+  -- wherever the app showed the level's emoji — badges.asset_url's twin.
+  -- NULL: not given yet, and the app shows an empty mark; the seed fills a
+  -- NULL from its own list, so a URL the owner sends later reaches every
+  -- database at its next boot. '' is none on purpose, which the seed leaves.
+  asset_url    TEXT,
+  asset_format TEXT     CHECK (asset_format IN ('IMAGE', 'SVG', 'LOTTIE', 'RIVE')),
   created_at BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
   updated_at BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
 );
+
+-- player_levels.asset_url and .asset_format for a database built before them
+-- (29 Sep 2026: production's has the ladder and neither). Catalogue-guarded,
+-- as users.is_bot is: only a database missing a column runs its ALTER, once.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'player_levels' AND column_name = 'asset_url'
+  ) THEN
+    EXECUTE 'ALTER TABLE player_levels ADD COLUMN asset_url TEXT';
+  END IF;
+END;
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'player_levels' AND column_name = 'asset_format'
+  ) THEN
+    EXECUTE 'ALTER TABLE player_levels ADD COLUMN asset_format TEXT CHECK (asset_format IN (''IMAGE'', ''SVG'', ''LOTTIE'', ''RIVE''))';
+  END IF;
+END;
+$$;
 
 -- One row per badge. code is what the server and the app know it by; title
 -- and icon are what a player is shown (icon an emoji or a playing-card symbol,

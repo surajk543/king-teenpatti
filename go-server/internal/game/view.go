@@ -298,6 +298,9 @@ type SeatView struct {
 	// a seen or blind table's seats are byte for byte what they were. WHICH
 	// cards they are choosing is never public — only that they are.
 	Picking bool `json:"picking,omitempty"`
+	// Level is the player's level and its art, shown on their pod to everybody
+	// at the table (owner, 29 Sep 2026; SeatLevel); absent where not known.
+	Level *SeatLevel `json:"level,omitempty"`
 }
 
 type seatViewFull SeatView
@@ -366,6 +369,8 @@ type SeatInfo struct {
 	// every hand-end settle). Carried so a player moved to another table
 	// (consolidation) takes their rate with them.
 	TaxBps int
+	// Level is the seat's level (SeatLevel), carried the same way.
+	Level *SeatLevel
 }
 
 // Int64Ptr / StrPtr / ActionPtr are tiny helpers for the nullable wire fields.

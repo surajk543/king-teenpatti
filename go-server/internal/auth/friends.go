@@ -175,6 +175,10 @@ type ProfileLevel struct {
 	Level int    `json:"level"`
 	Title string `json:"title"`
 	Icon  string `json:"icon"`
+	// AssetURL and AssetFormat are the level's art (the owner's Lottie, 29 Sep
+	// 2026); ABSENT on a level with none yet.
+	AssetURL    string `json:"assetUrl,omitempty"`
+	AssetFormat string `json:"assetFormat,omitempty"`
 }
 
 // PlayerProfile is GET /api/players/{playerId}/profile's profile: the card's
@@ -345,7 +349,8 @@ func (h *Handler) PlayerProfile(w http.ResponseWriter, r *http.Request, user *db
 		Stats:        statsView(found.Stats),
 	}
 	if lv := found.Level; lv.Level > 0 {
-		profile.Level = &ProfileLevel{Level: lv.Level, Title: lv.Title, Icon: lv.Icon}
+		profile.Level = &ProfileLevel{Level: lv.Level, Title: lv.Title, Icon: lv.Icon,
+			AssetURL: lv.AssetURL, AssetFormat: lv.AssetFormat}
 	}
 	if found.FriendStatus == db.FriendStatusFriends || found.FriendStatus == db.FriendStatusSelf {
 		id := found.Player.UserID

@@ -17,6 +17,7 @@ import 'emoji_art.dart';
 import 'game_loader.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
+import 'level_art.dart';
 import 'level_screen.dart';
 import 'premium_surface.dart';
 import 'table_chrome.dart';
@@ -59,16 +60,16 @@ String levelTitle(String icon, String title) {
   return '$icon $title';
 }
 
-/// The viewer's level named in full: "Level 10 · 🌟 Rising Star".
+/// The viewer's level named in full: "Level 10 · Rising Star". No emoji: a
+/// level's mark is its art since 29 Sep 2026 (owner: "Instead of using icons
+/// use lottie animations json for showing player Level"), drawn beside the
+/// words where there is a place for it ([LevelArt]).
 String levelNameOf(Strings t, PlayerLevel level) =>
-    t.levelName(level.level, levelTitle(level.icon, level.title));
+    t.levelName(level.level, level.title);
 
-/// The Stats drawer's line: "Level 10 · 🌟 Rising Star · 4,180 XP".
-String levelLineOf(Strings t, PlayerLevel level) => t.levelLine(
-  level.level,
-  levelTitle(level.icon, level.title),
-  formatChips(level.xp),
-);
+/// The Stats drawer's line: "Level 10 · Rising Star · 4,180 XP".
+String levelLineOf(Strings t, PlayerLevel level) =>
+    t.levelLine(level.level, level.title, formatChips(level.xp));
 
 /// A badge as the app writes it: its mark first where it has one ("🏅 Gold"),
 /// like a level; a badge drawn by its art ("Royal King") has none.
@@ -470,8 +471,10 @@ class WinningTaxTag extends StatelessWidget {
   /// The rate the viewer's seat pays, as the pill says it: "17.43% TAX".
   final String tax;
 
-  /// The viewer's level title with its mark ("🌟 Rising Star"), the pill's
-  /// first line; null where the level is not known.
+  /// The pill's first line, over the rate: the badge the viewer holds, by
+  /// name ("Regular") — the felt's only use since 29 Sep 2026 (owner: "In
+  /// gametable in tax pill only show badge icon and badge name and tax");
+  /// the level's title stood here until then. Null: the rate alone.
   final String? title;
 
   /// The badge the viewer holds, with its mark where it has one ("🏅 Gold"),
@@ -727,13 +730,13 @@ String levelSignatureOf(User? u) {
   if (l != null) {
     b.write(
       '|L${l.level}\u0000${l.title}\u0000${l.icon}\u0000${l.xp}'
-      '\u0000${l.taxBps}',
+      '\u0000${l.taxBps}\u0000${l.assetUrl}\u0000${l.assetFormat}',
     );
     final n = l.next;
     if (n != null) {
       b.write(
         '|N${n.level}\u0000${n.title}\u0000${n.icon}\u0000${n.minXp}'
-        '\u0000${n.taxBps}',
+        '\u0000${n.taxBps}\u0000${n.assetUrl}\u0000${n.assetFormat}',
       );
     }
     final today = l.today;
@@ -1163,7 +1166,7 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
         WinningTaxFact(
           icon: Icons.trending_up_rounded,
           label: t.nextLevelLabel,
-          value: t.levelName(next.level, levelTitle(next.icon, next.title)),
+          value: t.levelName(next.level, next.title),
           detail: t.nextLevelValue(
             formatChips(next.minXp),
             formatTaxRate(next.taxBps),
@@ -1427,15 +1430,18 @@ class LevelKey extends StatelessWidget {
                       color: glass.wellFill,
                       border: Border.all(color: glass.cardBorder),
                     ),
-                    child: level.icon.isEmpty
-                        ? Icon(
+                    // The level's art, or — the key being a key, never an
+                    // empty disc — the medal glyph where there is none yet.
+                    child: level.hasArt
+                        ? LevelArt.of(
+                            level,
+                            key: const ValueKey('level-key-art'),
+                            size: 26,
+                          )
+                        : Icon(
                             Icons.military_tech_rounded,
                             size: 16,
                             color: gold,
-                          )
-                        : Text(
-                            level.icon,
-                            style: const TextStyle(fontSize: 14, height: 1),
                           ),
                   ),
                 ),
@@ -1608,11 +1614,25 @@ class _LadderRow extends StatelessWidget {
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
-                        child: Text(
-                          levelTitle(level.icon, level.title),
-                          maxLines: 1,
-                          strutStyle: levelStrut(name),
-                          style: name,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // The rung's art, on the line's own height; an
+                            // empty square of that size until the owner
+                            // sends it, so every title starts in one column.
+                            LevelArt.rung(
+                              level,
+                              size:
+                                  (name.fontSize ?? 14) * (name.height ?? 1.3),
+                            ),
+                            const SizedBox(width: Space.xxs),
+                            Text(
+                              level.title,
+                              maxLines: 1,
+                              strutStyle: levelStrut(name),
+                              style: name,
+                            ),
+                          ],
                         ),
                       ),
                     ),
