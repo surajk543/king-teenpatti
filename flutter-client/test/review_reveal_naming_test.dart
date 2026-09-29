@@ -19,6 +19,11 @@
 //      from `handName` unchanged — even a name the bare cards would not make,
 //      which is the proof that nothing here re-evaluates;
 //   5. nothing in lib/ ranks cards: every hand name on screen is the wire's.
+//      One file reads the viewer's own three cards (owner, 29 Sep 2026: the
+//      animation their cards play when they look at them at a Seen or Blind
+//      table, where the server says nothing of the hand until the showdown —
+//      lib/models/own_look.dart), and it is held to that one use: the
+//      see-cards animation's cue, never a name, a comparison or another seat.
 //
 // Everything is measured on the 640x360 phone (TP_Small), the tightest screen
 // the app ships on, and the wild edge's width there is printed so the UX
@@ -37,6 +42,8 @@ import 'package:teenpatti/screens/table_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/theme/hand_result_motion.dart';
+import 'package:teenpatti/widgets/hand_result.dart';
 import 'package:teenpatti/widgets/playing_card.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 import 'package:teenpatti/widgets/seat_pod.dart';
@@ -271,7 +278,9 @@ BoxBorder? _edgeBorder(WidgetTester tester, Finder edge) {
   );
   // The WildEdge's own box is the first: PlayingCard's border is a
   // background decoration, not a foreground one.
-  return boxes.isEmpty ? null : (boxes.first.decoration as BoxDecoration).border;
+  return boxes.isEmpty
+      ? null
+      : (boxes.first.decoration as BoxDecoration).border;
 }
 
 void main() {
@@ -286,10 +295,25 @@ void main() {
         );
         await _pumpTable(tester, state);
         state.handleShowdown(
-          _showdown([
-            (id: 'u2', cards: ['Ks', 'Kd', '7c'], name: 'Trail', wild: ['7c']),
-            (id: 'u3', cards: ['Ah', '9d', '4c'], name: 'High Card', wild: []),
-          ], playsAs: {'u2': ['Ks', 'Kd', 'Kc']}),
+          _showdown(
+            [
+              (
+                id: 'u2',
+                cards: ['Ks', 'Kd', '7c'],
+                name: 'Trail',
+                wild: ['7c'],
+              ),
+              (
+                id: 'u3',
+                cards: ['Ah', '9d', '4c'],
+                name: 'High Card',
+                wild: [],
+              ),
+            ],
+            playsAs: {
+              'u2': ['Ks', 'Kd', 'Kc'],
+            },
+          ),
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
@@ -304,7 +328,11 @@ void main() {
           find.descendant(of: _pod('u3'), matching: find.text('High Card')),
           findsOneWidget,
         );
-        expect(find.text('Pair'), findsNothing, reason: 'nothing re-ranked K-K');
+        expect(
+          find.text('Pair'),
+          findsNothing,
+          reason: 'nothing re-ranked K-K',
+        );
 
         // The faces are the hand as it was COUNTED (owner, 24 Sep 2026: "on
         // show or sideshow, show updated cards not the base cards"): the
@@ -332,7 +360,11 @@ void main() {
         expect(wildEdge, findsOneWidget);
         final border = _edgeBorder(tester, wildEdge);
         expect(border, isNotNull, reason: 'the wild card paints no edge');
-        expect(border!.top.color, AppTheme.gold, reason: 'dark theme: the deep-champagne gold, not the pale one');
+        expect(
+          border!.top.color,
+          AppTheme.gold,
+          reason: 'dark theme: the deep-champagne gold, not the pale one',
+        );
         expect(
           find.descendant(
             of: wildEdge,
@@ -388,7 +420,10 @@ void main() {
       expect(
         tester
             .widgetList<PlayingCard>(
-              find.descendant(of: _pod('u2'), matching: find.byType(PlayingCard)),
+              find.descendant(
+                of: _pod('u2'),
+                matching: find.byType(PlayingCard),
+              ),
             )
             .map((c) => c.code),
         ['Ks', 'Kd', '7c'],
@@ -435,8 +470,18 @@ void main() {
         _showdown([
           (id: 'u1', cards: ['Ks', 'Kd', '7c'], name: 'Trail', wild: ['7c']),
           (id: 'u2', cards: ['Qs', 'Qd', '7h'], name: 'Trail', wild: ['7h']),
-          (id: 'u3', cards: ['4h', '4d', '4c'], name: 'Trail', wild: ['4h', '4d', '4c']),
-          (id: 'u4', cards: ['Ah', 'Kh', 'Jh'], name: 'Pure Sequence', wild: ['Ah', 'Kh']),
+          (
+            id: 'u3',
+            cards: ['4h', '4d', '4c'],
+            name: 'Trail',
+            wild: ['4h', '4d', '4c'],
+          ),
+          (
+            id: 'u4',
+            cards: ['Ah', 'Kh', 'Jh'],
+            name: 'Pure Sequence',
+            wild: ['Ah', 'Kh'],
+          ),
         ]),
       );
       await tester.pump();
@@ -497,7 +542,10 @@ void main() {
       // painted pip (24 Sep 2026), never a bare '♣' from a fallback font.
       final tab = find.byKey(const ValueKey('wild-real-card:7c'));
       expect(tab, findsOneWidget, reason: 'the card really held');
-      expect(find.descendant(of: tab, matching: find.text('7')), findsOneWidget);
+      expect(
+        find.descendant(of: tab, matching: find.text('7')),
+        findsOneWidget,
+      );
       expect(
         tester
             .widget<CardPips>(
@@ -612,7 +660,12 @@ void main() {
       state.handleShowdown(
         _showdown([
           (id: 'u2', cards: ['Ks', 'Kd', '7c'], name: 'Trail', wild: ['7c']),
-          (id: 'u3', cards: ['Ah', 'Kh', 'Qh'], name: 'Pure Sequence', wild: []),
+          (
+            id: 'u3',
+            cards: ['Ah', 'Kh', 'Qh'],
+            name: 'Pure Sequence',
+            wild: [],
+          ),
           (id: 'u0', cards: ['2s', '3d', '5c'], name: 'High Card', wild: []),
         ], winnerId: 'u2'),
       );
@@ -653,8 +706,13 @@ void main() {
         room: _room(
           variation: _selected(Variation.ak47),
           state: 'showdown',
-          statuses: const {'u2': 'won', 'u0': 'packed', 'u1': 'packed',
-            'u3': 'packed', 'u4': 'packed'},
+          statuses: const {
+            'u2': 'won',
+            'u0': 'packed',
+            'u1': 'packed',
+            'u3': 'packed',
+            'u4': 'packed',
+          },
         ),
       );
       await _pumpTable(tester, state);
@@ -693,7 +751,12 @@ void main() {
         state.handleShowdown(
           _showdown([
             (id: 'u1', cards: ['Ks', 'Kd', '7c'], name: 'Pair', wild: null),
-            (id: 'u2', cards: ['Ah', '9d', '4c'], name: 'High Card', wild: null),
+            (
+              id: 'u2',
+              cards: ['Ah', '9d', '4c'],
+              name: 'High Card',
+              wild: null,
+            ),
             // A name the bare cards would NOT make: the app must show it as
             // sent. If anything re-ranked A-A-A it would say Trail here.
             (id: 'u3', cards: ['As', 'Ad', 'Ac'], name: 'Colour', wild: null),
@@ -721,15 +784,62 @@ void main() {
           findsNothing,
         );
         expect(
-          tester.widgetList<WildTransform>(find.byType(WildTransform)).any(
-            (c) => c.wild || c.standIn != null,
-          ),
+          tester
+              .widgetList<WildTransform>(find.byType(WildTransform))
+              .any((c) => c.wild || c.standIn != null),
           isFalse,
         );
         expect(find.text('WILD'), findsNothing);
         await _teardown(tester, state);
       });
     }
+
+    testWidgets('the viewer\'s own look reads their cards for its animation '
+        'and names nothing; the showdown\'s name is the wire\'s', (
+      tester,
+    ) async {
+      const aces = ['As', 'Ad', 'Ac'];
+      final state = _newState(room: _room(category: 'seen'));
+      await _pumpTable(tester, state);
+      await _run(tester, const Duration(seconds: 3));
+      // The look: the phone reads A-A-A as a Trail for the animation its
+      // cards play (lib/models/own_look.dart) — and says so nowhere.
+      state.handleState(_room(category: 'seen', youCards: aces));
+      await _run(tester, const Duration(milliseconds: 2400));
+      final group = tester.state<HandResultGroupState>(
+        find.byWidgetPredicate((w) => w is HandResultGroup && w.userId == 'u0'),
+      );
+      expect(group.cue?.level, HandResultLevel.trail);
+      expect(find.text('Trail'), findsNothing);
+      // The showdown names the hand as the server sent it — a name the bare
+      // cards would not make — and the look never becomes a name.
+      state
+        ..handleShowdown(
+          _showdown([
+            (id: 'u0', cards: aces, name: 'Colour', wild: null),
+            (id: 'u1', cards: ['Ks', 'Kd', '7c'], name: 'Pair', wild: null),
+          ], winnerId: 'u0'),
+        )
+        ..handleState(
+          _room(
+            category: 'seen',
+            state: 'waiting',
+            statuses: const {
+              'u0': 'won',
+              'u1': 'lost',
+              'u2': 'packed',
+              'u3': 'packed',
+              'u4': 'packed',
+            },
+            youCards: aces,
+          ),
+        );
+      await _run(tester, const Duration(milliseconds: 800));
+      expect(find.text('Colour'), findsWidgets);
+      expect(find.text('Trail'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await _teardown(tester, state);
+    });
   });
 
   group('a sideshow', () {
@@ -778,16 +888,18 @@ void main() {
   });
 
   group('the source', () {
+    List<File> libFiles() => Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))
+        .toList();
+
     test('ranks no cards: every hand name on screen comes from the wire', () {
       // The app draws `handName` from Reveal, SideshowHand, OwnHand and the
       // poker DTOs, and nowhere works a hand's worth out from its cards. A
       // ranking that crept in would be the one way the app could disagree
       // with the server about a Trail.
-      final files = Directory('lib')
-          .listSync(recursive: true)
-          .whereType<File>()
-          .where((f) => f.path.endsWith('.dart'))
-          .toList();
+      final files = libFiles();
       expect(files, isNotEmpty, reason: 'run from the package root');
       final ranking = RegExp(
         r'\b(evaluate(Hand|Cards|3|5)?|handRank|rankHand|scoreHand|'
@@ -806,6 +918,81 @@ void main() {
       final dtos = File('lib/models/dtos.dart').readAsStringSync();
       expect(dtos, contains("handName: _str(j['handName'])"));
       expect(dtos, isNot(contains('CATEGORY_NAMES')));
+    });
+
+    test('reads the viewer\'s own cards in one file, for the see-cards '
+        'animation alone', () {
+      const reader = 'lib/models/own_look.dart';
+      final files = libFiles();
+      String path(File f) => f.path.replaceAll(r'\', '/');
+      // What reading cards takes — a table of rank values, the ace played low
+      // in a run, the suits' alphabet — is in exactly one file.
+      final reading = RegExp(r"'A':\s*14|'K':\s*13|== 14 &&|'shdc'");
+      expect(
+        [
+          for (final f in files)
+            if (reading.hasMatch(f.readAsStringSync())) path(f),
+        ],
+        [reader],
+      );
+      // That file names nothing and draws nothing: no import at all, no hand
+      // name, one function answering a number and card places.
+      final own = File(reader).readAsStringSync();
+      final code = own
+          .split('\n')
+          .where((l) => !l.trimLeft().startsWith('//'))
+          .join('\n');
+      expect(code, isNot(contains('import ')));
+      expect(code, isNot(contains('handName')));
+      expect(code, isNot(contains('String name')));
+      expect(
+        code,
+        contains('typedef OwnLook = ({int category, List<int> lit});'),
+      );
+      expect(code, contains('OwnLook? ownLook(List<String> codes)'));
+      // One top-level function; the rest is its answer's type and a table.
+      expect(
+        RegExp(
+          r'^(?!typedef |const |library)\w[^\n]*\(',
+          multiLine: true,
+        ).allMatches(code),
+        hasLength(1),
+      );
+      // Only the table's felt imports it …
+      expect(
+        [
+          for (final f in files)
+            if (f.readAsStringSync().contains('own_look.dart') &&
+                path(f) != reader)
+              path(f),
+        ],
+        ['lib/screens/table_screen.dart'],
+      );
+      // … and calls it once, inside the look's own method, whose answer only
+      // becomes the look's cue: `_ownLook` is read by `_handResultCue` alone,
+      // and `_handResultCue` by the HandResultScope over the felt alone.
+      final screen = File('lib/screens/table_screen.dart').readAsStringSync();
+      String body(String signature) {
+        final start = screen.indexOf(signature);
+        expect(start, greaterThanOrEqualTo(0), reason: signature);
+        final end = screen.indexOf('\n  }\n', start);
+        return screen.substring(start, end);
+      }
+
+      final ownLook = body('Duration busy})? _ownLook(');
+      final cue = body('HandResultCue? _handResultCue(GameState state) {');
+      expect(RegExp(r'\bownLook\(').allMatches(screen), hasLength(1));
+      expect(RegExp(r'\bownLook\(').allMatches(ownLook), hasLength(1));
+      // The number it answers is a level of the animation, and nothing else.
+      expect(ownLook, contains('HandResultLevel.fromCategory(read.category)'));
+      expect(ownLook, isNot(contains('Text(')));
+      expect(RegExp(r'\b_ownLook\(').allMatches(screen), hasLength(2));
+      expect(RegExp(r'\b_ownLook\(').allMatches(cue), hasLength(1));
+      expect(RegExp(r'\b_handResultCue\(').allMatches(screen), hasLength(2));
+      expect(
+        screen,
+        contains('HandResultScope(\n    cue: _handResultCue(context.watch'),
+      );
     });
   });
 }

@@ -1,34 +1,47 @@
-// The hand-result card animations (owner's brief, 29 Sep 2026): the winning
-// hand's cards light up where they lie, by what the SERVER named them —
-// Pair a small pulse, Color a coloured sweep, Sequence card after card, Pure
-// Sequence a settling gold edge, Trail a short burst — from the moment the
-// WINNER ribbon strikes, on the celebration's own clock.
+// The hand-result card animations (owner's brief, 29 Sep 2026), played the
+// moment the viewer LOOKS at their own cards and never at a result (owner, the
+// same day: "Animation should be played on UI side, no backend change,
+// animation should not played on once user take show, this is purely UI
+// change, when user click on see card, then acc to rank of card play
+// animation"): Pair a small pulse on the two paired cards, Color one light
+// across the hand, Sequence card 1 → 2 → 3, Pure Sequence a lift, a sweep and
+// a settling gold edge, Trail a lift, a sweep, a spark burst and a radial
+// light; a High Card nothing.
 //
-// Held here: which profile runs and on which cards (a Pair's two alone; a
-// wild card by what it counted as; 5-Card's three that played; a High Card,
-// a Muflis hand and a sideshow nothing); that intensity rises Pair → Trail;
-// that nothing lights before the result or after the next deal, a rebuilt
-// seat takes the animation up where it is and a remounted felt shows it
-// settled; that the light stops repainting once settled; reduced motion;
-// both themes and a 640dp phone at x1.25; a head seat; the sound hook; and
-// that the next snapshot is never held up.
+// Held here: which profile runs and on which cards, at a Seen and a Blind
+// table (read from the three cards on the phone, lib/models/own_look.dart) and
+// at a Variation table (the server's own `you.hand`: a wild card by what it
+// played as, Muflis nothing, 5-Card's three once chosen or lapsed, nothing
+// while they are being chosen); the fourth blind bet's reveal as well as the
+// tap; that the light lands on cards at rest — after the flip, the wild turn
+// and the 5-Card arrangement, measured on the real felt; that nothing lights
+// at a show, a showdown, a missile or a sideshow; once a hand — a snapshot
+// repeat, a rebuilt felt, the next deal, a switch of table, packing; reduced
+// motion; both themes; that a settled hand repaints nothing; 640x360 at x1.25
+// in all five languages; and, below the table, the levels' own rows and the
+// group and card on their own.
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/screens/table_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/theme/hand_result_motion.dart';
-import 'package:teenpatti/widgets/hammer_flight.dart' show PodImpact;
 import 'package:teenpatti/widgets/hand_result.dart';
+import 'package:teenpatti/widgets/playing_card.dart';
 import 'package:teenpatti/widgets/seat_pod.dart' show SeatBet, SeatPod;
+import 'package:teenpatti/widgets/table_chrome.dart'
+    show MachinedKey, StepperKey;
+import 'package:teenpatti/widgets/wild_transform.dart';
 
 import 'hand_result_scenes.dart';
+import 'script_fonts.dart';
 import 'table_scenes.dart' show tableApp;
 
 /// Feedback that notes every hand-result hook it is asked for, sound off.
@@ -55,9 +68,13 @@ Finder _cardFinder(String code) =>
 RenderHandResultCard _card(WidgetTester tester, String code) =>
     tester.renderObject<RenderHandResultCard>(_cardFinder(code));
 
-HandResultGroupState _group(WidgetTester tester, String userId) =>
+/// The viewer's own hand: their bet, their fan.
+Finder get _ownColumn => find.byKey(const ValueKey('own-hand-column'));
+
+/// The viewer's own fan's group (u0 is the viewer).
+HandResultGroupState _group(WidgetTester tester) =>
     tester.state<HandResultGroupState>(
-      find.byWidgetPredicate((w) => w is HandResultGroup && w.userId == userId),
+      find.byWidgetPredicate((w) => w is HandResultGroup && w.userId == 'u0'),
     );
 
 /// Every card on the table that is lit right now, by code.
@@ -72,6 +89,15 @@ Iterable<String> _litCodes(WidgetTester tester) => tester
     )
     .map((w) => w.code!);
 
+/// The viewer's face-up cards, by code — in the order the fan PAINTS them,
+/// its card on top last (CLAUDE.md §12.3), not the order they are held.
+List<String> _ownCodes(WidgetTester tester) => [
+  for (final w in tester.widgetList<HandResultCard>(
+    find.descendant(of: _ownColumn, matching: find.byType(HandResultCard)),
+  ))
+    ?w.code,
+];
+
 Future<(GameState, _Heard)> _mount(
   WidgetTester tester, {
   Size size = const Size(891, 411),
@@ -79,6 +105,7 @@ Future<(GameState, _Heard)> _mount(
   bool dark = true,
   int places = 5,
   bool reduced = false,
+  AppLang lang = AppLang.english,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -92,21 +119,31 @@ Future<(GameState, _Heard)> _mount(
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   final feedback = await _feedback();
   addTearDown(feedback.dispose);
-  final state = resultState(places: places);
+  final state = resultState(places: places, lang: lang);
   await tester.pumpWidget(
     tableApp(
       state: state,
       feedback: feedback,
-      theme: dark ? AppTheme.dark(sound: false) : AppTheme.light(sound: false),
+      theme: withScriptFallback(
+        dark ? AppTheme.dark(sound: false) : AppTheme.light(sound: false),
+      ),
     ),
   );
-  await _frames(tester, 300);
+  await _frames(tester, 100);
   return (state, feedback);
 }
 
+/// [ms] of frames, 16 ms apart.
 Future<void> _frames(WidgetTester tester, int ms) async {
   for (var at = 0; at < ms; at += 16) {
     await tester.pump(const Duration(milliseconds: 16));
+  }
+}
+
+/// [ms] of time, in coarser steps, for what is not being watched.
+Future<void> _settle(WidgetTester tester, int ms) async {
+  for (var at = 0; at < ms; at += 100) {
+    await tester.pump(const Duration(milliseconds: 100));
   }
 }
 
@@ -116,96 +153,306 @@ Future<void> _unmount(WidgetTester tester, GameState state) async {
   state.dispose();
 }
 
-/// The hand's end as the server sends it: the table as the show is paid, the
-/// reveal, and a frame later the result and the settled table.
-Future<void> _play(
+/// The hand dealt, the viewer blind in it: its deal played out and its cards
+/// at rest, face down, under See cards.
+Future<void> _deal(
+  WidgetTester tester,
+  GameState state, {
+  String roomId = 'r1',
+  int handNo = 7,
+  int places = 5,
+  String category = 'seen',
+  bool isPrivate = false,
+  int cardCount = 3,
+  int blindMovesLeft = 4,
+  Map<String, dynamic>? variation,
+}) async {
+  state.handleState(
+    resultRoom(
+      roomId: roomId,
+      handNo: handNo,
+      places: places,
+      category: category,
+      isPrivate: isPrivate,
+      cardCount: cardCount,
+      blind: true,
+      blindMovesLeft: blindMovesLeft,
+      variation: variation,
+    ),
+  );
+  await _settle(tester, 3200);
+}
+
+/// The viewer's tap on See cards (its move goes nowhere: there is no server).
+Future<void> _tapSee(WidgetTester tester, GameState state) async {
+  await tester.tap(find.text(state.t.seeCards));
+  await tester.pump();
+}
+
+/// The server's answer to a look: the viewer's cards [h] face up — and at a
+/// Variation table [ownHand], their `you.hand` — in the same hand.
+Future<void> _see(
+  WidgetTester tester,
+  GameState state,
+  ResultHand h, {
+  String roomId = 'r1',
+  int handNo = 7,
+  int places = 5,
+  String category = 'seen',
+  bool isPrivate = false,
+  Map<String, dynamic>? ownHand,
+  Map<String, dynamic>? variation,
+  String status = 'active',
+}) async {
+  state.handleState(
+    resultRoom(
+      roomId: roomId,
+      handNo: handNo,
+      places: places,
+      category: category,
+      isPrivate: isPrivate,
+      cards: h.cards,
+      cardCount: h.cards.length,
+      ownHand: ownHand,
+      variation: variation,
+      status: {'u0': status},
+    ),
+  );
+  await tester.pump(const Duration(milliseconds: 16));
+}
+
+/// The first Transform under [e]: a card's own turn, as PlayingCard draws it.
+Transform? _turnOf(Element e) {
+  Transform? found;
+  void visit(Element child) {
+    if (found != null) return;
+    if (child.widget is Transform) {
+      found = child.widget as Transform;
+      return;
+    }
+    child.visitChildren(visit);
+  }
+
+  e.visitChildren(visit);
+  return found;
+}
+
+/// Whether every one of the viewer's cards lies face up and still: a card at
+/// rest face up is drawn turned exactly half a turn (PlayingCard's rotateY(π),
+/// its lift gone), one still turning or not yet turned is not.
+bool _faceUpAtRest(WidgetTester tester) {
+  for (final e
+      in find
+          .descendant(of: _ownColumn, matching: find.byType(PlayingCard))
+          .evaluate()) {
+    final turn = _turnOf(e);
+    if (turn == null) return false;
+    final m = turn.transform;
+    if ((m.entry(0, 0) + 1).abs() > 1e-6) return false;
+    if (m.entry(1, 3).abs() > 1e-6) return false;
+  }
+  return true;
+}
+
+/// Whether every wild card of the viewer's own has finished turning into its
+/// stand-in: its "Wild" ribbon and real-card tab stand at full strength.
+bool _wildsAtRest(WidgetTester tester) {
+  for (final e
+      in find
+          .descendant(of: _ownColumn, matching: find.byType(WildTransform))
+          .evaluate()) {
+    if ((e.widget as WildTransform).standIn == null) continue;
+    final marks = find
+        .descendant(of: find.byWidget(e.widget), matching: find.byType(Opacity))
+        .evaluate()
+        .map((o) => (o.widget as Opacity).opacity)
+        .toList();
+    if (marks.isEmpty || marks.any((o) => o < 1)) return false;
+  }
+  return true;
+}
+
+/// Where each of the viewer's cards lies (its own box, before any light).
+Map<String, Rect> _places(WidgetTester tester) => {
+  for (final c in _ownCodes(tester)) c: tester.getRect(_cardFinder(c)),
+};
+
+bool _samePlaces(Map<String, Rect> a, Map<String, Rect> b) =>
+    a.length == b.length &&
+    a.entries.every(
+      (e) =>
+          b[e.key] != null &&
+          (b[e.key]!.left - e.value.left).abs() < 0.01 &&
+          (b[e.key]!.top - e.value.top).abs() < 0.01 &&
+          (b[e.key]!.width - e.value.width).abs() < 0.01,
+    );
+
+typedef _Moment = ({int at, bool lit, bool still, Map<String, Rect> places});
+
+/// [ms] of frames after a look: each frame's moment, and every card's
+/// strongest moment — its largest scale, highest lift, brightest edge.
+Future<({List<_Moment> moments, Map<String, HandResultCardEffect> peaks})>
+_watch(WidgetTester tester, {int ms = 2600}) async {
+  final moments = <_Moment>[];
+  final peaks = <String, HandResultCardEffect>{};
+  for (var at = 16; at <= ms; at += 16) {
+    await tester.pump(const Duration(milliseconds: 16));
+    final places = _places(tester);
+    for (final c in places.keys) {
+      final e = _card(tester, c).effect;
+      final p = peaks[c] ?? HandResultCardEffect.rest;
+      peaks[c] = HandResultCardEffect(
+        scale: math.max(e.scale, p.scale),
+        lift: math.max(e.lift, p.lift),
+        glow: math.max(e.glow, p.glow),
+        sweep: math.max(e.sweep, p.sweep),
+      );
+    }
+    moments.add((
+      at: at,
+      lit: _group(tester).progress > 0,
+      still: _faceUpAtRest(tester) && _wildsAtRest(tester),
+      places: places,
+    ));
+  }
+  return (moments: moments, peaks: peaks);
+}
+
+/// When the fan came to rest for good — every card face up, every wild card
+/// turned, every card where it ends — in ms since the look.
+int? _restAt(List<_Moment> moments) {
+  final last = moments.last.places;
+  int? at;
+  for (final m in moments) {
+    if (m.still && _samePlaces(m.places, last)) {
+      at ??= m.at;
+    } else {
+      at = null;
+    }
+  }
+  return at;
+}
+
+/// When the light landed, in ms since the look.
+int? _litAt(List<_Moment> moments) =>
+    moments.where((m) => m.lit).firstOrNull?.at;
+
+/// The light lands a beat after the fan is at rest — never before it, never
+/// long after ([late], in ms).
+void _landsOnStillCards(
+  List<_Moment> moments, {
+  String reason = '',
+  int late = 160,
+}) {
+  final rest = _restAt(moments);
+  final lit = _litAt(moments);
+  expect(rest, isNotNull, reason: '$reason: the fan came to rest');
+  expect(lit, isNotNull, reason: '$reason: the light landed');
+  expect(lit, greaterThanOrEqualTo(rest!), reason: '$reason: on still cards');
+  expect(lit! - rest, lessThanOrEqualTo(late), reason: '$reason: at once');
+}
+
+/// The peaks of a hand's lit cards are its level's, and every other card of
+/// the viewer's stayed exactly as it was.
+void _litAsItsLevel(
+  Map<String, HandResultCardEffect> peaks,
+  List<String> lit,
+  HandResultProfile profile, {
+  double growthKept = 0.8,
+}) {
+  for (final MapEntry(key: c, value: p) in peaks.entries) {
+    if (lit.contains(c)) {
+      // Its full growth, or as much as the room over the hand leaves (the
+      // viewer's middle card stands under their own bet badge).
+      expect(
+        p.scale,
+        inInclusiveRange(
+          1 + (profile.peakScale - 1) * growthKept,
+          profile.peakScale + 1e-9,
+        ),
+        reason: c,
+      );
+      expect(p.lift, greaterThan(0), reason: c);
+      expect(p.glow, closeTo(profile.glow, 0.02), reason: c);
+    } else {
+      expect(p, HandResultCardEffect.rest, reason: '$c stays still');
+    }
+  }
+}
+
+/// The end of a hand shown down: the reveal, and a frame later the result
+/// and the settled table — the viewer's cards face up unless [viewerBlind].
+Future<void> _showdown(
   WidgetTester tester,
   GameState state, {
   required String winner,
   required ResultHand won,
+  required ResultHand beaten,
   String? loser,
-  int places = 5,
-  String category = 'seen',
-  String? variation,
-  String? turnUp,
-  Duration dealtFor = Duration.zero,
+  bool viewerBlind = false,
+  String reason = 'show',
 }) async {
-  final beaten = loser ?? (winner == 'u0' ? 'u3' : 'u0');
-  final viewerCards = winner == 'u0' ? won.cards : beatenHand.cards;
-  final cardCount = won.cards.length;
-  state.handleState(
-    resultRoom(
-      places: places,
-      inHand: [winner, beaten],
-      cards: viewerCards,
-      cardCount: cardCount,
-      category: category,
-    ),
+  final lost = loser ?? (winner == 'u0' ? 'u3' : 'u0');
+  final viewer = winner == 'u0' ? won : beaten;
+  state.handleShowdown(
+    resultReveal(winner, won, loser: lost, beaten: beaten, reason: reason),
   );
   await tester.pump(const Duration(milliseconds: 16));
-  // The hand on the table this long before it is shown down: its cards dealt
-  // and at rest, as they are at a real table.
-  await _frames(tester, dealtFor.inMilliseconds);
-  if (variation != null) {
-    state.handleVariationAtShowdown((
-      variation: variation,
-      selectedBy: 'PLAYER',
-      turnUp: turnUp,
-    ));
-  }
-  state.handleShowdown(resultReveal(winner, won, loser: beaten));
-  await tester.pump(const Duration(milliseconds: 16));
   state
-    ..handleShowdown(resultEnded(winner, won, loser: beaten))
+    ..handleShowdown(
+      resultEnded(winner, won, loser: lost, beaten: beaten, reason: reason),
+    )
     ..handleState(
       resultSettled(
         winner,
-        loser: beaten,
-        places: places,
-        cards: viewerCards,
-        cardCount: cardCount,
-        category: category,
+        loser: lost,
+        cards: viewer.cards,
+        blind: viewerBlind,
       ),
     );
   await tester.pump(const Duration(milliseconds: 16));
-  // The celebration is launched after the frame that learnt the result.
-  await tester.pump(const Duration(milliseconds: 16));
 }
 
-/// Every lit card's strongest moment over [ms] of frames: its largest scale,
-/// highest lift and brightest edge, and whether anything else lit at all.
-Future<Map<String, HandResultCardEffect>> _peaks(
+/// A look at [h]: the hand dealt blind, the tap on See cards, the server's
+/// answer.
+Future<void> _look(
   WidgetTester tester,
-  List<String> codes, {
-  int ms = 1600,
+  GameState state,
+  ResultHand h, {
+  String category = 'seen',
+  bool isPrivate = false,
+  String roomId = 'r1',
+  int handNo = 7,
 }) async {
-  final peaks = <String, HandResultCardEffect>{
-    for (final c in codes) c: HandResultCardEffect.rest,
-  };
-  for (var at = 0; at < ms; at += 16) {
-    await tester.pump(const Duration(milliseconds: 16));
-    for (final c in codes) {
-      final e = _card(tester, c).effect;
-      final p = peaks[c]!;
-      peaks[c] = HandResultCardEffect(
-        scale: e.scale > p.scale ? e.scale : p.scale,
-        lift: e.lift > p.lift ? e.lift : p.lift,
-        glow: e.glow > p.glow ? e.glow : p.glow,
-        sweep: e.sweep > p.sweep ? e.sweep : p.sweep,
-      );
-    }
-  }
-  return peaks;
+  await _deal(
+    tester,
+    state,
+    category: category,
+    isPrivate: isPrivate,
+    roomId: roomId,
+    handNo: handNo,
+  );
+  await _tapSee(tester, state);
+  await _see(
+    tester,
+    state,
+    h,
+    category: category,
+    isPrivate: isPrivate,
+    roomId: roomId,
+    handNo: handNo,
+  );
 }
 
 void main() {
   setUpAll(() async {
     // Where async is real (CLAUDE.md §12.3).
     await FireworksArt.load();
+    await loadScriptFonts();
   });
   setUp(HandResultMemory.reset);
 
-  group('which cards made the hand', () {
+  group('which cards make the hand', () {
     test('the level is the server\'s category, else its English name', () {
       expect(HandResultLevel.fromCategory(0), isNull);
       expect(HandResultLevel.fromCategory(1), HandResultLevel.pair);
@@ -220,6 +467,24 @@ void main() {
       );
       expect(HandResultLevel.fromHandName('High Card'), isNull);
       expect(HandResultLevel.fromHandName('Colour'), isNull);
+    });
+
+    test('the viewer\'s own hand carries the server\'s category, as sent', () {
+      final hand = OwnHand.fromJson({
+        'handName': 'Trail',
+        'category': 5,
+        'wild': ['2d'],
+        'playsAs': ['7s', '7h', '7d'],
+        'best': ['7s', '7h', '2d'],
+      });
+      expect(hand.category, 5);
+      // A server that sends none reads -1, and the name decides.
+      expect(OwnHand.fromJson({'handName': 'Pair'}).category, -1);
+      // While a 5-Card choice is owed it names nothing.
+      final picking = OwnHand.fromJson(ownHandOf(pairHand, picking: true));
+      expect(picking.picking, isTrue);
+      expect(HandResultLevel.fromCategory(picking.category), isNull);
+      expect(HandResultLevel.fromHandName(picking.handName), isNull);
     });
 
     test('a Pair lights its two cards and not the third', () {
@@ -246,39 +511,6 @@ void main() {
       );
     });
 
-    test('the level is the category the server sent, never what the faces '
-        'look like', () {
-      final clock = AnimationController(vsync: const TestVSync());
-      addTearDown(clock.dispose);
-      HandResultCue? cue(Map<String, Object?> reveal) =>
-          HandResultCue.forWinner(
-            key: 'r1:7:u0',
-            reveal: Reveal.fromJson({'userId': 'u0', ...reveal}),
-            clock: clock,
-            total: const Duration(seconds: 3),
-            startAt: Duration.zero,
-          );
-      // A JOKER Trail (the turned-up card a two): dealt 7 7 2, a Pair by its
-      // faces; the wild 2d played as a seven. The server says Trail.
-      final joker = cue({
-        'cards': ['7s', '7h', '2d'],
-        'handName': 'Trail',
-        'category': 5,
-        'wild': ['2d'],
-        'playsAs': ['7s', '7h', '7d'],
-      });
-      expect(joker?.level, HandResultLevel.trail);
-      expect(joker?.cards, {'7s': 0, '7h': 1, '2d': 2});
-      // The category decides even against the name beside it.
-      final named = cue({
-        'cards': ['As', 'Ah', 'Ad'],
-        'handName': 'Pair',
-        'category': 5,
-      });
-      expect(named?.level, HandResultLevel.trail);
-      expect(named?.cards, {'As': 0, 'Ah': 1, 'Ad': 2});
-    });
-
     test('under 5-Card only the three that played', () {
       final five = ['As', '2c', 'Ah', '9d', 'Ad'];
       expect(
@@ -297,38 +529,6 @@ void main() {
         ),
         {'7s': 0, '7h': 1},
       );
-    });
-
-    test('a High Card, a Muflis hand, a missing reveal or an unfindable pair '
-        'light nothing', () {
-      final clock = AnimationController(vsync: const TestVSync());
-      addTearDown(clock.dispose);
-      HandResultCue? cue(Reveal? r, {String? variation}) =>
-          HandResultCue.forWinner(
-            key: 'r1:7:u0',
-            reveal: r,
-            clock: clock,
-            total: const Duration(seconds: 3),
-            startAt: Duration.zero,
-            variation: variation,
-          );
-      Reveal reveal(List<String> cards, String name, int category) =>
-          Reveal.fromJson({
-            'userId': 'u0',
-            'cards': cards,
-            'handName': name,
-            'category': category,
-          });
-      expect(cue(reveal(['Kd', '9c', '2h'], 'High Card', 0)), isNull);
-      expect(cue(null), isNull);
-      expect(
-        cue(reveal(['As', 'Ah', 'Ad'], 'Trail', 5), variation: 'MUFLIS'),
-        isNull,
-      );
-      expect(cue(reveal(['7s', '8h', 'Kc'], 'Pair', 1)), isNull);
-      final trail = cue(reveal(['As', 'Ah', 'Ad'], 'Trail', 5));
-      expect(trail?.level, HandResultLevel.trail);
-      expect(trail?.cards, {'As': 0, 'Ah': 1, 'Ad': 2});
     });
   });
 
@@ -580,174 +780,456 @@ void main() {
     });
   });
 
-  group('on the table', () {
-    for (final (who, winner) in [('the viewer', 'u0'), ('a rim seat', 'u3')]) {
-      for (final MapEntry(key: name, value: won) in resultHands.entries) {
-        testWidgets('$name at $who: its profile, on its cards alone', (
+  group('the viewer\'s look at a Seen or Blind table', () {
+    // Both tables, both themes: Seen by night, Blind by day.
+    for (final (table, dark) in [('seen', true), ('blind', false)]) {
+      for (final MapEntry(key: name, value: h) in lookHands.entries) {
+        testWidgets('$name seen at a $table table (${dark ? 'dark' : 'light'})'
+            ': its profile on its cards alone, on still cards, heard once', (
           tester,
         ) async {
-          final (state, heard) = await _mount(tester);
-          await _play(tester, state, winner: winner, won: won);
-          final level = HandResultLevel.fromCategory(won.category)!;
-          final group = _group(tester, winner);
-          expect(group.cue?.level, level);
-          expect(group.profile, same(HandResultProfile.of(level)));
-
-          // Nothing before the result: the cards are still turning.
-          for (var at = 0; at < 400; at += 16) {
-            await tester.pump(const Duration(milliseconds: 16));
-            expect(_litCodes(tester), isEmpty, reason: 'at $at ms');
-          }
-          final codes = [...won.cards, ...beatenHand.cards];
-          final peaks = await _peaks(tester, codes);
-          final lit = level == HandResultLevel.pair ? ['7s', '7h'] : won.cards;
-          final profile = HandResultProfile.of(level);
-          for (final c in codes) {
-            final p = peaks[c]!;
-            if (lit.contains(c)) {
-              // Its full growth, or as much as the room over the hand leaves
-              // (the viewer's middle card stands 4dp under their own badge).
-              expect(
-                p.scale,
-                inInclusiveRange(
-                  1 + (profile.peakScale - 1) * 0.8,
-                  profile.peakScale + 1e-9,
-                ),
-                reason: c,
-              );
-              expect(p.lift, greaterThan(0), reason: c);
-              expect(p.glow, closeTo(profile.glow, 0.02), reason: c);
-            } else {
-              expect(p, HandResultCardEffect.rest, reason: '$c stays still');
+          final (state, heard) = await _mount(tester, dark: dark);
+          await _look(tester, state, h, category: table);
+          final level = HandResultLevel.fromCategory(h.category);
+          final watched = await _watch(tester);
+          final group = _group(tester);
+          if (level == null) {
+            // A High Card: nothing among its cards to point at.
+            expect(group.cue, isNull);
+            expect(watched.moments.where((m) => m.lit), isEmpty);
+            for (final p in watched.peaks.values) {
+              expect(p, HandResultCardEffect.rest);
             }
+            expect(heard.heard, isEmpty);
+          } else {
+            expect(group.cue?.level, level);
+            expect(group.cue?.userId, 'u0');
+            expect(group.profile, same(HandResultProfile.of(level)));
+            expect(group.progress, 1);
+            _litAsItsLevel(
+              watched.peaks,
+              litOf(h),
+              HandResultProfile.of(level),
+            );
+            _landsOnStillCards(watched.moments, reason: name);
+            expect(heard.heard, [level]);
           }
-          expect(heard.heard, [level]);
+          // Settled: at rest, but for the edge light the rarer hands keep.
+          for (final c in h.cards) {
+            final e = _card(tester, c).effect;
+            expect(e.moves, isFalse, reason: c);
+            expect(
+              e.glow,
+              litOf(h).contains(c) && level != null
+                  ? HandResultProfile.of(level).restGlow
+                  : 0,
+              reason: c,
+            );
+          }
+          // The phone reads what the cards make and says nothing of it: no
+          // hand name on the felt at a Seen or Blind table.
+          expect(find.text(h.name), findsNothing);
+          expect(tester.takeException(), isNull);
           await _unmount(tester, state);
         });
       }
     }
 
-    // Nothing a result draws — a risen card, its edge light, a Trail's radial
-    // light and sparks — reaches what stands over the hand: the viewer's own
-    // bet badge, a rim seat's pod (review, 29 Sep 2026: a Trail's middle card
-    // lay over the lower third of "SEEN 800" and its light tinted the words).
+    testWidgets('the fourth blind bet\'s reveal plays it the same way', (
+      tester,
+    ) async {
+      final (state, heard) = await _mount(tester);
+      await _deal(tester, state, category: 'blind', blindMovesLeft: 1);
+      // The fourth blind chaal: the server turns the cards up by itself, in
+      // the snapshot after the bet — no tap.
+      await _see(tester, state, sequenceHand, category: 'blind');
+      final watched = await _watch(tester);
+      expect(_group(tester).cue?.level, HandResultLevel.sequence);
+      _litAsItsLevel(
+        watched.peaks,
+        sequenceHand.cards,
+        HandResultProfile.sequence,
+      );
+      _landsOnStillCards(watched.moments, reason: 'the forced reveal');
+      expect(heard.heard, [HandResultLevel.sequence]);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('a private table plays it by its game', (tester) async {
+      final (state, heard) = await _mount(tester);
+      await _look(tester, state, colorHand, category: 'blind', isPrivate: true);
+      expect(state.room?.isPrivate, isTrue);
+      final watched = await _watch(tester);
+      _litAsItsLevel(watched.peaks, colorHand.cards, HandResultProfile.color);
+      expect(heard.heard, [HandResultLevel.color]);
+      await _unmount(tester, state);
+    });
+
+    // Nothing the look draws — a risen card, its edge light, a Trail's radial
+    // light and sparks — reaches the viewer's own bet badge over their cards
+    // (review, 29 Sep 2026: a Trail's middle card lay over the lower third of
+    // "SEEN 800" and its light tinted the words).
     for (final (size, scale) in [
       (const Size(640, 360), 1.25),
       (const Size(891, 411), 1.0),
     ]) {
-      for (final (who, winner) in [
-        ('the viewer', 'u0'),
-        ('a rim seat', 'u3'),
-      ]) {
-        for (final MapEntry(key: name, value: won) in resultHands.entries) {
-          testWidgets('$name at $who, ${size.width.toInt()}x'
-              '${size.height.toInt()} x$scale: never over what stands over '
-              'the hand', (tester) async {
-            final (state, _) = await _mount(tester, size: size, scale: scale);
-            await _play(
-              tester,
-              state,
-              winner: winner,
-              won: won,
-              dealtFor: const Duration(seconds: 1),
-            );
-            final over = winner == 'u0'
-                ? find.descendant(
-                    of: find.byKey(const ValueKey('own-hand-column')),
-                    matching: find.byType(SeatBet),
-                  )
-                : find.descendant(
-                    of: find.byWidgetPredicate(
-                      (w) => w is SeatPod && w.seat?.userId == winner,
-                    ),
-                    matching: find.byType(PodImpact),
-                  );
-            expect(over, findsOneWidget);
-            final lit = won.category == 1 ? ['7s', '7h'] : won.cards;
-            var rose = 0.0;
-            for (var at = 0; at < 1800; at += 16) {
-              await tester.pump(const Duration(milliseconds: 16));
-              // Read every frame: at the showdown the viewer's column glides
-              // up to make room for their hand's name, badge and cards alike.
-              final line = tester.getRect(over).bottom;
-              for (final c in lit) {
-                final card = _card(tester, c);
-                final child = card.child!;
-                final toScreen = child.getTransformTo(null);
-                final painted = MatrixUtils.transformRect(
-                  toScreen,
-                  Offset.zero & child.size,
-                );
+      for (final MapEntry(key: name, value: h) in resultHands.entries) {
+        testWidgets('$name at ${size.width.toInt()}x${size.height.toInt()} '
+            'x$scale: never over the bet badge over the hand', (tester) async {
+          final (state, _) = await _mount(tester, size: size, scale: scale);
+          await _look(tester, state, h);
+          final over = find.descendant(
+            of: _ownColumn,
+            matching: find.byType(SeatBet),
+          );
+          expect(over, findsOneWidget);
+          var rose = 0.0;
+          for (var at = 0; at < 2000; at += 16) {
+            await tester.pump(const Duration(milliseconds: 16));
+            final line = tester.getRect(over).bottom;
+            for (final c in litOf(h)) {
+              final card = _card(tester, c);
+              final child = card.child!;
+              final toScreen = child.getTransformTo(null);
+              final painted = MatrixUtils.transformRect(
+                toScreen,
+                Offset.zero & child.size,
+              );
+              expect(
+                painted.top,
+                greaterThanOrEqualTo(line),
+                reason: '$c at $at ms: its top',
+              );
+              final halo = card.debugLightBounds;
+              if (halo != null) {
                 expect(
-                  painted.top,
-                  greaterThanOrEqualTo(line),
-                  reason: '$c at $at ms: its top',
-                );
-                final halo = card.debugLightBounds;
-                if (halo != null) {
-                  expect(
-                    MatrixUtils.transformRect(toScreen, halo).top,
-                    greaterThanOrEqualTo(line - 0.01),
-                    reason: '$c at $at ms: its edge light',
-                  );
-                }
-                if (card.effect.moves) {
-                  rose = math.max(rose, card.effect.riseOf(child.size.height));
-                }
-              }
-              final light = _group(tester, winner).debugLightBounds;
-              if (light != null) {
-                expect(
-                  light.top,
+                  MatrixUtils.transformRect(toScreen, halo).top,
                   greaterThanOrEqualTo(line - 0.01),
-                  reason: 'the burst at $at ms',
+                  reason: '$c at $at ms: its edge light',
                 );
+              }
+              if (card.effect.moves) {
+                rose = math.max(rose, card.effect.riseOf(child.size.height));
               }
             }
-            // And it did rise: the brief's 2–6 px, bounded, not taken away.
-            expect(rose, greaterThanOrEqualTo(2.5));
-            await _unmount(tester, state);
-          });
-        }
+            final light = _group(tester).debugLightBounds;
+            if (light != null) {
+              expect(
+                light.top,
+                greaterThanOrEqualTo(line - 0.01),
+                reason: 'the burst at $at ms',
+              );
+            }
+          }
+          // And it did rise: the brief's 2–6 px, bounded, not taken away.
+          expect(rose, greaterThanOrEqualTo(2.5));
+          await _unmount(tester, state);
+        });
       }
     }
+  });
 
-    testWidgets('a High Card lights nothing and says nothing', (tester) async {
+  group('never at a result', () {
+    testWidgets('a show won by another seat, the viewer blind: their cards '
+        'turn up in the reveal and nothing lights anywhere', (tester) async {
       final (state, heard) = await _mount(tester);
-      await _play(tester, state, winner: 'u3', won: highCardHand);
-      for (var at = 0; at < 2000; at += 16) {
+      await _deal(tester, state);
+      await _showdown(
+        tester,
+        state,
+        winner: 'u3',
+        won: trailHand,
+        beaten: pureSequenceHand,
+        viewerBlind: true,
+      );
+      for (var at = 0; at < 2500; at += 16) {
         await tester.pump(const Duration(milliseconds: 16));
-        expect(_litCodes(tester), isEmpty);
+        expect(_litCodes(tester), isEmpty, reason: 'at $at ms');
       }
-      expect(_group(tester, 'u3').cue, isNull);
+      // The viewer's cards are up — the reveal's — and the winner's Trail at
+      // its seat: not one card anywhere carries the light.
+      expect(_ownCodes(tester), unorderedEquals(pureSequenceHand.cards));
+      expect(_group(tester).cue, isNull);
+      expect(heard.heard, isEmpty);
+      // Only the viewer's own fan is ever wrapped for the light.
+      for (final e in find.byType(HandResultCard).evaluate()) {
+        expect(
+          find.descendant(of: _ownColumn, matching: find.byWidget(e.widget)),
+          findsOneWidget,
+        );
+      }
+      expect(
+        find.descendant(
+          of: find.byWidgetPredicate(
+            (w) => w is SeatPod && w.seat?.userId == 'u3',
+          ),
+          matching: find.byType(HandResultCard),
+        ),
+        findsNothing,
+      );
+      await _unmount(tester, state);
+    });
+
+    for (final reason in ['show', 'forced_showdown', 'pot_limit', 'missile']) {
+      testWidgets('a $reason the viewer looked before: nothing plays again, '
+          'the look stays as it settled', (tester) async {
+        final (state, heard) = await _mount(tester);
+        await _look(tester, state, pureSequenceHand);
+        await _settle(tester, 2000);
+        expect(heard.heard, [HandResultLevel.pureSequence]);
+        await _showdown(
+          tester,
+          state,
+          winner: 'u0',
+          won: pureSequenceHand,
+          beaten: pairHand,
+          reason: reason,
+        );
+        for (var at = 0; at < 2500; at += 16) {
+          await tester.pump(const Duration(milliseconds: 16));
+          for (final c in pureSequenceHand.cards) {
+            final e = _card(tester, c).effect;
+            expect(e.moves, isFalse, reason: '$c at $at ms');
+            expect(e.sweep, 0, reason: '$c at $at ms');
+            expect(
+              e.glow,
+              HandResultProfile.pureSequence.restGlow,
+              reason: '$c at $at ms',
+            );
+          }
+        }
+        expect(heard.heard, [HandResultLevel.pureSequence]);
+        await _unmount(tester, state);
+      });
+    }
+
+    testWidgets('the fourth blind bet running the showdown in the same move: '
+        'the cards turn up with the hand over, and nothing lights', (
+      tester,
+    ) async {
+      final (state, heard) = await _mount(tester);
+      await _deal(tester, state, category: 'seen', blindMovesLeft: 1);
+      // The last blind chaal reached the round cap: the server turns the
+      // cards up, shows every hand down and settles, all in one move.
+      await _showdown(
+        tester,
+        state,
+        winner: 'u3',
+        won: pairHand,
+        beaten: trailHand,
+        reason: 'forced_showdown',
+      );
+      expect(_ownCodes(tester), unorderedEquals(trailHand.cards));
+      for (var at = 0; at < 2500; at += 16) {
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(_litCodes(tester), isEmpty, reason: 'at $at ms');
+      }
       expect(heard.heard, isEmpty);
       await _unmount(tester, state);
     });
 
-    testWidgets('a wild card lights with the natural card it paired', (
-      tester,
-    ) async {
-      final (state, _) = await _mount(tester);
-      // AK47: the K is wild and played as a nine beside the natural 9d.
-      final wildPair = hand(
-        ['Ks', '9d', '2c'],
-        'Pair',
-        1,
-        wild: ['Ks'],
-        playsAs: ['9h', '9d', '2c'],
+    testWidgets('a sideshow lights neither hand: the look was the viewer\'s '
+        'moment', (tester) async {
+      final (state, heard) = await _mount(tester);
+      await _look(tester, state, trailHand);
+      await _settle(tester, 2000);
+      state.handleSideshowReveal(
+        SideshowReveal.fromJson({
+          'hands': [
+            {'userId': 'u0', 'cards': trailHand.cards, 'handName': 'Trail'},
+            {
+              'userId': 'u3',
+              'cards': sequenceHand.cards,
+              'handName': 'Sequence',
+            },
+          ],
+          'packedUserId': 'u3',
+        }),
       );
-      await _play(
+      for (var at = 0; at < 1600; at += 16) {
+        await tester.pump(const Duration(milliseconds: 16));
+        for (final c in _litCodes(tester)) {
+          expect(trailHand.cards, contains(c), reason: 'at $at ms');
+          expect(_card(tester, c).effect.moves, isFalse, reason: 'at $at ms');
+        }
+      }
+      expect(heard.heard, [HandResultLevel.trail]);
+      await _unmount(tester, state);
+    });
+  });
+
+  group('once a hand', () {
+    testWidgets('a snapshot repeat plays nothing, and a settled hand paints '
+        'nothing more over 60 frames', (tester) async {
+      for (final h in [trailHand, pureSequenceHand, pairHand]) {
+        HandResultMemory.reset();
+        final (state, heard) = await _mount(tester);
+        await _look(tester, state, h);
+        await _settle(tester, 2500);
+        final level = HandResultLevel.fromCategory(h.category)!;
+        expect(_group(tester).progress, 1);
+        RenderHandResultCard.debugLitPaints = 0;
+        for (var frame = 0; frame < 60; frame++) {
+          // The one-second tick, and the same hand's snapshot again (a
+          // reconnect's room:joined, another player's move).
+          if (frame % 15 == 0) state.notifyListeners();
+          if (frame == 30) await _see(tester, state, h);
+          await tester.pump(const Duration(milliseconds: 16));
+          for (final c in h.cards) {
+            expect(_card(tester, c).effect.moves, isFalse, reason: c);
+          }
+        }
+        expect(RenderHandResultCard.debugLitPaints, 0, reason: h.name);
+        expect(heard.heard, [level]);
+        await _unmount(tester, state);
+      }
+    });
+
+    testWidgets('a felt built again mid-look shows it settled and plays '
+        'nothing', (tester) async {
+      final (state, heard) = await _mount(tester);
+      await _look(tester, state, trailHand);
+      await _frames(tester, 900); // the light has landed; the burst is on
+      expect(_group(tester).progress, inExclusiveRange(0, 1));
+      final feedback = await _feedback();
+      addTearDown(feedback.dispose);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(
+        tableApp(
+          state: state,
+          feedback: feedback,
+          theme: AppTheme.dark(sound: false),
+        ),
+      );
+      for (var at = 0; at < 1600; at += 16) {
+        await tester.pump(const Duration(milliseconds: 16));
+        for (final c in trailHand.cards) {
+          final e = _card(tester, c).effect;
+          expect(e.moves, isFalse, reason: '$c at $at ms');
+          expect(e.glow, HandResultProfile.trail.restGlow, reason: c);
+        }
+      }
+      expect(heard.heard, [HandResultLevel.trail]);
+      expect(feedback.heard, isEmpty);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('the next deal takes the light with it, and the next look '
+        'plays again', (tester) async {
+      final (state, heard) = await _mount(tester);
+      await _look(tester, state, trailHand);
+      await _frames(tester, 900);
+      expect(_litCodes(tester), isNotEmpty);
+      state.handleState(resultNextDeal());
+      await tester.pump(const Duration(milliseconds: 16));
+      // At once: the next snapshot is never held for the animation.
+      expect(state.room?.handNo, 8);
+      expect(_litCodes(tester), isEmpty);
+      expect(_group(tester).cue, isNull);
+      await _settle(tester, 3000);
+      expect(_litCodes(tester), isEmpty);
+      await _tapSee(tester, state);
+      await _see(tester, state, trailHand, handNo: 8);
+      final watched = await _watch(tester);
+      _litAsItsLevel(watched.peaks, trailHand.cards, HandResultProfile.trail);
+      expect(heard.heard, [HandResultLevel.trail, HandResultLevel.trail]);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('a switch of table is a new hand: nothing is carried to it, '
+        'and a look there plays', (tester) async {
+      final (state, heard) = await _mount(tester);
+      await _look(tester, state, trailHand);
+      await _settle(tester, 2000);
+      // Another table whose hand carries the same number.
+      await _deal(tester, state, roomId: 'r2');
+      expect(_litCodes(tester), isEmpty);
+      expect(_group(tester).cue, isNull);
+      await _tapSee(tester, state);
+      await _see(tester, state, trailHand, roomId: 'r2');
+      final watched = await _watch(tester);
+      _litAsItsLevel(watched.peaks, trailHand.cards, HandResultProfile.trail);
+      _landsOnStillCards(watched.moments, reason: 'at the new table');
+      expect(heard.heard, [HandResultLevel.trail, HandResultLevel.trail]);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('packing takes the light away', (tester) async {
+      final (state, _) = await _mount(tester);
+      await _look(tester, state, pureSequenceHand);
+      await _settle(tester, 2000);
+      expect(_litCodes(tester), isNotEmpty);
+      await _see(tester, state, pureSequenceHand, status: 'packed');
+      await _settle(tester, 500);
+      expect(_litCodes(tester), isEmpty);
+      expect(_group(tester).cue, isNull);
+      await _unmount(tester, state);
+    });
+  });
+
+  group('the viewer\'s look at a Variation table', () {
+    // AK47: the K is wild and played as a nine beside the natural 9d — a Pair
+    // of nines (the strongest it could make: 9 9 2).
+    final wildPair = hand(
+      ['Ks', '9d', '2c'],
+      'Pair',
+      1,
+      wild: ['Ks'],
+      playsAs: ['9h', '9d', '2c'],
+    );
+    final ak47 = variationBlock(selected: Variation.ak47);
+
+    testWidgets('looked after the choice: a wild card lights with the natural '
+        'card it paired, once it has turned', (tester) async {
+      final (state, heard) = await _mount(tester);
+      await _deal(tester, state, category: 'variation', variation: ak47);
+      await _tapSee(tester, state);
+      await _see(
         tester,
         state,
-        winner: 'u3',
-        won: wildPair,
+        wildPair,
         category: 'variation',
-        variation: 'AK47',
+        variation: ak47,
+        ownHand: ownHandOf(wildPair),
       );
-      final peaks = await _peaks(tester, ['Ks', '9d', '2c']);
-      expect(peaks['Ks']!.scale, greaterThan(1.02));
-      expect(peaks['9d']!.scale, greaterThan(1.02));
-      expect(peaks['2c'], HandResultCardEffect.rest);
+      final watched = await _watch(tester, ms: 3200);
+      expect(_group(tester).cue?.level, HandResultLevel.pair);
+      _litAsItsLevel(watched.peaks, ['Ks', '9d'], HandResultProfile.pair);
+      _landsOnStillCards(watched.moments, reason: 'after the wild turn');
+      expect(heard.heard, [HandResultLevel.pair]);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('looked before the choice: nothing until it lands, then '
+        'once the wild card has turned', (tester) async {
+      final (state, heard) = await _mount(tester);
+      final open = variationBlock();
+      await _deal(tester, state, category: 'variation', variation: open);
+      await _tapSee(tester, state);
+      await _see(
+        tester,
+        state,
+        wildPair,
+        category: 'variation',
+        variation: open,
+      );
+      for (var at = 0; at < 1500; at += 16) {
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(_litCodes(tester), isEmpty, reason: 'at $at ms');
+      }
+      expect(_group(tester).cue, isNull);
+      await _see(
+        tester,
+        state,
+        wildPair,
+        category: 'variation',
+        variation: ak47,
+        ownHand: ownHandOf(wildPair),
+      );
+      final watched = await _watch(tester, ms: 3000);
+      _litAsItsLevel(watched.peaks, ['Ks', '9d'], HandResultProfile.pair);
+      _landsOnStillCards(watched.moments, reason: 'the choice landing');
+      expect(heard.heard, [HandResultLevel.pair]);
       await _unmount(tester, state);
     });
 
@@ -761,261 +1243,427 @@ void main() {
         wild: ['2d'],
         playsAs: ['7s', '7h', '7d'],
       );
-      await _play(
+      final joker = variationBlock(selected: Variation.joker, turnUp: '2c');
+      await _deal(tester, state, category: 'variation', variation: joker);
+      await _tapSee(tester, state);
+      await _see(
         tester,
         state,
-        winner: 'u3',
-        won: jokerTrail,
+        jokerTrail,
         category: 'variation',
-        variation: 'JOKER',
-        turnUp: '2c',
+        variation: joker,
+        ownHand: ownHandOf(jokerTrail),
       );
-      final group = _group(tester, 'u3');
-      expect(group.cue?.level, HandResultLevel.trail);
-      expect(group.profile, same(HandResultProfile.trail));
-      final peaks = await _peaks(tester, jokerTrail.cards);
-      for (final c in jokerTrail.cards) {
-        expect(
-          peaks[c]!.scale,
-          closeTo(HandResultProfile.trail.peakScale, 0.004),
-          reason: c,
-        );
-        expect(
-          peaks[c]!.glow,
-          closeTo(HandResultProfile.trail.glow, 0.02),
-          reason: c,
-        );
-      }
+      final watched = await _watch(tester, ms: 3200);
+      expect(_group(tester).profile, same(HandResultProfile.trail));
+      _litAsItsLevel(watched.peaks, jokerTrail.cards, HandResultProfile.trail);
+      _landsOnStillCards(watched.moments, reason: 'the joker');
       expect(heard.heard, [HandResultLevel.trail]);
       await _unmount(tester, state);
-    });
-
-    testWidgets('under 5-Card only the three that played light, at both '
-        'seats', (tester) async {
-      for (final winner in ['u0', 'u3']) {
-        HandResultMemory.reset();
-        final (state, _) = await _mount(tester);
-        final five = hand(
-          ['As', '2c', 'Ah', '9d', 'Ad'],
-          'Trail',
-          5,
-          best: ['As', 'Ah', 'Ad'],
-        );
-        await _play(
-          tester,
-          state,
-          winner: winner,
-          won: five,
-          category: 'variation',
-          variation: 'FIVE_CARD',
-        );
-        final peaks = await _peaks(tester, five.cards);
-        for (final c in ['As', 'Ah', 'Ad']) {
-          expect(peaks[c]!.scale, greaterThan(1.03), reason: '$winner $c');
-        }
-        for (final c in ['2c', '9d']) {
-          expect(peaks[c], HandResultCardEffect.rest, reason: '$winner $c');
-        }
-        await _unmount(tester, state);
-      }
     });
 
     testWidgets('a Muflis hand is not lit by its rarity', (tester) async {
       final (state, heard) = await _mount(tester);
-      await _play(
+      final muflis = variationBlock(selected: Variation.muflis);
+      await _deal(tester, state, category: 'variation', variation: muflis);
+      await _tapSee(tester, state);
+      await _see(
         tester,
         state,
-        winner: 'u3',
-        won: pairHand,
+        trailHand,
         category: 'variation',
-        variation: 'MUFLIS',
+        variation: muflis,
+        ownHand: ownHandOf(trailHand),
       );
-      for (var at = 0; at < 1600; at += 16) {
+      for (var at = 0; at < 2000; at += 16) {
         await tester.pump(const Duration(milliseconds: 16));
-        expect(_litCodes(tester), isEmpty);
+        expect(_litCodes(tester), isEmpty, reason: 'at $at ms');
       }
       expect(heard.heard, isEmpty);
       await _unmount(tester, state);
     });
 
-    testWidgets('a sideshow won lights nothing: it is not the hand\'s result', (
+    testWidgets('what the server says the hand makes, not what the phone '
+        'would read — and a changed answer plays once more', (tester) async {
+      final (state, heard) = await _mount(tester);
+      await _deal(tester, state, category: 'variation', variation: ak47);
+      await _tapSee(tester, state);
+      await _see(
+        tester,
+        state,
+        wildPair,
+        category: 'variation',
+        variation: ak47,
+        ownHand: ownHandOf(wildPair),
+      );
+      await _settle(tester, 3000);
+      expect(heard.heard, [HandResultLevel.pair]);
+      // Were the server to name the hand anew within it (it never does at a
+      // variation table), the new answer plays once, as a look already made.
+      final named = hand(['Ks', '9d', '2c'], 'Trail', 5, wild: ['Ks']);
+      await _see(
+        tester,
+        state,
+        wildPair,
+        category: 'variation',
+        variation: ak47,
+        ownHand: ownHandOf(named),
+      );
+      final watched = await _watch(tester);
+      _litAsItsLevel(watched.peaks, wildPair.cards, HandResultProfile.trail);
+      await _see(
+        tester,
+        state,
+        wildPair,
+        category: 'variation',
+        variation: ak47,
+        ownHand: ownHandOf(named),
+      );
+      await _settle(tester, 1500);
+      expect(heard.heard, [HandResultLevel.pair, HandResultLevel.trail]);
+      await _unmount(tester, state);
+    });
+  });
+
+  group('5-Card', () {
+    final five = variationBlock(selected: Variation.fiveCard);
+    final dealt = ['As', '2c', 'Ah', '9d', 'Ad'];
+    final picking = hand(dealt, '', 0);
+
+    Future<void> lookAtFive(WidgetTester tester, GameState state) async {
+      await _deal(
+        tester,
+        state,
+        category: 'variation',
+        variation: five,
+        cardCount: 5,
+      );
+      await _tapSee(tester, state);
+      await _see(
+        tester,
+        state,
+        picking,
+        category: 'variation',
+        variation: five,
+        ownHand: ownHandOf(picking, picking: true),
+      );
+    }
+
+    testWidgets('nothing while the three are being chosen; once chosen, the '
+        'three that play, after the fan is set out', (tester) async {
+      final (state, heard) = await _mount(tester);
+      await lookAtFive(tester, state);
+      for (var at = 0; at < 1500; at += 16) {
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(_litCodes(tester), isEmpty, reason: 'at $at ms');
+      }
+      expect(_group(tester).cue, isNull);
+      final chosen = hand(dealt, 'Trail', 5, best: ['As', 'Ah', 'Ad']);
+      await _see(
+        tester,
+        state,
+        chosen,
+        category: 'variation',
+        variation: five,
+        ownHand: ownHandOf(chosen, pickedBy: 'PLAYER'),
+      );
+      final watched = await _watch(tester, ms: 3400);
+      // The three that count stand raised in the arranged fan, right under
+      // the bet badge over it (about 2dp of room at 891x411): they rise and
+      // grow only as far as that room — the hand rises as one — and the Trail
+      // is carried by its light.
+      _litAsItsLevel(
+        watched.peaks,
+        ['As', 'Ah', 'Ad'],
+        HandResultProfile.trail,
+        growthKept: 0,
+      );
+      _landsOnStillCards(watched.moments, reason: 'the three set out');
+      expect(heard.heard, [HandResultLevel.trail]);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('the window lapsing plays the first three dealt', (
       tester,
     ) async {
       final (state, heard) = await _mount(tester);
-      state.handleState(
-        resultRoom(inHand: ['u0', 'u3', 'u4'], cards: trailHand.cards),
+      final pairDealt = ['7s', '7h', '2c', '9d', 'Kd'];
+      await lookAtFive(tester, state);
+      await _settle(tester, 1000);
+      final lapsed = hand(pairDealt, 'Pair', 1, best: ['7s', '7h', '2c']);
+      await _see(
+        tester,
+        state,
+        lapsed,
+        category: 'variation',
+        variation: five,
+        ownHand: ownHandOf(lapsed, pickedBy: 'TIMEOUT'),
       );
-      await tester.pump(const Duration(milliseconds: 16));
-      state.handleSideshowReveal(
-        SideshowReveal.fromJson({
-          'hands': [
-            {'userId': 'u0', 'cards': trailHand.cards, 'handName': 'Trail'},
-            {
-              'userId': 'u3',
-              'cards': beatenHand.cards,
-              'handName': 'High Card',
-            },
-          ],
-          'packedUserId': 'u3',
-        }),
+      final watched = await _watch(tester, ms: 3000);
+      _litAsItsLevel(
+        watched.peaks,
+        ['7s', '7h'],
+        HandResultProfile.pair,
+        growthKept: 0.4,
       );
-      for (var at = 0; at < 1600; at += 16) {
-        await tester.pump(const Duration(milliseconds: 16));
-        expect(_litCodes(tester), isEmpty);
-      }
-      expect(heard.heard, isEmpty);
+      _landsOnStillCards(watched.moments, reason: 'the lapse');
+      expect(heard.heard, [HandResultLevel.pair]);
       await _unmount(tester, state);
     });
+  });
 
-    testWidgets('the next deal takes the light with it, mid-flight, and it '
-        'never comes back', (tester) async {
-      final (state, _) = await _mount(tester);
-      await _play(tester, state, winner: 'u3', won: trailHand);
-      await _frames(tester, 900); // the result has landed; the burst is on
-      expect(_litCodes(tester), isNotEmpty);
-      state.handleState(resultNextDeal());
-      await tester.pump(const Duration(milliseconds: 16));
-      // At once: the next snapshot is never held for the animation.
-      expect(state.room?.handNo, 8);
-      expect(state.showdown, isEmpty);
-      expect(_litCodes(tester), isEmpty);
-      for (final c in trailHand.cards) {
-        expect(_cardFinder(c), findsNothing, reason: 'the cards are backs');
+  group('the light lands on cards at rest', () {
+    // Measured on the real felt, frame by frame: when the fan stops moving
+    // and when the light lands, in ms since the look's snapshot.
+    testWidgets('the numbers', (tester) async {
+      final rows = <String>[];
+      Future<void> measure(String name, Future<void> Function() look) async {
+        HandResultMemory.reset();
+        await look();
+        final watched = await _watch(tester, ms: 3400);
+        final rest = _restAt(watched.moments)!;
+        final lit = _litAt(watched.moments)!;
+        rows.add('$name: still at $rest ms, light at $lit ms (+${lit - rest})');
+        _landsOnStillCards(watched.moments, reason: name);
       }
-      for (var at = 0; at < 2500; at += 16) {
-        await tester.pump(const Duration(milliseconds: 16));
-        expect(_litCodes(tester), isEmpty);
-      }
+
+      var (state, _) = await _mount(tester);
+      await measure('See cards, three cards', () async {
+        await _deal(tester, state);
+        await _tapSee(tester, state);
+        await _see(tester, state, trailHand);
+      });
       await _unmount(tester, state);
-    });
 
-    testWidgets('a rebuild never restarts it, and it repaints nothing once '
-        'settled', (tester) async {
-      final (state, heard) = await _mount(tester);
-      await _play(tester, state, winner: 'u3', won: pureSequenceHand);
-      await _frames(tester, 900);
-      final before = _group(tester, 'u3').progress;
-      expect(before, inExclusiveRange(0, 1));
-      // The one-second tick, and a snapshot of the same hand.
-      state.notifyListeners();
-      await tester.pump(const Duration(milliseconds: 16));
-      state.handleState(resultSettled('u3'));
-      await tester.pump(const Duration(milliseconds: 16));
-      expect(_group(tester, 'u3').progress, greaterThanOrEqualTo(before));
-      expect(heard.heard, [HandResultLevel.pureSequence]);
-      // Settled: the edge light it keeps, and not one more paint for it.
-      await _frames(tester, 1200);
-      expect(_group(tester, 'u3').progress, 1);
-      final settled = _card(tester, '5s').effect;
-      expect(settled.scale, 1);
-      expect(settled.glow, HandResultProfile.pureSequence.restGlow);
-      RenderHandResultCard.debugLitPaints = 0;
-      await _frames(tester, 600);
-      state.notifyListeners();
-      await _frames(tester, 200);
-      expect(RenderHandResultCard.debugLitPaints, 0);
-      await _unmount(tester, state);
-    });
-
-    testWidgets('a reconnect\'s snapshot of a finished result shows it '
-        'settled, and a felt built again never replays it', (tester) async {
-      final (state, heard) = await _mount(tester);
-      await _play(tester, state, winner: 'u3', won: trailHand);
-      await _frames(tester, 1800);
-      expect(_group(tester, 'u3').progress, 1);
-      // The reconnect's room:joined: the same hand, the same result.
-      state.handleState(resultSettled('u3'));
-      await tester.pump(const Duration(milliseconds: 16));
-      final e = _card(tester, 'Ah').effect;
-      expect(e.scale, 1);
-      expect(e.glow, HandResultProfile.trail.restGlow);
-
-      // The table screen built again round the same celebration: a new felt,
-      // a new clock — and the cards settled from their first frame.
-      final feedback = await _feedback();
-      addTearDown(feedback.dispose);
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpWidget(
-        tableApp(
-          state: state,
-          feedback: feedback,
-          theme: AppTheme.dark(sound: false),
-        ),
+      (state, _) = await _mount(tester);
+      final wildPair = hand(
+        ['Ks', '9d', '2c'],
+        'Pair',
+        1,
+        wild: ['Ks'],
+        playsAs: ['9h', '9d', '2c'],
       );
-      for (var at = 0; at < 1600; at += 16) {
-        await tester.pump(const Duration(milliseconds: 16));
-        final again = _card(tester, 'Ah').effect;
-        expect(again.scale, 1, reason: 'at $at ms');
-        expect(again.lift, 0, reason: 'at $at ms');
-      }
-      expect(heard.heard, [HandResultLevel.trail]);
-      expect(feedback.heard, isEmpty);
-      await _unmount(tester, state);
-    });
-
-    testWidgets(
-      'reduced motion moves less, sweeps nothing and bursts nothing',
-      (tester) async {
-        final (state, _) = await _mount(tester, reduced: true);
-        await _play(tester, state, winner: 'u3', won: trailHand);
-        expect(
-          _group(tester, 'u3').profile,
-          same(HandResultProfile.reducedOf(HandResultLevel.trail)),
-        );
-        final peaks = await _peaks(tester, trailHand.cards);
-        for (final c in trailHand.cards) {
-          expect(peaks[c]!.scale, lessThan(HandResultProfile.trail.peakScale));
-          expect(peaks[c]!.sweep, 0);
-          expect(peaks[c]!.glow, greaterThan(0));
-        }
-        await _unmount(tester, state);
-      },
-    );
-
-    for (final dark in [true, false]) {
-      for (final winner in ['u0', 'u3']) {
-        testWidgets('a Trail at 640x360 x1.25, ${dark ? 'dark' : 'light'}, '
-            '$winner winning: nothing overflows', (tester) async {
-          final (state, _) = await _mount(
-            tester,
-            size: const Size(640, 360),
-            scale: 1.25,
-            dark: dark,
-          );
-          await _play(tester, state, winner: winner, won: trailHand);
-          await _frames(tester, 2000);
-          expect(tester.takeException(), isNull);
-          await _unmount(tester, state);
-        });
-      }
-    }
-
-    for (final places in [2, 3, 4]) {
-      testWidgets('the head seat or an end seat at $places places lights its '
-          'own cards', (tester) async {
-        final (state, _) = await _mount(
-          tester,
-          size: const Size(640, 360),
-          scale: 1.25,
-          places: places,
-        );
-        // At two and four places the seat across the table is the head
-        // seat, which lays its cards beside its pod.
-        final winner = resultIds[places - 1 == 3 ? 2 : places - 1];
-        await _play(
+      final ak47 = variationBlock(selected: Variation.ak47);
+      await measure('See cards with a wild card', () async {
+        await _deal(tester, state, category: 'variation', variation: ak47);
+        await _tapSee(tester, state);
+        await _see(
           tester,
           state,
-          winner: winner,
-          won: colorHand,
-          places: places,
+          wildPair,
+          category: 'variation',
+          variation: ak47,
+          ownHand: ownHandOf(wildPair),
         );
-        final peaks = await _peaks(tester, colorHand.cards);
-        for (final c in colorHand.cards) {
-          expect(peaks[c]!.sweep, greaterThan(0), reason: c);
+      });
+      await _unmount(tester, state);
+
+      (state, _) = await _mount(tester);
+      await measure('the variation chosen on a player looking', () async {
+        final open = variationBlock();
+        await _deal(tester, state, category: 'variation', variation: open);
+        await _tapSee(tester, state);
+        await _see(
+          tester,
+          state,
+          wildPair,
+          category: 'variation',
+          variation: open,
+        );
+        await _settle(tester, 1000);
+        await _see(
+          tester,
+          state,
+          wildPair,
+          category: 'variation',
+          variation: ak47,
+          ownHand: ownHandOf(wildPair),
+        );
+      });
+      await _unmount(tester, state);
+
+      (state, _) = await _mount(tester);
+      final five = variationBlock(selected: Variation.fiveCard);
+      final dealt = ['As', '2c', 'Ah', '9d', 'Ad'];
+      await measure('the 5-Card three chosen', () async {
+        await _deal(
+          tester,
+          state,
+          category: 'variation',
+          variation: five,
+          cardCount: 5,
+        );
+        await _tapSee(tester, state);
+        await _see(
+          tester,
+          state,
+          hand(dealt, '', 0),
+          category: 'variation',
+          variation: five,
+          ownHand: ownHandOf(hand(dealt, '', 0), picking: true),
+        );
+        await _settle(tester, 1000);
+        final chosen = hand(dealt, 'Trail', 5, best: ['As', 'Ah', 'Ad']);
+        await _see(
+          tester,
+          state,
+          chosen,
+          category: 'variation',
+          variation: five,
+          ownHand: ownHandOf(chosen, pickedBy: 'PLAYER'),
+        );
+      });
+      await _unmount(tester, state);
+      // For the review: where the light lands against the fan's own motion.
+      // ignore: avoid_print
+      rows.forEach(print);
+    });
+  });
+
+  group('motion, themes and idle', () {
+    testWidgets('reduced motion moves less, sweeps nothing and bursts '
+        'nothing, and still marks the cards', (tester) async {
+      for (final h in [trailHand, pairHand]) {
+        HandResultMemory.reset();
+        final (state, _) = await _mount(tester, reduced: true);
+        await _look(tester, state, h);
+        final level = HandResultLevel.fromCategory(h.category)!;
+        final watched = await _watch(tester);
+        expect(
+          _group(tester).profile,
+          same(HandResultProfile.reducedOf(level)),
+        );
+        for (final c in litOf(h)) {
+          final p = watched.peaks[c]!;
+          expect(p.scale, lessThan(HandResultProfile.of(level).peakScale));
+          expect(p.sweep, 0);
+          // At least the reduced mark's light, give or take a frame's sample.
+          expect(
+            p.glow,
+            greaterThanOrEqualTo(HandResultProfile.reducedMark - 0.01),
+          );
         }
+        expect(_group(tester).debugLightBounds, isNull);
+        // The phone's own reduced motion runs the cards' turns twenty times
+        // faster; the look keeps its own time, so its mark still lands on
+        // still cards — a little later after them than it would, as it waits
+        // for turns taken at full length — and stays up for the level's run,
+        // not a frame.
+        _landsOnStillCards(
+          watched.moments,
+          reason: '${h.name} reduced',
+          late: 600,
+        );
+        await _unmount(tester, state);
+        // And the mark stays up for the level's run, not a frame: frame by
+        // frame over the look again, the edge light of a card it lights.
+        HandResultMemory.reset();
+        final (again, _) = await _mount(tester, reduced: true);
+        await _look(tester, again, h);
+        var marked = 0;
+        for (var at = 0; at < 2600; at += 16) {
+          await tester.pump(const Duration(milliseconds: 16));
+          if (_card(tester, litOf(h).first).effect.glow >=
+              HandResultProfile.reducedMark * 0.5) {
+            marked++;
+          }
+        }
+        expect(
+          marked * 16,
+          greaterThanOrEqualTo(
+            HandResultProfile.of(level).duration.inMilliseconds ~/ 2,
+          ),
+        );
+        await _unmount(tester, again);
+      }
+    });
+
+    for (final dark in [true, false]) {
+      testWidgets('a Trail by ${dark ? 'night' : 'day'} takes the theme\'s '
+          'light and settles still', (tester) async {
+        final (state, _) = await _mount(tester, dark: dark);
+        await _look(tester, state, trailHand);
+        // At the height of the burst the hand's own light is painted …
+        await _frames(tester, 900);
+        expect(_group(tester).debugLightBounds, isNotNull);
+        // … and once settled, only the small light a Trail keeps.
+        await _settle(tester, 2000);
+        for (final c in trailHand.cards) {
+          final e = _card(tester, c).effect;
+          expect(e.moves, isFalse);
+          expect(e.glow, HandResultProfile.trail.restGlow);
+        }
+        RenderHandResultCard.debugLitPaints = 0;
+        await _frames(tester, 60 * 16);
+        expect(RenderHandResultCard.debugLitPaints, 0);
         expect(tester.takeException(), isNull);
         await _unmount(tester, state);
       });
+    }
+  });
+
+  group('640x360 at x1.25, every language', () {
+    for (final lang in AppLang.values) {
+      for (final dark in [true, false]) {
+        testWidgets('${lang.code} ${dark ? 'dark' : 'light'}: See cards, a '
+            'Trail and a Pair, nothing cut and nothing over a key', (
+          tester,
+        ) async {
+          if (!haveScriptFonts()) {
+            markTestSkipped('the Noto fonts are not on this machine');
+            return;
+          }
+          for (final h in [trailHand, pairHand]) {
+            HandResultMemory.reset();
+            final (state, heard) = await _mount(
+              tester,
+              size: const Size(640, 360),
+              scale: 1.25,
+              dark: dark,
+              lang: lang,
+            );
+            await _deal(tester, state);
+            expect(find.text(state.t.seeCards), findsOneWidget);
+            await _tapSee(tester, state);
+            await _see(tester, state, h);
+            final view = Offset.zero & const Size(640, 360);
+            final keys = [
+              ...tester.widgetList(find.byType(MachinedKey)),
+              ...tester.widgetList(find.byType(StepperKey)),
+            ].map((w) => tester.getRect(find.byWidget(w))).toList();
+            final pod = tester.getRect(
+              find.byWidgetPredicate(
+                (w) => w is SeatPod && w.seat?.userId == 'u0',
+              ),
+            );
+            for (var at = 0; at < 2200; at += 16) {
+              await tester.pump(const Duration(milliseconds: 16));
+              final badge = tester.getRect(
+                find.descendant(of: _ownColumn, matching: find.byType(SeatBet)),
+              );
+              for (final c in h.cards) {
+                final card = _card(tester, c);
+                final child = card.child!;
+                final painted = MatrixUtils.transformRect(
+                  child.getTransformTo(null),
+                  Offset.zero & child.size,
+                );
+                final why = '${lang.code} ${h.name} $c at $at ms';
+                expect(view.contains(painted.topLeft), isTrue, reason: why);
+                expect(view.contains(painted.bottomRight), isTrue, reason: why);
+                expect(painted.top, greaterThanOrEqualTo(badge.bottom));
+                expect(painted.overlaps(pod), isFalse, reason: why);
+                for (final key in keys) {
+                  expect(painted.overlaps(key), isFalse, reason: why);
+                }
+              }
+            }
+            expect(heard.heard, [HandResultLevel.fromCategory(h.category)]);
+            expect(tester.takeException(), isNull);
+            await _unmount(tester, state);
+          }
+        });
+      }
     }
   });
 

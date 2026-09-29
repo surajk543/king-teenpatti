@@ -217,11 +217,11 @@ class FeedbackSettings extends ChangeNotifier {
   /// volume, as the card click, which it peaks with.
   void xpNotification() => unawaited(_playAsset(xpNotificationClip, volume: 1));
 
-  /// The clip a winning hand's result animation plays as its cards light up
-  /// (hand-result animations, 29 Sep 2026), one line per level. All silent
-  /// until the owner supplies recordings: put an `assets/sound/…` path on a
-  /// level's line (and the file in pubspec's assets) and [handResult] plays
-  /// it, behind the Sound switch like every other clip.
+  /// The clip the viewer's own look plays as their cards light up by what
+  /// they make (hand-result animations, 29 Sep 2026), one line per level.
+  /// All silent until the owner supplies recordings: put an `assets/sound/…`
+  /// path on a level's line (and the file in pubspec's assets) and
+  /// [handResult] plays it, behind the Sound switch like every other clip.
   static String? handResultClip(HandResultLevel level) => switch (level) {
     HandResultLevel.pair => null,
     HandResultLevel.color => null,
@@ -230,8 +230,8 @@ class FeedbackSettings extends ChangeNotifier {
     HandResultLevel.trail => null,
   };
 
-  /// A winning hand's cards lighting up, once per result, at the moment the
-  /// WINNER ribbon strikes (`widgets/hand_result.dart`). Plays
+  /// The viewer's own cards lighting up, once a hand, the moment the light
+  /// lands after they have looked at them (`widgets/hand_result.dart`). Plays
   /// [handResultClip]'s clip for [level] — nothing today.
   void handResult(HandResultLevel level) {
     final clip = handResultClip(level);
