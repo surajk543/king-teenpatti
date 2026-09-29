@@ -1324,6 +1324,13 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
   String? _lookKey;
   HandResultCue? _lookCue;
 
+  /// How far across the felt the light of the viewer's own look may reach
+  /// ([HandResultBounds], over the felt in [build]): from the right edge of
+  /// their pod to the left edge of the key cluster, in the felt's own box —
+  /// its padding included — as its last layout placed them. Null before the
+  /// felt has been laid out with a table on it.
+  ({double left, double right})? _handLight;
+
   /// A beat after the fan is still, so the light lands on cards at rest.
   static const Duration _lookBeat = Duration(milliseconds: 80);
 
@@ -1462,12 +1469,13 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
   /// that has just arrived gets its clock, started after this frame, and its
   /// light lands a beat after the fan has stopped moving. A felt that first
   /// sees a hand with the look already made — a reconnect, the table screen
-  /// built again — shows it settled rather than playing it again (or nothing,
-  /// where this phone dropped it). Nothing lands once the hand has stopped
-  /// being played ([_stillPlaying], [_endLook]): cards the hand's end turned
-  /// up — the fourth blind bet running the showdown, in the same snapshot or
-  /// the next — are no look, and a look on its way when a result arrives
-  /// never lands.
+  /// built again — shows it settled rather than playing it again: nothing
+  /// where this phone dropped it, and, the hand being over, nothing this phone
+  /// never played ([HandResultMemory.played]). Nothing lands once the hand
+  /// has stopped being played ([_stillPlaying], [_endLook]): cards the hand's
+  /// end turned up — the fourth blind bet running the showdown, in the same
+  /// snapshot or the next — are no look (dropped, [HandResultMemory.drop]),
+  /// and a look on its way when a result arrives never lands.
   HandResultCue? _handResultCue(GameState state, BuildContext context) {
     final room = state.room;
     final you = room?.you;
@@ -1505,8 +1513,22 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
         '${(look.cards.keys.toList()..sort()).join(',')}';
     if (key == _lookKey) return _lookCue;
     _lookKey = key;
-    if (!firstSight && !playing) return _lookCue = null;
-    if (firstSight && HandResultMemory.dropped(key)) return _lookCue = null;
+    if (!firstSight && !playing) {
+      // Made in the snapshot that ended the hand, or in the one before it
+      // with no frame between the two: dropped as a look on its way is
+      // ([_endLook]), so a felt built again in this hand shows nothing either.
+      HandResultMemory.drop(key);
+      return _lookCue = null;
+    }
+    // A felt that first sees the hand with the look already made shows it as
+    // this phone showed it: nothing where it was dropped, and once the hand
+    // is over nothing it never played — an app started afresh at a result
+    // lights nobody's cards there.
+    if (firstSight &&
+        (HandResultMemory.dropped(key) ||
+            (!playing && !HandResultMemory.played(key)))) {
+      return _lookCue = null;
+    }
     final startAt = firstSight ? Duration.zero : look.busy + _lookBeat;
     final total = startAt + HandResultProfile.of(look.level).duration;
     final spent = _lookClock;
@@ -1547,7 +1569,10 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
   @override
   Widget build(BuildContext context) => HandResultScope(
     cue: _handResultCue(context.watch<GameState>(), context),
-    child: Builder(builder: _buildFelt),
+    child: HandResultBounds(
+      edges: () => _handLight,
+      child: Builder(builder: _buildFelt),
+    ),
   );
 
   Widget _buildFelt(BuildContext context) {
@@ -1874,6 +1899,13 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
           // out a frame ago — it only moves as its figure widens — and the
           // pot's middle until it has been.
           final pile = _pileIn(fallback: potCentre);
+          // Where the light of the viewer's own look may reach across the
+          // felt (HandResultBounds, in build, over the felt's padding): from
+          // the right edge of their pod to the left edge of the key cluster.
+          _handLight = (
+            left: pad + me.anchor.dx + podW / 2,
+            right: pad + SeatRing.keysLeftFor(MediaQuery.sizeOf(context), w),
+          );
 
           // The category tag over the far rail, or beside the head seat's pod
           // when a two- or four-place table seats somebody at the head.
@@ -2263,11 +2295,6 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   least: TableSpace.handLift,
                   most: HandFan.liftFor(HandFan.cardHeightFor(handH)),
                   ceiling: _potDy * h + potPlate / 2 + Space.sm,
-                  lightLeft: me.anchor.dx + podW / 2,
-                  lightRight: SeatRing.keysLeftFor(
-                    MediaQuery.sizeOf(context),
-                    w,
-                  ),
                   child: Column(
                     key: const ValueKey('own-hand-column'),
                     mainAxisSize: MainAxisSize.min,
@@ -3435,11 +3462,6 @@ class _Status extends StatelessWidget {
 /// arriving at a showdown takes the room the lift had, and the cards settle
 /// the few dp back towards the floor as they are turned. The first placement
 /// is at once.
-///
-/// Its box is the felt's, so it also says how far across the felt the
-/// light of the viewer's own look may reach ([HandResultBounds]): from
-/// [lightLeft], the right edge of their pod, to [lightRight], the left edge
-/// of the key cluster.
 class _LiftedHand extends StatefulWidget {
   const _LiftedHand({
     required this.left,
@@ -3447,8 +3469,6 @@ class _LiftedHand extends StatefulWidget {
     required this.least,
     required this.most,
     required this.ceiling,
-    required this.lightLeft,
-    required this.lightRight,
     required this.child,
   });
 
@@ -3457,8 +3477,6 @@ class _LiftedHand extends StatefulWidget {
   final double least;
   final double most;
   final double ceiling;
-  final double lightLeft;
-  final double lightRight;
   final Widget child;
 
   @override
@@ -3515,21 +3533,17 @@ class _LiftedHandState extends State<_LiftedHand>
   }
 
   @override
-  Widget build(BuildContext context) => HandResultBounds(
-    left: widget.lightLeft,
-    right: widget.lightRight,
-    child: CustomSingleChildLayout(
-      delegate: _HandPlacement(
-        left: widget.left,
-        floor: widget.floor,
-        least: widget.least,
-        most: widget.most,
-        ceiling: widget.ceiling,
-        lift: _liftFor,
-        glide: _glide,
-      ),
-      child: widget.child,
+  Widget build(BuildContext context) => CustomSingleChildLayout(
+    delegate: _HandPlacement(
+      left: widget.left,
+      floor: widget.floor,
+      least: widget.least,
+      most: widget.most,
+      ceiling: widget.ceiling,
+      lift: _liftFor,
+      glide: _glide,
     ),
+    child: widget.child,
   );
 }
 

@@ -1409,42 +1409,57 @@ void main() {
       await _unmount(tester, state);
     });
 
-    testWidgets('a felt built again after the hand ended shows a dropped look '
-        'as nothing, and a played one settled', (tester) async {
-      Future<void> rebuild(GameState state) async {
-        final feedback = await _feedback();
-        addTearDown(feedback.dispose);
-        await tester.pumpWidget(const SizedBox.shrink());
-        await tester.pumpWidget(
-          tableApp(
-            state: state,
-            feedback: feedback,
-            theme: AppTheme.dark(sound: false),
-          ),
-        );
-      }
-
-      // Dropped: the showdown came a frame after the look.
-      var (state, _) = await _mount(tester);
-      await _deal(tester, state, blindMovesLeft: 1);
-      state.handleState(resultRoom(cards: twos.cards));
-      await tester.pump(const Duration(milliseconds: 16));
-      await _showdown(
-        tester,
-        state,
-        winner: 'u3',
-        won: trailHand,
-        beaten: twos,
-        reason: 'pot_limit',
+    // The felt built again in the same hand (the table screen rebuilt, a
+    // reconnect) shows the look as this phone showed it.
+    Future<void> rebuild(WidgetTester tester, GameState state) async {
+      final feedback = await _feedback();
+      addTearDown(feedback.dispose);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(
+        tableApp(
+          state: state,
+          feedback: feedback,
+          theme: AppTheme.dark(sound: false),
+        ),
       );
-      await rebuild(state);
-      await _nothingLands(tester, ms: 1200, why: 'dropped, rebuilt');
-      expect(_group(tester).cue, isNull);
-      await _unmount(tester, state);
+    }
 
-      // Played: looked long before the show.
-      HandResultMemory.reset();
-      (state, _) = await _mount(tester);
+    // Dropped: the showdown came in the same frame as the look (the round
+    // cap reached by the fourth blind bet, both snapshots handled before one
+    // frame is drawn — review, 29 Sep 2026: that look was never recorded as
+    // dropped, and the felt built again lit the viewer's losing Trail over
+    // the winner's result) or a frame after it.
+    for (final between in [0, 1]) {
+      testWidgets('a felt built again after the hand ended shows a look '
+          'dropped $between frame(s) before the showdown as nothing', (
+        tester,
+      ) async {
+        final (state, heard) = await _mount(tester);
+        await _deal(tester, state, blindMovesLeft: 1);
+        state.handleState(resultRoom(cards: twos.cards));
+        for (var frame = 0; frame < between; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        await _showdown(
+          tester,
+          state,
+          winner: 'u3',
+          won: trailHand,
+          beaten: twos,
+          reason: 'forced_showdown',
+        );
+        await _nothingLands(tester, ms: 400, why: 'dropped');
+        await rebuild(tester, state);
+        await _nothingLands(tester, ms: 1200, why: 'dropped, rebuilt');
+        expect(_group(tester).cue, isNull);
+        expect(heard.heard, isEmpty);
+        await _unmount(tester, state);
+      });
+    }
+
+    testWidgets('a felt built again after the hand ended shows a played look '
+        'settled', (tester) async {
+      final (state, _) = await _mount(tester);
       await _look(tester, state, trailHand);
       await _settle(tester, 2500);
       await _showdown(
@@ -1454,7 +1469,7 @@ void main() {
         won: trailHand,
         beaten: pairHand,
       );
-      await rebuild(state);
+      await rebuild(tester, state);
       await _nothingLands(tester, ms: 1200, settledOk: true, why: 'rebuilt');
       for (final c in trailHand.cards) {
         expect(
@@ -1463,6 +1478,26 @@ void main() {
           reason: c,
         );
       }
+      await _unmount(tester, state);
+    });
+
+    testWidgets('an app started afresh at the result lights nothing it never '
+        'played there', (tester) async {
+      final (state, _) = await _mount(tester);
+      await _look(tester, state, trailHand);
+      await _settle(tester, 2500);
+      await _showdown(
+        tester,
+        state,
+        winner: 'u0',
+        won: trailHand,
+        beaten: pairHand,
+      );
+      // The app's memory of the looks it played goes with the process.
+      HandResultMemory.reset();
+      await rebuild(tester, state);
+      await _nothingLands(tester, ms: 1200, why: 'started afresh');
+      expect(_group(tester).cue, isNull);
       await _unmount(tester, state);
     });
   });
@@ -2213,11 +2248,7 @@ void main() {
       return MaterialApp(
         home: beside == null
             ? hand
-            : HandResultBounds(
-                left: beside.left,
-                right: beside.right,
-                child: hand,
-              ),
+            : HandResultBounds(edges: () => beside, child: hand),
       );
     }
 

@@ -1007,38 +1007,136 @@ void main() {
           .join('\n');
       expect(RegExp(r'\bownLook\b').allMatches(screenCode), hasLength(1));
       expect(RegExp(r'\b_ownLook\b').allMatches(screenCode), hasLength(2));
-      // And what it answers is carried only by the look's cue: `_lookCue` —
-      // where the level lives — is read and written by the cue's method, the
-      // method that ends a look when the hand does, and its declaration,
-      // nowhere else on the felt; and the cue reaches the cards through
-      // HandResultScope alone, which only the hand's group reads.
-      final lookCue = RegExp(r'\b_lookCue\b');
-      final uses = lookCue.allMatches(screenCode).length;
-      final declared = RegExp(
-        r'HandResultCue\? _lookCue;',
-      ).allMatches(screenCode).length;
-      final inCue = lookCue
-          .allMatches(
-            body(
-              'HandResultCue? _handResultCue(GameState state, '
-              'BuildContext context) {',
-              screenCode,
-            ),
-          )
-          .length;
-      final inEnd = lookCue
-          .allMatches(body('void _endLook() {', screenCode))
-          .length;
-      expect(declared, 1);
-      expect(inCue, greaterThan(0));
-      expect(uses, declared + inCue + inEnd);
+      // And what it answers is carried only by the look's cue. On the felt
+      // it lives in two fields — `_lookCue`, the cue, and `_lookKey`, whose
+      // text names the level (review, 29 Sep 2026: the scan pinned the cue
+      // alone, and `_lookKey?.split(':')[3]` read the level out anywhere) —
+      // each read and written by the cue's method, the method that ends a
+      // look when the hand does, and its declaration, nowhere else.
+      String cueBody() => body(
+        'HandResultCue? _handResultCue(GameState state, '
+        'BuildContext context) {',
+        screenCode,
+      );
+      final endBody = body('void _endLook() {', screenCode);
+      for (final (field, declaration) in [
+        ('_lookCue', 'HandResultCue? _lookCue;'),
+        ('_lookKey', 'String? _lookKey;'),
+      ]) {
+        final name = RegExp('\\b$field\\b');
+        final declared = RegExp(
+          RegExp.escape(declaration),
+        ).allMatches(screenCode).length;
+        final inCue = name.allMatches(cueBody()).length;
+        final inEnd = name.allMatches(endBody).length;
+        expect(declared, 1, reason: field);
+        expect(inCue, greaterThan(0), reason: field);
+        expect(
+          name.allMatches(screenCode).length,
+          declared + inCue + inEnd,
+          reason: '$field is used outside the look\'s own methods',
+        );
+      }
+      // The cue's method keeps what it works out in the look's own fields
+      // and no others.
+      expect(
+        {
+          for (final m in RegExp(
+            r'\b(_\w+)\s*(?:\?\?=|=(?!=))',
+          ).allMatches(cueBody()))
+            m.group(1),
+        },
+        allOf(
+          containsAll(['_lookKey', '_lookCue']),
+          everyElement(
+            isIn([
+              '_lookHand',
+              '_lookWasUp',
+              '_lookKey',
+              '_lookCue',
+              '_lookClock',
+            ]),
+          ),
+        ),
+      );
+      // The cue reaches the cards through the animation's own types alone:
+      // the cue, the scope that hands it down, the group's state that holds
+      // it, the card's render object that lights by it, the progress timed
+      // off its clock and the memory of looks (keyed by the level's name)
+      // are named by no file in lib/ but the animation's own and the felt's
+      // — so no pod, drawer or line of text reaches for the level through
+      // `dependOnInheritedWidgetOfExactType<HandResultScope>()` or
+      // `findAncestorStateOfType<HandResultGroupState>()`, however spelt.
+      const carriers = [
+        'HandResultCue',
+        'HandResultScope',
+        'HandResultGroupState',
+        'RenderHandResultCard',
+        'HandResultProgress',
+        'HandResultMemory',
+      ];
+      final carrier = RegExp('\\b(${carriers.join('|')})\\b');
+      String codeOf(File f) => f
+          .readAsStringSync()
+          .split('\n')
+          .where((l) => !l.trimLeft().startsWith('//'))
+          .join('\n');
       expect(
         [
           for (final f in files)
-            if (RegExp(r'HandResultScope\.of\(').hasMatch(f.readAsStringSync()))
-              path(f),
-        ],
-        ['lib/widgets/hand_result.dart'],
+            if (carrier.hasMatch(codeOf(f))) path(f),
+        ]..sort(),
+        ['lib/screens/table_screen.dart', 'lib/widgets/hand_result.dart'],
+      );
+      // On the felt: the scope once, over it in build; the cue in its field
+      // and its method; the memory in that method and the look's end; the
+      // rest not at all.
+      int count(String type, String code) =>
+          RegExp('\\b$type\\b').allMatches(code).length;
+      expect(count('HandResultScope', screenCode), 1);
+      expect(
+        screenCode,
+        contains(
+          'Widget build(BuildContext context) => HandResultScope(\n'
+          '    cue: _handResultCue(context.watch',
+        ),
+      );
+      expect(
+        count('HandResultCue', screenCode),
+        1 + count('HandResultCue', cueBody()),
+      );
+      expect(
+        count('HandResultMemory', screenCode),
+        count('HandResultMemory', cueBody()) +
+            count('HandResultMemory', endBody),
+      );
+      for (final type in [
+        'HandResultGroupState',
+        'RenderHandResultCard',
+        'HandResultProgress',
+      ]) {
+        expect(count(type, screenCode), 0, reason: type);
+      }
+      // And the cards it lights are the viewer's own fan's alone: the group
+      // and the card are placed in `_OwnHand` and nowhere else — never on a
+      // rim seat's pod — and no other file places either.
+      final ownStart = screenCode.indexOf(
+        'class _OwnHand extends StatelessWidget {',
+      );
+      expect(ownStart, greaterThanOrEqualTo(0));
+      final ownHand = screenCode.substring(
+        ownStart,
+        screenCode.indexOf('\n}\n', ownStart),
+      );
+      final placed = RegExp(r'\b(HandResultGroup|HandResultCard)\(');
+      expect(placed.allMatches(ownHand).length, 2);
+      expect(placed.allMatches(screenCode).length, 2);
+      expect(
+        [
+          for (final f in files)
+            if (placed.hasMatch(codeOf(f))) path(f),
+        ]..sort(),
+        ['lib/screens/table_screen.dart', 'lib/widgets/hand_result.dart'],
       );
     });
   });

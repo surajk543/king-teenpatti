@@ -290,6 +290,10 @@ abstract final class HandResultMemory {
   /// Whether the look [key] was stopped before its light landed ([drop]).
   static bool dropped(String key) => _dropped.contains(key);
 
+  /// Whether a hand has shown the look [key] on some clock ([remember]) —
+  /// playing it, or settled — since this phone's app started.
+  static bool played(String key) => _played.containsKey(key);
+
   /// Forgets every look, for tests that play the same hand afresh.
   @visibleForTesting
   static void reset() {
@@ -950,45 +954,38 @@ class RenderHandResultCard extends RenderProxyBox {
 
 /// Where, across this box, a hand's own light may reach (review, 29 Sep
 /// 2026: a Trail's sparks crossed the viewer's own pod and, on a 640dp phone,
-/// the key cluster beside their hand): from [left] to [right], in this box's
-/// own pixels — the felt lays it over the whole table, from the right edge of
-/// the viewer's pod to the left edge of the key cluster. A Trail's radial
-/// light and sparks under it stay between the two, less
-/// [HandResultShape.clearance], as they stay under what stands over the hand
-/// ([HandResultGroup.headroom]). Nothing under it but a hand's burst reads
-/// it, and only while painting: it paints and lays out nothing itself.
+/// the key cluster beside their hand): from `left` to `right` of what [edges]
+/// answers, in this box's own pixels — the felt lays it over itself and
+/// answers from the right edge of the viewer's pod to the left edge of the
+/// key cluster, as it last laid them out. A Trail's radial light and sparks
+/// under it stay between the two, less [HandResultShape.clearance], as they
+/// stay under what stands over the hand ([HandResultGroup.headroom]); null
+/// leaves them open. Nothing under it but a hand's burst reads it, and only
+/// while painting — after the frame's layout, so it answers for this frame —
+/// and it paints and lays out nothing itself.
 class HandResultBounds extends SingleChildRenderObjectWidget {
-  const HandResultBounds({
-    super.key,
-    required this.left,
-    required this.right,
-    super.child,
-  });
+  const HandResultBounds({super.key, required this.edges, super.child});
 
-  final double left;
-  final double right;
+  final ({double left, double right})? Function() edges;
 
   @override
   RenderHandResultBounds createRenderObject(BuildContext context) =>
-      RenderHandResultBounds(left: left, right: right);
+      RenderHandResultBounds(edges: edges);
 
   @override
   void updateRenderObject(
     BuildContext context,
     RenderHandResultBounds renderObject,
-  ) => renderObject
-    ..left = left
-    ..right = right;
+  ) => renderObject.edges = edges;
 }
 
-/// [HandResultBounds]' box. A burst reads [left] and [right] every frame it
-/// paints (it paints every frame while it moves, and nothing once settled),
-/// so a change needs no repaint here.
+/// [HandResultBounds]' box. A burst asks [edges] every frame it paints (it
+/// paints every frame while it moves, and nothing once settled), so a change
+/// needs no repaint here.
 class RenderHandResultBounds extends RenderProxyBox {
-  RenderHandResultBounds({required this.left, required this.right});
+  RenderHandResultBounds({required this.edges});
 
-  double left;
-  double right;
+  ({double left, double right})? Function() edges;
 }
 
 /// The hand's own light, behind its cards: a Trail's radial light and its
@@ -1101,10 +1098,12 @@ class _RenderHandResultBurst extends RenderProxyBox {
       node = node.parent;
     }
     if (node is! RenderHandResultBounds || !hasSize) return open;
+    final edges = node.edges();
+    if (edges == null) return open;
     final toHand = Matrix4.tryInvert(getTransformTo(node));
     if (toHand == null) return open;
-    final left = MatrixUtils.transformPoint(toHand, Offset(node.left, 0)).dx;
-    final right = MatrixUtils.transformPoint(toHand, Offset(node.right, 0)).dx;
+    final left = MatrixUtils.transformPoint(toHand, Offset(edges.left, 0)).dx;
+    final right = MatrixUtils.transformPoint(toHand, Offset(edges.right, 0)).dx;
     return (
       left: -left - HandResultShape.clearance,
       right: right - size.width - HandResultShape.clearance,
