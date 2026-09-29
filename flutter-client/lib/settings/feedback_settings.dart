@@ -36,7 +36,14 @@ class FeedbackSettings extends ChangeNotifier {
   final Map<String, AudioPlayer> _voices = {};
 
   /// The audio profile every one of these clips plays under.
-  static final AudioContext _uiSound = AudioContext(
+  ///
+  /// iOS's ambient category already mixes with other audio, and the plugin
+  /// asserts that `mixWithOthers` is set only on playback, playAndRecord or
+  /// multiRoute. With it set here the context threw on every clip in a debug
+  /// build, and every sound of the game — the deal, the look, the hammer, the
+  /// missile — fell back to the platform click (29 Sep 2026).
+  @visibleForTesting
+  static final AudioContext uiSound = AudioContext(
     android: AudioContextAndroid(
       isSpeakerphoneOn: false,
       stayAwake: false,
@@ -44,10 +51,7 @@ class FeedbackSettings extends ChangeNotifier {
       usageType: AndroidUsageType.assistanceSonification,
       audioFocus: AndroidAudioFocus.none,
     ),
-    iOS: AudioContextIOS(
-      category: AVAudioSessionCategory.ambient,
-      options: const {AVAudioSessionOptions.mixWithOthers},
-    ),
+    iOS: AudioContextIOS(category: AVAudioSessionCategory.ambient),
   );
 
   /// The clips in `assets/sfx/` are synthesised, not sourced: nothing there
@@ -83,6 +87,12 @@ class FeedbackSettings extends ChangeNotifier {
   /// should be played when user click on card" — the lobby cards). The
   /// owner's recording: a click 60 ms in, gone by 150 ms.
   static const cardClickClip = 'sound/Card click.mp3';
+
+  /// A hand won at the table (owner, 29 Sep 2026: "This sound should be
+  /// played when player wins in gameTable" — heard by everybody at the table,
+  /// the owner chose). The owner's recording, 4.15 s, peaking at −1 dB. It
+  /// replaced the synthesised `sfx/win.wav`, which only the winner heard.
+  static const winnerClip = 'sound/winner.mp3';
 
   /// A daily XP mission done — the bar at the top of the screen sliding in
   /// (owner, 27 Sep 2026: "play this sound when xp complete notification
@@ -136,7 +146,7 @@ class FeedbackSettings extends ChangeNotifier {
           // music. These are interface sounds: they belong in the same category
           // as a keyboard click, mixing over anything else rather than
           // interrupting it, and they respect the player's own silent mode.
-          unawaited(p.setAudioContext(_uiSound));
+          unawaited(p.setAudioContext(uiSound));
           return p;
         },
       );
@@ -313,9 +323,12 @@ class FeedbackSettings extends ChangeNotifier {
     if (_vibrate) HapticFeedback.mediumImpact();
   }
 
-  /// This player won the hand.
-  void win() {
-    unawaited(_play('win'));
-    if (_vibrate) HapticFeedback.heavyImpact();
+  /// A hand's winner named at the table ([winnerClip]), heard by everybody
+  /// there as everybody sees the fireworks; at full volume, as it runs a few
+  /// dB under the hammer and the missile. Only the phone of the player who
+  /// won ([mine]) also buzzes.
+  void win({required bool mine}) {
+    unawaited(_playAsset(winnerClip, volume: 1));
+    if (mine && _vibrate) HapticFeedback.heavyImpact();
   }
 }

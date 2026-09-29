@@ -32,7 +32,7 @@ class _Heard extends FeedbackSettings {
   void potGrew() => heard.add('coins');
 
   @override
-  void win() => heard.add('win');
+  void win({required bool mine}) => heard.add(mine ? 'win:mine' : 'win');
 
   @override
   void turn() => heard.add('turn');

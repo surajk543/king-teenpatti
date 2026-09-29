@@ -752,6 +752,39 @@ void main() {
     state.dispose();
   });
 
+  testWidgets('a seen table card has no chips line; the SEEN card and the blind '
+      'tables keep theirs', (tester) async {
+    // Owner, 29 Sep 2026: "Everyone's chips are visible" off the 200 and
+    // 50,000 tables.
+    final state = _state(
+      chips: 300000,
+      tables: [
+        ..._menu,
+        {'category': 'seen', 'bootAmount': 50000, 'maxPot': 50000000},
+      ],
+    );
+    const t = Strings(AppLang.english);
+    await _pumpLobby(tester, state, screen: const Size(891, 411));
+    state.openLobbyEngine(TableEngine.teenPatti);
+    await _settleLevel(tester);
+    // The SEEN category card still says it.
+    expect(find.text(t.everyoneChips, skipOffstage: false), findsOneWidget);
+
+    state.openLobbyCategory(TableCategory.seen);
+    await _settleLevel(tester);
+    expect(tester.takeException(), isNull);
+    expect(find.text(t.tapToSit, skipOffstage: false), findsNWidgets(2));
+    expect(find.text(t.everyoneChips, skipOffstage: false), findsNothing);
+
+    state.closeLobbyLevel();
+    await _settleLevel(tester);
+    state.openLobbyCategory(TableCategory.blind);
+    await _settleLevel(tester);
+    expect(find.text(t.onlyYourChips, skipOffstage: false), findsNWidgets(4));
+    await _unmount(tester);
+    state.dispose();
+  });
+
   for (final lang in AppLang.values) {
     testWidgets('in ${lang.englishName} every table card has an info key that '
         'opens what the server says about that table', (tester) async {
