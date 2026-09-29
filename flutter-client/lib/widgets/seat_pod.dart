@@ -204,8 +204,18 @@ class SeatPod extends StatelessWidget {
   /// padding. The name is set in what is left (smaller before it is cut,
   /// [SeatName]), so no letter is ever under the disc; the dealer's button
   /// beside a name moves with it.
-  static double levelReserve(double podWidth) =>
-      math.max(0, podWidth * levelShare - podWidth * _kPad);
+  ///
+  /// [onTurn]: the turn's ring stands INSIDE the pod's box, so the plaque —
+  /// and the name line in it — draws [turnRingOutset] in from each side
+  /// while the disc stays where it was; the line then reserves that much
+  /// less, or "YOU" beside the dealer's button read "Y…" on turn.
+  static double levelReserve(double podWidth, {bool onTurn = false}) =>
+      math.max(
+        0,
+        podWidth * levelShare -
+            podWidth * _kPad -
+            (onTurn ? turnRingOutset : 0),
+      );
 
   /// A badge for the lower-left corner of the player's picture while their
   /// friend request waits for the viewer ([SeatRequestBadge]). On the picture
@@ -729,7 +739,9 @@ class SeatPod extends StatelessWidget {
                   Padding(
                     // Clear of the level's disc on the pod's corner.
                     padding: EdgeInsets.only(
-                      right: showLevel ? levelReserve(width) : 0,
+                      right: showLevel
+                          ? levelReserve(width, onTurn: onTurn)
+                          : 0,
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -737,6 +749,7 @@ class SeatPod extends StatelessWidget {
                         Flexible(
                           child: SeatName(
                             isMe ? 'YOU' : s.displayName,
+                            floor: isMe ? SeatName.youMinScale : null,
                             // 'YOU' is a fixed Latin string the code owns, so it
                             // can be tracked capitals. A display name never can:
                             // toUpperCase() does nothing to Devanagari or
@@ -2166,13 +2179,21 @@ class SeatLevelMark extends StatelessWidget {
 /// would need smaller still (a 24-letter one) ends in an ellipsis, at that
 /// size.
 class SeatName extends StatelessWidget {
-  const SeatName(this.name, {super.key, required this.style});
+  const SeatName(this.name, {super.key, required this.style, this.floor});
 
   final String name;
   final TextStyle style;
 
   /// The smallest a name is set before it is cut instead.
   static const double minScale = 0.78;
+
+  /// The smallest the viewer's own "YOU" is set: a short word the app owns,
+  /// set smaller rather than ever read "Y…" beside the dealer's button and
+  /// the level's disc on the narrowest phone at the largest text.
+  static const double youMinScale = 0.62;
+
+  /// This name's own smallest scale, where it is not [minScale].
+  final double? floor;
 
   @override
   Widget build(BuildContext context) {
@@ -2189,13 +2210,21 @@ class SeatName extends StatelessWidget {
         final room = box.maxWidth;
         final scale = !room.isFinite || natural <= room
             ? 1.0
-            : math.max(minScale, room / natural * 0.98);
+            : math.max(floor ?? minScale, room / natural * 0.98);
         return Text(
           name,
           maxLines: 1,
           softWrap: false,
           overflow: TextOverflow.ellipsis,
-          style: style.copyWith(fontSize: (style.fontSize ?? 14) * scale),
+          // The tracking with the letters: "YOU" is tracked capitals, and a
+          // word shrunk with its spacing left whole was still wider than the
+          // room it was shrunk into.
+          style: style.copyWith(
+            fontSize: (style.fontSize ?? 14) * scale,
+            letterSpacing: style.letterSpacing == null
+                ? null
+                : style.letterSpacing! * scale,
+          ),
         );
       },
     );

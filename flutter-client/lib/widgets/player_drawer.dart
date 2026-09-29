@@ -190,22 +190,17 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
               if (who == null) return const SizedBox.shrink();
               final reporting = _reports.target == who.userId;
               final typing = reporting && keyboard > 0;
-              return Column(
+              // One scroll for the whole drawer, its head too (owner, 29 Sep
+              // 2026: "When i open player drawer, then scrolling gets
+              // stuck"): beside the large portrait the head took a quarter of
+              // a landscape phone's drawer, fixed — a drag that began on the
+              // player's picture or name moved nothing, and the record had
+              // the rest to scroll in. The close key stays where it was,
+              // pinned over the scroll's top-right corner.
+              return Stack(
                 key: ValueKey('player-drawer:${who.userId}'),
                 children: [
-                  if (!typing) ...[
-                    _Head(
-                      t: t,
-                      player: who,
-                      friendsSince: _friends.friendsSinceOf(who.userId),
-                      level: _friends.seatProfile?.userId == who.userId
-                          ? _friends.seatProfile?.level
-                          : null,
-                      seatLevel: _seatLevelOf(who.userId),
-                    ),
-                    const MenuRule(),
-                  ],
-                  Expanded(
+                  Positioned.fill(
                     child: EdgeFade(
                       child: ListView(
                         // A list of its own for each page, so each opens at
@@ -215,24 +210,55 @@ class _PlayerDrawerState extends State<PlayerDrawer> {
                         key: ValueKey(
                           reporting ? 'report-list' : 'player-drawer-list',
                         ),
-                        padding: const EdgeInsets.fromLTRB(
-                          TableSpace.drawerInset,
-                          Space.sm,
-                          TableSpace.drawerInset,
-                          Space.lg,
-                        ),
-                        children: reporting
-                            ? [
-                                ReportPlayerPage(
-                                  key: ValueKey('report-page:${who.userId}'),
-                                  t: t,
-                                  reports: _reports,
-                                ),
-                              ]
-                            : _body(context, t, who),
+                        padding: const EdgeInsets.only(bottom: Space.lg),
+                        children: [
+                          if (!typing) ...[
+                            _Head(
+                              t: t,
+                              player: who,
+                              friendsSince: _friends.friendsSinceOf(who.userId),
+                              level: _friends.seatProfile?.userId == who.userId
+                                  ? _friends.seatProfile?.level
+                                  : null,
+                              seatLevel: _seatLevelOf(who.userId),
+                            ),
+                            const MenuRule(),
+                          ],
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              TableSpace.drawerInset,
+                              Space.sm,
+                              TableSpace.drawerInset,
+                              0,
+                            ),
+                            // A Column, so its keyed children keep their state
+                            // when a note arrives above them.
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: reporting
+                                  ? [
+                                      ReportPlayerPage(
+                                        key: ValueKey(
+                                          'report-page:${who.userId}',
+                                        ),
+                                        t: t,
+                                        reports: _reports,
+                                      ),
+                                    ]
+                                  : _body(context, t, who),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
+                  if (!typing)
+                    PositionedDirectional(
+                      top: _Head.closeTop,
+                      end: Space.xs,
+                      child: _CloseKey(t: t),
+                    ),
                 ],
               );
             },
@@ -343,6 +369,11 @@ class _Head extends StatelessWidget {
   /// The picture's ring, outside [pictureRadius] (Avatar's own width).
   static const double pictureRing = 1.5;
 
+  /// The head's top padding, and where the pinned close key stands: level
+  /// with the head's first line as it was when the key was the head's own.
+  static const double topPad = Space.md;
+  static const double closeTop = Space.xs;
+
   /// The level's disc on the portrait: this share of the picture's diameter,
   /// its middle on the picture's rim at the top-right (45°), as a badge sits
   /// on a round portrait.
@@ -366,7 +397,7 @@ class _Head extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         TableSpace.drawerInset,
-        Space.md,
+        topPad,
         Space.xs,
         Space.xs,
       ),
@@ -392,15 +423,9 @@ class _Head extends StatelessWidget {
               ],
             ),
           ),
-          PressScale(
-            child: IconButton(
-              key: const ValueKey('seat-close'),
-              visualDensity: VisualDensity.compact,
-              tooltip: t.close,
-              icon: const Icon(Icons.close_rounded),
-              onPressed: () => Navigator.pop(context),
-            ),
-          ),
+          // The close key's room: the key itself is pinned over the drawer
+          // ([_CloseKey]), so it stays when the head scrolls away.
+          const SizedBox(width: Dim.minTouch),
         ],
       ),
     );
@@ -445,6 +470,34 @@ class _Head extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// The drawer's close key, pinned over its top-right corner while the
+/// drawer scrolls under it: a round well behind the cross — the level
+/// screen's close key's look — so it reads over the record passing beneath,
+/// in a whole [Dim.minTouch] target.
+class _CloseKey extends StatelessWidget {
+  const _CloseKey({required this.t});
+
+  final Strings t;
+
+  @override
+  Widget build(BuildContext context) {
+    final glass = GlassColors.of(context);
+    return PressScale(
+      child: IconButton(
+        key: const ValueKey('seat-close'),
+        tooltip: t.close,
+        style: IconButton.styleFrom(
+          fixedSize: const Size.square(Dim.minTouch),
+          backgroundColor: glass.wellFill,
+          side: BorderSide(color: glass.cardBorder),
+        ),
+        icon: const Icon(Icons.close_rounded),
+        onPressed: () => Navigator.pop(context),
+      ),
     );
   }
 }

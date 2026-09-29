@@ -918,7 +918,10 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   6dp under the top, and the far seats against the category tag and the wallet, so a disc centred on the corner ran off the screen
   or over them at every phone size (the first cut); 0.36 is the most the corner holds clear of the picture, the viewer's included.
   **The name line gives the disc its room** (`SeatPod.levelReserve`: the disc's width less the pod's padding, on the right only,
-  so a short name sits left of centre beside it) — which costs a long name: `SeatName` sets it down to 0.78 and then cuts it, and
+  so a short name sits left of centre beside it; on turn less by `turnRingOutset`, since the ring stands inside the pod's box
+  and narrows the plaque while the disc stays put — "YOU" beside the dealer's button read "Y…" on turn until it did; "YOU"
+  may also be set down to `SeatName.youMinScale` 0.62, and a shrunk name's letter spacing now shrinks with it — tracked
+  "YOU" overflowed the room it was shrunk into) — which costs a long name: `SeatName` sets it down to 0.78 and then cuts it, and
   at 640x360 a guest's "Guest0E00B" is cut at ×1.0 and ×1.25 on a pod that wears a disc (whole without one, set smaller at ×1.25). A `Positioned`
   in the pod's outer Stack (`Clip.none`) — no layout, no seat moves — under an `IgnorePointer` (a tap is the pod's), placed from the
   pod's box, so it does not move when the turn ring grows round the plaque. Nothing where the level has no art yet or the server
@@ -2568,7 +2571,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   chair (`playerDrawerSeat`), the plaque only — opens `PlayerDrawer`, the tables' Scaffold `endDrawer` (right side,
   `TableSpace.drawerW`, `TableScrim.drawer`, `endDrawerEnableOpenDragGesture: false`; the Scaffold still watches nothing;
   back closes it first; the variation window closes it as it does the left drawer): the player's picture and name at
-  once from the seat — the picture LARGE, 68dp (`_Head.pictureRadius` 34; 22 before), with their level's disc on its
+  once from the seat — the whole drawer ONE scroll, head included, the close key (`seat-close`, a round well) pinned over
+  its top-right (owner, 29 Sep 2026: "When i open player drawer, then scrolling gets stuck": beside the large portrait the
+  fixed head took a quarter of a landscape phone's drawer and a drag begun on it moved nothing) — the picture LARGE, 68dp
+  (`_Head.pictureRadius` 34; 22 before), with their level's disc on its
   top-right (owner, 29 Sep 2026: "profile pic should be big and in top right of profile pic it should show his level
   icon"): the pods' own `SeatLevelMark` (`seat-player-level-mark` / `-art`), 0.44 of the picture, its middle on the
   picture's rim at 45°, the seat's level at once and the profile's (the fresher) once it has come, none where neither has
@@ -2596,7 +2602,15 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   High Card (🔝 drew as a blue "TOP" key) — drawn by ONE `HandIcon` (`player_profile.dart`, decoration only: the name is
   what a screen reader hears) over the count in the record's cells and before the name in the Stats drawer's
   `HandResultGrid`, whose width sum counts the widest icon so every name of a column starts at one edge. No presence, no wallet, no
-  table id. Its own state slot (`FriendsState.seatPlayer/seatProfile/openSeat/closeSeat`), apart from the page's. A seat
+  table id. Its own state slot (`FriendsState.seatPlayer/seatProfile/openSeat/closeSeat`), apart from the page's.
+  **A drawer opened again shows the profile read last time at once** (owner, 29 Sep 2026: "if i close that pod, open again it
+  should show previous fetched record and meanwhile it will async api to fetch latest record, and it will update, otherwise it
+  will show previous fetched record"): `FriendsState` keeps each player's last profile (`_seatCache`, `cachedSeatProfile`, at
+  most `seatCacheSize` 64 players, the one opened longest ago going first); `openSeat` puts it on show and reads the profile
+  again — no loader, the record there — and the fresh one replaces it when it lands; a read that fails keeps it (the drawer
+  says nothing while it has a profile), and only `player_not_found` drops it. Every change to what a player is to the viewer
+  (`_restate`, `_noLongerPending`, `_restateSeat`: a request, an accept, a removal, a push) updates the kept copy too, so a
+  reopened drawer never offers a move from before it; `reset()` (sign-out, account deletion) forgets them all. A seat
   whose player has asked the viewer wears **`SeatRequestBadge`** (a gold person-add disc on the lower-LEFT corner of their
   picture — on the pod's top corner it covered a long name's first letter), and a seat whose player is the viewer's
   FRIEND wears **`SeatFriendMark`** (owner, 26 Sep 2026: "if two or more friends are on same table … their should appear

@@ -63,6 +63,7 @@ RoomState _room({
   Map<String, dynamic>? sideshow,
   Map<String, dynamic>? variation,
   bool winnerTax = false,
+  int dealerSeat = 3,
 }) => RoomState.fromJson({
   'roomId': roomId,
   'code': 'ABCD2345',
@@ -71,7 +72,7 @@ RoomState _room({
   'chipsHidden': category != 'seen',
   'state': state,
   'handNo': handNo,
-  'dealerSeat': 3,
+  'dealerSeat': dealerSeat,
   'maxPlayers': 5,
   'minPlayers': 2,
   'bootAmount': boot,
@@ -254,7 +255,7 @@ RoomState seenTurnRoom({
 /// table on the viewer's turn, the seats' levels as the server sends them —
 /// the viewer (Level 10) and two others with art, one at a level with no art
 /// yet (20), and one whose level is not known (no key).
-RoomState levelsRoom() {
+RoomState levelsRoom({int dealerSeat = 3}) {
   final levels = <int, Map<String, dynamic>>{
     0: seatLevelJson(10),
     1: seatLevelJson(3),
@@ -265,6 +266,7 @@ RoomState levelsRoom() {
     category: 'seen',
     maxPot: 2000000,
     turnSeat: 0,
+    dealerSeat: dealerSeat,
     seats: [
       for (final seat in _seenSeats())
         {...seat, 'level': ?levels[seat['seatIndex']]},

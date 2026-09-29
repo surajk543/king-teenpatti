@@ -1649,6 +1649,53 @@ void main() {
         }, () => server.client);
       });
 
+      // Owner, 29 Sep 2026: "When i open player drawer, then scrolling gets
+      // stuck": the large head was fixed above the record.
+      testWidgets('the whole drawer scrolls — a drag that begins on the '
+          'portrait moves it — and the close key stays', (tester) async {
+        final server = _server();
+        await http.runWithClient(() async {
+          final state = _state();
+          await _mount(tester, state, _teenPatti());
+          await _tapPod(tester, 'u1');
+          final list = _inDrawer(_key('player-drawer-list'));
+          ScrollPosition position() => tester
+              .state<ScrollableState>(
+                find.descendant(of: list, matching: find.byType(Scrollable)),
+              )
+              .position;
+          expect(position().pixels, 0);
+          final close = tester.getRect(_key('seat-close'));
+          final picture = _inDrawer(_key('seat-player-picture'));
+          final before = tester.getRect(picture);
+
+          // From the portrait, up: the whole drawer moves with the finger.
+          await tester.dragFrom(before.center, const Offset(0, -80));
+          await _settle(tester);
+          expect(position().pixels, greaterThan(40));
+          expect(tester.getRect(picture).top, lessThan(before.top - 40));
+          // The close key where it was, over the scroll.
+          expect(tester.getRect(_key('seat-close')), close);
+
+          // To the end of the record, and back to the head.
+          await tester.fling(list, const Offset(0, -2000), 3000);
+          await _settle(tester);
+          await tester.pump(const Duration(seconds: 1));
+          expect(position().pixels, position().maxScrollExtent);
+          expect(position().maxScrollExtent, greaterThan(0));
+          await tester.fling(list, const Offset(0, 2000), 3000);
+          await _settle(tester);
+          await tester.pump(const Duration(seconds: 1));
+          expect(position().pixels, 0);
+          expect(tester.getRect(picture), before);
+
+          // And it still closes the drawer.
+          await _closeDrawer(tester);
+          expect(_drawerOpen(state), isFalse);
+          await _unmount(tester, state);
+        }, () => server.client);
+      });
+
       testWidgets('the head fits at 640x360 x1.25 in every language, both '
           'themes', (tester) async {
         for (final brightness in Brightness.values) {
@@ -1942,7 +1989,10 @@ void main() {
             );
             _expectDrawerFits(tester, 'refused ${lang.name}');
             await _closeDrawer(tester);
-            // A profile that cannot be read.
+            // A profile that cannot be read, for a player with none kept: a
+            // record read before would show instead ('a drawer opened
+            // again'), so what this account kept is forgotten first.
+            state.friends.reset();
             server.unsupported = true;
             await _tapPod(tester, 'u1');
             expect(_inDrawer(_key('seat-retry')), findsOneWidget);
@@ -2071,6 +2121,184 @@ void main() {
       state.dispose();
     },
   );
+  // Owner, 29 Sep 2026: "when i click player pod, it calls api to get
+  // information, if i close that pod, open again it should show previous
+  // fetched record and meanwhile it will async api to fetch latest record,
+  // and it will update, otherwise it will show previous fetched record".
+  group('a drawer opened again', () {
+    const kavya = PlayerCard(userId: 'u-kavya', displayName: 'Kavya');
+    const path = '/api/players/u-kavya/profile';
+
+    test('shows the profile read last time at once, reads it again, and '
+        'takes the fresh one', () async {
+      final server = populatedServer();
+      final state = signedInState();
+      final friends = state.friends;
+      await http.runWithClient(() async {
+        await friends.openSeat(kavya);
+        final first = friends.seatProfile!;
+        expect(first.stats.handsPlayed, 10);
+        friends.closeSeat();
+        expect(friends.seatProfile, isNull);
+        expect(friends.cachedSeatProfile('u-kavya'), same(first));
+
+        // Kavya has played since; the read is slow to answer.
+        server.profiles['u-kavya'] = {
+          ...server.profiles['u-kavya']!,
+          'stats': statsJson(played: 11, won: 5, lost: 6, left: 0),
+        };
+        server
+          ..holdPath = path
+          ..hold = Completer<void>();
+        final reading = friends.openSeat(kavya);
+        // On show at once, while the read is out.
+        expect(friends.seatProfile, same(first));
+        expect(friends.seatLoading, isTrue);
+        // The read has gone out, and is held: the old profile still shows.
+        await pumpEventQueue();
+        expect(server.count('GET', path), 2);
+        expect(friends.seatProfile, same(first));
+        server.hold!.complete();
+        await reading;
+        expect(friends.seatLoading, isFalse);
+        expect(friends.seatProfile!.stats.handsPlayed, 11);
+        expect(friends.seatError, isNull);
+        // And kept for next time.
+        expect(friends.cachedSeatProfile('u-kavya')!.stats.handsPlayed, 11);
+      }, () => server.client);
+      state.dispose();
+    });
+
+    test('keeps the profile read last time when the read fails; a player '
+        'the server no longer knows is dropped', () async {
+      final server = populatedServer();
+      final state = signedInState();
+      final friends = state.friends;
+      await http.runWithClient(() async {
+        await friends.openSeat(kavya);
+        final first = friends.seatProfile!;
+        friends.closeSeat();
+
+        server.failProfiles = true;
+        await friends.openSeat(kavya);
+        expect(friends.seatProfile, same(first));
+        expect(friends.seatError, isNotNull);
+        friends.closeSeat();
+
+        // Gone since: nothing left to show, then or next time.
+        server
+          ..failProfiles = false
+          ..profiles.remove('u-kavya');
+        await friends.openSeat(kavya);
+        expect(friends.seatProfile, isNull);
+        expect(friends.seatError, 'player_not_found');
+        expect(friends.cachedSeatProfile('u-kavya'), isNull);
+      }, () => server.client);
+      state.dispose();
+    });
+
+    test(
+      'shows what changed while it was shut, never a move from before it',
+      () async {
+        final server = populatedServer();
+        final state = signedInState();
+        final friends = state.friends;
+        await http.runWithClient(() async {
+          await friends.openSeat(kavya);
+          expect(friends.seatProfile!.friendStatus, FriendStatus.friends);
+          friends.closeSeat();
+          // Removed from the Friends page while the drawer was shut.
+          await friends.remove('u-kavya');
+          expect(
+            friends.cachedSeatProfile('u-kavya')!.friendStatus,
+            FriendStatus.none,
+          );
+          server
+            ..holdPath = path
+            ..hold = Completer<void>();
+          final reading = friends.openSeat(kavya);
+          expect(friends.seatProfile!.friendStatus, FriendStatus.none);
+          server.hold!.complete();
+          await reading;
+        }, () => server.client);
+        state.dispose();
+      },
+    );
+
+    test(
+      'is forgotten at sign-out, and keeps the players opened last',
+      () async {
+        final server = populatedServer();
+        final state = signedInState();
+        final friends = state.friends;
+        await http.runWithClient(() async {
+          await friends.openSeat(kavya);
+          friends.closeSeat();
+        }, () => server.client);
+        expect(friends.cachedSeatProfile('u-kavya'), isNotNull);
+        friends.reset();
+        expect(friends.cachedSeatProfile('u-kavya'), isNull);
+
+        // A bounded memory: past its size the player opened longest ago goes.
+        final many = FakeFriendsServer();
+        for (var i = 0; i <= FriendsState.seatCacheSize; i++) {
+          many.profiles['p$i'] = {
+            ...cardJson('p$i', 'P$i'),
+            'friendStatus': 'NONE',
+            'stats': statsJson(),
+          };
+        }
+        await http.runWithClient(() async {
+          for (var i = 0; i <= FriendsState.seatCacheSize; i++) {
+            await friends.openSeat(
+              PlayerCard(userId: 'p$i', displayName: 'P$i'),
+            );
+          }
+        }, () => many.client);
+        expect(friends.cachedSeatProfile('p0'), isNull);
+        expect(friends.cachedSeatProfile('p1'), isNotNull);
+        expect(
+          friends.cachedSeatProfile('p${FriendsState.seatCacheSize}'),
+          isNotNull,
+        );
+        state.dispose();
+      },
+    );
+
+    testWidgets('at the table: the record on show at once, no loader, the '
+        'fresh one laid over it', (tester) async {
+      final server = _server();
+      await http.runWithClient(() async {
+        final state = _state();
+        await _mount(tester, state, _teenPatti());
+        await _tapPod(tester, 'u1');
+        expect(_inDrawer(find.byType(PlayerStatsGrid)), findsOneWidget);
+        await _closeDrawer(tester);
+
+        server.profiles['u1'] = {
+          ...server.profiles['u1']!,
+          'stats': statsJson(played: 89, won: 31, lost: 50, left: 8),
+        };
+        server
+          ..holdPath = '/api/players/u1/profile'
+          ..hold = Completer<void>();
+        await tester.tap(_plaqueOf('u1'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(_inDrawer(_key('seat-loading')), findsNothing);
+        expect(_inDrawer(find.byType(PlayerStatsGrid)), findsOneWidget);
+        expect(_inDrawer(find.text('88')), findsWidgets);
+        expect(_inDrawer(_key('seat-player-level')), findsOneWidget);
+
+        server.hold!.complete();
+        await _settle(tester);
+        expect(_inDrawer(find.text('89')), findsWidgets);
+        expect(_inDrawer(find.text('88')), findsNothing);
+        await _unmount(tester, state);
+      }, () => server.client);
+    });
+  });
+
   // The owner, 26 Sep 2026: "In the friends drawer also show each other at the
   // top how long they are friends in time, friendship time".
   group('how long two players have been friends', () {

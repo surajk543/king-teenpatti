@@ -9,6 +9,7 @@
 // at two to five places on every phone size, no disc off the screen or over
 // another seat, the pot, the viewer's cards, the tag or a key.
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lottie/lottie.dart';
 import 'package:teenpatti/models/dtos.dart';
@@ -236,6 +237,41 @@ void main() {
         );
       }
       await _unmount(tester);
+    }
+  });
+
+  testWidgets('"YOU" and the dealer\'s button keep their line beside the '
+      'disc on the viewer\'s turn', (tester) async {
+    // On turn the ring stands inside the pod's box and narrows the plaque:
+    // the line reserved the off-turn room for the disc and read "Y…".
+    for (final size in const [Size(592, 360), Size(640, 360), Size(915, 412)]) {
+      for (final scale in [1.0, 1.25]) {
+        await _pump(
+          tester,
+          screen: size,
+          scale: scale,
+          room: () => levelsRoom(dealerSeat: 0),
+        );
+        final where = '${size.width.toInt()} x$scale';
+        final you = find.descendant(
+          of: _podOf(0),
+          matching: find.byType(SeatName),
+        );
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(of: you, matching: find.byType(RichText)),
+        );
+        expect(paragraph.didExceedMaxLines, isFalse, reason: where);
+        expect(paragraph.text.toPlainText(), 'YOU', reason: where);
+        final disc = tester.getRect(
+          find.descendant(of: _podOf(0), matching: _mark),
+        );
+        // Name and dealer's button together, clear of the disc.
+        final line = tester.getRect(
+          find.ancestor(of: you, matching: find.byType(Row)).first,
+        );
+        expect(line.right, lessThanOrEqualTo(disc.left + 0.5), reason: where);
+        await _unmount(tester);
+      }
     }
   });
 
