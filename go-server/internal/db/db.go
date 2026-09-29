@@ -144,8 +144,35 @@ type Options struct {
 	// which may run against production beside a live server. A server never
 	// sets it: every boot runs every script.
 	SkipMigrations bool
-	Logger         *slog.Logger
+	// Applied, when set, is called once for each migration script as it
+	// commits, in version order, with how long it ran — the report
+	// `gameplay -migrate` prints (cmd/gameplay/migrate.go). Never for a script
+	// that failed, never with SkipMigrations. It runs between two scripts on
+	// the bootstrap's connection, under the schema lock, so it must be quick.
+	// The server leaves it nil.
+	Applied func(m Migration, took time.Duration)
+	Logger  *slog.Logger
 }
+
+// MigrationError is Open's error when a migration script fails: which script,
+// and why. Each script runs as one multi-statement simple-protocol query with
+// no transaction control of its own, which PostgreSQL runs as ONE implicit
+// transaction — so the failing script left nothing behind, the scripts before
+// it are committed, and the scripts after it did not run. Error() is the text
+// Open has always returned: "run <file>: <cause>", plus what holds the lock
+// when a lock is the cause.
+type MigrationError struct {
+	Migration Migration
+	Err       error
+	blocking  string // blockingActivity's suffix; empty unless a lock explains the failure
+}
+
+func (e *MigrationError) Error() string {
+	return fmt.Sprintf("run %s: %v%s", e.Migration.File, e.Err, e.blocking)
+}
+
+// Unwrap exposes the cause (a *pgconn.PgError, a context error) to errors.As.
+func (e *MigrationError) Unwrap() error { return e.Err }
 
 // DB is the open pool plus the schema it was opened on.
 type DB struct {
@@ -210,7 +237,7 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 		log.Info("database ready", "url", Redact(opts.URL), "schema", opts.Schema, "migrations", "skipped")
 		return &DB{Pool: pool, Schema: opts.Schema, log: log}, nil
 	}
-	if err := bootstrap(ctx, pool, opts.Schema, quoted); err != nil {
+	if err := bootstrap(ctx, pool, opts.Schema, quoted, opts.Applied); err != nil {
 		pool.Close()
 		return nil, err
 	}
@@ -233,8 +260,9 @@ func schemaExists(ctx context.Context, pool *pgxpool.Pool, schema string) error 
 }
 
 // bootstrap creates the schema and runs schema.sql on one connection under
-// the advisory lock described in Open.
-func bootstrap(ctx context.Context, pool *pgxpool.Pool, schema, quoted string) (err error) {
+// the advisory lock described in Open, telling applied (when set) of each
+// script that commits.
+func bootstrap(ctx context.Context, pool *pgxpool.Pool, schema, quoted string, applied func(Migration, time.Duration)) (err error) {
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
@@ -275,8 +303,12 @@ func bootstrap(ctx context.Context, pool *pgxpool.Pool, schema, quoted string) (
 	// One Exec per script, in version order. No arguments → simple protocol →
 	// each file runs as one multi-statement query, $$ bodies included.
 	for _, migration := range Migrations() {
+		began := time.Now()
 		if _, err := conn.Exec(ctx, migration.SQL); err != nil {
-			return fmt.Errorf("run %s: %w%s", migration.File, err, blockingActivity(ctx, conn, err))
+			return &MigrationError{Migration: migration, Err: err, blocking: blockingActivity(ctx, conn, err)}
+		}
+		if applied != nil {
+			applied(migration, time.Since(began))
 		}
 	}
 	return nil
@@ -289,7 +321,16 @@ func bootstrap(ctx context.Context, pool *pgxpool.Pool, schema, quoted string) (
 //
 // It exists because the answer to "why will the server not start" was once a
 // fifteen-minute hunt through pg_stat_activity, and it is the first thing
-// anyone would have asked for.
+// anyone would have asked for. Since 29 Sep 2026 `gameplay -migrate` prints it
+// too, at the moment a deploy stops on it (ops/deploy.sh's exit 2).
+//
+// The failed statement no longer waits by the time this runs, so
+// pg_blocking_pids cannot name the holder; what can is the other sessions
+// still inside a transaction (an idle session holds no relation lock) that
+// hold a lock on a table of this schema — the oldest transaction first, its
+// age in seconds, and its latest query on one line. The pattern is a standard
+// string: E'\s+' would read as the regex `s+` and turn every letter s of the
+// query into a space.
 func blockingActivity(ctx context.Context, conn *pgxpool.Conn, cause error) string {
 	// 55P03 lock_not_available (lock_timeout) and 57014 query_canceled
 	// (statement_timeout) are the two failures a lock holder explains. Any
@@ -299,13 +340,19 @@ func blockingActivity(ctx context.Context, conn *pgxpool.Conn, cause error) stri
 		return ""
 	}
 	rows, err := conn.Query(context.WithoutCancel(ctx), `
-		SELECT pid, state, EXTRACT(epoch FROM now() - query_start)::bigint,
-		       left(regexp_replace(query, E'\s+', ' ', 'g'), 120)
-		  FROM pg_stat_activity
-		 WHERE datname = current_database()
-		   AND pid <> pg_backend_pid()
-		   AND query_start < now() - interval '3 seconds'
-		 ORDER BY query_start
+		SELECT a.pid, a.state, EXTRACT(epoch FROM now() - a.xact_start)::bigint,
+		       left(regexp_replace(a.query, '\s+', ' ', 'g'), 120)
+		  FROM pg_stat_activity a
+		 WHERE a.datname = current_database()
+		   AND a.pid <> pg_backend_pid()
+		   AND a.xact_start IS NOT NULL
+		   AND EXISTS (SELECT 1
+		                 FROM pg_locks l
+		                 JOIN pg_class c ON c.oid = l.relation
+		                 JOIN pg_namespace n ON n.oid = c.relnamespace
+		                WHERE l.pid = a.pid AND l.locktype = 'relation' AND l.granted
+		                  AND n.nspname = current_schema())
+		 ORDER BY a.xact_start
 		 LIMIT 3`)
 	if err != nil {
 		return ""

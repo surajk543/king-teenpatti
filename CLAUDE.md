@@ -64,6 +64,8 @@ king-teenpatti/
 │   ├── cmd/gameplay/main.go      entrypoint: godotenv .env → config → db → app → listen; SIGTERM = graceful max(8 s, statement timeout + 5 s); -version
 │   │                         tableconfig.go: -export-table-config (the env-composed table catalogue as a psql script on stdout) and
 │   │                         -check-table-config (reads the database's catalogue WITHOUT migrating, judges it as a db boot would; exit 0/1/2) — both run before the server, §4
+│   │                         migrate.go: -migrate (29 Sep 2026) — applies every embedded migration through the SAME db.Open a boot uses (db.Options.Applied
+│   │                         reports each script; db.MigrationError names a failing one), prints them, exits 0/1; no Redis, listener or jobs; deploy.sh runs it
 │   ├── internal/
 │   │   ├── config/config.go      ALL env → one immutable Config (Defaults(); strict integer parsing); parse.go;
 │   │   │                         tables.go = the table catalogue contract (23 Sep 2026): TABLE_CONFIG_SOURCE, TableEnvKeys, Categories, EngineOf,
@@ -107,7 +109,7 @@ king-teenpatti/
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
 │   ├── public/                   browser client (index.html, client.js, style.css, theme.css) + profiles/ (15 Noto Emoji animal SVGs, Apache 2.0) + tables/ (16 generated SVG table pictures, §7.3; served in production like profiles/)
 │   ├── .env.example              every env key the server reads, with defaults (+ Go-only PG_STATEMENT_TIMEOUT_MS)
-│   ├── ops/                      build.sh, release.sh, prod-version.sh, gameplay-go.service, install-go-server.sh, install-monitoring.sh, lib.sh, DEPLOY.md
+│   ├── ops/                      deploy.sh (the one-command deploy of a tag, §14.3), build.sh, release.sh, prod-version.sh, gameplay-go.service, install-go-server.sh, install-monitoring.sh, lib.sh, DEPLOY.md
 │   │   └── monitoring/           Prometheus + Grafana + alerts + nginx bundle, MONITORING.md (formerly server/ops/monitoring)
 │   ├── PORT_PLAN.md / DECISIONS.md / PORT_NOTES/   architecture + Node→Go file map + concurrency rules; every settled ambiguity; per-package port notes + specs/ (cite the removed Node source)
 │   ├── POKER_PLAN.md             the Poker family's design report (10 sections: what is reused, what was generalised, the events, the state, the risks, the phases)
@@ -274,6 +276,7 @@ PORT=3001 PG_SCHEMA=test_x ./bin/gameplay      # spare port + throwaway schema (
 ./bin/gameplay -export-table-config > tables.sql    # the catalogue the ENV keys compose, as one psql transaction (stderr: which keys, how to apply)
 PGPASSWORD=postgres psql -h localhost -U postgres -d gameplay -f tables.sql   # PGOPTIONS='-c search_path=<schema>' first on any PG_SCHEMA but public
 ./bin/gameplay -check-table-config                  # the database's catalogue judged as a db boot would: exit 0 clean, 1 rows left out, 2 unusable
+./bin/gameplay -migrate                             # every migration script, exactly as a boot applies them, then exit (reads ./.env; PG_SCHEMA honoured)
 curl -s localhost:3000/api/tables | python3 -m json.tool | head -40    # what the server enforces (and the app caches)
 curl -s 'localhost:3000/api/app-config?platform=android&version=1.5.0' | python3 -m json.tool   # the app version gate's verdict for a build (§7.2)
 curl -s localhost:3000/health | python3 -c 'import json,sys; print(json.load(sys.stdin)["tableConfig"])'   # {source, version, fallback}
@@ -1542,7 +1545,13 @@ it: named a seed, no CREATE/ALTER/DROP/TRUNCATE/DELETE/UPDATE, and one `ON CONFL
 refused too: a seed never rewrites a row an owner has edited). Structure still goes into V1.0.0, however late. A new table is one `CREATE TABLE IF NOT EXISTS`; a new
 column is written twice, as `is_bot` and `game`/`variant` are. What a boot does NOT do is change what an existing
 column already IS — a CHECK, a default, a type: `CREATE TABLE IF NOT EXISTS` is a no-op where the table exists, and
-that stays **a deliberate one-off step run by hand**, or a fresh start. The other catalogue guards (the baseline's
+that stays **a deliberate one-off step run by hand**, or a fresh start. **Every index is created inside a catalogue
+guard** (a `to_regclass` lookup in a `DO` block) since 29 Sep 2026: a bare `CREATE INDEX IF NOT EXISTS` takes a SHARE lock
+on its table even when the index exists, so every boot — and `gameplay -migrate` beside a live server — briefly blocked the
+writes to 12 tables (the ledger, the purchase tables); `TestABootThatChangesNothingWaitsForNoWriter` holds a boot that
+changes nothing to taking no such lock, and `TestMigrationsAreVersionedOrderedAndSplitByKind` every `CREATE INDEX` to a guard.
+A release that ADDS an index or column still takes its lock once (up to the 3 s `lock_timeout`): deploy it at a quiet hour.
+The other catalogue guards (the baseline's
 `idx_users_last_login`, `users_no_delete` created only when missing) are for DEPLOY.md §7, where the app role no longer
 owns `users`.
 `withTransaction(fn)` = BEGIN/COMMIT/ROLLBACK. `dropSchema()` refuses `public`. **int8 and numeric
@@ -4288,6 +4297,7 @@ bash ops/build.sh                 # static, stripped, release tag → main.versi
 # release tags (§14.4): cut one, see what it would be, and check what prod actually runs
 bash ops/release.sh patch         # go-server/v1.0.0 → go-server/v1.0.1 (annotated; does NOT push)
 bash ops/release.sh --current     # the newest tag and what `git describe` renders now
+./bin/gameplay -migrate           # apply every migration and exit (what deploy.sh runs before a restart)
 bash ops/prod-version.sh          # curls /health on production and says IN SYNC or BEHIND (exit 2)
 PORT=3001 HOST=127.0.0.1 PG_SCHEMA=test_x ./bin/gameplay      # spare port + throwaway schema (drop it after)
 # parity (from tools/, `npm install` once): the black-box suites against the built binary, and a traffic diff
@@ -4326,6 +4336,22 @@ at all, `git describe` falls back to the bare commit, which is why production re
 before the first tag existed.
 
 ### 14.3 Production deploy (`go-server/ops/DEPLOY.md` has every command; `steps.txt` the short form)
+**Since 29 Sep 2026 production runs a TAG and is deployed with one command** (owner: "Create a script whenever i run it
+applies all ddl/dml from migration folder and then it takes latest pull and deploy backend tag"; "deploy specific tag"):
+on the host, as `write`, inside `tmux`, `bash go-server/ops/deploy.sh [go-server/vX.Y.Z] [--dry-run] [--force]
+[--allow-downgrade]`. It fetches branches and tags, fast-forwards the host's `master`, checks the tag out DETACHED, builds it,
+runs the NEW binary's `gameplay -migrate` as the unit's user from its working directory BEFORE the restart (a failing script
+stops the deploy with nothing restarted: exit 2), restarts only when the running build differs, waits for `/health` to
+report the tag and watches it 30 s more, rolling back by itself when the build never answers or falls over (exit 3; 4 when
+the rollback is down too). It refuses tracked edits, a second deploy (flock), an unreadable unit, a tag older than what
+runs without `--allow-downgrade`, and any tag older than `go-server/v1.7.0`; it restores the previous build on a dropped
+session or Ctrl-C; every run is logged in `.git/deploy-logs/`. Never run the migration files with `psql -f` as `postgres`:
+tables it created would be owned by `postgres` and the server could not write to them. The host's checkout sits on a
+detached HEAD at the tag it runs (since the by-hand v1.10.2 deploy); `git pull origin master` is no longer part of a deploy.
+The by-hand fallback (fetch --force, checkout --detach the tag, build.sh, `sudo -u "$(systemctl show gameplay -p User --value)" ./bin/gameplay -migrate` — production's unit runs as `gameplay`, not the template's `deploy`, restart,
+wait for `/health`) and the first run's command are in `steps.txt` and DEPLOY.md §3 "One-command deploy". The history
+below describes the hosts and the switch to Go.
+
 **Hosts, by public DNS on 24 Sep 2026: `prod.sungamestudio.com` → `129.121.135.218` is production; `preprod.sungamestudio.com`
 → `148.113.24.201`, the host the rest of this section was written against; `api.sungamestudio.com` no longer resolves.** The
 production box's ssh user and checkout path are not recorded here — confirm them before following the commands below there.
