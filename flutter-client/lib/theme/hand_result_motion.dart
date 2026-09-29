@@ -1,8 +1,10 @@
 /// The hand-result card animations' numbers (owner's brief, 29 Sep 2026:
-/// "premium HAND-RESULT CARD ANIMATIONS … visual feedback ONLY when a
-/// player's final hand result is known"), in one place: which hands earn one,
+/// "premium HAND-RESULT CARD ANIMATIONS"), in one place: which hands earn one,
 /// how long each runs, how far a card rises, how much light it catches, and
-/// how the two themes take it.
+/// how the two themes take it. Played on the viewer's own cards the moment
+/// they look at them, never at a show (owner, the same day: "when user click
+/// on see card, then acc to rank of card play animation";
+/// `widgets/hand_result.dart`).
 ///
 /// Five levels, rising with the hand's rarity and saying so through
 /// restraint — a Pair is noticed, a Trail is a moment:
@@ -132,10 +134,10 @@ class HandResultCardEffect {
 
   /// This effect with the card's rise held to [room] logical pixels — how far
   /// its top may go before it meets whatever stands over the hand: the
-  /// viewer's own bet badge, a rim seat's pod (review, 29 Sep 2026). The lift
-  /// gives way first, down to the half of the growth that goes downwards, so
-  /// the card's foot never sinks below its place; only then the growth. A
-  /// card with the room it wants is left exactly as it was.
+  /// viewer's own bet badge (review, 29 Sep 2026). The lift gives way first,
+  /// down to the half of the growth that goes downwards, so the card's foot
+  /// never sinks below its place; only then the growth. A card with the room
+  /// it wants is left exactly as it was.
   HandResultCardEffect within(double room, double height) {
     final grow = (scale - 1) * height;
     if (riseOf(height) <= room) return this;
@@ -220,10 +222,10 @@ class HandResultBurstEffect {
 /// One level's animation: how long it runs and what each part of it does,
 /// every figure in one row ([of]).
 ///
-/// Time is a share of [duration], from 0 (the result lands — the WINNER
-/// ribbon strikes) to 1 (the cards have settled). A card's own motion runs in
-/// a window of that: the whole of it, or, where [stagger] is set, one after
-/// another — card k from `k * stagger` for [cardSpan].
+/// Time is a share of [duration], from 0 (the light lands — the viewer's
+/// cards at rest after their turn) to 1 (the cards have settled). A card's
+/// own motion runs in a window of that: the whole of it, or, where [stagger]
+/// is set, one after another — card k from `k * stagger` for [cardSpan].
 @immutable
 class HandResultProfile {
   const HandResultProfile({
@@ -268,13 +270,13 @@ class HandResultProfile {
 
   /// How far it rises, as a share of the card's height, held between
   /// [liftFloor] and [liftMax] logical pixels: 3–6 px on the viewer's own
-  /// cards, 3–3.5 on a rim seat's smaller ones — and never past what stands
-  /// over the hand ([HandResultCardEffect.within]).
+  /// cards, 3–3.5 on a 40dp one — and never past what stands over the hand
+  /// ([HandResultCardEffect.within]).
   final double liftShare;
 
-  /// The least it rises, in logical pixels, however small the card: a rim
-  /// seat's 40dp card would otherwise rise a pixel and a half, which reads as
-  /// nothing. [liftMin]; none under reduced motion.
+  /// The least it rises, in logical pixels, however small the card: a 40dp
+  /// card (a rim seat's size) would otherwise rise a pixel and a half, which
+  /// reads as nothing. [liftMin]; none under reduced motion.
   final double liftFloor;
 
   /// Where in a card's window it reaches the top of its rise, how long it
@@ -326,9 +328,8 @@ class HandResultProfile {
   final double restRadial;
 
   /// The most and the least any card rises, in logical pixels (the brief's
-  /// "2–6 px"). The least is 3, not 2: at a rim seat, under the fireworks
-  /// every win brings, a two-pixel pulse on a 40dp card was not seen at all
-  /// (review, 29 Sep 2026).
+  /// "2–6 px"). The least is 3, not 2: a two-pixel pulse on a 40dp card was
+  /// not seen at all (review, 29 Sep 2026).
   static const double liftMax = 6;
   static const double liftMin = 3;
 
@@ -346,9 +347,9 @@ class HandResultProfile {
   /// "Small Pulse": the pair together, up and back down (brief: 1.00 → 1.03
   /// → 1.00, ~250–350 ms, ease-out/in-out; no particles, no large glow). The
   /// thin gold edge that rises and falls with the two cards is its one mark:
-  /// at a rim seat, under the fireworks every win brings, a movement alone
-  /// could not be told from the confetti crossing it (review, 29 Sep 2026) —
-  /// the edge says "these two", and is gone with the pulse.
+  /// a movement alone was too slight to be seen (review, 29 Sep 2026, when
+  /// the winner's cards were lit under the fireworks) — the edge says "these
+  /// two", and is gone with the pulse.
   static const pair = HandResultProfile(
     level: HandResultLevel.pair,
     duration: Duration(milliseconds: 320),
@@ -620,9 +621,9 @@ class HandResultProfile {
 abstract final class HandResultShape {
   /// What is kept clear, in logical pixels, between anything a result draws
   /// — a risen card, its edge light, a Trail's radial light and sparks — and
-  /// whatever stands over the hand: the viewer's own bet badge, a rim seat's
-  /// pod (review, 29 Sep 2026: a Trail's middle card lay over the lower third
-  /// of the viewer's "SEEN 800" and its light turned the badge's words olive).
+  /// whatever stands over the hand: the viewer's own bet badge (review, 29
+  /// Sep 2026: a Trail's middle card lay over the lower third of the viewer's
+  /// "SEEN 800" and its light turned the badge's words olive).
   static const double clearance = 1;
 
   /// The soft shadow a lifted card leaves where it lay: drawn in from its
@@ -675,14 +676,21 @@ abstract final class HandResultShape {
   /// [spread] ([HandResultBurstEffect.radialScale]), as the box of its
   /// ellipse in the hand's own pixels (the hand's top is 0) — its top held at
   /// [ceiling], the line nothing may cross into what stands over the hand, so
-  /// the light keeps its reach at the sides and below and gives way above.
+  /// the light keeps its reach below and gives way above; and no further past
+  /// the hand's left or right edge than [side], the room on the tighter of
+  /// the two (what stands beside the hand: the viewer's own pod, the key
+  /// cluster), narrowed on both so it stays centred behind the cards.
   static Rect radialBounds(
     Size hand,
     double spread, {
     double ceiling = double.negativeInfinity,
+    double side = double.infinity,
   }) {
     final h = hand.height;
-    final rx = (hand.width / 2 + h * radialReachX) * spread;
+    final rx = math.min(
+      (hand.width / 2 + h * radialReachX) * spread,
+      hand.width / 2 + math.max(0.0, side),
+    );
     final ry = (h / 2 + h * radialReachY) * spread;
     final centre = hand.center(Offset.zero);
     return Rect.fromLTRB(
@@ -714,11 +722,34 @@ abstract final class HandResultShape {
     return (allowed / reach).clamp(0.0, sparkRise);
   }
 
+  /// How much of its sideways flight a spark leaving at [angle] (radians)
+  /// may make, flying [reach] past a hand whose middle is [halfWidth] in from
+  /// its edges, so that its head, [head] wide, ends no more than [room] past
+  /// the edge it flies towards: all of it where the room allows, less the
+  /// flatter it flies, and nothing past the hand's own box where there is no
+  /// room at all (the burst is drawn behind the cards, and the box is wider
+  /// than three cards).
+  static double sparkSideFor({
+    required double angle,
+    required double reach,
+    required double halfWidth,
+    required double room,
+    double head = 0,
+  }) {
+    final across = math.cos(angle).abs();
+    if (across <= 0 || reach <= 0 || room.isInfinite) return 1;
+    // At the end of its flight the head stands across * (halfWidth + reach *
+    // s) from the hand's middle.
+    final allowed = (halfWidth + room - head / 2) / across - halfWidth;
+    return (allowed / reach).clamp(0.0, 1.0);
+  }
+
   /// A Trail's sparks. Each leaves from behind the cards, [sparkFrom] of the
   /// way out to the hand's edge, and flies past it by up to [sparkReach] of
   /// the cards' height — upwards only [sparkRise] of that, and never into
-  /// what stands over the hand ([sparkRiseFor]). Its streak is [sparkTail] of its life long, [sparkWidth] of
-  /// the cards' height wide (a tail [sparkTailWidth] as wide at
+  /// what stands over the hand ([sparkRiseFor]) or beside it
+  /// ([sparkSideFor]). Its streak is [sparkTail] of its life long,
+  /// [sparkWidth] of the cards' height wide (a tail [sparkTailWidth] as wide at
   /// [sparkTailStrength] of its light); it fades in over [sparkFadeIn] of its
   /// life and out along (1 − life)^[sparkFadeOut]. They leave evenly round
   /// the hand, each up to [sparkJitter] of a step off its place, at

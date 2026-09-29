@@ -1,30 +1,43 @@
 /// The hand-result card animations (owner's brief, 29 Sep 2026): the cards
-/// that made a winning hand light up where they lie, by what the server says
-/// they made — a Pair's two cards pulse, a Color's three catch a light in the
-/// table's colour, a Sequence rises card after card, a Pure Sequence settles
-/// into a gold edge, a Trail bursts. The numbers are
-/// `theme/hand_result_motion.dart`'s; this file draws them.
+/// that make a hand light up where they lie, by what they make — a Pair's two
+/// cards pulse, a Color's three catch a light in the table's colour, a
+/// Sequence rises card after card, a Pure Sequence settles into a gold edge,
+/// a Trail bursts. The numbers are `theme/hand_result_motion.dart`'s; this
+/// file draws them.
 ///
-/// One system, three pieces:
+/// Played on the viewer's OWN cards, the moment they look at them, and never
+/// at a result (owner, 29 Sep 2026: "animation should not played on once user
+/// take show … when user click on see card, then acc to rank of card play
+/// animation"): the felt (table_screen's `_FeltState._handResultCue`) cues it
+/// when the viewer's cards turn face up in a hand — See cards, or the reveal
+/// the fourth blind bet forces — once they have finished turning, and nothing
+/// lights at a show, a showdown or a sideshow, on any seat: a look still on
+/// its way when the hand ends never lands, and one already playing settles
+/// at once.
 ///
-/// * [HandResultScope] — the felt's word on which result is being celebrated
+/// One system, three pieces, and the room they light in:
+///
+/// * [HandResultScope] — the felt's word on which look is being shown
 ///   ([HandResultCue]): whose hand, what it made, which of its cards made it,
-///   and the celebration's own clock. Only the Teen Patti felt provides one.
-/// * [HandResultGroup] — round one seat's cards. Where the cue is that seat's
-///   it times the result off the clock ([HandResultProgress]) and draws the
-///   hand's own light behind the cards (a Trail's radial light and sparks).
+///   and the look's own clock. Only the Teen Patti felt provides one.
+/// * [HandResultGroup] — round a hand's cards (the viewer's fan). Where the
+///   cue is that hand's it times the animation off the clock
+///   ([HandResultProgress]) and draws the hand's own light behind the cards (a
+///   Trail's radial light and sparks).
 /// * [HandResultCard] — round each card. Where its card is one of the hand's,
 ///   it lifts it and lights it; everywhere else it paints the card and
 ///   nothing more.
+/// * [HandResultGroup.headroom] and [HandResultBounds] — what stands over the
+///   hand (the viewer's bet badge) and beside it (their pod, the key
+///   cluster): nothing the look draws crosses either.
 ///
-/// Nothing here owns a controller, a timer or a ticker: the celebration's
-/// clock (table_screen's `_Party`, the one the fireworks, the WINNER ribbon
-/// and the pot's flight run on) is the only clock, so the cards light up with
-/// the ribbon's strike, a rebuilt seat takes the animation up where the clock
-/// is rather than starting again, and the next deal — which drops the
-/// celebration — takes the light with it. Every part is moved by its render
-/// object with nothing rebuilt, and repaints only while its figures change:
-/// once the cards have settled nothing is drawn again.
+/// Nothing here owns a controller, a timer or a ticker: the look's clock,
+/// which the felt makes for it and runs once, is the only clock, so a rebuilt
+/// fan takes the animation up where the clock is rather than starting again,
+/// the cards stay settled for the rest of the hand, and the next deal — a new
+/// hand, with no look yet — takes the light with it. Every part is moved by
+/// its render object with nothing rebuilt, and repaints only while its figures
+/// change: once the cards have settled nothing is drawn again.
 library;
 
 import 'dart:math' as math;
@@ -34,18 +47,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 
-import '../models/dtos.dart';
 import '../settings/feedback_settings.dart';
 import '../theme/app_theme.dart';
 import '../theme/hand_result_motion.dart';
 import 'playing_card.dart';
 
-/// The cards of a revealed hand that made what the server named it, each
-/// with its place among them, left to right: every COUNTED card — the three
-/// dealt, or under 5-Card the three the server lists in [best] — and for a
-/// Pair only the two of those that pair.
+/// The cards of a hand the server has named — the viewer's own at a
+/// Variation table (`you.hand`) — that made what it named it, each with its
+/// place among them, left to right: every COUNTED card — the three dealt, or
+/// under 5-Card the three the server lists in [best] — and for a Pair only the
+/// two of those that pair.
 ///
-/// Locating the pair inside a result the server has already named is not
+/// Locating the pair inside a hand the server has already named is not
 /// evaluating the hand: the server said "Pair" (and so that exactly two of
 /// the counted cards share a rank); this finds which two, reading each card
 /// as it was COUNTED — [playsAs] where a wild card stood in for another, so a
@@ -85,10 +98,12 @@ Map<String, int> handResultCards({
   return {for (final (order, i) in pair.indexed) cards[i]: order};
 }
 
-/// The result a table is celebrating, for its cards to light up by: whose
-/// hand ([userId]), what it made ([level]), which of its cards made it
-/// ([cards]: dealt code → place among them), and when — [startAt] into the
-/// celebration's [clock], which runs 0 to 1 over [total].
+/// The look a table is showing, for its cards to light up by: whose hand
+/// ([userId]), what it made ([level]), which of its cards made it ([cards]:
+/// dealt code → place among them), and when — [startAt] into the look's
+/// [clock], which runs 0 to 1 over [total]: the fan's cards turning face up
+/// (and a wild card turning, the best three of five being set out), then the
+/// level's own run.
 @immutable
 class HandResultCue {
   const HandResultCue({
@@ -103,8 +118,9 @@ class HandResultCue {
     this.bootAmount = 0,
   });
 
-  /// The result's identity — the table, the hand and its winner — so an
-  /// animation can never be carried from one hand into the next.
+  /// The look's identity — the table, the hand, the player and what they
+  /// hold — so an animation can never be carried from one hand into the
+  /// next.
   final String key;
   final String userId;
   final HandResultLevel level;
@@ -117,50 +133,7 @@ class HandResultCue {
   final String category;
   final int bootAmount;
 
-  /// The cue for a showdown's winner, from their [reveal] as the server sent
-  /// it: its `category` (else its `handName`) decides the level, its cards,
-  /// `playsAs` and `best` which of them light up. Null when there is nothing
-  /// to light — no reveal (everyone else packed: the table never saw the
-  /// hand), a High Card, a Pair whose pair cannot be found — and on a MUFLIS
-  /// hand, where the table ranks hands the other way round and a Trail is
-  /// the worst hand there is: lighting a hand by how rare it is would
-  /// celebrate the very thing that made it weak.
-  static HandResultCue? forWinner({
-    required String key,
-    required Reveal? reveal,
-    required Animation<double> clock,
-    required Duration total,
-    required Duration startAt,
-    String category = '',
-    int bootAmount = 0,
-    String? variation,
-  }) {
-    if (reveal == null || variation == Variation.muflis) return null;
-    final level = reveal.category >= 0
-        ? HandResultLevel.fromCategory(reveal.category)
-        : HandResultLevel.fromHandName(reveal.handName);
-    if (level == null) return null;
-    final cards = handResultCards(
-      level: level,
-      cards: reveal.cards,
-      playsAs: reveal.playsAs,
-      best: reveal.best,
-    );
-    if (cards.isEmpty) return null;
-    return HandResultCue(
-      key: key,
-      userId: reveal.userId,
-      level: level,
-      cards: cards,
-      clock: clock,
-      total: total,
-      startAt: startAt,
-      category: category,
-      bootAmount: bootAmount,
-    );
-  }
-
-  /// Whether [other] is this same result on this same clock — what a seat
+  /// Whether [other] is this same look on this same clock — what a hand
   /// keeps its timing across, however often the felt builds a new cue.
   bool sameResult(HandResultCue? other) =>
       other != null &&
@@ -183,8 +156,8 @@ class HandResultCue {
   int get hashCode => Object.hash(key, userId, level, startAt, total);
 }
 
-/// The felt's cue ([HandResultCue]) for every seat under it; null while no
-/// result is being celebrated.
+/// The felt's cue ([HandResultCue]) for every hand under it; null while the
+/// viewer has no look to show (blind, packed, a High Card, a new hand).
 class HandResultScope extends InheritedWidget {
   const HandResultScope({super.key, required this.cue, required super.child});
 
@@ -197,13 +170,13 @@ class HandResultScope extends InheritedWidget {
   bool updateShouldNotify(HandResultScope oldWidget) => oldWidget.cue != cue;
 }
 
-/// How far a result's animation has got, 0 to 1 over its [duration], read
-/// off the celebration's [clock] (0 to 1 over [total]) from [startAt] — the
-/// moment the result lands. It tells its listeners only when that figure
-/// moves, so the cards stop repainting the frame they settle, however long
-/// the celebration's clock runs on; and it listens to the clock only while
-/// something listens to it. A [duration] of nothing is a result shown
-/// settled: 0 until [startAt], 1 from it — never before the ribbon strikes.
+/// How far a look's animation has got, 0 to 1 over its [duration], read off
+/// the look's [clock] (0 to 1 over [total]) from [startAt] — the moment the
+/// light lands, on cards at rest. It tells its listeners only when that
+/// figure moves, so the cards stop repainting the frame they settle, however
+/// long the clock runs on; and it listens to the clock only while something
+/// listens to it. A [duration] of nothing is a look shown settled: 0 until
+/// [startAt], 1 from it — never while the cards are still turning.
 class HandResultProgress extends Animation<double>
     with
         AnimationLazyListenerMixin,
@@ -272,25 +245,29 @@ class HandResultProgress extends Animation<double>
   }
 }
 
-/// The results this phone has played, each with the clock it played on
-/// (by identity), so a result is never played twice: a celebration still on
-/// show when the felt is built again (and its clock with it) finds its
-/// cards settled rather than lighting up from the start. A seat rebuilt on
-/// the SAME clock is not "elsewhere" and takes the animation up where the
-/// clock is. The last [keep] results only; a result's key names its table,
-/// hand and winner, so no two hands share one.
+/// The looks this phone has played, each with the clock it played on (by
+/// identity), so a look is never played twice: one played before, cued again
+/// on another clock, finds its cards settled rather than lighting up from the
+/// start. A fan rebuilt on the SAME clock is not "elsewhere" and takes the
+/// animation up where the clock is. The last [keep] looks only; a look's key
+/// names its table, hand, player and cards, so no two hands share one.
 abstract final class HandResultMemory {
   static const int keep = 16;
 
   static final Map<String, int> _played = {};
 
-  /// Whether [cue]'s result has been played on a clock other than its own.
+  /// The looks the hand's end stopped before their light landed (the felt's
+  /// `_endLook`), the last [keep] of them: a felt built again in that hand
+  /// shows them as they were shown — not at all — rather than settled.
+  static final Set<String> _dropped = {};
+
+  /// Whether [cue]'s look has been played on a clock other than its own.
   static bool playedElsewhere(HandResultCue cue) {
     final clock = _played[cue.key];
     return clock != null && clock != identityHashCode(cue.clock);
   }
 
-  /// Notes that [cue]'s result is being played on its clock.
+  /// Notes that [cue]'s look is being played on its clock.
   static void remember(HandResultCue cue) {
     _played
       ..remove(cue.key)
@@ -300,12 +277,32 @@ abstract final class HandResultMemory {
     }
   }
 
-  /// Forgets every result, for tests that play the same hand afresh.
+  /// Notes that the look [key] was stopped before its light landed.
+  static void drop(String key) {
+    _dropped
+      ..remove(key)
+      ..add(key);
+    while (_dropped.length > keep) {
+      _dropped.remove(_dropped.first);
+    }
+  }
+
+  /// Whether the look [key] was stopped before its light landed ([drop]).
+  static bool dropped(String key) => _dropped.contains(key);
+
+  /// Whether a hand has shown the look [key] on some clock ([remember]) —
+  /// playing it, or settled — since this phone's app started.
+  static bool played(String key) => _played.containsKey(key);
+
+  /// Forgets every look, for tests that play the same hand afresh.
   @visibleForTesting
-  static void reset() => _played.clear();
+  static void reset() {
+    _played.clear();
+    _dropped.clear();
+  }
 }
 
-/// The level's sound hook, once per result as its cards light up
+/// The level's sound hook, once per look as its cards light up
 /// ([FeedbackSettings.handResult]); nothing where there are no sounds in
 /// scope (a bare widget test, a tool).
 void handResultSound(BuildContext context, HandResultLevel level) {
@@ -316,11 +313,12 @@ void handResultSound(BuildContext context, HandResultLevel level) {
   }
 }
 
-/// One seat's cards, for the result animation: laid round the cards as the
-/// seat already draws them, the same whatever is happening (the cards under
-/// it are never rebuilt for it). Where the felt's cue ([HandResultScope]) is
-/// [userId]'s hand, it times the animation and draws the hand's own light
-/// behind the cards; each card lights itself ([HandResultCard]).
+/// One hand's cards, for the look's animation — the viewer's own fan: laid
+/// round the cards as the fan already draws them, the same whatever is
+/// happening (the cards under it are never rebuilt for it). Where the felt's
+/// cue ([HandResultScope]) is [userId]'s hand, it times the animation and
+/// draws the hand's own light behind the cards; each card lights itself
+/// ([HandResultCard]).
 class HandResultGroup extends StatefulWidget {
   const HandResultGroup({
     super.key,
@@ -334,10 +332,11 @@ class HandResultGroup extends StatefulWidget {
 
   /// How far above this box the space is free, in logical pixels: the gap to
   /// whatever stands over the hand — the viewer's own bet badge
-  /// (`TableSpace.hand`), a rim seat's pod (`TableSpace.seat`). Nothing the
-  /// result draws — a risen card, its edge light, a Trail's radial light and
-  /// sparks — crosses it, less [HandResultShape.clearance] (review, 29 Sep
-  /// 2026). It holds the whole hand's rise, so the hand rises as one.
+  /// (`TableSpace.hand`). Nothing the animation draws — a risen card, its
+  /// edge light, a Trail's radial light and sparks — crosses it, less
+  /// [HandResultShape.clearance] (review, 29 Sep 2026). It holds the whole
+  /// hand's rise, so the hand rises as one. What stands beside the hand is a
+  /// [HandResultBounds] over it.
   final double headroom;
 
   final Widget child;
@@ -351,7 +350,7 @@ class HandResultGroupState extends State<HandResultGroup> {
   Animation<double>? _progress;
   HandResultProfile? _profile;
 
-  /// The result this seat is showing, if it is showing one.
+  /// The look this hand is showing, if it is showing one.
   @visibleForTesting
   HandResultCue? get cue => _cue;
 
@@ -378,7 +377,7 @@ class HandResultGroupState extends State<HandResultGroup> {
         : MatrixUtils.transformRect(burst!.getTransformTo(null), bounds);
   }
 
-  /// Keeps the seat on the result it is showing: the same result on the same
+  /// Keeps the hand on the look it is showing: the same look on the same
   /// clock keeps its timing (and so never starts again), anything else starts
   /// from where its own clock is.
   void _bind(HandResultCue? cue) {
@@ -391,10 +390,9 @@ class HandResultGroupState extends State<HandResultGroup> {
     _cue = cue;
     _progress = null;
     if (cue == null) return;
-    // A result this phone has already played on another clock — the felt
-    // built again round a celebration still on show — is shown settled,
-    // never played a second time; and settled from the moment its own clock
-    // says the result lands, not while the cards are still turning.
+    // A look this phone has already played on another clock is shown
+    // settled, never played a second time; and settled from the moment its
+    // own clock says the light lands, not while the cards are still turning.
     if (HandResultMemory.playedElsewhere(cue)) {
       _progress = HandResultProgress(
         clock: cue.clock,
@@ -411,8 +409,8 @@ class HandResultGroupState extends State<HandResultGroup> {
       startAt: cue.startAt,
       duration: HandResultProfile.of(cue.level).duration,
     );
-    // Heard once, as the cards light up — never late: a seat that meets a
-    // result already under way (rebuilt, reconnected) is not announced.
+    // Heard once, as the cards light up — never late: a fan that meets a
+    // look already under way (rebuilt, reconnected) is not announced.
     if (progress.value <= 0) progress.addListener(_announce);
   }
 
@@ -466,7 +464,7 @@ class HandResultGroupState extends State<HandResultGroup> {
       light: light,
       accent: accent,
       headroom: widget.headroom,
-      // In a layer of its own: while the cards move, only this seat's cards
+      // In a layer of its own: while the cards move, only this hand's cards
       // are drawn again.
       child: RepaintBoundary(
         child: _HandResultBurst(
@@ -514,14 +512,14 @@ class _HandResultGroupData extends InheritedWidget {
       old.headroom != headroom;
 }
 
-/// One card, for the result animation ([HandResultGroup]): the card as it
-/// was, unless it is one of the cards that made the winning hand — then,
-/// while the result plays, it rises and grows about its middle, catches the
+/// One card, for the look's animation ([HandResultGroup]): the card as it
+/// was, unless it is one of the cards that make the viewer's hand — then,
+/// while the look plays, it rises and grows about its middle, catches the
 /// light and takes a gold edge, as its level's row says, and never further
 /// than its hand has room for ([HandResultGroup.headroom]).
 ///
 /// Always this one render object round the card, lit or not, so a card is
-/// never rebuilt (its flip, its wild turn) when a result arrives or goes.
+/// never rebuilt (its flip, its wild turn) when a look arrives or goes.
 class HandResultCard extends SingleChildRenderObjectWidget {
   const HandResultCard({
     super.key,
@@ -565,7 +563,7 @@ class HandResultCard extends SingleChildRenderObjectWidget {
   }
 }
 
-/// The card's render object: it paints the card, and while its result plays
+/// The card's render object: it paints the card, and while its look plays
 /// the soft shadow of a lifted card, the card risen and grown about its
 /// middle, the gold light round its edge and the band of light across its
 /// face. All of it moved here, frame by frame, with nothing rebuilt and
@@ -647,7 +645,7 @@ class RenderHandResultCard extends RenderProxyBox {
     markNeedsPaint();
   }
 
-  /// Whether this card is one of the hand's while its result is on.
+  /// Whether this card is one of the hand's while its look is on.
   bool get lit => _progress != null && _profile != null;
 
   /// What the card looks like now: its level's row at this moment, its rise
@@ -954,6 +952,42 @@ class RenderHandResultCard extends RenderProxyBox {
   }
 }
 
+/// Where, across this box, a hand's own light may reach (review, 29 Sep
+/// 2026: a Trail's sparks crossed the viewer's own pod and, on a 640dp phone,
+/// the key cluster beside their hand): from `left` to `right` of what [edges]
+/// answers, in this box's own pixels — the felt lays it over itself and
+/// answers from the right edge of the viewer's pod to the left edge of the
+/// key cluster, as it last laid them out. A Trail's radial light and sparks
+/// under it stay between the two, less [HandResultShape.clearance], as they
+/// stay under what stands over the hand ([HandResultGroup.headroom]); null
+/// leaves them open. Nothing under it but a hand's burst reads it, and only
+/// while painting — after the frame's layout, so it answers for this frame —
+/// and it paints and lays out nothing itself.
+class HandResultBounds extends SingleChildRenderObjectWidget {
+  const HandResultBounds({super.key, required this.edges, super.child});
+
+  final ({double left, double right})? Function() edges;
+
+  @override
+  RenderHandResultBounds createRenderObject(BuildContext context) =>
+      RenderHandResultBounds(edges: edges);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    RenderHandResultBounds renderObject,
+  ) => renderObject.edges = edges;
+}
+
+/// [HandResultBounds]' box. A burst asks [edges] every frame it paints (it
+/// paints every frame while it moves, and nothing once settled), so a change
+/// needs no repaint here.
+class RenderHandResultBounds extends RenderProxyBox {
+  RenderHandResultBounds({required this.edges});
+
+  ({double left, double right})? Function() edges;
+}
+
 /// The hand's own light, behind its cards: a Trail's radial light and its
 /// sparks. Nothing at all for every other level. Its box is the hand's, the
 /// one its cards rise within ([HandResultGroup.headroom]).
@@ -1054,6 +1088,28 @@ class _RenderHandResultBurst extends RenderProxyBox {
   /// the headroom less [HandResultShape.clearance].
   double get _roomAbove => _headroom - HandResultShape.clearance;
 
+  /// How far past the hand's left and right edges its light may reach, in
+  /// its own pixels: to the nearest [HandResultBounds] over it, less
+  /// [HandResultShape.clearance]; without one, as far as it goes.
+  ({double left, double right}) _roomBeside() {
+    const open = (left: double.infinity, right: double.infinity);
+    var node = parent;
+    while (node != null && node is! RenderHandResultBounds) {
+      node = node.parent;
+    }
+    if (node is! RenderHandResultBounds || !hasSize) return open;
+    final edges = node.edges();
+    if (edges == null) return open;
+    final toHand = Matrix4.tryInvert(getTransformTo(node));
+    if (toHand == null) return open;
+    final left = MatrixUtils.transformPoint(toHand, Offset(edges.left, 0)).dx;
+    final right = MatrixUtils.transformPoint(toHand, Offset(edges.right, 0)).dx;
+    return (
+      left: -left - HandResultShape.clearance,
+      right: right - size.width - HandResultShape.clearance,
+    );
+  }
+
   /// The least room any lit card of this hand has over it
   /// ([RenderHandResultCard._restPlace]), in the hand's pixels: what the whole
   /// hand rises within, so it rises as one and its tightest card — the fan's
@@ -1074,7 +1130,7 @@ class _RenderHandResultBurst extends RenderProxyBox {
     return room;
   }
 
-  /// The burst's sparks, made once per result from its [seed], so every frame
+  /// The burst's sparks, made once per look from its [seed], so every frame
   /// draws the same ones where they have got to.
   List<_Spark>? _sparks;
   List<_Spark> _sparksFor(int count) => _sparks ??= _makeSparks(count, _seed);
@@ -1129,13 +1185,15 @@ class _RenderHandResultBurst extends RenderProxyBox {
       final canvas = context.canvas;
       final centre = (offset & size).center;
       final h = size.height;
+      final beside = _roomBeside();
       if (e.radial > 0) {
-        // Kept under what stands over the hand: it gives way above and
-        // keeps its reach at the sides and below.
+        // Kept under what stands over the hand and off what stands beside
+        // it: it gives way above and at the sides, and keeps its reach below.
         final bounds = HandResultShape.radialBounds(
           size,
           e.radialScale,
           ceiling: -_roomAbove,
+          side: math.min(beside.left, beside.right),
         ).shift(offset);
         assert(note(bounds));
         final rx = bounds.width / 2;
@@ -1169,7 +1227,7 @@ class _RenderHandResultBurst extends RenderProxyBox {
           life > 0) {
         final ax = size.width / 2;
         final ay = size.height / 2;
-        Offset at(_Spark spark, double tau, double rise) {
+        Offset at(_Spark spark, double tau, double rise, double across) {
           final out = Curves.easeOutCubic.transform(tau.clamp(0.0, 1.0));
           final reach = h * HandResultShape.sparkReach * spark.speed * out;
           final dx = math.cos(spark.angle);
@@ -1178,7 +1236,7 @@ class _RenderHandResultBurst extends RenderProxyBox {
           final along = from + (1 - from) * out;
           return centre +
               Offset(
-                dx * (ax * along + reach),
+                dx * (ax * along + reach * across),
                 dy * (ay * along + reach * (dy < 0 ? rise : 1)),
               );
         }
@@ -1206,19 +1264,28 @@ class _RenderHandResultBurst extends RenderProxyBox {
             room: _roomAbove,
             head: width,
           );
+          // And sideways only as far as the room beside the hand, on the
+          // side it flies to.
+          final across = HandResultShape.sparkSideFor(
+            angle: spark.angle,
+            reach: h * HandResultShape.sparkReach * spark.speed,
+            halfWidth: ax,
+            room: math.cos(spark.angle) < 0 ? beside.left : beside.right,
+            head: width,
+          );
           assert(
             note(
               Rect.fromPoints(
-                at(spark, tau - tail, rise),
-                at(spark, tau, rise),
+                at(spark, tau - tail, rise, across),
+                at(spark, tau, rise, across),
               ).inflate(width / 2),
             ),
           );
           // A spark, not a dash: a faint tail behind a bright head.
           canvas
             ..drawLine(
-              at(spark, tau - tail, rise),
-              at(spark, tau - tail / 3, rise),
+              at(spark, tau - tail, rise, across),
+              at(spark, tau - tail / 3, rise, across),
               Paint()
                 ..strokeCap = StrokeCap.round
                 ..strokeWidth = width * HandResultShape.sparkTailWidth
@@ -1227,8 +1294,8 @@ class _RenderHandResultBurst extends RenderProxyBox {
                 ),
             )
             ..drawLine(
-              at(spark, tau - tail / 3, rise),
-              at(spark, tau, rise),
+              at(spark, tau - tail / 3, rise, across),
+              at(spark, tau, rise, across),
               Paint()
                 ..strokeCap = StrokeCap.round
                 ..strokeWidth = width

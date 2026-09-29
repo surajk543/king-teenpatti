@@ -82,6 +82,22 @@ class WildTransform extends StatefulWidget {
   /// How far apart the cards of one hand start.
   static const Duration stagger = Duration(milliseconds: 190);
 
+  /// How long after the stand-in arrives the card at [index] starts its turn:
+  /// after its own face-up flip ([flipDelay], then [PlayingCard.flipFor]) and
+  /// a breath when the two arrived together ([flippingUp]), else at once;
+  /// left to right along the fan either way. The one statement of it — the
+  /// felt reads it too, to let the viewer's own hand-result light land only
+  /// once every wild card has finished turning (`widgets/hand_result.dart`).
+  static Duration startsAfter({
+    required bool flippingUp,
+    required Duration flipDelay,
+    required int index,
+  }) =>
+      (flippingUp
+          ? PlayingCard.flipFor + flipDelay + const Duration(milliseconds: 220)
+          : const Duration(milliseconds: 120)) +
+      stagger * index;
+
   @override
   State<WildTransform> createState() => _WildTransformState();
 }
@@ -120,14 +136,11 @@ class _WildTransformState extends State<WildTransform>
 
     // After the card's own flip when they arrived together, else at once;
     // left to right along the fan either way.
-    final flippingUp = old.code == null && widget.code != null;
-    final wait =
-        (flippingUp
-            ? PlayingCard.flipFor +
-                  widget.flipDelay +
-                  const Duration(milliseconds: 220)
-            : const Duration(milliseconds: 120)) +
-        WildTransform.stagger * widget.index;
+    final wait = WildTransform.startsAfter(
+      flippingUp: old.code == null && widget.code != null,
+      flipDelay: widget.flipDelay,
+      index: widget.index,
+    );
     _cue?.cancel();
     _cue = Timer(wait, () {
       if (mounted) _turn.forward(from: 0);

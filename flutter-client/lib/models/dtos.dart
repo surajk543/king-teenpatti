@@ -2661,6 +2661,7 @@ class OwnHand {
     required this.handName,
     required this.wild,
     required this.playsAs,
+    this.category = -1,
     this.best = const [],
     this.picking = false,
     this.pickDeadline = 0,
@@ -2678,6 +2679,13 @@ class OwnHand {
   /// What the hand made, wild cards included: "Sequence". English, like every
   /// hand name on the wire.
   final String handName;
+
+  /// The same, as the server ranks it (its HandCategory: HIGH_CARD 0, PAIR 1,
+  /// COLOR 2, SEQUENCE 3, PURE_SEQUENCE 4, TRAIL 5) — read as sent, never
+  /// worked out here; what the viewer's own look animates by at a Variation
+  /// table (`table_screen.dart` `_FeltState._ownLook`). -1 when the payload
+  /// carries none; 0, like an empty [handName], while [picking].
+  final int category;
 
   /// Which of `you.cards` played as wild cards. Empty when none did.
   final List<String> wild;
@@ -2730,6 +2738,7 @@ class OwnHand {
   factory OwnHand.fromJson(Map<String, dynamic> j) {
     return OwnHand(
       handName: _str(j['handName']),
+      category: j['category'] is num ? (j['category'] as num).toInt() : -1,
       wild: cardCodes(j['wild']),
       playsAs: cardCodes(j['playsAs']),
       best: cardCodes(j['best']),
@@ -3027,7 +3036,6 @@ class Reveal {
     required this.cards,
     required this.handName,
     required this.won,
-    this.category = -1,
     this.wild = const [],
     this.playsAs = const [],
     this.best = const [],
@@ -3038,12 +3046,6 @@ class Reveal {
   final List<String> cards;
   final String handName;
   final bool won;
-
-  /// What the hand MADE, as the server ranks it (its HandCategory: HIGH_CARD
-  /// 0, PAIR 1, COLOR 2, SEQUENCE 3, PURE_SEQUENCE 4, TRAIL 5) — read as sent,
-  /// never worked out here; what the winner's result animation is chosen by
-  /// (`widgets/hand_result.dart`). -1 when the payload carries none.
-  final int category;
 
   /// Which of [cards] played as wild cards (see [SideshowHand.wild]).
   final List<String> wild;
@@ -3061,7 +3063,6 @@ class Reveal {
     cards: (j['cards'] as List?)?.map((e) => '$e').toList() ?? const [],
     handName: _str(j['handName']),
     won: j['won'] == true,
-    category: j['category'] is num ? (j['category'] as num).toInt() : -1,
     wild: (j['wild'] as List?)?.map((e) => '$e').toList() ?? const [],
     playsAs: cardCodes(j['playsAs']),
     best: cardCodes(j['best']),
