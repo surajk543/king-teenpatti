@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import 'chip_store.dart';
 import 'glass_components.dart';
 import 'poker_chip.dart';
+import 'shop_mark.dart';
 
 /// The buy-chips button. Opens the chip store (`chip_store.dart`).
 ///
@@ -170,6 +171,9 @@ class ShopButton extends StatefulWidget {
   State<ShopButton> createState() => _ShopButtonState();
 }
 
+/// The key's shop, where the storefront icon was.
+const Widget _shopMark = ShopMark(size: 19, fallbackInk: AppTheme.inkOnLight);
+
 class _ShopButtonState extends State<ShopButton>
     with SingleTickerProviderStateMixin {
   // Created here, never lazily: a late controller first read in dispose()
@@ -281,21 +285,12 @@ class _ShopButtonState extends State<ShopButton>
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          // The owner's shop Lottie (29 Sep 2026) in the
+                          // storefront icon's box.
                           if (widget.compact)
-                            Tooltip(
-                              message: t.shop,
-                              child: const Icon(
-                                Icons.storefront_rounded,
-                                size: 19,
-                                color: AppTheme.inkOnLight,
-                              ),
-                            )
+                            Tooltip(message: t.shop, child: _shopMark)
                           else
-                            const Icon(
-                              Icons.storefront_rounded,
-                              size: 19,
-                              color: AppTheme.inkOnLight,
-                            ),
+                            _shopMark,
                           if (!widget.compact) const SizedBox(width: Space.xs),
                           if (!widget.compact)
                             Text(

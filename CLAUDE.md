@@ -2491,7 +2491,50 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   category the server offers a table in (`GameState.lobbyCategories`, always Seen · Blind · Variation; an unknown
   category is filed under Seen) and `_PrivateCard` last; a category card is the table card's own frosted square in the
   category's colour (`_categoryPalette`) stating its blurb, boot range ("200 – 10 Lakh"), table count and how many are
-  **open to you**, under a "View tables" capsule, and is never padlocked — its tables are where the padlocks are. INSIDE
+  **open to you**, under a "View tables" capsule, and is never padlocked — its tables are where the padlocks are. **The
+  "open to you" row's mark is the owner's `assets/animations/Lock.json`** (29 Sep 2026: "use this lock animation on lobby
+  card instead of using lock icons in front of text 'open to you'. Make sure it look visible in dark and night mode";
+  `widgets/open_lock.dart` `OpenLock`, handed to `_CardFact.glyph`): a white padlock breathing on a blue disc (#2987FF),
+  210 units square, 3 s a loop, no 3D, expressions or images, played in its OWN colours — the blue stands 4.7:1 on the
+  night card and 3.5:1 on the day card, the white lock 3.5:1 on the blue (`test/open_lock_test.dart`). Its disc fills the
+  icon's box (`openLockDiscShare` 100/210, the canvas drawn past the box through an `OverflowBox`); still and faded
+  (`quietOpacity` 0.45) when no table is open, as the "0" is said quietly; memoised as `ChipShuffle` is, so the tick never
+  touches it, with `RenderCache.drawingCommands` and the old icon as its fallback. **Every table card's "Entry" row carries
+  the owner's `assets/animations/Wallet.json`** the same way (the same day: "The Entry icon on table card use this
+  animation"; `widgets/entry_wallet.dart` `EntryWallet`): a blue wallet, gradient back and frosted front with a clasp,
+  fanning open and shut twice in a 2 s loop, 1080 units square, no 3D, expressions or images, in its own colours — the
+  back's deep blue (#4088F4) 4.4:1 on the night card and 3.5:1 on the day card, the frosted front lighter by design. Its
+  rest pose (620 units wide, centred at 581,595) fills the icon's box; fanned open it reaches a quarter of the box past
+  its left edge and an eighth past its foot, into the card's margin. Still (not faded — the card's 0.42 is the quiet) on
+  a table the player cannot sit at. **The "Pot limit" row carries the owner's `assets/animations/Piggy Bank.json`** (the
+  same day: "use this for piggy bank for card icon"; `widgets/pot_piggy.dart` `PotPiggy`): a pale blue piggy bank on a
+  round near-white ground, coins dropping in, a 1 s loop, 500 units square; the ground (layer `I`, a 396-unit circle)
+  fills the box, still on a shut table. By day its pale blues vanish into the white card (1.1:1, 1.4:1), so by day ALONE
+  the ground is drawn in the lock's blue (`potPiggyDayGround` #2987FF, 3.5:1; the pig on it 2.5:1). **All three marks
+  take their card's colour** (the same day: "change the wallet color and lock and piggy bank animation color acc to
+  card, yellow, blue, purple, but keep the animation"): `FactMark.tint` = the card's `palette.accent` (Seen gold, Blind
+  sapphire, Variation violet; an engine card's own), laid on every coloured part of the file by `tintAt` — the accent's
+  hue and saturation at the part's OWN luminance, whites and greys untouched — so every contrast figure above holds in
+  every colour and a gold is a deep gold, never a yellow lost on the white card. Colours and strokes through `['**']`
+  colour callbacks; the wallet's gradients from its recorded stops (`entryWalletGradient`: a gradient's colour callback is
+  handed an empty list, and a list of the wrong length throws in paint); the piggy's day ground after them, so it wins.
+  The delegates are made once per art, colour and brightness and kept (`_delegatesFor`): the render cache keys on a
+  callback's identity, so cards of one colour share frames and another colour never replays them. **Every table card's
+  rules key (the book under ⓘ) plays the owner's `assets/animations/Rule Book.json`** (the same day: "use this icon for
+  rule book on card"; `widgets/rule_book.dart` `RuleBook`, `_CardCornerKey.glyph`): a black-outlined book hopping and
+  flicking its pages over its shadow, 2 s, 500 units square, in the card's colour like the other three (outline and pages
+  as drawn); its whole loop (76–423 × 7–441) fits `_ruleBookSize` 22dp, centred in the key's 28dp disc where the 16dp
+  glyph was, and it always plays (the keys work on a shut card too). `test/rule_book_test.dart`; `lobby_click_sound_test`
+  and `table_tax_test` find the key by `ValueKey('rule-book')`. The four marks are one
+  widget, `widgets/fact_mark.dart` `FactMark` over a `FactMarkArt` (asset, canvas, where the art sits at rest, fallback
+  icon, gradient stops, a brightness recolour): the box, the `OverflowBox`, the memo, the render cache.
+  `test/entry_wallet_test.dart`, `test/pot_piggy_test.dart` (the rest pose, the fanned reach and the ground measured off
+  the files, the contrast, the day ground in pixels, the tick, still when shut, and every Seen, Blind and Variation table
+  card at 640x360 and 1280x800 ×1.25 in both themes, in Inter, each in its card's colour), `test/fact_mark_test.dart`
+  (`tintAt` in every card colour and theme, the lock's disc and the wallet in violet pixel by pixel with no file blue left,
+  the motion kept, one colour's callbacks shared and another's not). The table info popup (ⓘ) keeps the plain icons. An animating Lottie rebuilds ITSELF at its
+  frame rate (the lottie package's `setState`), so `avatar_badge_test`'s "the tick never rebuilds it" counts rebuilds
+  under the badge only. INSIDE
   a category the rail is a slim `_BackTile` (the category's name over "All games") then that category's `_TableCard`s from
   `GameState.lobbyTablesIn(category)`, **joinable → shut**, each group in the server's order. `GameState.lobbyCategory`
   (null = the front) lives in GameState, not the lobby's State: main.dart's `_BackGuard` closes it before it offers to
@@ -2533,7 +2576,13 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   53% cap keeps the balance's scale where it was and gives the name 4dp more than before the pill (a 640dp phone now
   shows "Guest0E00B" whole; `test/lobby_polish_test.dart`). The Shop key is struck gold (`AppTheme.goldFace`, #F1D27A →
   #D4A514 → #B8890F) on a still lift and a restrained gold bloom; its highlight crosses once every 6 s (it swept every
-  3.2 s over a breathing bloom) — at the table too, the same widget;
+  3.2 s over a breathing bloom) — at the table too, the same widget. **Its glyph is the owner's
+  `assets/animations/Shop.json`** (29 Sep 2026: "use this icon for Shop"; `widgets/shop_mark.dart` `ShopMark`, in the
+  storefront icon's 19dp box so the key keeps its width): a shopfront that builds itself — walls, awning, door, window —
+  then catches a glint, in its own blues and whites (gold would vanish on the gold face). The file starts EMPTY, is built
+  from frame 40 and still from frame 61, so it plays through once as the key appears and then loops frames 40–90
+  (`FactMarkArt.loopFrom`, a controller in `FactMark`), the glint drawing in again every 1.7 s and the key never blank;
+  told to stand still it stands built. `test/shop_mark_test.dart`;
   **The player's level and XP under the name** (owner, 27 Sep 2026: "In the Lobby on Top show current level of player and
   xp progress bar for next level"; `widgets/lobby_level_bar.dart` `LobbyLevelBar`, placed by `_NameBlock`): the name's second
   line — the level's mark and number ("🌟 Lv 10") at the left, the figure ("4,180 / 5,200 XP") at the right, over a 4dp gold
@@ -3672,7 +3721,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   - *Type* (`_CardMetrics`): the boot `s × 0.108` (22–36dp; 24.5 on a 640dp phone, where it was `s × 0.14`, 32) — a
     step under a group card's name (`s × 0.112`), still the largest figure on a table card and under twice its next
     largest words; the badge's word 11–15dp (10 on a 640dp phone before); every blurb in the body's ink (the variation
-    and poker lines a half-step heavier where they were display-ink semibold), allowed a third line — and a SEEN table card has none since 29 Sep 2026 (owner: "Everyone's chips visible" off the 200 and 50,000 tables; the SEEN category card, the ⓘ popup and the rules sheet still say it, and Blind, Variation and poker cards keep their line; `lobby_categories_test`); a fact's label
+    and poker lines a half-step heavier where they were display-ink semibold), allowed a third line — and a SEEN or BLIND table card has none since 29 Sep 2026 (owner: "Everyone's chips visible" off the 200 and 50,000 tables, then "Only your own chips are visible" off the 200, 5,000, 50,000 and 20 Lakh ones; the SEEN and BLIND category cards, the ⓘ popup and the rules sheet still say it, and Variation and poker cards keep their own line; `lobby_categories_test`); a fact's label
     shrinks to the room its value leaves rather than "bo…", and a fact row is never shorter than its glyphs; the foot
     key's words shrink rather than ellipsise.
   - *Spacing* on the cards' own 4dp grid, **`CardSpace`** (4/8/12/16/20/24/32) — **the app-wide `Space` ramp

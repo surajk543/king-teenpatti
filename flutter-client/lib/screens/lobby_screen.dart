@@ -27,11 +27,15 @@ import '../widgets/fireworks.dart';
 import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/avatar_badge.dart';
+import '../widgets/entry_wallet.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/lobby_level_bar.dart';
+import '../widgets/open_lock.dart';
 import '../widgets/own_record.dart';
 import '../widgets/picture_shelf.dart';
 import '../widgets/player_profile.dart';
+import '../widgets/pot_piggy.dart';
+import '../widgets/rule_book.dart';
 import '../widgets/poker_chip.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/rules_sheet.dart';
@@ -2197,6 +2201,15 @@ class _GroupCard extends StatelessWidget {
                             _FactRule(space: m.groupRuleSpace),
                             _CardFact(
                               icon: Icons.lock_open_rounded,
+                              // The owner's lock Lottie in the icon's box
+                              // (29 Sep 2026), still and faded when none is
+                              // open, as the "0" beside it is said quietly.
+                              glyph: (size, ink) => OpenLock(
+                                size: size,
+                                fallbackInk: ink,
+                                tint: palette.accent,
+                                quiet: open == 0,
+                              ),
                               palette: palette,
                               label: t.openToYouLabel,
                               value: '$open',
@@ -2745,17 +2758,17 @@ class _TableCard extends StatelessWidget {
                           // differs, a half-step heavier. A third line
                           // rather than a cut-off one when a long
                           // translation wraps at a large text size. A
-                          // seen table has none (owner, 29 Sep 2026:
-                          // "Everyone's chips are visible" off the 200
-                          // and 50,000 tables): its category card, the
-                          // ⓘ popup and the rules still say it.
-                          if (poker || variation || blind) ...[
+                          // seen or blind table has none (owner, 29 Sep
+                          // 2026: "Everyone's chips are visible" off the
+                          // 200 and 50,000 tables, then "Only your own
+                          // chips are visible" off the 200, 5,000,
+                          // 50,000 and 20 Lakh ones): its category card,
+                          // the ⓘ popup and the rules still say it.
+                          if (poker || variation) ...[
                             Text(
                               poker
                                   ? t.pokerVariantNote(category)
-                                  : variation
-                                  ? t.variationTableNote
-                                  : t.onlyYourChips,
+                                  : t.variationTableNote,
                               maxLines: 3,
                               overflow: TextOverflow.ellipsis,
                               style: text.bodySmall?.copyWith(
@@ -2799,6 +2812,15 @@ class _TableCard extends StatelessWidget {
                             _FactRule(space: m.ruleSpace),
                             _CardFact(
                               icon: Icons.savings_rounded,
+                              // The owner's piggy bank Lottie in the icon's
+                              // box (29 Sep 2026), still on a table the
+                              // player cannot sit at.
+                              glyph: (size, ink) => PotPiggy(
+                                size: size,
+                                fallbackInk: ink,
+                                tint: palette.accent,
+                                still: shut,
+                              ),
                               palette: palette,
                               label: t.potLimitLabel,
                               height: m.factH,
@@ -2815,6 +2837,15 @@ class _TableCard extends StatelessWidget {
                           _FactRule(space: m.ruleSpace),
                           _CardFact(
                             icon: Icons.account_balance_wallet_rounded,
+                            // The owner's wallet Lottie in the icon's box
+                            // (29 Sep 2026), standing still on a table the
+                            // player cannot sit at.
+                            glyph: (size, ink) => EntryWallet(
+                              size: size,
+                              fallbackInk: ink,
+                              tint: palette.accent,
+                              still: shut,
+                            ),
                             palette: palette,
                             label: t.entryLabel,
                             value: entryValue,
@@ -2872,6 +2903,13 @@ class _TableCard extends StatelessWidget {
               ),
               _CardCornerKey(
                 icon: Icons.menu_book_outlined,
+                // The owner's rule book Lottie in the card's colour (29 Sep
+                // 2026), its whole hop inside the key's disc.
+                glyph: RuleBook(
+                  size: _ruleBookSize,
+                  fallbackInk: palette.ink,
+                  tint: palette.accent,
+                ),
                 label: state.t.tableRulesKey,
                 palette: palette,
                 onTap: () => showRules(context, table: table),
@@ -3018,6 +3056,10 @@ List<_PokerFact> _pokerFacts(Strings t, LobbyTable table) => [
 /// The disc a [_CardCornerKey] draws inside its 44dp target.
 const double _cornerDisc = 28;
 
+/// The rules key's book: the 16dp glyph it replaced, grown to what the book's
+/// whole hop needs to read, still inside the disc.
+const double _ruleBookSize = 22;
+
 /// How far a table card's two corner keys reach into it — their discs, from
 /// the card's right edge and from its top: the pair stands [Space.xs] in from
 /// both (the withInfo Stack in [_TableCard]), one 44dp target over the other.
@@ -3041,9 +3083,13 @@ class _CardCornerKey extends StatelessWidget {
     required this.label,
     required this.palette,
     required this.onTap,
+    this.glyph,
   });
 
   final IconData icon;
+
+  /// Drawn in the disc in place of [icon]: the rules key's book.
+  final Widget? glyph;
 
   /// What the key is called, for a screen reader and for tests.
   final String label;
@@ -3081,7 +3127,9 @@ class _CardCornerKey extends StatelessWidget {
                   color: accent.withValues(alpha: dark ? 0.34 : 0.30),
                 ),
               ),
-              child: Icon(icon, size: 16, color: palette.ink),
+              child: Center(
+                child: glyph ?? Icon(icon, size: 16, color: palette.ink),
+              ),
             ),
           ),
         ),
@@ -3482,9 +3530,16 @@ class _CardFact extends StatelessWidget {
     this.quiet = false,
     this.ink,
     this.fixedLine = false,
+    this.glyph,
   });
 
   final IconData icon;
+
+  /// Drawn in place of [icon], in the icon's box ([size] square) — the "Open
+  /// to you" row's lock Lottie, the "Entry" row's wallet, the "Pot limit"
+  /// row's piggy bank; [ink] is the icon's colour, for its fallback.
+  final Widget Function(double size, Color ink)? glyph;
+
   final TablePalette palette;
   final String label;
   final String value;
@@ -3530,6 +3585,8 @@ class _CardFact extends StatelessWidget {
     // text size stood taller than the box; the card's column scales down to
     // hold the taller rows instead of clipping their tops and tails.
     final glyphs = MediaQuery.textScalerOf(context).scale(size) * 1.2;
+    final markSize = (height * 0.78).clamp(13.0, 19.0);
+    final markInk = palette.ink.withValues(alpha: 0.80);
     final valueStyle = AppTheme.money(
       text.labelLarge!,
       fontSize: size,
@@ -3540,11 +3597,10 @@ class _CardFact extends StatelessWidget {
       height: math.max(height, glyphs),
       child: Row(
         children: [
-          Icon(
-            icon,
-            size: (height * 0.78).clamp(13.0, 19.0),
-            color: palette.ink.withValues(alpha: 0.80),
-          ),
+          if (glyph case final draw?)
+            draw(markSize, markInk)
+          else
+            Icon(icon, size: markSize, color: markInk),
           const SizedBox(width: CardSpace.s8),
           // What the fact is, shrunk to the room the value leaves rather
           // than cut ("bo…" beside "200 – 10 Lakh" at a large text size): the
