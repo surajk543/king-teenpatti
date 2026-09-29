@@ -40,6 +40,7 @@ import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/widgets/buy_chips.dart';
 import 'package:teenpatti/widgets/game_card.dart';
 import 'package:teenpatti/widgets/game_loader.dart';
+import 'package:teenpatti/widgets/level_art.dart';
 import 'package:teenpatti/widgets/level_screen.dart';
 import 'package:teenpatti/widgets/missile_flight.dart';
 import 'package:teenpatti/widgets/picture_shelf.dart';
@@ -78,6 +79,16 @@ Map<String, Object?> _level10() => {
     'claimed': {'PLAY_15_MIN': 1, 'WIN_PAIR': 1},
     'resetsAt': _now + 5 * 3600 * 1000,
   },
+};
+
+/// Level 10's art as the server sends it (the owner's Lottie, 29 Sep 2026).
+const String _level10Art = 'https://drive.test/levels/10.json';
+
+/// [_level10] with its art.
+Map<String, Object?> _level10WithArt() => {
+  ..._level10(),
+  'assetUrl': _level10Art,
+  'assetFormat': 'LOTTIE',
 };
 
 /// A player at Level 1, twelve XP in.
@@ -728,6 +739,8 @@ void main() {
     ]) {
       PictureCache.prime('https://drive.test/badges/$code.json', _badgeLottie);
     }
+    // Level 10's art (29 Sep 2026), for the pill's right emblem.
+    PictureCache.prime(_level10Art, _badgeLottie);
   });
   tearDownAll(PictureCache.clearMemory);
 
@@ -1081,8 +1094,8 @@ void main() {
     test('name a level and a badge with their marks, and say the rule', () {
       final t = Strings(AppLang.english);
       final level = PlayerLevel.maybe(_level10())!;
-      expect(levelNameOf(t, level), 'Level 10 · 🌟 Rising Star');
-      expect(levelLineOf(t, level), 'Level 10 · 🌟 Rising Star · 4,180 XP');
+      expect(levelNameOf(t, level), 'Level 10 · Rising Star');
+      expect(levelLineOf(t, level), 'Level 10 · Rising Star · 4,180 XP');
       final gold = _user(badges: [_goldBadge()]).badges.single;
       expect(badgeTitleOf(gold), '🏅 Gold');
       // A month or more away, the day it ends; nearer, what is left.
@@ -1254,7 +1267,7 @@ void main() {
           findsOneWidget,
         );
         expect(find.text(t.yourLevelLabel), findsOneWidget);
-        expect(find.text('Level 10 · 🌟 Rising Star'), findsOneWidget);
+        expect(find.text('Level 10 · Rising Star'), findsOneWidget);
         await tester.tap(find.byTooltip(t.close));
         await tester.pump(const Duration(milliseconds: 500));
 
@@ -1303,6 +1316,63 @@ void main() {
   });
 
   group('the felt', () {
+    testWidgets('the pill: the badge at the left of the words, the level\'s '
+        'art at the right, both from the plate\'s top to its bottom; none at '
+        'the right for a level with no art yet', (tester) async {
+      final state = _tableState(level: _level10WithArt());
+      await _pumpTable(tester, state);
+      final plate = tester.getRect(
+        find.descendant(
+          of: find.byType(WinningTaxTag),
+          matching: find.byType(Plate),
+        ),
+      );
+      final badge = tester.getRect(
+        find.byKey(const ValueKey('winning-tax-badge-art')),
+      );
+      final level = tester.getRect(
+        find.byKey(const ValueKey('winning-tax-level-art')),
+      );
+      final title = tester.getRect(
+        find.byKey(const ValueKey('winning-tax-title')),
+      );
+      final rate = tester.getRect(
+        find.byKey(const ValueKey('winning-tax-rate-words')),
+      );
+      expect(badge.right, lessThanOrEqualTo(title.left));
+      expect(badge.right, lessThanOrEqualTo(rate.left));
+      expect(level.left, greaterThanOrEqualTo(title.right));
+      expect(level.left, greaterThanOrEqualTo(rate.right));
+      expect(level.height, closeTo(badge.height, 0.5));
+      expect(level.height, closeTo(plate.height, 0.5));
+      expect(plate.right - level.right, lessThan(Space.xs));
+      expect(
+        tester
+            .widget<LevelArt>(
+              find.byKey(const ValueKey('winning-tax-level-art')),
+            )
+            .assetUrl,
+        _level10Art,
+      );
+      // The title is the words alone: no emoji before it any more.
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('winning-tax-title')))
+            .data,
+        'Rising Star',
+      );
+      await _unmount(tester, state);
+
+      final bare = _tableState();
+      await _pumpTable(tester, bare);
+      expect(find.byKey(const ValueKey('winning-tax-level-art')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('winning-tax-badge-art')),
+        findsOneWidget,
+      );
+      await _unmount(tester, bare);
+    });
+
     testWidgets('hangs the pill under the tag of a taxing table only', (
       tester,
     ) async {
@@ -1312,7 +1382,7 @@ void main() {
       // The level's title, then the rate the seat pays (owner, 27 Sep 2026:
       // "Show text Player Title and then tax percent").
       final tag = tester.widget<WinningTaxTag>(find.byType(WinningTaxTag));
-      expect(tag.title, '🌟 Rising Star');
+      expect(tag.title, 'Rising Star');
       expect(tag.tax, '17.43% TAX');
       // The badge they hold (owner, 27 Sep 2026: "In table top also the
       // badge name current player holding"): everyone's Regular, its Lottie
@@ -1366,7 +1436,7 @@ void main() {
           .text
           .toPlainText();
       // The title over the badge and the rate.
-      expect(words('winning-tax-title'), '🌟 Rising Star');
+      expect(words('winning-tax-title'), 'Rising Star');
       expect(words('winning-tax-rate-words'), 'Regular · 17.43% TAX');
       expect(
         tester.getCenter(find.byKey(const ValueKey('winning-tax-title'))).dy,
@@ -1397,7 +1467,7 @@ void main() {
       final gold = _goldTable();
       await _pumpTable(tester, gold);
       final goldTag = tester.widget<WinningTaxTag>(find.byType(WinningTaxTag));
-      expect(goldTag.title, '🌱 Newbie');
+      expect(goldTag.title, 'Newbie');
       expect(goldTag.badge, '🏅 Gold');
       // Gold is shown by its emoji, which its name already carries.
       expect(goldTag.badgeArt, isNull);
@@ -1561,11 +1631,11 @@ void main() {
           t.winningTaxFalls,
           t.winningTaxLowest,
           t.rateSetByLevel,
-          'Level 10 · 🌟 Rising Star',
+          'Level 10 · Rising Star',
           '${t.levelTaxLabel} 17.43%',
           '4,180',
           '23 / 50 XP',
-          'Level 11 · 🏅 Pro Player',
+          'Level 11 · Pro Player',
           '5,200 XP · 17.14%',
           t.winningTaxFrom('50 Lakh'),
           t.yourBadgesTitle,
@@ -1684,7 +1754,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('Level 1 · 🌱 Newbie'), findsOneWidget);
+      expect(find.text('Level 1 · Newbie'), findsOneWidget);
       expect(find.text('${t.levelTaxLabel} 20%'), findsOneWidget);
       // A badge is beside the level, never instead of it: XP as for anyone.
       expect(find.text(t.xpLabel), findsOneWidget);
@@ -1729,7 +1799,7 @@ void main() {
       await _pumpTable(tester, state);
       _openTwoPanes(tester);
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('Level 50 · 👑👑 King of Kings'), findsOneWidget);
+      expect(find.text('Level 50 · King of Kings'), findsOneWidget);
       expect(
         find.descendant(
           of: find.byKey(const ValueKey('winning-tax-rate')),
@@ -1836,7 +1906,7 @@ void main() {
       expect(state.levelLadder, isNull);
       expect(find.text(t.levelsUnavailable), findsOneWidget);
       expect(find.byKey(const ValueKey('winning-tax-retry')), findsOneWidget);
-      expect(find.text('Level 10 · 🌟 Rising Star'), findsOneWidget);
+      expect(find.text('Level 10 · Rising Star'), findsOneWidget);
       expect(find.byType(GameLoader), findsNothing);
       await _unmount(tester, state);
     });
@@ -1945,7 +2015,7 @@ void main() {
       expect(state.user!.paysTaxBps, 1743);
       expect(
         state.notice,
-        'Level up! 🌟 Level 10 · Rising Star — your winning tax is now '
+        'Level up! Level 10 · Rising Star — your winning tax is now '
         '17.43%.',
       );
 
@@ -1971,7 +2041,7 @@ void main() {
       gold.handlePlayerLevel(
         standingAt10(badges: [_regular(), _goldBadge()], taxBps: 500),
       );
-      expect(gold.notice, 'Level up! 🌟 Level 10 · Rising Star');
+      expect(gold.notice, 'Level up! Level 10 · Rising Star');
       expect(gold.user!.badges.map((b) => b.code), ['REGULAR', 'GOLD']);
       // And a badge that runs out comes off with the next standing.
       gold.handlePlayerLevel(standingAt10());
@@ -1990,7 +2060,7 @@ void main() {
         final t = Strings(lang);
         expect(
           state.notice,
-          t.levelUp('🌟 ${t.levelName(10, 'Rising Star')}', '17.43%'),
+          t.levelUp(t.levelName(10, 'Rising Star'), '17.43%'),
         );
         expect(state.notice, contains('17.43%'));
         state.dispose();
@@ -2003,7 +2073,7 @@ void main() {
       await _pumpLobby(tester, state);
       await tester.tap(find.byIcon(Icons.insights_outlined).first);
       await tester.pump(const Duration(milliseconds: 600));
-      expect(find.text('Level 10 · 🌟 Rising Star · 4,180 XP'), findsOneWidget);
+      expect(find.text('Level 10 · Rising Star · 4,180 XP'), findsOneWidget);
       final today = tester.widget<Text>(
         find.byKey(const ValueKey('stats-xp-today')),
       );
@@ -2022,7 +2092,7 @@ void main() {
       await _pumpLobby(tester, gold);
       await tester.tap(find.byIcon(Icons.insights_outlined).first);
       await tester.pump(const Duration(milliseconds: 600));
-      expect(find.text('Level 1 · 🌱 Newbie · 12 XP'), findsOneWidget);
+      expect(find.text('Level 1 · Newbie · 12 XP'), findsOneWidget);
       expect(find.byKey(const ValueKey('stats-xp-today')), findsOneWidget);
       expect(
         tester.widget<Text>(find.byKey(const ValueKey('stats-badges'))).data,
@@ -2299,7 +2369,7 @@ void main() {
           await tester.pump(const Duration(milliseconds: 500));
           expect(tester.takeException(), isNull);
           expect(_cut(find.byType(WinningTaxInfo)), isEmpty, reason: label);
-          expect(find.text(t.levelName(11, '🏅 Pro Player')), findsOneWidget);
+          expect(find.text(t.levelName(11, 'Pro Player')), findsOneWidget);
           expect(
             find.text(t.nextLevelValue('5,200', '17.14%')),
             findsOneWidget,

@@ -107,7 +107,7 @@ king-teenpatti/
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js),
 │   │   │                         tableconfig.go (resolveTableCatalogue — the catalogue settled once, before anything is built from it; GET /api/tables; /health.tableConfig)
 │   │   └── util/                 UUID, RoomCode, slog JSON logger
-│   ├── public/                   browser client (index.html, client.js, style.css, theme.css) + profiles/ (15 Noto Emoji animal SVGs, Apache 2.0) + tables/ (16 generated SVG table pictures, §7.3; served in production like profiles/)
+│   ├── public/                   browser client (index.html, client.js, style.css, theme.css) + profiles/ (15 Noto Emoji animal SVGs, Apache 2.0) + tables/ (16 generated SVG table pictures, §7.3; served in production like profiles/) + levels/ (Level 1's art with its loop baked, §6.6)
 │   ├── .env.example              every env key the server reads, with defaults (+ Go-only PG_STATEMENT_TIMEOUT_MS)
 │   ├── ops/                      deploy.sh (the one-command deploy of a tag, §14.3), build.sh, release.sh, prod-version.sh, gameplay-go.service, install-go-server.sh, install-monitoring.sh, lib.sh, DEPLOY.md
 │   │   └── monitoring/           Prometheus + Grafana + alerts + nginx bundle, MONITORING.md (formerly server/ops/monitoring)
@@ -181,7 +181,7 @@ king-teenpatti/
     │   ├── widgets/hand_fan.dart  HandFan (25 Sep 2026): the viewer's own fan as pure geometry — places, lean, which card is on top — for `_OwnHand` and SeatRing
     │   ├── widgets/              premium_surface, game_card (the lobby's one card shell, and CardColumn/CardGap/CardRule/CardSpace — its words, §8.4), seat_pod, poker_chip, liquid_fill,
     │   │                         fireworks, avatar, avatar_badge (the badge on the player's picture, §6.6), buy_chips, chip_store, picture_shelf,
-    │   │                         rules_sheet, own_record (the lobby's Stats drawer, §8.4),
+    │   │                         rules_sheet, own_record (the lobby's Stats drawer, §8.4), level_art (a level's Lottie, §6.6),
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
     │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4)
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
@@ -877,6 +877,30 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   grants a badge ("VIP Tag is not granted by XP"). A steeper slab — 30% at Level 1, 20% at Level 5, 2% at Level 50 — was asked
   for on 27 Sep 2026 and withdrawn the same hour ("don't apply new tax slab rate") once it was pointed out that, with every
   player holding Regular at 20% and the LOWEST rate charged, Levels 1–4 would never apply.
+- **The levels' art** (owner, 29 Sep 2026: "Instead of using icons use lottie animations json for showing player Level and
+  update the database according to that and UI … if there is no url, you show empty icon … meanwhile i will provide u other
+  urls"): `player_levels.asset_url`/`asset_format` (the badges' twin; in the CREATE TABLE and two catalogue-guarded ALTERs —
+  nine guarded ALTERs now, §7.3), sent as `assetUrl`/`assetFormat` (omitted when none) on `user.playerLevel`, its `next`,
+  every `GET /api/levels` rung and a friend profile's `level`. **The seed fills a level's art only where `asset_url` IS NULL**
+  (a guarded `UPDATE … FROM (VALUES …)` right after the ladder's INSERT in `V1.0.1__seed.sql`), every boot: a URL added to that
+  list reaches every database at its next boot, production's included, while an owner's own URL — or `''`, none on purpose —
+  is never touched. Levels 1–14 have art so far (the rest NULL: the owner is sending them); each file was checked for what a
+  phone cannot play (§12.3) — Level 1's upload swung its leaves with `loopOut('pingpong')`, so it is served by this server as
+  the baked copy `go-server/public/levels/newbie.json` (`/levels/newbie.json`, served in production like `profiles/`;
+  `TestTheLevelArtServedHereIsInThePublicDir`), the others are the owner's Drive files. The emoji (`icon`) stays in the table and
+  on the wire for anything with no art to draw. **The app** (`widgets/level_art.dart` `LevelArt`, over `EmojiArt` with its
+  stand-in off, handing back the same subtree while its inputs hold so the one-second tick never rebuilds the Lottie) draws
+  the art wherever the emoji was: the level screen's medal (`level-emblem-art`) and every rung of All levels (one size,
+  `LevelRow.markSize` 30), the top bar's "Lv 10" line (`lobby-level-art`, 1.3× the line, painted past it so the row is no
+  taller), the lobby's level key (its medal glyph where there is no art — a key is never an empty disc), the table's tax pill
+  (**the level's art at the pill's RIGHT, the badge's at its LEFT**, both from the plate's top to its bottom — owner, the same
+  day: "On the gameplay table show level icon on right of tax text, and in left badge which u already showing"), the player
+  drawer's level line, the Stats drawer's head and a level up on the mission bar. A level with no art yet shows an empty
+  square where the mark has a fixed place (the medal, a rung) and nothing where it stands before words; words never carry the
+  emoji any more ("Level 10 · Rising Star", "77 XP to Rookie", the level-up toast). Tests: `internal/db/levels_test.go`
+  (the seeded art, the fill rule across a reboot, the served file), `upgrade_boot_test.go`, `db_test.go`; Flutter
+  `level_screen_test` (the medal, every rung), `lobby_level_bar_test`, `table_tax_test` (the pill's two emblems), with the
+  fixtures' `levelArtUrl`/`primeLevelArt` (Levels 1–14, as the seed).
 - **Badges** (`badges`, `user_badges`, `badge_purchases`): held BESIDE the level, many per player, each grant with an
   `expires_at` filled from `validity_days` by the `user_badges_expiry` trigger (0 = for ever). The rate a player pays is the
   **lowest of their level's and every unexpired badge's** (`playerLevelJoins`, the one statement of the rule; `db.Standing`,
@@ -908,7 +932,7 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   complete only once … Do not remove or modify the existing DAILY behavior"; branch `one-time-missions`). `xp_sources` gains
   **`mission_type`** (`DAILY` — the DEFAULT, every source before it — | `ONE_TIME`, a CHECK), **`target`** (≥ 1) and **`scope`**
   (NULL any table, an engine `teen_patti`/`poker`, or a category `seen`…`omaha`; checked by the server) — each in the CREATE TABLE
-  AND a catalogue-guarded block, as `is_bot` (§7.3; seven guarded ALTERs now). ONE_TIME kinds (`db.XPKind*`): `HANDS_PLAYED`,
+  AND a catalogue-guarded block, as `is_bot` (§7.3; seven guarded ALTERs then, nine since the levels' art). ONE_TIME kinds (`db.XPKind*`): `HANDS_PLAYED`,
   `HANDS_WON`, `CATEGORIES_PLAYED` (different categories) and `VARIATIONS_PLAYED` (different variations); a DAILY source keeps
   `PLAY_TIME`/`WIN_HAND`, and a row of a kind outside its type's is left out. **`player_xp_missions`** (PK `user_id, source_code`,
   → `users`/`xp_sources` CASCADE): `progress`, `seen TEXT[]` (the distinct values counted), `completed_at` (0 = open; frozen once
@@ -1513,7 +1537,7 @@ since 28 Sep 2026, below) —
 `table_configs`). The seed was `V1.0.1__seed_profile_pictures.sql` until then; nothing records a script's name, so the
 rename changed nothing for any database. `TestMigrationsAreVersionedOrderedAndSplitByKind` (`db_test.go`) pins the pair:
 those two first, no CREATE/ALTER/INDEX in the seed, and in the baseline an `ALTER TABLE` only as an `EXECUTE` string inside a
-catalogue-guarded block (exactly seven: `users.is_bot`, `users.is_active` (26 Sep 2026, written straight into the baseline the same way), `chip_ledger.game`, `chip_ledger.variant`, and since 28 Sep 2026 the one-time missions' `xp_sources.mission_type`, `.target` and `.scope`, §6.6). How it got here: the 14 Sep 2026 consolidation (owner, for a
+catalogue-guarded block (exactly nine: `users.is_bot`, `users.is_active` (26 Sep 2026, written straight into the baseline the same way), `chip_ledger.game`, `chip_ledger.variant`, since 28 Sep 2026 the one-time missions' `xp_sources.mission_type`, `.target` and `.scope`, and since 29 Sep 2026 the levels' art, `player_levels.asset_url` and `.asset_format`, §6.6). How it got here: the 14 Sep 2026 consolidation (owner, for a
 production deploy onto an EMPTY database) folded V1.0.2–V1.0.5 in and dropped the blocks that brought older databases
 forward (git history, `ccff445`); later that day `duration_hours`, `V1.0.2__timed_bonus_milestone.sql`,
 `V1.0.3__seed_new_pictures.sql`, the 9-diamond default and the HAMMER currency were folded in too, so a database built

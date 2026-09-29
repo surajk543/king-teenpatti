@@ -1528,7 +1528,7 @@ void main() {
         expect(level, findsOneWidget);
         expect(
           tester.widget<Text>(level).data,
-          state.t.levelName(10, '🌟 Rising Star'),
+          state.t.levelName(10, 'Rising Star'),
         );
         // Under the name, in the head.
         final name = tester.getRect(_inDrawer(_key('seat-player-name')));

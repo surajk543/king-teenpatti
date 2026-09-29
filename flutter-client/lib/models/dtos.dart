@@ -589,6 +589,8 @@ class LevelStep {
     required this.minXp,
     required this.taxBps,
     this.icon = '',
+    this.assetUrl = '',
+    this.assetFormat = '',
   });
 
   final int level;
@@ -601,6 +603,17 @@ class LevelStep {
   /// its colour emoji font, before the title. Empty when the server sent
   /// none, and the title stands alone.
   final String icon;
+
+  /// The level's art (owner, 29 Sep 2026: "Instead of using icons use lottie
+  /// animations json for showing player Level"): the owner's Lottie at
+  /// [assetUrl], which the app draws wherever it showed [icon] (LevelArt).
+  /// Empty while the owner has not given one, and the app shows an empty
+  /// mark.
+  final String assetUrl;
+  final String assetFormat;
+
+  /// Whether [assetUrl] is art the app can draw: a Lottie.
+  bool get hasArt => assetUrl.isNotEmpty && assetFormat == 'LOTTIE';
 
   /// The XP that reaches it.
   final int minXp;
@@ -620,6 +633,8 @@ class LevelStep {
       level: level,
       title: _str(j['title']),
       icon: _str(j['icon']).trim(),
+      assetUrl: _str(j['assetUrl']).trim(),
+      assetFormat: _str(j['assetFormat']).trim().toUpperCase(),
       minXp: _int(j['minXp']),
       taxBps: bps,
     );
@@ -775,6 +790,8 @@ class PlayerLevel {
     required this.xp,
     required this.taxBps,
     this.icon = '',
+    this.assetUrl = '',
+    this.assetFormat = '',
     this.next,
     this.today,
     this.daily,
@@ -789,6 +806,18 @@ class PlayerLevel {
   /// The level's mark ("🌟", "🏅"), drawn before the title; empty when the
   /// server sent none.
   final String icon;
+
+  /// The level's art (owner, 29 Sep 2026: "Instead of using icons use lottie
+  /// animations json for showing player Level"): the owner's Lottie at
+  /// [assetUrl], which the app draws wherever it showed [icon] (LevelArt).
+  /// Empty while the owner has not given one, and the app shows an empty
+  /// mark.
+  final String assetUrl;
+  final String assetFormat;
+
+  /// Whether [assetUrl] is art the app can draw: a Lottie.
+  bool get hasArt => assetUrl.isNotEmpty && assetFormat == 'LOTTIE';
+
   final int xp;
 
   /// The winning tax this level sets, in basis points.
@@ -832,6 +861,8 @@ class PlayerLevel {
       level: level,
       title: _str(j['title']),
       icon: _str(j['icon']).trim(),
+      assetUrl: _str(j['assetUrl']).trim(),
+      assetFormat: _str(j['assetFormat']).trim().toUpperCase(),
       xp: math.max(0, _int(j['xp'])),
       taxBps: bps,
       next: LevelStep.maybe(j['next']),
@@ -1064,11 +1095,25 @@ class LadderLevel {
     required this.minXp,
     required this.taxBps,
     this.icon = '',
+    this.assetUrl = '',
+    this.assetFormat = '',
   });
 
   final int level;
   final String title;
   final String icon;
+
+  /// The level's art (owner, 29 Sep 2026: "Instead of using icons use lottie
+  /// animations json for showing player Level"): the owner's Lottie at
+  /// [assetUrl], which the app draws wherever it showed [icon] (LevelArt).
+  /// Empty while the owner has not given one, and the app shows an empty
+  /// mark.
+  final String assetUrl;
+  final String assetFormat;
+
+  /// Whether [assetUrl] is art the app can draw: a Lottie.
+  bool get hasArt => assetUrl.isNotEmpty && assetFormat == 'LOTTIE';
+
   final int minXp;
   final int taxBps;
 
@@ -1082,6 +1127,8 @@ class LadderLevel {
       level: level,
       title: _str(j['title']),
       icon: _str(j['icon']).trim(),
+      assetUrl: _str(j['assetUrl']).trim(),
+      assetFormat: _str(j['assetFormat']).trim().toUpperCase(),
       minXp: math.max(0, _int(j['minXp'])),
       taxBps: bps,
     );

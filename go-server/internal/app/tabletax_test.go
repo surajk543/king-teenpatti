@@ -98,7 +98,9 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 
 	// session:ready: the player's own standing, and the menu entry's flag.
 	ready, _ := rookie.c.Last(socket.EvSessionReady)
-	const newbie = `{"icon":"🌱","level":1,"next":{"icon":"🔰","level":2,"minXp":100,"taxBps":1971,"title":"Rookie"},"taxBps":2000,"title":"Newbie","xp":0}`
+	const newbie = `{"assetFormat":"LOTTIE","assetUrl":"/levels/newbie.json","icon":"🌱","level":1,` +
+		`"next":{"assetFormat":"LOTTIE","assetUrl":"https://drive.google.com/uc?export=download\u0026id=1X5ONeIYMh2Q6348MsQGU9YO1Ut9j0RjR","icon":"🔰","level":2,"minXp":100,"taxBps":1971,"title":"Rookie"},` +
+		`"taxBps":2000,"title":"Newbie","xp":0}`
 	if got, _ := json.Marshal(jsonPath(ready, "user.playerLevel")); string(got) != newbie {
 		t.Errorf("a new account's playerLevel: %s", got)
 	}

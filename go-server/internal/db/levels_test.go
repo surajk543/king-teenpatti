@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -87,12 +89,35 @@ var ownersLevels = []struct {
 	{50, 2000000, "King of Kings", "\U0001F451\U0001F451", 600},
 }
 
+// ownersLevelArt is each level's art as the owner has given it so far (29 Sep
+// 2026: "Instead of using icons use lottie animations json for showing player
+// Level"): Level 1 served by this server as the copy with its loopOut()
+// written out, the rest the owner's Drive uploads. A level not here has none
+// yet (asset_url NULL).
+var ownersLevelArt = map[int]string{
+	1:  "/levels/newbie.json",
+	2:  "https://drive.google.com/uc?export=download&id=1X5ONeIYMh2Q6348MsQGU9YO1Ut9j0RjR",
+	3:  "https://drive.google.com/uc?export=download&id=1046FnHvyBeXHRzuQAyflU-Z994XLMuZG",
+	4:  "https://drive.google.com/uc?export=download&id=1UteuLgAVMFKBXSDGtMs_7LCJKixrZhP8",
+	5:  "https://drive.google.com/uc?export=download&id=1o0Ch-l1nosmMomDocrKO061DnCAIOOcR",
+	6:  "https://drive.google.com/uc?export=download&id=1JBH14iM0z78skBTliTzYlU1aHl3-c6S2",
+	7:  "https://drive.google.com/uc?export=download&id=16LUCeHS--xT7pWcup9xWLOzI7slpIDba",
+	8:  "https://drive.google.com/uc?export=download&id=1DVOEYt6eBhpjhfYqNI-0XTzAXmWsDg7c",
+	9:  "https://drive.google.com/uc?export=download&id=1-oNEE7AIBgDltplByb_hUT4TjyNU4TQ8",
+	10: "https://drive.google.com/uc?export=download&id=11E2kIWN-I3d1Df_ZiikOlbfJVR8bCkkd",
+	11: "https://drive.google.com/uc?export=download&id=1uPdZgu0zaHe3Cxev7RxRFe5bdDFJ9uax",
+	12: "https://drive.google.com/uc?export=download&id=1v7t6TppF5xMO1tHiZaUiM0Vk_hWDtpru",
+	13: "https://drive.google.com/uc?export=download&id=1p-DiB6Ywhwg9nu1o22MoObJU4dp5pQa2",
+	14: "https://drive.google.com/uc?export=download&id=12TiIf1ghpANIC9CTpHN7-DPgSjqCekN7",
+}
+
 // TestTheSeededLevelsAreTheOwnersTable: a fresh database holds the owner's
 // fifty levels exactly — thresholds, titles, rates — and every icon code point
 // for code point.
 func TestTheSeededLevelsAreTheOwnersTable(t *testing.T) {
 	f := newFixture(t)
-	rows, err := f.d.Pool.Query(f.ctx, `SELECT level, min_xp, title, icon, tax_bps FROM player_levels ORDER BY level`)
+	rows, err := f.d.Pool.Query(f.ctx, `SELECT level, min_xp, title, icon, tax_bps, asset_url, asset_format
+	     FROM player_levels ORDER BY level`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,8 +127,17 @@ func TestTheSeededLevelsAreTheOwnersTable(t *testing.T) {
 		var level, bps int
 		var minXP int64
 		var title, icon string
-		if err := rows.Scan(&level, &minXP, &title, &icon, &bps); err != nil {
+		var art, format *string
+		if err := rows.Scan(&level, &minXP, &title, &icon, &bps, &art, &format); err != nil {
 			t.Fatal(err)
+		}
+		// The art the owner has given so far; NULL (not yet given) on the rest.
+		if want, ok := ownersLevelArt[level]; ok {
+			if art == nil || *art != want || format == nil || *format != "LOTTIE" {
+				t.Errorf("level %d's art is %v %v, want the LOTTIE %s", level, art, format, want)
+			}
+		} else if art != nil || format != nil {
+			t.Errorf("level %d has art %v %v, but the owner has sent none", level, art, format)
 		}
 		if i >= len(ownersLevels) {
 			t.Fatalf("an extra level %d", level)
@@ -293,12 +327,127 @@ func badgeCodes(s db.Standing) string {
 // badge (owner, 27 Sep 2026: "By default every user will hold this Regular
 // badge 20 percent tax") — pays its level's rate, which the seat it is built
 // from carries.
+// TestTheLevelArtFillsWhatIsMissingAndKeepsAnOwnersOwn: the seed's art list
+// fills a level's asset_url only where it is NULL — every boot, so a URL added
+// to the list later reaches a database whose ladder is older — and never
+// touches an owner's own URL or a level set to ” (none on purpose).
+func TestTheLevelArtFillsWhatIsMissingAndKeepsAnOwnersOwn(t *testing.T) {
+	f := newFixture(t)
+	// The levels the owner has not sent art for yet: the first takes an
+	// owner's own URL by hand, the second is left without.
+	var missing []int
+	for level := 1; level <= 50 && len(missing) < 2; level++ {
+		if _, ok := ownersLevelArt[level]; !ok {
+			missing = append(missing, level)
+		}
+	}
+	want := map[int]string{
+		1: ownersLevelArt[1],                // refilled
+		4: ownersLevelArt[4],                // refilled
+		2: "https://owner.test/rookie.json", // the owner's own, kept
+		3: "",                               // none on purpose, kept
+	}
+	queries := []string{
+		`UPDATE player_levels SET asset_url = NULL, asset_format = NULL WHERE level IN (1, 4)`,
+		`UPDATE player_levels SET asset_url = 'https://owner.test/rookie.json', asset_format = 'LOTTIE' WHERE level = 2`,
+		`UPDATE player_levels SET asset_url = '', asset_format = NULL WHERE level = 3`,
+	}
+	if len(missing) > 0 {
+		queries = append(queries, fmt.Sprintf(
+			`UPDATE player_levels SET asset_url = 'https://owner.test/own.json', asset_format = 'LOTTIE' WHERE level = %d`, missing[0]))
+		want[missing[0]] = "https://owner.test/own.json" // the owner's own on a level the seed has none for
+	}
+	if len(missing) > 1 {
+		want[missing[1]] = "<NULL>" // not given yet
+	}
+	for _, q := range queries {
+		if _, err := f.d.Pool.Exec(f.ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Another boot on the same schema.
+	d, err := db.Open(f.ctx, db.Options{URL: testURL(), Schema: f.d.Schema, PoolMax: 2})
+	if err != nil {
+		t.Fatalf("the boot: %v", err)
+	}
+	t.Cleanup(d.Close)
+	art := func(level int) string {
+		t.Helper()
+		var url *string
+		if err := d.Pool.QueryRow(f.ctx, `SELECT asset_url FROM player_levels WHERE level = $1`, level).Scan(&url); err != nil {
+			t.Fatal(err)
+		}
+		if url == nil {
+			return "<NULL>"
+		}
+		return *url
+	}
+	for level, w := range want {
+		if got := art(level); got != w {
+			t.Errorf("level %d's art after a boot: %q, want %q", level, got, w)
+		}
+	}
+	// '' reads as no art at all.
+	if l := levelOn(t, d, 3); l.AssetURL != "" || l.AssetFormat != "" {
+		t.Errorf("level 3 set to '': %+v, want no art", l)
+	}
+}
+
+// TestTheLevelArtServedHereIsInThePublicDir: a level's art named by a path
+// (Level 1's, /levels/newbie.json) is a file this server serves from its
+// public dir — in production too, where ROOT_REDIRECT hides only the top
+// level — and a Lottie a phone can play all the way through: no loopOut()
+// left in it (CLAUDE.md §12.3).
+func TestTheLevelArtServedHereIsInThePublicDir(t *testing.T) {
+	for level, url := range ownersLevelArt {
+		if !strings.HasPrefix(url, "/") {
+			continue
+		}
+		if strings.Count(url, "/") < 2 {
+			t.Errorf("level %d's art %s sits at the top of the public dir, which production hides", level, url)
+		}
+		raw, err := os.ReadFile(filepath.Join("..", "..", "public", filepath.FromSlash(url)))
+		if err != nil {
+			t.Fatalf("level %d's art: %v", level, err)
+		}
+		var lottie struct {
+			V      string            `json:"v"`
+			W      int               `json:"w"`
+			Layers []json.RawMessage `json:"layers"`
+		}
+		if err := json.Unmarshal(raw, &lottie); err != nil || lottie.V == "" || lottie.W <= 0 || len(lottie.Layers) == 0 {
+			t.Errorf("level %d's art %s is not a Lottie: %v", level, url, err)
+		}
+		if strings.Contains(string(raw), "loopOut") {
+			t.Errorf("level %d's art %s still loops with loopOut(), which a phone does not run", level, url)
+		}
+	}
+}
+
+// levelOn is one rung of the ladder as d reads it.
+func levelOn(t *testing.T, d *db.DB, level int) db.LadderLevel {
+	t.Helper()
+	ladder, err := db.NewXP(d, nil).Ladder(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range ladder.Levels {
+		if l.Level == level {
+			return l
+		}
+	}
+	t.Fatalf("no level %d", level)
+	return db.LadderLevel{}
+}
+
 func TestTheLevelFollowsTheXP(t *testing.T) {
 	f := newFixture(t)
 	u := f.user("Climber")
 	fresh := f.find(u.ID).PlayerLevel
 	want := db.PlayerLevel{Level: 1, Title: "Newbie", Icon: "\U0001F331", XP: 0, TaxBps: 2000,
-		Next: &db.NextLevel{Level: 2, Title: "Rookie", Icon: "\U0001F530", MinXP: 100, TaxBps: 1971}}
+		AssetURL: ownersLevelArt[1], AssetFormat: "LOTTIE",
+		Next: &db.NextLevel{Level: 2, Title: "Rookie", Icon: "\U0001F530", MinXP: 100, TaxBps: 1971,
+			AssetURL: ownersLevelArt[2], AssetFormat: "LOTTIE"}}
 	if !reflect.DeepEqual(fresh, want) {
 		t.Fatalf("a new account: %+v, want %+v", fresh, want)
 	}
@@ -1023,6 +1172,13 @@ func TestTheLadderIsEveryLevelAndBadgeWithTheSourcesAndTheCap(t *testing.T) {
 	first, top := ladder.Levels[0], ladder.Levels[49]
 	if first.Title != "Newbie" || first.Icon != "\U0001F331" || first.MinXP != 0 || first.TaxBps != 2000 {
 		t.Errorf("level 1 = %+v", first)
+	}
+	// Each rung carries its art where the owner has given it, and none where
+	// not yet (the wire leaves the two keys out).
+	for _, l := range ladder.Levels {
+		if want := ownersLevelArt[l.Level]; l.AssetURL != want || (want != "") != (l.AssetFormat == "LOTTIE") {
+			t.Errorf("level %d's art: %q %q, want %q", l.Level, l.AssetURL, l.AssetFormat, want)
+		}
 	}
 	if top.Title != "King of Kings" || top.MinXP != 2000000 || top.TaxBps != 600 {
 		t.Errorf("level 50 = %+v", top)

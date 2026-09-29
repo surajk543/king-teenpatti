@@ -1935,10 +1935,9 @@ class GameState extends ChangeNotifier {
     }
     final barSaysLevelUp = missions.any((m) => m.levelUp != null);
     if (!barSaysLevelUp && before != null && level.level > before.level) {
-      final name = [
-        if (level.icon.isNotEmpty) level.icon,
-        t.levelName(level.level, level.title),
-      ].join(' ');
+      // Words only: a level's mark is its art, which a toast has no place
+      // for (29 Sep 2026).
+      final name = t.levelName(level.level, level.title);
       notice = taxNow != null
           ? t.levelUp(name, formatTaxRate(taxNow))
           : t.levelUpOnly(name);

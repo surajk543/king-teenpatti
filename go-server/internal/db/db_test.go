@@ -132,26 +132,30 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 			}
 		}
 	}
-	// Seven, deliberately: the four of 22–26 Sep 2026, and since 28 Sep 2026
-	// the one-time missions' three on xp_sources — mission_type (whose
-	// DEFAULT keeps every source a database already has DAILY), target and
-	// scope — which a database already holding the daily XP (production's)
-	// lacks. Each is a MISSING column a boot adds; none changes a column
-	// that is already there.
+	// Nine, deliberately: the four of 22–26 Sep 2026, since 28 Sep 2026 the
+	// one-time missions' three on xp_sources — mission_type (whose DEFAULT
+	// keeps every source a database already has DAILY), target and scope —
+	// which a database already holding the daily XP (production's) lacks, and
+	// since 29 Sep 2026 the levels' art on player_levels, asset_url and
+	// asset_format. Each is a MISSING column a boot adds; none changes a
+	// column that is already there.
 	wantAlters := []string{
 		"EXECUTE 'ALTER TABLE users ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE';",
 		"EXECUTE 'ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN game TEXT';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN variant TEXT';",
+		"EXECUTE 'ALTER TABLE player_levels ADD COLUMN asset_url TEXT';",
+		"EXECUTE 'ALTER TABLE player_levels ADD COLUMN asset_format TEXT CHECK (asset_format IN (''IMAGE'', ''SVG'', ''LOTTIE'', ''RIVE''))';",
 		"EXECUTE 'ALTER TABLE xp_sources ADD COLUMN mission_type TEXT NOT NULL DEFAULT ''DAILY'' CHECK (mission_type IN (''DAILY'', ''ONE_TIME''))';",
 		"EXECUTE 'ALTER TABLE xp_sources ADD COLUMN target INTEGER CHECK (target >= 1)';",
 		"EXECUTE 'ALTER TABLE xp_sources ADD COLUMN scope TEXT';",
 	}
 	if strings.Join(alters, "\n") != strings.Join(wantAlters, "\n") {
-		t.Errorf("the baseline brings forward exactly users.is_bot, users.is_active, chip_ledger.game/.variant and xp_sources.mission_type/.target/.scope, got:\n%s", strings.Join(alters, "\n"))
+		t.Errorf("the baseline brings forward exactly users.is_bot, users.is_active, chip_ledger.game/.variant, xp_sources.mission_type/.target/.scope and player_levels.asset_url/.asset_format, got:\n%s", strings.Join(alters, "\n"))
 	}
 	for _, want := range []string{"column_name = 'is_bot'", "column_name = 'is_active'", "column_name = 'game'", "column_name = 'variant'",
-		"column_name = 'mission_type'", "column_name = 'target'", "column_name = 'scope'"} {
+		"column_name = 'mission_type'", "column_name = 'target'", "column_name = 'scope'",
+		"column_name = 'asset_url'", "column_name = 'asset_format'"} {
 		if !strings.Contains(baseline, want) {
 			t.Errorf("%s lacks the lookup %q", migrations[0].File, want)
 		}
@@ -164,6 +168,10 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	}
 	if ledger := squash(createTableBody(t, baseline, "chip_ledger")); !strings.Contains(ledger, "game TEXT") || !strings.Contains(ledger, "variant TEXT") {
 		t.Errorf("CREATE TABLE chip_ledger must declare game TEXT and variant TEXT:\n%s", ledger)
+	}
+	if levels := squash(createTableBody(t, baseline, "player_levels")); !strings.Contains(levels, "asset_url TEXT,") ||
+		!strings.Contains(levels, "asset_format TEXT CHECK (asset_format IN ('IMAGE', 'SVG', 'LOTTIE', 'RIVE')),") {
+		t.Errorf("CREATE TABLE player_levels must declare asset_url TEXT and asset_format TEXT CHECK (…), as the guarded blocks add them:\n%s", levels)
 	}
 	// winner_tax (26 Sep 2026) is declared in the CREATE TABLE alone, with no
 	// DEFAULT like every rule column (a row typed by hand must say whether its

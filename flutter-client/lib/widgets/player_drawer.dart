@@ -18,10 +18,11 @@ import 'game_loader.dart';
 import 'own_seat_drawer.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
+import 'level_art.dart';
 import 'player_profile.dart';
 import 'report_player.dart';
 import 'table_chrome.dart';
-import 'table_tax.dart' show levelStrut, levelTitle;
+import 'table_tax.dart' show levelStrut;
 
 // Friends at the table (owner, 26 Sep 2026: "in a gametable, if a player
 // clicks other player pod then a drawer from right side will open, where he
@@ -373,11 +374,12 @@ class _Head extends StatelessWidget {
   }
 }
 
-/// The player's level under their name in the drawer's head: "Level 10 ·
-/// 🌟 Rising Star" ([levelNameOf]'s words), in the gold a level is written in
-/// on the table's pill, on the level's own line height ([levelStrut]) so the
-/// colour emoji never makes the head taller than the words would. A long
-/// title is set smaller rather than cut.
+/// The player's level under their name in the drawer's head: its art (the
+/// owner's Lottie, 29 Sep 2026 — the emoji it replaced stood here) and
+/// "Level 10 · Rising Star" ([levelNameOf]'s words), in the gold a level is
+/// written in on the table's pill, on the level's own line height
+/// ([levelStrut]). A long title is set smaller rather than cut; a level with
+/// no art yet is the words alone.
 class _LevelLine extends StatelessWidget {
   const _LevelLine({required this.t, required this.level});
 
@@ -398,13 +400,26 @@ class _LevelLine extends StatelessWidget {
         child: FittedBox(
           fit: BoxFit.scaleDown,
           alignment: AlignmentDirectional.centerStart,
-          child: Text(
-            t.levelName(level.level, levelTitle(level.icon, level.title)),
-            key: const ValueKey('seat-player-level'),
-            maxLines: 1,
-            softWrap: false,
-            strutStyle: levelStrut(style),
-            style: style,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (level.hasArt) ...[
+                LevelArt.profile(
+                  level,
+                  key: const ValueKey('seat-player-level-art'),
+                  size: (style.fontSize ?? 12) * (style.height ?? 1.3) * 1.3,
+                ),
+                const SizedBox(width: Space.xxs),
+              ],
+              Text(
+                t.levelName(level.level, level.title),
+                key: const ValueKey('seat-player-level'),
+                maxLines: 1,
+                softWrap: false,
+                strutStyle: levelStrut(style),
+                style: style,
+              ),
+            ],
           ),
         ),
       ),

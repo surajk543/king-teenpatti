@@ -17,6 +17,7 @@ import 'emoji_art.dart';
 import 'game_loader.dart';
 import 'glass_components.dart';
 import 'glass_panels.dart';
+import 'level_art.dart';
 import 'level_screen.dart';
 import 'premium_surface.dart';
 import 'table_chrome.dart';
@@ -59,16 +60,16 @@ String levelTitle(String icon, String title) {
   return '$icon $title';
 }
 
-/// The viewer's level named in full: "Level 10 · 🌟 Rising Star".
+/// The viewer's level named in full: "Level 10 · Rising Star". No emoji: a
+/// level's mark is its art since 29 Sep 2026 (owner: "Instead of using icons
+/// use lottie animations json for showing player Level"), drawn beside the
+/// words where there is a place for it ([LevelArt]).
 String levelNameOf(Strings t, PlayerLevel level) =>
-    t.levelName(level.level, levelTitle(level.icon, level.title));
+    t.levelName(level.level, level.title);
 
-/// The Stats drawer's line: "Level 10 · 🌟 Rising Star · 4,180 XP".
-String levelLineOf(Strings t, PlayerLevel level) => t.levelLine(
-  level.level,
-  levelTitle(level.icon, level.title),
-  formatChips(level.xp),
-);
+/// The Stats drawer's line: "Level 10 · Rising Star · 4,180 XP".
+String levelLineOf(Strings t, PlayerLevel level) =>
+    t.levelLine(level.level, level.title, formatChips(level.xp));
 
 /// A badge as the app writes it: its mark first where it has one ("🏅 Gold"),
 /// like a level; a badge drawn by its art ("Royal King") has none.
@@ -463,6 +464,7 @@ class WinningTaxTag extends StatelessWidget {
     required this.semanticLabel,
     required this.onTap,
     this.title,
+    this.titleArt,
     this.badge,
     this.badgeArt,
   });
@@ -470,9 +472,16 @@ class WinningTaxTag extends StatelessWidget {
   /// The rate the viewer's seat pays, as the pill says it: "17.43% TAX".
   final String tax;
 
-  /// The viewer's level title with its mark ("🌟 Rising Star"), the pill's
-  /// first line; null where the level is not known.
+  /// The viewer's level title ("Rising Star"), the pill's first line; null
+  /// where the level is not known.
   final String? title;
+
+  /// The viewer's level, whose art ([LevelArt]) is the pill's RIGHT emblem
+  /// where the owner has sent one (29 Sep 2026: "On the gameplay table show
+  /// level icon on right of tax text, and in left badge which u already
+  /// showing"): as tall as the badge's at the left ([emblemSize]), so the
+  /// pill stands no taller for it. A level with no art yet has none there.
+  final PlayerLevel? titleArt;
 
   /// The badge the viewer holds, with its mark where it has one ("🏅 Gold"),
   /// before the rate; null where they hold none this phone knows of.
@@ -554,33 +563,53 @@ class WinningTaxTag extends StatelessWidget {
     // no text metrics yet — CLAUDE.md, the bonus chips); scaled with the
     // words as one where the slot is narrow, so it shrinks with them rather
     // than crowding them.
+    //
+    // The level's art, where the owner has sent it, is the emblem at the
+    // RIGHT (29 Sep 2026), the same height as the badge's.
     final art = badgeArt;
+    final level = titleArt?.hasArt == true ? titleArt : null;
     final Widget content;
     final EdgeInsets padding;
-    if (art != null) {
+    if (art != null || level != null) {
+      final emblem = emblemSize(
+        MediaQuery.textScalerOf(context),
+        theme,
+        lines: lines,
+      );
       content = FittedBox(
         fit: BoxFit.scaleDown,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            BadgeArt.held(
-              art,
-              key: const ValueKey('winning-tax-badge-art'),
-              size: emblemSize(
-                MediaQuery.textScalerOf(context),
-                theme,
-                lines: lines,
+            if (art != null) ...[
+              BadgeArt.held(
+                art,
+                key: const ValueKey('winning-tax-badge-art'),
+                size: emblem,
               ),
-            ),
-            const SizedBox(width: Space.xs),
+              const SizedBox(width: Space.xs),
+            ],
             Padding(
               padding: const EdgeInsets.symmetric(vertical: Space.xs),
               child: text,
             ),
+            if (level != null) ...[
+              const SizedBox(width: Space.xs),
+              LevelArt.of(
+                level,
+                key: const ValueKey('winning-tax-level-art'),
+                size: emblem,
+              ),
+            ],
           ],
         ),
       );
-      padding = const EdgeInsets.fromLTRB(Space.xxs, 0, Space.md, 0);
+      padding = EdgeInsets.fromLTRB(
+        art != null ? Space.xxs : Space.md,
+        0,
+        level != null ? Space.xxs : Space.md,
+        0,
+      );
     } else if (title != null) {
       // The title over the rate, scaled as one: it shrinks on a small
       // screen rather than losing a word to an ellipsis.
@@ -727,13 +756,13 @@ String levelSignatureOf(User? u) {
   if (l != null) {
     b.write(
       '|L${l.level}\u0000${l.title}\u0000${l.icon}\u0000${l.xp}'
-      '\u0000${l.taxBps}',
+      '\u0000${l.taxBps}\u0000${l.assetUrl}\u0000${l.assetFormat}',
     );
     final n = l.next;
     if (n != null) {
       b.write(
         '|N${n.level}\u0000${n.title}\u0000${n.icon}\u0000${n.minXp}'
-        '\u0000${n.taxBps}',
+        '\u0000${n.taxBps}\u0000${n.assetUrl}\u0000${n.assetFormat}',
       );
     }
     final today = l.today;
@@ -1163,7 +1192,7 @@ class _WinningTaxInfoState extends State<WinningTaxInfo> {
         WinningTaxFact(
           icon: Icons.trending_up_rounded,
           label: t.nextLevelLabel,
-          value: t.levelName(next.level, levelTitle(next.icon, next.title)),
+          value: t.levelName(next.level, next.title),
           detail: t.nextLevelValue(
             formatChips(next.minXp),
             formatTaxRate(next.taxBps),
@@ -1427,15 +1456,18 @@ class LevelKey extends StatelessWidget {
                       color: glass.wellFill,
                       border: Border.all(color: glass.cardBorder),
                     ),
-                    child: level.icon.isEmpty
-                        ? Icon(
+                    // The level's art, or — the key being a key, never an
+                    // empty disc — the medal glyph where there is none yet.
+                    child: level.hasArt
+                        ? LevelArt.of(
+                            level,
+                            key: const ValueKey('level-key-art'),
+                            size: 26,
+                          )
+                        : Icon(
                             Icons.military_tech_rounded,
                             size: 16,
                             color: gold,
-                          )
-                        : Text(
-                            level.icon,
-                            style: const TextStyle(fontSize: 14, height: 1),
                           ),
                   ),
                 ),
@@ -1608,11 +1640,25 @@ class _LadderRow extends StatelessWidget {
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
-                        child: Text(
-                          levelTitle(level.icon, level.title),
-                          maxLines: 1,
-                          strutStyle: levelStrut(name),
-                          style: name,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // The rung's art, on the line's own height; an
+                            // empty square of that size until the owner
+                            // sends it, so every title starts in one column.
+                            LevelArt.rung(
+                              level,
+                              size:
+                                  (name.fontSize ?? 14) * (name.height ?? 1.3),
+                            ),
+                            const SizedBox(width: Space.xxs),
+                            Text(
+                              level.title,
+                              maxLines: 1,
+                              strutStyle: levelStrut(name),
+                              style: name,
+                            ),
+                          ],
                         ),
                       ),
                     ),

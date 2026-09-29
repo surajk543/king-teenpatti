@@ -253,7 +253,7 @@ func TestTheEightFriendsRoutesAnswerTheContract(t *testing.T) {
 	if _, err := database.Pool.Exec(ctx, `INSERT INTO player_xp (user_id, xp, created_at, updated_at) VALUES ($1, 4180, 1, 1)`, idB); err != nil {
 		t.Fatal(err)
 	}
-	const levelB = `"level":{"level":10,"title":"Rising Star","icon":"🌟"},`
+	const levelB = `"level":{"level":10,"title":"Rising Star","icon":"🌟","assetUrl":"https://drive.google.com/uc?export=download&id=11E2kIWN-I3d1Df_ZiikOlbfJVR8bCkkd","assetFormat":"LOTTIE"},`
 	const zeroHands = `{"trail":0,"pureSequence":0,"sequence":0,"color":0,"pair":0,"highCard":0}`
 	const zeroLine = `"handsPlayed":0,"handsWon":0,"handsLost":0,"handsLeft":0,"winRate":0`
 	statsB := `"stats":{"handsPlayed":3,"handsWon":1,"handsLost":1,"handsLeft":1,"winRate":33.33,"categories":{` +
@@ -278,7 +278,7 @@ func TestTheEightFriendsRoutesAnswerTheContract(t *testing.T) {
 	}
 	// Your own: presence, and a win rate of 0 before any hand.
 	status, raw = b.call(t, ts.URL, tokC, http.MethodGet, "/api/players/"+idC+"/profile", "")
-	mustBody(t, "your own profile", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Carla","profilePicture":{"id":null,"url":null},"friendStatus":"SELF","presence":{"status":"OFFLINE","online":false,"playing":false},"level":{"level":1,"title":"Newbie","icon":"🌱"},"stats":{`+zeroLine+`,"categories":{"teenPatti":{`+zeroLine+`,"hands":`+zeroHands+`},"variation":{`+zeroLine+`,"hands":`+zeroHands+`,"variations":[]},"poker":{`+zeroLine+`}}}}}`, idC))
+	mustBody(t, "your own profile", raw, fmt.Sprintf(`{"profile":{"userId":"%s","displayName":"Carla","profilePicture":{"id":null,"url":null},"friendStatus":"SELF","presence":{"status":"OFFLINE","online":false,"playing":false},"level":{"level":1,"title":"Newbie","icon":"🌱","assetUrl":"/levels/newbie.json","assetFormat":"LOTTIE"},"stats":{`+zeroLine+`,"categories":{"teenPatti":{`+zeroLine+`,"hands":`+zeroHands+`},"variation":{`+zeroLine+`,"hands":`+zeroHands+`,"variations":[]},"poker":{`+zeroLine+`}}}}}`, idC))
 	status, raw = b.call(t, ts.URL, tokA, http.MethodGet, "/api/players/nobody-at-all/profile", "")
 	mustStatus(t, "a profile of nobody", status, http.StatusNotFound, raw)
 	mustBody(t, "a profile of nobody", raw, `{"error":"player_not_found","message":"Player not found."}`)

@@ -511,7 +511,7 @@ void main() {
       final news = state.xpMissions.queue.single;
       expect(news.levelUpTaxBps, 1971);
       final lines = XpMissionBar.linesFor(state.t, news, state.levelLadder);
-      expect(lines.levelUp, 'Level up! 🔰 Level 2 · Rookie');
+      expect(lines.levelUp, 'Level up! Level 2 · Rookie');
       expect(lines.taxNow, 'Winning tax now 19.71%');
       state.dispose();
 
@@ -942,7 +942,7 @@ void main() {
       );
       expect(
         textOf(tester, 'xp-mission-level-up'),
-        'Level up! 🔰 Level 2 · Rookie',
+        'Level up! Level 2 · Rookie',
       );
       await unmount(tester, state);
     });

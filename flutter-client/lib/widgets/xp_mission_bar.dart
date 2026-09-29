@@ -25,6 +25,7 @@ import '../state/xp_missions.dart';
 import '../theme/app_theme.dart';
 import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
+import 'level_art.dart';
 import 'premium_surface.dart';
 import 'table_tax.dart' show xpSourceName, levelStrut;
 
@@ -260,14 +261,10 @@ class XpMissionBar extends StatelessWidget {
           : goal == null
           ? '${formatChips(total)} XP'
           : t.xpOf(formatChips(total), formatChips(goal)),
+      // Words only: the level's art stands beside them (29 Sep 2026).
       levelUp: level == null
           ? null
-          : t.levelUpOnly(
-              [
-                if (level.icon.isNotEmpty) level.icon,
-                t.levelName(level.level, level.title),
-              ].join(' '),
-            ),
+          : t.levelUpOnly(t.levelName(level.level, level.title)),
       taxNow: level == null || taxBps == null
           ? null
           : t.xpBarTaxNow(formatTaxRate(taxBps)),
@@ -383,11 +380,39 @@ class XpMissionBar extends StatelessWidget {
                             ],
                             if (lines.levelUp != null) ...[
                               const SizedBox(height: 1),
-                              _Words(
-                                lines.levelUp!,
-                                key: const ValueKey('xp-mission-level-up'),
-                                style: levelStyle,
-                                strut: true,
+                              Row(
+                                children: [
+                                  // The new level's art before the words,
+                                  // where the owner has sent it.
+                                  if (news.levelUp case final up?
+                                      when up.hasArt) ...[
+                                    LevelArt.of(
+                                      up,
+                                      key: const ValueKey(
+                                        'xp-mission-level-art',
+                                      ),
+                                      size:
+                                          MediaQuery.textScalerOf(
+                                            context,
+                                          ).scale(
+                                            (levelStyle.fontSize ?? 13) *
+                                                (levelStyle.height ?? 1.3),
+                                          ) *
+                                          1.3,
+                                    ),
+                                    const SizedBox(width: Space.xs),
+                                  ],
+                                  Expanded(
+                                    child: _Words(
+                                      lines.levelUp!,
+                                      key: const ValueKey(
+                                        'xp-mission-level-up',
+                                      ),
+                                      style: levelStyle,
+                                      strut: true,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                             if (lines.taxNow != null)

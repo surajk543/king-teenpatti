@@ -588,7 +588,7 @@ void main() {
   });
 
   group('the head', () {
-    testWidgets('the name, strongest, over "Level 1 · 🌱 Newbie · 23 XP"; no '
+    testWidgets('the name, strongest, over "Level 1 · Newbie · 23 XP"; no '
         '"Your record"; a small close key that closes', (tester) async {
       _setView(tester, size: const Size(891, 411), scale: 1.0);
       final state = await _openStats(tester);
@@ -605,7 +605,7 @@ void main() {
               ),
             )
             .data,
-        'Level 1 · 🌱 Newbie · 23 XP',
+        'Level 1 · Newbie · 23 XP',
       );
       final level = tester.widget<Text>(
         find.descendant(

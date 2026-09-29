@@ -2139,10 +2139,9 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                       // holding").
                       child: WinningTaxTag(
                         tax: taxPillLabel(state.t, bps: state.myTaxBps),
-                        title: switch (state.user?.playerLevel) {
-                          final level? => levelTitle(level.icon, level.title),
-                          null => null,
-                        },
+                        title: state.user?.playerLevel?.title,
+                        // The level's art before its title (29 Sep 2026).
+                        titleArt: state.user?.playerLevel,
                         badge: switch (state.user?.shownBadge) {
                           final badge? => badgeTitleOf(badge),
                           null => null,

@@ -7,12 +7,14 @@ import '../l10n/strings.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import 'glass_components.dart';
+import 'level_art.dart';
 import 'level_screen.dart';
 import 'table_tax.dart';
 
 /// The player's level at the top of the lobby (owner, 27 Sep 2026: "In the
 /// Lobby on Top show current level of player and xp progress bar for next
-/// level"): the level's mark and number ("🌟 Lv 10"), a slim gold bar from
+/// level"): the level's mark and number ("🌟 Lv 10" — the mark is the level's
+/// art since 29 Sep 2026, [LevelArt]), a slim gold bar from
 /// this level's threshold to the next's, and the figure ("4,180 / 5,200 XP")
 /// — or, at the top of the ladder, a full bar and MAX LEVEL.
 ///
@@ -59,6 +61,12 @@ class LobbyLevelBar extends StatelessWidget {
 
   /// The least room between the level and the figure.
   static const double wordGap = 8;
+
+  /// The level's art beside its word: this much taller than the line, drawn
+  /// past it (no taller a row for it) — a Lottie at the line's own height
+  /// is too small to read — and set apart from the word by [markGap].
+  static const double markScale = 1.3;
+  static const double markGap = 3;
 
   /// The block's height at [scaler] — the words' line forced by a strut, so a
   /// mixed-script word ("लेवल 10") or a colour-emoji mark never makes it
@@ -123,8 +131,7 @@ class LobbyLevelBar extends StatelessWidget {
 
     // The words, fullest first: each how the level is named and the figure.
     final word = t.levelShort(view.level);
-    final mark = view.icon;
-    final hasMark = mark.isNotEmpty;
+    final hasMark = LevelArt.drawable(view.assetUrl, view.assetFormat);
     final candidates = <(_Tag, String)>[
       (
         hasMark ? _Tag.marked : _Tag.word,
@@ -145,10 +152,7 @@ class LobbyLevelBar extends StatelessWidget {
       style: kind == _Tag.badge
           ? tagStyle.copyWith(color: AppTheme.ink900)
           : tagStyle,
-      children: [
-        if (kind == _Tag.marked) TextSpan(text: '$mark '),
-        TextSpan(text: kind == _Tag.badge ? '${view.level}' : word),
-      ],
+      text: kind == _Tag.badge ? '${view.level}' : word,
     );
     const badgePad = 4.0;
 
@@ -162,12 +166,15 @@ class LobbyLevelBar extends StatelessWidget {
         builder: (context, box) {
           final scaler = MediaQuery.textScalerOf(context);
           final w = math.min(box.maxWidth, scaler.scale(maxWidth));
+          final line = scaler.scale(fontSize) * lineHeight;
+          final artSide = line * markScale;
           var (kind, figure) = candidates.last;
           var fits = false;
           for (final (k, f) in candidates) {
             final need =
                 _width(tagSpan(k), scaler) +
                 (k == _Tag.badge ? 2 * badgePad : 0) +
+                (k == _Tag.marked ? artSide + markGap : 0) +
                 (f.isEmpty
                     ? 0
                     : wordGap +
@@ -188,7 +195,28 @@ class LobbyLevelBar extends StatelessWidget {
             softWrap: false,
             strutStyle: _strut,
           );
-          final tag = kind != _Tag.badge
+          final tag = kind == _Tag.marked
+              ? Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: artSide,
+                      height: line,
+                      child: OverflowBox(
+                        maxHeight: artSide,
+                        child: LevelArt(
+                          key: const ValueKey('lobby-level-art'),
+                          size: artSide,
+                          assetUrl: view.assetUrl,
+                          assetFormat: view.assetFormat,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: markGap),
+                    tagText,
+                  ],
+                )
+              : kind != _Tag.badge
               ? tagText
               : DecoratedBox(
                   decoration: BoxDecoration(
@@ -257,7 +285,7 @@ class LobbyLevelBar extends StatelessWidget {
   }
 }
 
-/// How the row names the level: its mark and word ("🌟 Lv 10"), the word
+/// How the row names the level: its art and word ("🌟 Lv 10"), the word
 /// alone ("Lv 10"), or the number on a gold plate.
 enum _Tag { marked, word, badge }
 
@@ -267,7 +295,7 @@ void openLobbyLevel(BuildContext context) {
   showLevelInfo(context);
 }
 
-/// What the line draws, as one comparable value: the level, its mark, the
+/// What the line draws, as one comparable value: the level, its art, the
 /// XP, the next threshold, this level's own threshold from the ladder, the
 /// language and the number system (both change the figures' words). A fresh
 /// copy of the same account — every `me()` re-read — compares equal, and the
@@ -276,7 +304,8 @@ void openLobbyLevel(BuildContext context) {
 class _LevelBarView {
   const _LevelBarView({
     required this.level,
-    required this.icon,
+    required this.assetUrl,
+    required this.assetFormat,
     required this.xp,
     required this.nextMinXp,
     required this.fromXp,
@@ -285,7 +314,8 @@ class _LevelBarView {
   });
 
   final int level;
-  final String icon;
+  final String assetUrl;
+  final String assetFormat;
   final int xp;
   final int? nextMinXp;
   final int? fromXp;
@@ -297,7 +327,8 @@ class _LevelBarView {
     if (level == null) return null;
     return _LevelBarView(
       level: level.level,
-      icon: level.icon,
+      assetUrl: level.assetUrl,
+      assetFormat: level.assetFormat,
       xp: level.xp,
       nextMinXp: level.next?.minXp,
       fromXp: s.levelLadder?.levelOf(level.level)?.minXp,
@@ -310,7 +341,8 @@ class _LevelBarView {
   bool operator ==(Object other) =>
       other is _LevelBarView &&
       other.level == level &&
-      other.icon == icon &&
+      other.assetUrl == assetUrl &&
+      other.assetFormat == assetFormat &&
       other.xp == xp &&
       other.nextMinXp == nextMinXp &&
       other.fromXp == fromXp &&
@@ -318,6 +350,14 @@ class _LevelBarView {
       other.numbers == numbers;
 
   @override
-  int get hashCode =>
-      Object.hash(level, icon, xp, nextMinXp, fromXp, lang, numbers);
+  int get hashCode => Object.hash(
+    level,
+    assetUrl,
+    assetFormat,
+    xp,
+    nextMinXp,
+    fromXp,
+    lang,
+    numbers,
+  );
 }

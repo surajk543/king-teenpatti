@@ -44,6 +44,8 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	// users.is_active (26 Sep 2026) is missing from production's go-server/v1.4.0.
 	execSQL(t, older, `ALTER TABLE users DROP COLUMN is_active`)
 	execSQL(t, older, `ALTER TABLE chip_ledger DROP COLUMN game, DROP COLUMN variant`)
+	// The levels' art (29 Sep 2026) is missing from production's ladder.
+	execSQL(t, older, `ALTER TABLE player_levels DROP COLUMN asset_url, DROP COLUMN asset_format`)
 	execSQL(t, older, `DROP TABLE table_configs`)
 	execSQL(t, older, `DROP TABLE table_settings`)
 	execSQL(t, older, `DROP TABLE table_categories`)
@@ -80,10 +82,16 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	}
 	t.Cleanup(d.Close)
 
-	for _, c := range [][2]string{{"users", "is_bot"}, {"users", "is_active"}, {"chip_ledger", "game"}, {"chip_ledger", "variant"}} {
+	for _, c := range [][2]string{{"users", "is_bot"}, {"users", "is_active"}, {"chip_ledger", "game"}, {"chip_ledger", "variant"},
+		{"player_levels", "asset_url"}, {"player_levels", "asset_format"}} {
 		if column(d, c[0], c[1]) != 1 {
 			t.Errorf("%s.%s is not back", c[0], c[1])
 		}
+	}
+	// …and the ladder that was already there has the owner's art, filled by
+	// the same boot.
+	if n := countOf(t, d, `SELECT count(*) FROM player_levels WHERE asset_format = 'LOTTIE' AND asset_url <> ''`); n != int64(len(ownersLevelArt)) {
+		t.Errorf("%d levels with art after the upgrade, want the owner's %d", n, len(ownersLevelArt))
 	}
 	// The account that was already there is a person, as the DEFAULT says.
 	if isBotOf(t, d, before.ID) {
