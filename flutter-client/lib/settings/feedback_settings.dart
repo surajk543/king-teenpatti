@@ -88,6 +88,12 @@ class FeedbackSettings extends ChangeNotifier {
   /// owner's recording: a click 60 ms in, gone by 150 ms.
   static const cardClickClip = 'sound/Card click.mp3';
 
+  /// A hand won at the table (owner, 29 Sep 2026: "This sound should be
+  /// played when player wins in gameTable" — heard by everybody at the table,
+  /// the owner chose). The owner's recording, 4.15 s, peaking at −1 dB. It
+  /// replaced the synthesised `sfx/win.wav`, which only the winner heard.
+  static const winnerClip = 'sound/winner.mp3';
+
   /// A daily XP mission done — the bar at the top of the screen sliding in
   /// (owner, 27 Sep 2026: "play this sound when xp complete notification
   /// toast message comes"). The owner's recording, 1.07 s, peaking where the
@@ -317,9 +323,12 @@ class FeedbackSettings extends ChangeNotifier {
     if (_vibrate) HapticFeedback.mediumImpact();
   }
 
-  /// This player won the hand.
-  void win() {
-    unawaited(_play('win'));
-    if (_vibrate) HapticFeedback.heavyImpact();
+  /// A hand's winner named at the table ([winnerClip]), heard by everybody
+  /// there as everybody sees the fireworks; at full volume, as it runs a few
+  /// dB under the hammer and the missile. Only the phone of the player who
+  /// won ([mine]) also buzzes.
+  void win({required bool mine}) {
+    unawaited(_playAsset(winnerClip, volume: 1));
+    if (mine && _vibrate) HapticFeedback.heavyImpact();
   }
 }

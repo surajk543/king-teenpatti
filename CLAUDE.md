@@ -193,7 +193,8 @@ king-teenpatti/
     ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/ (synthesised clips),
     │                         assets/sound/ (the owner's recordings, §8.4 "Sounds": see card sound.mp3 — the look at a hand;
     │                         Card Distribute.mp3 — each card of the deal; hammer hit.mp3 — a Force Sideshow's hammer;
-    │                         Missile hit.mp3 — a missile volley; Card click.mp3 — a tap on any lobby key or card, and Back in the lobby),
+    │                         Missile hit.mp3 — a missile volley; Card click.mp3 — a tap on any lobby key or card, and Back in the lobby;
+    │                         winner.mp3 — a hand's winner named, heard by the whole table),
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
     │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
@@ -3503,7 +3504,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   missile's `game:action` — so the roar rides the flight and the blast comes as the first missiles land
   (`MissileTiming.flight` 1.3 s). A volley the table draws later than `MissileTiming.soundLate` (250 ms) into it (a
   reconnect) is not heard, nor is a missile with nobody to aim at. On the emulators Small6's missile played it once on
-  both phones, the firer's and another player's. `test/missile_strike_test.dart`. **A lobby card** (same day: "this
+  both phones, the firer's and another player's. `test/missile_strike_test.dart`. **The winner** (owner, 29 Sep 2026: "This sound should be played when player wins in gameTable" — everybody at the table, the owner chose when asked): **`assets/sound/winner.mp3`** (`FeedbackSettings.win(mine:)`, full volume — it peaks at −1 dB but runs a few dB under the hammer), 4.15 s, on EVERY phone at the table the moment the hand's winner is named (`TurnBuzzer`: `winnerId` set and a result, once a hand, on both felts) — the frame the fireworks go up; only the winner's own phone also buzzes. A table arrived at with its hand already won (a poker room's snapshot keeps its result until the next deal) is not heard. It replaced `sfx/win.wav`, which only the winner heard and which is no longer played. On TP_Small, packed and watching the bots, every hand's end played the whole clip on the app's own track (199,296 frames at 48 kHz) and the speaker recording matched it at 0.97. `test/winner_sound_test.dart`. **A lobby card** (same day: "this
   sound should be played when user click on card" — the lobby's cards, the owner chose): **`assets/sound/Card click.mp3`**
   (`cardClick()`, full volume; a click 60 ms in, gone by 150 ms) on a tap on an engine card (Teen Patti, Poker), a category
   card (`_GroupCard`) or a table the player may sit at (`_TableCard`, where the door `enterTable()` still plays with it). A

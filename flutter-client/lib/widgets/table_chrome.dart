@@ -3548,7 +3548,7 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
   String? _seenHand;
   Set<String> _seenBy = const {};
   bool _alarmed = false;
-  bool _won = false;
+  bool _winnerNamed = false;
 
   /// The seats dealt into the hand. A seat waiting for the next deal, or an
   /// empty one (whose `isBlind` reads false: the wire leaves it out), has
@@ -3578,14 +3578,18 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
             String seenHand,
             String seenBy,
             int deadline,
-            bool won,
+            bool winnerNamed,
+            bool iWon,
           })
         >((s) {
           final room = s.room;
           return (
-            // The showdown has named this player. The celebration keys off the
-            // same fact, so the sound and the fireworks arrive together.
-            won: s.showdownResult.isNotEmpty && s.iWon,
+            // The hand's winner has been named, whoever it is (owner, 29 Sep
+            // 2026: winner.mp3 "when player wins in gameTable", heard by
+            // everybody at the table). The celebration keys off the same
+            // fact, so the sound and the fireworks arrive together.
+            winnerNamed: s.winnerId != null && s.showdownResult.isNotEmpty,
+            iWon: s.showdownResult.isNotEmpty && s.iWon,
             mine: s.myTurn && room?.state == TableState.betting,
             missed: room?.you?.missedTurns ?? 0,
             pot: room?.pot ?? 0,
@@ -3614,7 +3618,11 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
     // successful move and on a new seat, and neither of those is a miss.
     final autoPacked = _missed >= 0 && now.missed > _missed;
     final potGrew = _pot >= 0 && now.pot > _pot;
-    final justWon = now.won && !_won;
+    // Named within the hand this buzzer has been watching: a table the
+    // player arrives at mid-celebration (a poker room's snapshot keeps its
+    // result until the next deal) was won before they sat down.
+    final justWon =
+        now.winnerNamed && !_winnerNamed && now.seenHand == _seenHand;
     final seenBy = now.seenBy.isEmpty
         ? const <String>{}
         : now.seenBy.split(',').toSet();
@@ -3633,7 +3641,7 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
         // Ordered by how much news each carries, and only one of these fires
         // per frame — three sounds at once is noise, not feedback.
         if (justWon) {
-          feedback.win();
+          feedback.win(mine: now.iWon);
         } else if (autoPacked) {
           feedback.missedTurn();
         } else if (startedTurn) {
@@ -3656,7 +3664,7 @@ class _TurnBuzzerState extends State<TurnBuzzer> {
     _pot = now.pot;
     _seenHand = now.seenHand;
     _seenBy = seenBy;
-    _won = now.won;
+    _winnerNamed = now.winnerNamed;
 
     // The clock is its own thing: it is not driven by a state change but by
     // time passing, so it needs a timer rather than a rebuild.
