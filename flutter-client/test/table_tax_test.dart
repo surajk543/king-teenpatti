@@ -497,9 +497,6 @@ Finder _private(String type) => find.byWidgetPredicate(
   skipOffstage: false,
 );
 
-Rect _onScreen(RenderBox box) =>
-    MatrixUtils.transformRect(box.getTransformTo(null), Offset.zero & box.size);
-
 Future<void> _pumpLobby(
   WidgetTester tester,
   GameState state, {
@@ -620,13 +617,6 @@ Future<void> _tapCornerKey(
   await tester.tap(key);
   await tester.pump(const Duration(milliseconds: 500));
 }
-
-/// The discs of every table card's corner keys, on screen.
-List<Rect> _cornerDiscs() => [
-  for (final key in _private('_CardCornerKey').evaluate())
-    if (key.renderObject case final RenderBox box when box.hasSize)
-      _onScreen(box).deflate((Dim.minTouch - 28) / 2),
-];
 
 /// The felt pill's plate, on screen.
 Rect _feltPill(WidgetTester tester) => tester.getRect(
@@ -1170,103 +1160,61 @@ void main() {
   });
 
   group('the lobby card', () {
-    // The table cards carry the category cards' corner — the level's mark,
-    // the badge that sets the rate and the rate the player pays — and no
-    // longer the "17.43% TAX" pill on the boot's line (owner, 27 Sep 2026:
-    // "in these all cards show the same badge and level icon on top right
-    // with minimum tax which u show in lobby card, and remove the text 20%
-    // Tax").
-    Finder corners() =>
-        find.byKey(const ValueKey('table-card-badge'), skipOffstage: false);
+    // No card carries the player's standing any more (owner, 29 Sep 2026:
+    // "Remove the badge and level symbol and tax text from card, seen card,
+    // variation, all card"): not the "17.43% TAX" pill on the boot's line
+    // (gone 27 Sep 2026), and not the corner that replaced it — the level's
+    // mark, the badge and the rate. The badge is on the top bar's picture
+    // (avatar_badge_test); the rate stays in the ⓘ popup and the level screen.
+    Finder onCards(Finder f) => find.descendant(
+      of: find.byType(GameCard, skipOffstage: false),
+      matching: f,
+    );
 
-    testWidgets('carries the corner on the taxing tables only — the level, '
-        "the badge and the viewer's own rate — and no tax pill", (
-      tester,
-    ) async {
+    testWidgets('carries no badge, level mark or rate, on a taxing table '
+        'or not', (tester) async {
       final state = _lobbyState()..openLobbyCategory(TableCategory.blind);
       await _pumpLobby(tester, state);
-      expect(find.byType(WinningTaxPill, skipOffstage: false), findsNothing);
-      expect(corners(), findsOneWidget);
-      // On the 20 Lakh card, not on the cheaper three.
-      final column = _twentyLakhColumn(tester, state.t);
-      expect(find.descendant(of: column, matching: corners()), findsOneWidget);
-      expect(
-        find.descendant(
-          of: corners(),
-          matching: find.text('17.43%', skipOffstage: false),
-        ),
-        findsOneWidget,
-      );
-      // The level's mark beside the badge, as on the category cards.
-      expect(
-        find.descendant(
-          of: corners(),
-          matching: find.byKey(
-            const ValueKey('lobby-card-level'),
-            skipOffstage: false,
-          ),
-        ),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(
-          of: corners(),
-          matching: find.byType(BadgeArt, skipOffstage: false),
-        ),
-        findsOneWidget,
-      );
-
-      state.openLobbyCategory(TableCategory.variation);
-      await tester.pump(const Duration(seconds: 1));
-      await tester.pump(const Duration(seconds: 1));
-      expect(corners(), findsOneWidget);
-      expect(find.byType(WinningTaxPill, skipOffstage: false), findsNothing);
-
-      // The seen table does not tax: no corner.
-      state.openLobbyCategory(TableCategory.seen);
-      await tester.pump(const Duration(seconds: 1));
-      await tester.pump(const Duration(seconds: 1));
-      expect(corners(), findsNothing);
+      for (final category in [
+        TableCategory.blind,
+        TableCategory.variation,
+        TableCategory.seen,
+      ]) {
+        state.openLobbyCategory(category);
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump(const Duration(seconds: 1));
+        expect(find.byType(GameCard), findsWidgets, reason: category);
+        expect(
+          find.byKey(const ValueKey('table-card-badge'), skipOffstage: false),
+          findsNothing,
+          reason: category,
+        );
+        expect(
+          find.byType(WinningTaxPill, skipOffstage: false),
+          findsNothing,
+          reason: category,
+        );
+        expect(
+          onCards(find.byType(BadgeArt, skipOffstage: false)),
+          findsNothing,
+          reason: category,
+        );
+        expect(
+          onCards(find.textContaining('%', skipOffstage: false)),
+          findsNothing,
+          reason: category,
+        );
+        expect(
+          onCards(find.text('🌟', skipOffstage: false)),
+          findsNothing,
+          reason: '$category: no level mark',
+        );
+      }
       await _unmount(tester, state);
     });
 
-    testWidgets('says the rate a badge brings down; with no rate known it '
-        'shows nothing', (tester) async {
-      final gold = _lobbyState(
-        level: _level1(),
-        badges: [_regular(), _goldBadge()],
-        taxBps: 500,
-      )..openLobbyCategory(TableCategory.blind);
-      await _pumpLobby(tester, gold);
-      expect(
-        find.descendant(
-          of: corners(),
-          matching: find.text('5%', skipOffstage: false),
-        ),
-        findsOneWidget,
-      );
-      await _unmount(tester, gold);
-
-      final unknown = _lobbyState()
-        ..user = _user()
-        ..openLobbyCategory(TableCategory.blind);
-      await _pumpLobby(tester, unknown);
-      expect(
-        find.descendant(
-          of: corners(),
-          matching: find.textContaining('%', skipOffstage: false),
-        ),
-        findsNothing,
-      );
-      expect(tester.takeException(), isNull);
-      await _unmount(tester, unknown);
-    });
-
     for (final scale in [1.0, 1.25]) {
-      testWidgets('the corner stands whole, clear of the corner keys and '
-          'inside its card, and nothing on the card is cut (x$scale)', (
-        tester,
-      ) async {
+      testWidgets('nothing on the card is cut (x$scale)', (tester) async {
         for (final lang in AppLang.values) {
           for (final category in [
             TableCategory.blind,
@@ -1278,23 +1226,6 @@ void main() {
             expect(tester.takeException(), isNull, reason: why);
             final column = _twentyLakhColumn(tester, state.t);
             expect(_cut(column), isEmpty, reason: why);
-            final corner = _onScreen(
-              tester.renderObject<RenderBox>(
-                find.descendant(of: column, matching: corners()),
-              ),
-            );
-            for (final disc in _cornerDiscs()) {
-              expect(corner.overlaps(disc), isFalse, reason: why);
-            }
-            final card = _onScreen(
-              tester.renderObject<RenderBox>(
-                find
-                    .ancestor(of: column, matching: find.byType(GameCard))
-                    .first,
-              ),
-            );
-            expect(card.contains(corner.topLeft), isTrue, reason: why);
-            expect(card.contains(corner.bottomRight), isTrue, reason: why);
             await _unmount(tester, state);
           }
         }
@@ -1314,7 +1245,7 @@ void main() {
           Icons.info_outline_rounded,
         );
         expect(find.text(t.winningTaxLabel), findsOneWidget);
-        // In the popup — the card behind it shows the rate in its corner too.
+        // In the popup, and on no card behind it.
         expect(
           find.descendant(
             of: find.byType(Dialog),
@@ -2275,33 +2206,15 @@ void main() {
 
           final column = _twentyLakhColumn(tester, t);
           expect(_cut(column), isEmpty);
-          // The corner whole, clear of the corner keys and inside its card
-          // (the "TAX" pill that stood here went on 27 Sep 2026).
+          // No tax pill and no corner on the card (29 Sep 2026).
           expect(
             find.byType(WinningTaxPill, skipOffstage: false),
             findsNothing,
           );
-          final corner = _onScreen(
-            tester.renderObject<RenderBox>(
-              find.descendant(
-                of: column,
-                matching: find.byKey(
-                  const ValueKey('table-card-badge'),
-                  skipOffstage: false,
-                ),
-              ),
-            ),
+          expect(
+            find.byKey(const ValueKey('table-card-badge'), skipOffstage: false),
+            findsNothing,
           );
-          for (final disc in _cornerDiscs()) {
-            expect(corner.overlaps(disc), isFalse, reason: label);
-          }
-          final card = _onScreen(
-            tester.renderObject<RenderBox>(
-              find.ancestor(of: column, matching: find.byType(GameCard)).first,
-            ),
-          );
-          expect(card.contains(corner.topLeft), isTrue, reason: label);
-          expect(card.contains(corner.bottomRight), isTrue, reason: label);
 
           // Its popup: the winning tax's rows whole (the popup's own title
           // runs to an ellipsis at this size in every language, as it did

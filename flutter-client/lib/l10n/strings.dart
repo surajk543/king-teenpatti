@@ -785,16 +785,10 @@ class Strings {
   String get badgesTitle => _('badgesTitle');
   String get yourBadgesTitle => _('yourBadgesTitle');
 
-  /// What a screen reader hears for the badge on a lobby game card
-  /// (LobbyCardBadge): its name and its rate.
-  String cardBadgeSemantics(String badge, String rate) => _(
-    'cardBadgeSemantics',
-  ).replaceFirst('{badge}', badge).replaceFirst('{rate}', rate);
-
-  /// The card corner's rate alone, where no badge is shown: "17.43% winning
-  /// tax".
-  String cardRateSemantics(String rate) =>
-      _('cardRateSemantics').replaceFirst('{rate}', rate);
+  /// What a screen reader hears for the badge on the lobby's profile picture
+  /// (AvatarBadge): "Regular badge".
+  String avatarBadgeSemantics(String badge) =>
+      _('avatarBadgeSemantics').replaceFirst('{badge}', badge);
 
   /// The ladder's rate column, and the viewer's own row in it.
   String get taxColumn => _('taxColumn');
@@ -2083,8 +2077,7 @@ class Strings {
       'yourLevelTitle': 'Your level',
       'badgesTitle': 'Badges',
       'yourBadgesTitle': 'Your badges',
-      'cardBadgeSemantics': '{badge} badge, {rate} winning tax',
-      'cardRateSemantics': '{rate} winning tax',
+      'avatarBadgeSemantics': '{badge} badge',
       'taxColumn': 'Tax',
       'levelYou': 'You',
       'levelTaxLabel': 'level tax',
@@ -2993,8 +2986,7 @@ class Strings {
       'yourLevelTitle': 'आपका लेवल',
       'badgesTitle': 'बैज',
       'yourBadgesTitle': 'आपके बैज',
-      'cardBadgeSemantics': '{badge} बैज, {rate} जीत टैक्स',
-      'cardRateSemantics': '{rate} जीत टैक्स',
+      'avatarBadgeSemantics': '{badge} बैज',
       'taxColumn': 'टैक्स',
       'levelYou': 'आप',
       'levelTaxLabel': 'लेवल टैक्स',
@@ -3886,8 +3878,7 @@ class Strings {
       'yourLevelTitle': 'আপনার লেভেল',
       'badgesTitle': 'ব্যাজ',
       'yourBadgesTitle': 'আপনার ব্যাজ',
-      'cardBadgeSemantics': '{badge} ব্যাজ, {rate} জয়ের ট্যাক্স',
-      'cardRateSemantics': '{rate} জয়ের ট্যাক্স',
+      'avatarBadgeSemantics': '{badge} ব্যাজ',
       'taxColumn': 'ট্যাক্স',
       'levelYou': 'আপনি',
       'levelTaxLabel': 'লেভেল ট্যাক্স',
@@ -4785,8 +4776,7 @@ class Strings {
       'yourLevelTitle': 'તમારું લેવલ',
       'badgesTitle': 'બેજ',
       'yourBadgesTitle': 'તમારા બેજ',
-      'cardBadgeSemantics': '{badge} બેજ, {rate} જીત ટેક્સ',
-      'cardRateSemantics': '{rate} જીત ટેક્સ',
+      'avatarBadgeSemantics': '{badge} બેજ',
       'taxColumn': 'ટેક્સ',
       'levelYou': 'તમે',
       'levelTaxLabel': 'લેવલ ટેક્સ',
@@ -5680,8 +5670,7 @@ class Strings {
       'yourLevelTitle': 'ਤੁਹਾਡਾ ਲੈਵਲ',
       'badgesTitle': 'ਬੈਜ',
       'yourBadgesTitle': 'ਤੁਹਾਡੇ ਬੈਜ',
-      'cardBadgeSemantics': '{badge} ਬੈਜ, {rate} ਜਿੱਤ ਟੈਕਸ',
-      'cardRateSemantics': '{rate} ਜਿੱਤ ਟੈਕਸ',
+      'avatarBadgeSemantics': '{badge} ਬੈਜ',
       'taxColumn': 'ਟੈਕਸ',
       'levelYou': 'ਤੁਸੀਂ',
       'levelTaxLabel': 'ਲੈਵਲ ਟੈਕਸ',
