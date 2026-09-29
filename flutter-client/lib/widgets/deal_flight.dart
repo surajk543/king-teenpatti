@@ -200,11 +200,17 @@ class _DealFlightsState extends State<DealFlights>
   void didUpdateWidget(DealFlights old) {
     super.didUpdateWidget(old);
     if (widget.cardHeight != old.cardHeight) _prepareBack();
-    // A new hand, at the SAME table, and not the first after arriving. The
-    // room check keeps a switch quiet: this state survives a move and sees
-    // handNo jump to the new table's, which looks exactly like a deal.
+    // The NEXT hand, at the SAME table. The room check keeps a switch quiet:
+    // this state survives a move and sees handNo jump to the new table's,
+    // which looks exactly like a deal. And only the next one: a handNo that
+    // jumps (the socket was away for a hand or more, or a player arrived at a
+    // hand already under way) is a hand this phone did not see dealt, and
+    // cards flying to seats already holding them is worse than none. A new
+    // table's FIRST hand (0 → 1: a second player sat down and the 3-2-1 ran)
+    // is dealt like every other (29 Sep 2026) — an `old.handNo == 0` guard
+    // here used to leave its cards simply appearing at the seats.
     if (widget.roomId != old.roomId) return;
-    if (widget.handNo == old.handNo || old.handNo == 0) return;
+    if (widget.handNo != old.handNo + 1) return;
     _deal();
   }
 

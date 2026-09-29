@@ -323,9 +323,30 @@ func (l *LiveState) Delete() {
 // -------------------------------------------------------------- Settler
 
 // settleMaxAttempts / settleRetryMaxDelay: retrySettle gives up after 10
-// attempts; the back-off is min(30s, NextHandDelay × attempt).
+// attempts; the back-off is min(30s, SettleRetryBaseFor(NextHandDelay) ×
+// attempt).
 const settleMaxAttempts = 10
 const settleRetryMaxDelay = 30 * time.Second
+
+// SettleRetryBase is the most the hand-end settle's back-off grows by with each
+// attempt: 4 s, the window between hands it was taken from (Node's
+// nextHandDelayMs) until that window grew to 6 s for the countdown before a
+// deal (29 Sep 2026, countdown.go). The window is pacing; this is the money
+// path — how soon a refused settlement is tried again, and so how long its
+// players are refused `settlement_pending` / 409 `seated` once the database
+// is back — and pacing must not slow it.
+const SettleRetryBase = 4 * time.Second
+
+// SettleRetryBaseFor is the back-off base for a room whose window between
+// hands is nextHandDelay: SettleRetryBase, or the window where a room is
+// configured quicker than that (the tests' and the parity profiles' quick
+// clocks), exactly the base every such room has always had.
+func SettleRetryBaseFor(nextHandDelay time.Duration) time.Duration {
+	if nextHandDelay < SettleRetryBase {
+		return nextHandDelay
+	}
+	return SettleRetryBase
+}
 
 // SettlerHooks is what a Settler needs from its room, each called ON the
 // actor while the room lives (never after Destroy: a detached chain reports
@@ -399,8 +420,9 @@ type settleRetry struct {
 	claimed bool
 }
 
-// NewSettler builds the chain for a room. baseDelay is NextHandDelay (the
-// back-off base); version the room's write counter; owed the manager's hook;
+// NewSettler builds the chain for a room. baseDelay is the back-off base
+// (SettleRetryBaseFor the room's NextHandDelay); version the room's write
+// counter; owed the manager's hook;
 // stats where a retried settlement's counters go once it commits (nil: none).
 func NewSettler(ledger Ledger, clock Clock, actor *Actor, baseDelay time.Duration, version *atomic.Int64, owed func(req SettleRequest, owed bool), stats StatsRecorder, hooks SettlerHooks) *Settler {
 	s := &Settler{

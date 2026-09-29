@@ -1,6 +1,9 @@
 // Pictures of the countdown before a deal (29 Sep 2026): the table at "3",
 // "2" and "1" on each game's cloth, in both themes, at two phone sizes and
-// the text sizes the app allows, and one countdown frame by frame. Not part of
+// the text sizes the app allows, one countdown frame by frame, a head seat
+// over the slot (two and four places, seen and blind, before a first deal and
+// after a hand: `head`), three and five places after a hand (`rim`), the
+// missed-turn warning keeping its slot (`missed`), and the poker felt. Not part of
 // `flutter test` (the name has no `_test`): run it by hand, like table_shots.
 //
 //   flutter test test/countdown_shots.dart --dart-define=SHOTS_DIR=/abs/dir \
@@ -37,6 +40,8 @@ class _Shot {
     this.players = 5,
     this.lang = AppLang.english,
     this.poker = '',
+    this.afterHand = false,
+    this.missedTurns = 0,
   });
   final String name;
   final Size size;
@@ -52,9 +57,17 @@ class _Shot {
   /// hand's result still on the felt; '' a Teen Patti table.
   final String poker;
 
+  /// A Teen Patti table with the last hand still on show: the viewer won,
+  /// every other seat lost with its cards face up and dimmed.
+  final bool afterHand;
+
+  /// The viewer's missed turns (a warning in the status slot).
+  final int missedTurns;
+
   String get file =>
       '${name}_${poker.isEmpty ? category : 'poker-$poker'}'
-      '${isPrivate ? '-private' : ''}_'
+      '${isPrivate ? '-private' : ''}${afterHand ? '-after' : ''}'
+      '${missedTurns > 0 ? '-missed$missedTurns' : ''}_'
       '${size.width.toInt()}x${size.height.toInt()}_'
       '${dark ? 'dark' : 'light'}_x${scale}_'
       '${players}p_t${leftMs.toString().padLeft(4, '0')}'
@@ -101,6 +114,66 @@ List<_Shot> _shots() => [
         dark,
         1530,
         players: places,
+        scale: 1.25,
+      ),
+    // A head seat over the slot (29 Sep 2026 review): seen (its stack
+    // showing) and blind, before a first deal and after a hand, the stars
+    // at their highest.
+    for (final places in [2, 4])
+      for (final category in ['seen', 'blind'])
+        for (final afterHand in [false, true])
+          for (final size in const [Size(640, 360), Size(891, 411)])
+            for (final left in const [2700, 2530, 1530, 1400])
+              _Shot(
+                'head',
+                size,
+                dark,
+                left,
+                players: places,
+                category: category,
+                afterHand: afterHand,
+                scale: size.width < 700 ? 1.25 : 1.0,
+              ),
+    for (final left in const [2700, 1530])
+      _Shot(
+        'head592',
+        const Size(592, 360),
+        dark,
+        left,
+        players: 2,
+        category: 'seen',
+        afterHand: true,
+        scale: 1.25,
+      ),
+    // Three and five places after a hand, seen.
+    for (final places in [3, 5])
+      _Shot(
+        'rim',
+        const Size(640, 360),
+        dark,
+        2530,
+        players: places,
+        category: 'seen',
+        afterHand: true,
+        scale: 1.25,
+      ),
+    // The missed-turn warning keeps the slot; the countdown comes in after.
+    for (final left in const [2000, 900])
+      _Shot(
+        'missed',
+        const Size(640, 360),
+        dark,
+        left,
+        missedTurns: 2,
+        scale: 1.25,
+      ),
+    for (final poker in ['first', 'after'])
+      _Shot(
+        'poker592',
+        const Size(592, 360),
+        dark,
+        1530,
+        poker: poker,
         scale: 1.25,
       ),
   ],
@@ -177,8 +250,11 @@ Future<void> _shoot(WidgetTester tester, _Shot shot) async {
   addTearDown(feedback.dispose);
   // The snapshot arrives with the countdown's own three seconds at most to
   // run, as after a hand's celebration; the clock is then walked to the
-  // moment wanted.
-  final arrival = shot.leftMs.clamp(1, 3000);
+  // moment wanted. After a hand (or a missed turn raised at its end) the
+  // whole 6 s window: the celebration first.
+  final arrival = shot.afterHand || shot.missedTurns > 0
+      ? 6000
+      : shot.leftMs.clamp(1, 3000);
   final state = sceneState(
     TableScene(shot.file, (s) {
       s.user = countdownViewer();
@@ -195,8 +271,13 @@ Future<void> _shoot(WidgetTester tester, _Shot shot) async {
                 isPrivate: shot.isPrivate,
                 players: shot.players,
                 maxPlayers: shot.players,
+                afterHand: shot.afterHand,
+                missedTurns: shot.missedTurns,
               ),
       );
+      if (shot.afterHand) {
+        s.handleShowdown(countdownShowdown(players: shot.players));
+      }
     }),
     lang: shot.lang,
   );

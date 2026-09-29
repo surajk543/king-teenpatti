@@ -540,6 +540,40 @@ rows say what the NEXT boot will play, the endpoint what the running process pla
 variation table restored from Redis across that restart keeps the ladder it was opened with and is drained (above, "A
 restart applies it"): its players play on at the old rules while quick-join opens a fresh table at the new ones.
 
+### The countdown before a deal (29 Sep 2026) — a catalogue seeded before keeps the 4 s window
+
+*(Owner, 29 Sep 2026: "instead of showing text "Starting game .." show this count Down animation 3,2,1 … when countdown
+finishes then distribute card"; `DECISIONS.md` "The countdown before a deal".)* From this release a first deal comes 3 s
+after the second player sits down (the app's 3-2-1), and a deal after a hand `next_hand_delay_ms` after its end — **6000**
+by default now (the winner's celebration, then the 3-2-1 in the last 3 s); `room:state` carries `startsInMs` while a table
+counts down. The server is safe to deploy under the app in the store (an old app reads no `startsInMs` and says "Starting
+game…" as before). But **the seed never rewrites a row a database already has**: a catalogue seeded before 29 Sep 2026 —
+production's — keeps `next_hand_delay_ms = 4000` until it is changed by hand, and at 4 s the new app's 3-2-1 starts about
+1 s after the result, over the celebration. (In env mode the key is `NEXT_HAND_DELAY_MS`: a `.env` that names 4000 keeps it.)
+
+**The UPDATE drains every live table, so it goes in just before the deploy's own restart** (one restart for both, at a
+quiet hour). A table restored from Redis keeps the window it was opened with, and `drainReason` compares
+`next_hand_delay_ms` like every other figure: every public table restored across that restart plays on at 4 s, its code
+still works, but quick-join and a switch send nobody to it — the returning bot-play bots included — and it goes once
+empty (one `table draining` INFO line each). Players already seated there keep the 4 s window until they leave.
+
+```bash
+cd /var/www/gameplay/king-teenpatti/go-server && DB="$(sed -n 's/^DATABASE_URL=//p' .env)"
+grep -n '^NEXT_HAND_DELAY_MS' .env                                   # env mode only: must say 6000, or be absent
+psql "$DB" -c "UPDATE table_configs SET next_hand_delay_ms = 6000 WHERE next_hand_delay_ms = 4000"
+./bin/gameplay -check-table-config; echo "exit $?"                   # must be exit 0
+(cd .. && bash go-server/ops/deploy.sh go-server/vX.Y.Z)             # its restart applies the rows too (in tmux, as ever)
+curl -s 127.0.0.1:3000/api/tables | python3 -c 'import json,sys; b=json.load(sys.stdin); print(sorted({e["nextHandDelayMs"] for e in b["tables"] + b["privateTables"]}))'
+#   [6000]
+sudo journalctl -u gameplay --since '10 min ago' --no-pager | grep 'table draining'   # the tables still on 4 s
+curl -s 127.0.0.1:3000/health | python3 -c 'import json,sys; h=json.load(sys.stdin); print(h["tables"], h["players"])'
+```
+
+**Release the app with the 3-2-1 after the drained tables have emptied** (minutes at a quiet hour, hours at most: the
+bots' sessions end and they come back to fresh tables). Nothing needs to wait on the server's side. A rollback to an
+older tag need not undo the UPDATE — an older build plays the 6 s window with "Starting game…" in it; to put 4 s back,
+`UPDATE table_configs SET next_hand_delay_ms = 4000 WHERE next_hand_delay_ms = 6000` and restart.
+
 ### The app version gate (28 Sep 2026) — minimum, latest and maintenance, per platform, with no restart
 
 *(`CLAUDE.md` §7.2 "The app version gate" is the reference; `internal/appversion`.)* The server decides, per app platform,

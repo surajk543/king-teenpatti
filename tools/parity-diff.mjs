@@ -283,6 +283,9 @@ const makeNormaliser = (config) => {
     if (typeof value === 'number') {
       if (TIMESTAMP_KEYS.has(key) && value > 1e12) return '<ts>';
       if (key === 'timeoutMs' && !clocks.has(value)) return '<remaining>';
+      // The countdown's time left to the deal (Go, 29 Sep 2026): measured
+      // from the wall clock as each snapshot is serialised, like startsAt.
+      if (key === 'startsInMs') return '<remaining>';
       if (key === 'uptime') return '<uptime>';
       return value;
     }

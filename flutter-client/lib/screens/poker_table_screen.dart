@@ -436,7 +436,11 @@ class _PokerFelt extends StatelessWidget {
               if (poker.hasBoard)
                 at(
                   const Offset(0.5, _boardDy),
-                  _Board(cards: board, cardHeight: boardCardH),
+                  _Board(
+                    cards: board,
+                    cardHeight: boardCardH,
+                    quiet: !handLive && state.countdownShowing,
+                  ),
                   width: boardW,
                 )
               else if (threeCard && dealer != null)
@@ -467,6 +471,27 @@ class _PokerFelt extends StatelessWidget {
                   anchor: handLive
                       ? Offset(_promptDx * w, (noticeTop + noticeBottom) / 2)
                       : Offset(0.5 * w, _statusDy * h),
+                  // Where its stars may fly (29 Sep 2026): in the pocket,
+                  // under the top-right seat's column, short of the right
+                  // seat's and above the keys — the In Pot capsules and bet
+                  // badges round it are glass; over the board, under the
+                  // street tag.
+                  bounds: handLive
+                      ? () => Rect.fromLTRB(
+                          double.negativeInfinity,
+                          noticeTop - Space.xs,
+                          math.min(seatPlaces[4].dx * w - podW / 2, w - podW) -
+                              Space.xs,
+                          noticeBottom + Space.xs,
+                        )
+                      : () => Rect.fromLTRB(
+                          double.negativeInfinity,
+                          _tagDy * h + 16,
+                          double.infinity,
+                          double.infinity,
+                        ),
+                  // The missed-turn warning stands in its slot either way.
+                  yieldToWarning: true,
                   discSize: StartCountdownLayer.discFor(
                     handLive
                         ? math.min(w * _promptW, noticeBottom - noticeTop)
@@ -647,10 +672,19 @@ class _StreetTag extends StatelessWidget {
 /// faint outline for each still to come, so the shape of the hand — flop,
 /// turn, river — is readable before a card has landed.
 class _Board extends StatelessWidget {
-  const _Board({required this.cards, required this.cardHeight});
+  const _Board({
+    required this.cards,
+    required this.cardHeight,
+    this.quiet = false,
+  });
 
   final List<String> cards;
   final double cardHeight;
+
+  /// The places still empty step back (29 Sep 2026): the 3-2-1 before a
+  /// first deal stands over the empty board, and five grey outlines behind
+  /// its disc and stars only made it busy. They come back with the deal.
+  final bool quiet;
 
   @override
   Widget build(BuildContext context) {
@@ -666,7 +700,11 @@ class _Board extends StatelessWidget {
                     key: ValueKey('board-${cards[i]}'),
                     child: PlayingCard(height: cardHeight, code: cards[i]),
                   )
-                : _EmptySlot(height: cardHeight),
+                : AnimatedOpacity(
+                    opacity: quiet ? 0 : 1,
+                    duration: Motion.base,
+                    child: _EmptySlot(height: cardHeight),
+                  ),
           ),
       ],
     );
@@ -971,7 +1009,6 @@ class _PokerStatus extends StatelessWidget {
     // draw, play or fold), which are what the player must answer now.
     final warning =
         graceLeft == null &&
-            !state.countdownShowing &&
             state.missedTurnsNoticeShowing &&
             !state.canDraw &&
             !state.canPlay

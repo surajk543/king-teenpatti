@@ -703,20 +703,26 @@ func TestASettlementTheLedgerRefusesIsPaidInMemoryAndRetried(t *testing.T) {
 	eq(t, pe.Reason, "settle", "reason settle")
 	eq(t, len(settleCalls), 1, "first attempt")
 
-	// Retry 1 fires after NextHandDelay × 1 = 6 s; the next hand's countdown
-	// also fires at 6 s, but the retry timer was armed first (inside endHand,
-	// before maybeStart) so it runs first. It re-sends the same record.
+	// Retry 1 fires after SettleRetryBase × 1 = 4 s — not the 6 s window
+	// between hands, which is pacing (the countdown before a deal, 29 Sep
+	// 2026) and must not slow the money path. It re-sends the same record,
+	// before the next deal.
 	failSettle = false
 	mark = h.rec.count()
-	h.advance(6 * time.Second)
-	eq(t, len(settleCalls), 2, "retried once")
+	h.advance(SettleRetryBase - time.Millisecond)
+	eq(t, len(settleCalls), 1, "no retry before 4 s")
+	h.advance(time.Millisecond)
+	eq(t, len(settleCalls), 2, "retried once, at 4 s")
 	eq(t, settleCalls[1], settleCalls[0], "the same hand is re-sent")
-	eq(t, h.table.Version(), int64(2), "the retry committed; the next deal writes nothing")
+	eq(t, h.table.Version(), int64(2), "the retry committed")
 	eq(t, h.rec.names()[mark], "state", "a successful retry re-broadcasts state")
+	eq(t, h.hasHand(), false, "the next deal is still the window's")
+	h.advance(6*time.Second - SettleRetryBase)
 	if got := h.rec.all("persistError"); len(got) != 1 {
 		t.Fatalf("no further persist errors: %d", len(got))
 	}
-	eq(t, h.hasHand(), true, "the next hand was dealt")
+	eq(t, h.table.Version(), int64(2), "the next deal writes nothing")
+	eq(t, h.hasHand(), true, "the next hand was dealt at the window's end")
 }
 
 func TestASettleRetryRefusedAsDuplicateActionCountsAsSuccess(t *testing.T) {
@@ -747,7 +753,7 @@ func TestASettleRetryRefusedAsDuplicateActionCountsAsSuccess(t *testing.T) {
 	eq(t, attempts[firstHand], 1, "first attempt failed")
 	eq(t, h.table.Version(), int64(1), "version not bumped")
 
-	h.advance(6 * time.Second) // retry 1 → duplicate_action → success; then the next deal
+	h.advance(6 * time.Second) // retry 1 at 4 s → duplicate_action → success; then the next deal at 6 s
 	eq(t, attempts[firstHand], 2, "one retry")
 	eq(t, h.table.Version(), int64(2), "the retry committed; the next deal writes nothing")
 	eq(t, len(h.rec.all("persistError")), 1, "only the first failure was reported")
@@ -778,8 +784,11 @@ func TestASettlementIsAbandonedAfterTenRetries(t *testing.T) {
 		}
 	}
 	eq(t, h.state(), TableWaiting, "countdown cancelled")
-	// Delays: 6,12,18,24,30,30,30,30,30,30 = 240 s.
-	h.advance(4 * time.Minute)
+	// Delays: 4,8,12,16,20,24,28,30,30,30 = 202 s (SettleRetryBase, not the
+	// 6 s window between hands, which would have made it 240 s).
+	h.advance(202*time.Second - time.Millisecond)
+	eq(t, len(h.rec.all("persistError")), 10, "the tenth retry is still due")
+	h.advance(time.Millisecond)
 	persist := h.rec.all("persistError")
 	// 1 × "settle" + 10 × "settle_retry" (Node: _retrySettle attempts 1..10).
 	eq(t, len(persist), 11, "one settle failure plus ten retry failures")

@@ -150,7 +150,55 @@ void main() {
     expect(inDeal(CustomPaint), findsOneWidget);
     expect(inDeal(PlayingCard), findsNothing);
     expect(inDeal(Opacity), findsNothing);
+    await tester.pump(const Duration(seconds: 3));
+    expect(inDeal(CustomPaint), findsNothing);
 
+    // A jump (the socket away for a hand or more) is a hand this phone did
+    // not see dealt: nothing flies.
+    await tester.pumpWidget(table(10));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(inDeal(CustomPaint), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets("a new table's first hand is dealt too (29 Sep 2026: handNo "
+      '0 → 1, after the 3-2-1)', (tester) async {
+    final feedback = FeedbackSettings();
+    addTearDown(feedback.dispose);
+    Widget table(int handNo) => ChangeNotifierProvider<FeedbackSettings>.value(
+      value: feedback,
+      child: Directionality(
+        textDirection: TextDirection.ltr,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: DealFlights(
+                seats: [_seat(0), null, _seat(2)],
+                roomId: 'r1',
+                handNo: handNo,
+                centreOf: (i) => Offset(100.0 + 100 * i, 300),
+                deck: const Offset(300, 150),
+                cardHeight: 40,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    Finder flying() => find.descendant(
+      of: find.byType(DealFlights),
+      matching: find.byType(CustomPaint),
+    );
+
+    await tester.pumpWidget(table(0));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(flying(), findsNothing);
+    await tester.pumpWidget(table(1));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(flying(), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
+    expect(flying(), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

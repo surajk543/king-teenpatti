@@ -226,3 +226,21 @@ func TestAQuickTableKeepsItsOwnShorterDelay(t *testing.T) {
 		t.Fatal("startsInMs on the wire")
 	}
 }
+
+// The settle retry's back-off base is not the window between hands (a
+// reviewer's catch, 29 Sep 2026): the window grew from 4 s to 6 s for the
+// countdown, which is pacing, and the money path keeps its 4 s — while a
+// quicker test or parity clock keeps the quick base it always had.
+func TestTheSettleRetryBaseIsNotTheWindowBetweenHands(t *testing.T) {
+	for _, c := range []struct{ window, want time.Duration }{
+		{6 * time.Second, 4 * time.Second},
+		{4 * time.Second, 4 * time.Second},
+		{10 * time.Second, 4 * time.Second},
+		{1200 * time.Millisecond, 1200 * time.Millisecond},
+		{0, 0},
+	} {
+		if got := SettleRetryBaseFor(c.window); got != c.want {
+			t.Errorf("SettleRetryBaseFor(%v) = %v, want %v", c.window, got, c.want)
+		}
+	}
+}

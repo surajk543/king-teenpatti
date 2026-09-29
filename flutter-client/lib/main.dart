@@ -20,6 +20,7 @@ import 'widgets/game_loader.dart';
 import 'widgets/glass_components.dart';
 import 'widgets/glass_panels.dart';
 import 'widgets/premium_surface.dart';
+import 'widgets/start_countdown.dart';
 import 'widgets/xp_mission_bar.dart';
 
 Future<void> main() async {
@@ -51,6 +52,10 @@ Future<void> main() async {
   );
   unawaited(state.start());
   unawaited(feedback.load());
+  // The 3-2-1 before a deal, cut and parsed behind the splash: a quick-join
+  // onto a table already counting down meets it ready, where parsing it as
+  // the table opened left a plain disc in its place for the first number.
+  unawaited(StartCountdownArt.load());
   // A locked or backgrounded phone at a table closes its socket after a few
   // seconds, and connects again when it is back (GameState.handleLifecycle;
   // owner, 27 Sep 2026). Kept for the life of the app.

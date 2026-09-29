@@ -51,7 +51,8 @@ type TableConfig struct {
 	// NextHandDelay is the window between a hand's end and the next deal
 	// (6 s by default: the winner's celebration, then the StartCountdown the
 	// app plays in its last 3 s — countdown.go); a first deal waits only
-	// StartDelay(NextHandDelay). Also the settle-retry base delay.
+	// StartDelay(NextHandDelay). The settle retry's back-off base is
+	// SettleRetryBaseFor(NextHandDelay): this, but never more than 4 s.
 	NextHandDelay time.Duration
 
 	// UnfundedGrace: how long a seat below the boot is held between hands
@@ -562,7 +563,7 @@ func newTableCore(opts TableOptions) *Table {
 			t.listener.OnPersistError(t.view, PersistErrorEvent{Reason: reason, Err: err})
 		},
 	})
-	t.Settler = NewSettler(ledger, clock, t.Actor, cfg.NextHandDelay, &t.version, opts.SettlementOwed, opts.Stats, SettlerHooks{
+	t.Settler = NewSettler(ledger, clock, t.Actor, SettleRetryBaseFor(cfg.NextHandDelay), &t.version, opts.SettlementOwed, opts.Stats, SettlerHooks{
 		Landed:      t.onSettleLanded,
 		RetryFailed: t.onSettleRetryFailed,
 		Abandoned:   t.onSettleAbandoned,

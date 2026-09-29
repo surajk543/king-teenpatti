@@ -2015,10 +2015,11 @@ class GameState extends ChangeNotifier {
   StartCountdown? _startCountdown;
   Timer? _startCountdownTimer;
 
-  /// Whether the countdown is on the table right now: its last three seconds
-  /// before the deal. The status slot says nothing else while it is (the
-  /// countdown stands there), and it turns on exactly when the countdown
-  /// does — a timer notifies at that moment, not the next one-second tick.
+  /// Whether the countdown is due right now: its last three seconds before
+  /// the deal (a missed-turn warning sharing its slot still keeps its five
+  /// seconds, and the countdown comes in after it). It turns on exactly when
+  /// the countdown does — a timer notifies at that moment, not the next
+  /// one-second tick — and the poker board's empty places step back for it.
   bool get countdownShowing =>
       startCountdown?.showingAt(StartCountdown.clock()) ?? false;
 

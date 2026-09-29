@@ -1,6 +1,7 @@
 // The countdown before a deal (owner, 29 Sep 2026: "whenever Game starts in
 // any game table, instead of showing text "Starting game .." show this count
 // Down animation 3,2,1 … when countdown finishes then distribute card").
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -12,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lottie/lottie.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
+import 'package:teenpatti/net/game_connection.dart' show ShowdownNews;
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/state/start_countdown.dart';
 import 'package:teenpatti/theme/app_theme.dart';
@@ -43,6 +45,7 @@ Future<GameState> _mount(
   double scale = 1.0,
   int maxPlayers = 5,
   GlobalKey? boundary,
+  ShowdownNews? showdown,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -56,6 +59,8 @@ Future<GameState> _mount(
       s.user = countdownViewer();
       s.config = s.config.copyWith(maxPlayers: maxPlayers);
       s.handleState(room);
+      // The hand before the countdown, still on show (its reveals).
+      if (showdown != null) s.handleShowdown(showdown);
     }),
     lang: lang,
   );
@@ -96,16 +101,15 @@ Finder _saying(int n, [AppLang lang = AppLang.english]) =>
 
 Finder get _anyNumber => find.bySemanticsLabel(RegExp(r'^Starting in \d$'));
 
-/// How opaque the countdown is drawn.
-double _opacity(WidgetTester tester) => tester
-    .widget<FadeTransition>(
-      find.descendant(
-        of: find.byType(StartCountdownLayer),
-        matching: find.byType(FadeTransition),
-      ),
-    )
-    .opacity
-    .value;
+/// How opaque the countdown is drawn: 0 before it has been placed at all.
+double _opacity(WidgetTester tester) {
+  final fade = find.descendant(
+    of: find.byType(StartCountdownLayer),
+    matching: find.byType(FadeTransition),
+  );
+  if (fade.evaluate().isEmpty) return 0;
+  return tester.widget<FadeTransition>(fade).opacity.value;
+}
 
 /// The deal's flying cards, while they fly.
 Finder get _dealFlying => find.descendant(
@@ -113,15 +117,29 @@ Finder get _dealFlying => find.descendant(
   matching: find.byType(CustomPaint),
 );
 
-/// The disc at the top of its pulse, in the screen's coordinates.
-Rect _disc(WidgetTester tester) {
-  final layer = tester.widget<StartCountdownLayer>(
-    find.byType(StartCountdownLayer),
-  );
-  final origin = tester.getTopLeft(find.byType(StartCountdownLayer));
-  return Rect.fromCircle(
-    center: origin + layer.anchor,
-    radius: layer.discSize / 2,
+/// The disc at the top of its pulse, in the screen's coordinates: where the
+/// countdown placed it, under whatever stands over its slot.
+Rect _disc(WidgetTester tester) =>
+    tester.getRect(find.byKey(const ValueKey('start-countdown-disc')));
+
+/// Where the countdown stands and how far its stars may fly, in the screen's
+/// coordinates.
+({Rect disc, Rect painted, Rect? bounds}) _placed(WidgetTester tester) {
+  final finder = find.byType(StartCountdownLayer);
+  final placement = StartCountdownLayer.placementIn(finder.evaluate().single)!;
+  final origin = tester.getTopLeft(finder);
+  final bounds = placement.bounds;
+  return (
+    disc: placement.disc.shift(origin),
+    painted: placement.painted.shift(origin),
+    bounds: bounds == null
+        ? null
+        : Rect.fromLTRB(
+            bounds.left + origin.dx,
+            bounds.top + origin.dy,
+            bounds.right + origin.dx,
+            bounds.bottom + origin.dy,
+          ),
   );
 }
 
@@ -236,6 +254,109 @@ void main() {
     });
   });
 
+  group('where it stands', () {
+    const anchor = Offset(300, 120);
+    const size = 48.0;
+
+    test('with nothing over it, where the felt asked', () {
+      final p = StartCountdownPlacement.of(anchor: anchor, size: size);
+      expect(p.disc, Rect.fromCircle(center: anchor, radius: size / 2));
+      expect(p.feather, EdgeInsets.zero);
+      expect(p.painted, p.reach);
+    });
+
+    test('under a head seat it gives way from its top and keeps its foot', () {
+      const ceiling = 104.0; // the pod's foot, 8 below the default disc's top
+      final p = StartCountdownPlacement.of(
+        anchor: anchor,
+        size: size,
+        bounds: const Rect.fromLTRB(
+          double.negativeInfinity,
+          ceiling,
+          double.infinity,
+          double.infinity,
+        ),
+      );
+      expect(p.disc.top, ceiling + StartCountdownPlacement.gap);
+      expect(p.disc.bottom, anchor.dy + size / 2);
+      expect(p.disc.width, p.disc.height);
+      expect(p.disc.center.dx, anchor.dx);
+      // The stars fade over the gap and no further: the disc is never faded.
+      expect(p.feather.top, StartCountdownPlacement.gap);
+      expect(p.painted.top, ceiling);
+      expect(p.feather.left, 0);
+    });
+
+    test('with room above, the stars fade over at most the feather', () {
+      final p = StartCountdownPlacement.of(
+        anchor: anchor,
+        size: size,
+        bounds: const Rect.fromLTRB(
+          double.negativeInfinity,
+          40,
+          double.infinity,
+          double.infinity,
+        ),
+      );
+      expect(p.disc, Rect.fromCircle(center: anchor, radius: size / 2));
+      expect(p.feather.top, StartCountdownLayer.feather);
+    });
+
+    test('a pocket bounds it on every side it names', () {
+      final p = StartCountdownPlacement.of(
+        anchor: anchor,
+        size: size,
+        bounds: const Rect.fromLTRB(double.negativeInfinity, 90, 340, 140),
+      );
+      expect(p.disc.bottom, 140 - StartCountdownPlacement.gap);
+      expect(p.disc.top, 96);
+      expect(p.feather.bottom, StartCountdownPlacement.gap);
+      expect(p.feather.right, StartCountdownLayer.feather);
+      expect(p.reach.right, greaterThan(340));
+      expect(p.painted.right, 340);
+    });
+
+    test('with no room, the least disc, centred on what room there is', () {
+      final p = StartCountdownPlacement.of(
+        anchor: anchor,
+        size: size,
+        bounds: const Rect.fromLTRB(
+          double.negativeInfinity,
+          130,
+          double.infinity,
+          double.infinity,
+        ),
+      );
+      expect(p.disc.width, StartCountdownPlacement.least);
+      expect(p.disc.center.dy, closeTo((134 + 144) / 2, 1e-9));
+    });
+
+    test('it moves by easing, never by a jump', () {
+      final from = StartCountdownPlacement.of(anchor: anchor, size: size);
+      final to = StartCountdownPlacement.of(
+        anchor: anchor + const Offset(0, 9),
+        size: size,
+      );
+      final step = from.towards(to);
+      expect(step.disc.top, closeTo(from.disc.top + 3, 1e-9));
+      var p = step;
+      for (var i = 0; i < 30; i++) {
+        p = p.towards(to);
+      }
+      expect(p, to);
+    });
+
+    test('its reach is the art scaled round the disc', () {
+      final p = StartCountdownPlacement.of(
+        anchor: anchor,
+        size: StartCountdownArt.discPeak,
+      );
+      const r = StartCountdownArt.reach;
+      const c = StartCountdownArt.discCentre;
+      expect(p.reach, r.shift(anchor - c));
+    });
+  });
+
   group("the owner's file, cut to its 3-2-1", () {
     test('only the layers of 3, 2 and 1, over frames 180 to 270', () {
       final bytes = File(StartCountdownArt.asset).readAsBytesSync();
@@ -251,6 +372,45 @@ void main() {
       for (final layer in composition.layers) {
         expect(layer.startFrame, inInclusiveRange(180, 268));
       }
+    });
+
+    test('everything it paints stays inside its reach, every frame', () async {
+      final composition = StartCountdownArt.composition!;
+      final drawable = LottieDrawable(composition);
+      final b = composition.bounds;
+      final frames = (composition.endFrame - composition.startFrame).round();
+      var seen = Rect.zero;
+      for (var f = 0; f <= frames; f++) {
+        final recorder = ui.PictureRecorder();
+        drawable
+          ..setProgress(f / frames)
+          ..draw(
+            Canvas(recorder),
+            Rect.fromLTWH(0, 0, b.width.toDouble(), b.height.toDouble()),
+          );
+        final image = await recorder.endRecording().toImage(b.width, b.height);
+        final data = (await image.toByteData())!;
+        for (var y = 0; y < image.height; y++) {
+          for (var x = 0; x < image.width; x++) {
+            if (data.getUint8((y * image.width + x) * 4 + 3) <= 8) continue;
+            final pixel = Rect.fromLTWH(x.toDouble(), y.toDouble(), 1, 1);
+            seen = seen == Rect.zero ? pixel : seen.expandToInclude(pixel);
+          }
+        }
+        image.dispose();
+      }
+      const reach = StartCountdownArt.reach;
+      expect(reach.inflate(1).contains(seen.topLeft), isTrue, reason: '$seen');
+      expect(
+        reach.inflate(1).contains(seen.bottomRight - const Offset(1, 1)),
+        isTrue,
+        reason: '$seen',
+      );
+      // And not a loose box: every edge is reached.
+      expect(seen.left, lessThan(reach.left + 2));
+      expect(seen.top, lessThan(reach.top + 2));
+      expect(seen.right, greaterThan(reach.right - 2));
+      expect(seen.bottom, greaterThan(reach.bottom - 2));
     });
 
     test('a file with no 3-2-1 is refused rather than played as another '
@@ -565,17 +725,128 @@ void main() {
       await _unmount(tester, state);
     });
 
-    testWidgets('a missed-turn notice has the slot until the countdown takes '
-        'it', (tester) async {
+    testWidgets('a missed-turn warning keeps its five seconds, and the '
+        'countdown comes in after it at the number the time left names', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      // The miss that ended the hand: its snapshot raised the warning, and
+      // the countdown is due 3 s later (6 s window, the last 3 s).
       final state = await _mount(
         tester,
-        countingDownRoom(leftMs: 4000, missedTurns: 1),
+        countingDownRoom(leftMs: 6000, missedTurns: 2),
       );
-      await _walk(tester, 100);
+      expect(state.missedTurnsNoticeShowing, isTrue);
+      await _walk(tester, 3100);
+      expect(state.countdownShowing, isTrue, reason: 'the countdown is due');
       expect(find.byType(MissedTurnsNotice), findsOneWidget);
-      await _walk(tester, 1000);
+      expect(_anyNumber, findsNothing, reason: 'the warning keeps the slot');
+      expect(_opacity(tester), 0);
+      // Five seconds after it was raised the warning goes, and the countdown
+      // comes in at the number the time left names — "1", the deal a second
+      // away — never from "3".
+      await _walk(tester, 1920);
+      expect(state.missedTurnsNoticeShowing, isFalse);
+      await _walk(tester, 200);
       expect(find.byType(MissedTurnsNotice), findsNothing);
-      expect(_opacity(tester), greaterThan(0));
+      expect(_saying(1), findsOneWidget);
+      expect(_saying(3), findsNothing);
+      expect(_saying(2), findsNothing);
+      expect(_opacity(tester), greaterThan(0.9));
+      semantics.dispose();
+      await _unmount(tester, state);
+    });
+
+    testWidgets("at a head seat's table the warning has its own pocket, and "
+        'both show', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final state = await _mount(
+        tester,
+        countingDownRoom(
+          leftMs: 2500,
+          missedTurns: 1,
+          players: 2,
+          maxPlayers: 2,
+        ),
+        maxPlayers: 2,
+      );
+      await _walk(tester, 200);
+      expect(find.byType(MissedTurnsNotice), findsOneWidget);
+      expect(_saying(3), findsOneWidget);
+      final notice = tester.getRect(find.byType(MissedTurnsNotice));
+      final disc = _disc(tester);
+      expect(notice.overlaps(disc), isFalse);
+      semantics.dispose();
+      await _unmount(tester, state);
+    });
+
+    testWidgets("a new table's first hand: the countdown, then the cards "
+        'fly (handNo 0 to 1)', (tester) async {
+      final state = await _mount(
+        tester,
+        countingDownRoom(leftMs: 900, handNo: 0),
+      );
+      await _walk(tester, 900);
+      expect(_dealFlying, findsNothing);
+      state.handleState(dealtRoom(handNo: 1));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(_dealFlying, findsOneWidget);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('art that arrives mid-number waits for the next one: no swap '
+        'in the middle of a number', (tester) async {
+      final art = StartCountdownArt.composition!;
+      final arriving = Completer<LottieComposition?>();
+      StartCountdownArt.debugLoading = arriving.future;
+      addTearDown(() => StartCountdownArt.debugComposition = art);
+      Finder plain(int n) => find.descendant(
+        of: find.byType(StartCountdownLayer),
+        matching: find.text('$n'),
+      );
+      Finder painted() => find.descendant(
+        of: find.byType(StartCountdownLayer),
+        matching: find.byType(CustomPaint),
+      );
+      final state = await _mount(tester, countingDownRoom(leftMs: 2900));
+      await _walk(tester, 100);
+      expect(plain(3), findsOneWidget, reason: 'the plain disc says it');
+      arriving.complete(art);
+      await _walk(tester, 300);
+      expect(plain(3), findsOneWidget, reason: 'the 3 is not swapped');
+      expect(painted(), findsNothing);
+      await _walk(tester, 700);
+      expect(plain(2), findsNothing, reason: 'the art has taken over at 2');
+      expect(painted(), findsOneWidget);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('before a first deal the poker board stands its empty places '
+        'back while the numbers show, and brings them back with the deal', (
+      tester,
+    ) async {
+      final state = await _mount(tester, countingDownPokerRoom(leftMs: 4000));
+      double outline() => tester
+          .widgetList<AnimatedOpacity>(
+            find.ancestor(
+              of: find.byWidgetPredicate(
+                (w) => w.runtimeType.toString() == '_EmptySlot',
+              ),
+              matching: find.byType(AnimatedOpacity),
+            ),
+          )
+          .map((w) => w.opacity)
+          .reduce(math.max);
+      await _walk(tester, 200);
+      expect(outline(), 1, reason: 'before the numbers');
+      await _walk(tester, 1000);
+      expect(state.countdownShowing, isTrue);
+      expect(outline(), 0);
+      // Dealt: the flop out, its two places still to come shown again.
+      state.handleState(RoomState.fromJson(pokerRoomJson()));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(outline(), 1, reason: 'the countdown over');
       await _unmount(tester, state);
     });
 
@@ -603,8 +874,21 @@ void main() {
     });
   });
 
-  group('it never covers a seat, the pot, the tag, the tax or a key', () {
+  group('it never covers a seat, the pot, the tag, the tax or a key, and its '
+      'stars never show through one', () {
     setUpAll(loadScriptFonts);
+
+    /// Every box on the felt [what] names, in the screen's coordinates.
+    Iterable<(String, Rect)> boxes(
+      WidgetTester tester,
+      Map<String, Finder> of,
+    ) => [
+      for (final MapEntry(key: name, value: finder) in of.entries)
+        for (final element in finder.evaluate())
+          if (element.renderObject case final RenderBox box
+              when box.hasSize && box.attached)
+            (name, box.localToGlobal(Offset.zero) & box.size),
+    ];
 
     Future<void> check(
       WidgetTester tester, {
@@ -613,29 +897,54 @@ void main() {
       AppLang lang = AppLang.english,
       int places = 5,
       bool dark = true,
+      String category = 'blind',
+      bool afterHand = false,
     }) async {
       final state = await _mount(
         tester,
-        countingDownRoom(leftMs: 2530, players: places, maxPlayers: places),
+        countingDownRoom(
+          leftMs: 2530,
+          players: places,
+          maxPlayers: places,
+          category: category,
+          afterHand: afterHand,
+        ),
         size: size,
         scale: scale,
         lang: lang,
         maxPlayers: places,
         dark: dark,
+        showdown: afterHand ? countdownShowdown(players: places) : null,
       );
       await tester.pump(const Duration(milliseconds: 300));
       final what =
           '${size.width.toInt()}x${size.height.toInt()} x$scale '
-          '${lang.code} $places places';
+          '${lang.code} $places places $category'
+          '${afterHand ? ' after a hand' : ''}';
       expect(tester.takeException(), isNull, reason: what);
-      final disc = _disc(tester);
+      final placed = _placed(tester);
+      final disc = placed.disc;
+      final keyed = _disc(tester);
+      for (final (a, b) in [
+        (keyed.left, disc.left),
+        (keyed.top, disc.top),
+        (keyed.right, disc.right),
+        (keyed.bottom, disc.bottom),
+      ]) {
+        expect(a, closeTo(b, 0.01), reason: '$what: the disc the layer placed');
+      }
       final screen = Offset.zero & size;
       expect(
         screen.contains(disc.topLeft) && screen.contains(disc.bottomRight),
         isTrue,
         reason: '$what: on screen',
       );
-      expect(disc.width, greaterThanOrEqualTo(StartCountdownLayer.minDisc));
+      expect(
+        disc.width,
+        greaterThanOrEqualTo(StartCountdownPlacement.least),
+        reason: what,
+      );
+      final seats = find.byWidgetPredicate((w) => w is SeatPod && !w.isMe);
       final others = <String, Finder>{
         'seat': find.byType(SeatPod),
         'tax': find.byType(WinningTaxTag),
@@ -656,23 +965,31 @@ void main() {
       for (final name in ['tax', 'tag', 'pot', 'key', 'shop']) {
         expect(others[name]!, findsWidgets, reason: '$what: $name');
       }
-      for (final MapEntry(key: name, value: finder) in others.entries) {
-        for (final element in finder.evaluate()) {
-          final box = element.renderObject;
-          if (box is! RenderBox || !box.hasSize) continue;
-          final rect = box.localToGlobal(Offset.zero) & box.size;
-          // The disc is round: a box meets it only where it comes nearer
-          // its middle than its radius.
-          final nearest = Offset(
-            disc.center.dx.clamp(rect.left, rect.right),
-            disc.center.dy.clamp(rect.top, rect.bottom),
-          );
-          expect(
-            (nearest - disc.center).distance,
-            greaterThanOrEqualTo(disc.width / 2),
-            reason: '$what: the disc meets the $name at $rect',
-          );
-        }
+      for (final (name, rect) in boxes(tester, others)) {
+        // The disc is round: a box meets it only where it comes nearer its
+        // middle than its radius.
+        final nearest = Offset(
+          disc.center.dx.clamp(rect.left, rect.right),
+          disc.center.dy.clamp(rect.top, rect.bottom),
+        );
+        expect(
+          (nearest - disc.center).distance,
+          greaterThanOrEqualTo(disc.width / 2),
+          reason: '$what: the disc meets the $name at $rect',
+        );
+      }
+      // The stars: as far as they ever fly here, inside the box the felt
+      // gave them, they reach no seat but the viewer's (whose glass they
+      // would show through), nor the tag, the tax pill or a key. The pot's
+      // plinth is the one plate they pass behind.
+      final painted = placed.painted.deflate(0.5);
+      for (final (name, rect) in boxes(tester, {...others, 'seat': seats})) {
+        if (name == 'pot') continue;
+        expect(
+          painted.overlaps(rect),
+          isFalse,
+          reason: '$what: the stars reach the $name at $rect ($painted)',
+        );
       }
       await _unmount(tester, state);
     }
@@ -692,6 +1009,28 @@ void main() {
         ) async {
           await check(tester, size: size, scale: scale);
         });
+        // A table of two or four places has a head seat over the slot, and
+        // a seen table's pods carry their stacks — taller than wide — as do
+        // the hands shown down after a hand.
+        for (final places in [2, 4]) {
+          testWidgets('${size.width.toInt()}x${size.height.toInt()} x$scale, '
+              '$places places, seen and blind, before and after a hand', (
+            tester,
+          ) async {
+            for (final category in ['seen', 'blind']) {
+              for (final afterHand in [false, true]) {
+                await check(
+                  tester,
+                  size: size,
+                  scale: scale,
+                  places: places,
+                  category: category,
+                  afterHand: afterHand,
+                );
+              }
+            }
+          });
+        }
       }
     }
     for (final lang in AppLang.values) {
@@ -706,18 +1045,283 @@ void main() {
             lang: lang,
             dark: dark,
           );
+          await check(
+            tester,
+            size: const Size(640, 360),
+            scale: 1.25,
+            lang: lang,
+            dark: dark,
+            places: 2,
+            category: 'seen',
+            afterHand: true,
+          );
         });
       }
     }
-    for (final places in [2, 3, 4]) {
-      testWidgets('$places places, 640x360 x1.25', (tester) async {
+    for (final places in [3, 5]) {
+      testWidgets('$places places after a hand, seen, 640x360 x1.25', (
+        tester,
+      ) async {
         await check(
           tester,
           size: const Size(640, 360),
           scale: 1.25,
           places: places,
+          category: 'seen',
+          afterHand: true,
         );
       });
+    }
+  });
+
+  group('on the poker felt it never covers a seat or a key, and its stars '
+      'never show through one', () {
+    setUpAll(loadScriptFonts);
+
+    Future<void> check(
+      WidgetTester tester, {
+      required Size size,
+      required double scale,
+      required bool afterHand,
+      bool dark = true,
+      AppLang lang = AppLang.english,
+    }) async {
+      final state = await _mount(
+        tester,
+        countingDownPokerRoom(leftMs: 2530, afterHand: afterHand),
+        size: size,
+        scale: scale,
+        dark: dark,
+        lang: lang,
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      final what =
+          '${size.width.toInt()}x${size.height.toInt()} x$scale ${lang.code} '
+          '${afterHand ? 'after a hand' : 'before a first deal'}';
+      expect(tester.takeException(), isNull, reason: what);
+      final placed = _placed(tester);
+      final disc = placed.disc;
+      expect(disc.width, greaterThanOrEqualTo(StartCountdownPlacement.least));
+      final keys = <Finder>[
+        find.byType(MachinedKey),
+        find.byType(StepperKey),
+        find.byType(RailKey),
+        find.byType(ShopButton),
+        find.byType(TableWallet),
+      ];
+      final seats = find.byWidgetPredicate((w) => w is SeatPod && !w.isMe);
+      expect(seats, findsNWidgets(4), reason: what);
+      Iterable<Rect> rects(Finder f) => [
+        for (final element in f.evaluate())
+          if (element.renderObject case final RenderBox box
+              when box.hasSize && box.attached)
+            box.localToGlobal(Offset.zero) & box.size,
+      ];
+      final painted = placed.painted.deflate(0.5);
+      for (final f in [find.byType(SeatPod), ...keys]) {
+        for (final rect in rects(f)) {
+          final nearest = Offset(
+            disc.center.dx.clamp(rect.left, rect.right),
+            disc.center.dy.clamp(rect.top, rect.bottom),
+          );
+          expect(
+            (nearest - disc.center).distance,
+            greaterThanOrEqualTo(disc.width / 2),
+            reason: '$what: the disc meets $rect',
+          );
+        }
+      }
+      for (final f in [seats, ...keys]) {
+        for (final rect in rects(f)) {
+          expect(
+            painted.overlaps(rect),
+            isFalse,
+            reason: '$what: the stars reach $rect ($painted)',
+          );
+        }
+      }
+      await _unmount(tester, state);
+    }
+
+    for (final size in const [
+      Size(592, 360),
+      Size(640, 360),
+      Size(732, 412),
+      Size(844, 390),
+      Size(891, 411),
+      Size(915, 412),
+      Size(1280, 800),
+    ]) {
+      for (final scale in [1.0, 1.25]) {
+        testWidgets('${size.width.toInt()}x${size.height.toInt()} x$scale', (
+          tester,
+        ) async {
+          for (final afterHand in [false, true]) {
+            await check(tester, size: size, scale: scale, afterHand: afterHand);
+          }
+        });
+      }
+    }
+    for (final lang in AppLang.values) {
+      testWidgets('640x360 x1.25 ${lang.code}, both themes', (tester) async {
+        for (final dark in [true, false]) {
+          for (final afterHand in [false, true]) {
+            await check(
+              tester,
+              size: const Size(640, 360),
+              scale: 1.25,
+              afterHand: afterHand,
+              dark: dark,
+              lang: lang,
+            );
+          }
+        }
+      });
+    }
+  });
+
+  group('no star shows through a seat, pixel for pixel', () {
+    setUpAll(loadScriptFonts);
+
+    /// Every seat but the viewer's, the tag and the tax pill, in the
+    /// screen's coordinates: what stands over the countdown.
+    List<Rect> over(WidgetTester tester) => [
+      for (final element
+          in find.byWidgetPredicate((w) => w is SeatPod && !w.isMe).evaluate())
+        if (element.renderObject case final RenderBox box when box.hasSize)
+          box.localToGlobal(Offset.zero) & box.size,
+      for (final element in find.byType(WinningTaxTag).evaluate())
+        if (element.renderObject case final RenderBox box when box.hasSize)
+          box.localToGlobal(Offset.zero) & box.size,
+    ];
+
+    /// The table walked from the countdown's start to each of [at] (ms left),
+    /// and its pixels inside [boxes] at each. [due] false: the same table, the
+    /// same instants, with the deal a further 10 s off — nothing of the
+    /// countdown drawn.
+    Future<List<List<int>>> frames(
+      WidgetTester tester, {
+      required bool due,
+      required List<int> at,
+      required int places,
+      required String category,
+      required bool afterHand,
+      required bool dark,
+      required Size size,
+      required double scale,
+      required void Function(List<Rect>) boxes,
+    }) async {
+      final key = GlobalKey();
+      final state = await _mount(
+        tester,
+        countingDownRoom(
+          leftMs: due ? 3000 : 13000,
+          players: places,
+          maxPlayers: places,
+          category: category,
+          afterHand: afterHand,
+        ),
+        size: size,
+        scale: scale,
+        dark: dark,
+        maxPlayers: places,
+        boundary: key,
+        showdown: afterHand ? countdownShowdown(players: places) : null,
+      );
+      final regions = over(tester);
+      boxes(regions);
+      final out = <List<int>>[];
+      var left = 3000;
+      for (final target in at) {
+        await _walk(tester, left - target);
+        left = target;
+        final pixels = await tester.runAsync(() async {
+          final boundary =
+              key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+          final image = await boundary.toImage();
+          final data = (await image.toByteData(
+            format: ui.ImageByteFormat.rawRgba,
+          ))!;
+          final picked = <int>[];
+          for (final r in regions) {
+            final region = r.intersect(Offset.zero & size);
+            for (var y = region.top.ceil(); y < region.bottom.floor(); y++) {
+              for (var x = region.left.ceil(); x < region.right.floor(); x++) {
+                final i = (y * image.width + x) * 4;
+                picked
+                  ..add(data.getUint8(i))
+                  ..add(data.getUint8(i + 1))
+                  ..add(data.getUint8(i + 2));
+              }
+            }
+          }
+          image.dispose();
+          return picked;
+        });
+        out.add(pixels!);
+      }
+      await _unmount(tester, state);
+      countdownNow -= 3000 - left;
+      return out;
+    }
+
+    const at = [2600, 2000, 1400, 700];
+    for (final (size, scale) in const [
+      (Size(640, 360), 1.25),
+      (Size(891, 411), 1.0),
+    ]) {
+      for (final places in [2, 4, 5]) {
+        for (final dark in [true, false]) {
+          testWidgets(
+            '${size.width.toInt()}x${size.height.toInt()} x$scale, $places '
+            'places, ${dark ? 'night' : 'day'}, seen, before and after a hand',
+            (tester) async {
+              for (final afterHand in [false, true]) {
+                late List<Rect> boxesA, boxesB;
+                final a = await frames(
+                  tester,
+                  due: true,
+                  at: at,
+                  places: places,
+                  category: 'seen',
+                  afterHand: afterHand,
+                  dark: dark,
+                  size: size,
+                  scale: scale,
+                  boxes: (b) => boxesA = b,
+                );
+                final b = await frames(
+                  tester,
+                  due: false,
+                  at: at,
+                  places: places,
+                  category: 'seen',
+                  afterHand: afterHand,
+                  dark: dark,
+                  size: size,
+                  scale: scale,
+                  boxes: (b) => boxesB = b,
+                );
+                expect(boxesA, boxesB);
+                expect(boxesA, isNotEmpty);
+                for (var i = 0; i < at.length; i++) {
+                  expect(a[i].length, b[i].length);
+                  var worst = 0;
+                  for (var j = 0; j < a[i].length; j++) {
+                    worst = math.max(worst, (a[i][j] - b[i][j]).abs());
+                  }
+                  expect(
+                    worst,
+                    lessThanOrEqualTo(2),
+                    reason:
+                        '${at[i]} ms left${afterHand ? ', after a hand' : ''}',
+                  );
+                }
+              }
+            },
+          );
+        }
+      }
     }
   });
 }

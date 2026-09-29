@@ -754,6 +754,36 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     return pile.localToGlobal(pile.size.center(Offset.zero), ancestor: stage);
   }
 
+  /// Where the box [key] names was last laid out, in the felt's
+  /// coordinates; null before it has been.
+  Rect? _laidOut(GlobalKey key) {
+    final stage = _stageKey.currentContext?.findRenderObject();
+    if (stage is! RenderBox || !stage.hasSize) return null;
+    final box = key.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero, ancestor: stage) & box.size;
+  }
+
+  /// The foot of the head seat's unit — its pod, and the cards and bet
+  /// beside it — in the felt's coordinates, as the felt was last laid out;
+  /// null before its pod has been (an empty chair has no pod key). The unit
+  /// hangs from [top] with the column beside the pod centred on the pod's
+  /// height, so it ends as far below the pod's middle as its top stands
+  /// above it. What the countdown before a deal stands under (29 Sep 2026):
+  /// the pod is taller than it is wide where it shows a stack, and after a
+  /// hand, which [SeatRing.headPod] does not know.
+  double? _headSeatFoot(int view, double top) {
+    if (view < 0 || view >= _podKeys.length) return null;
+    final pod = _laidOut(_podKeys[view]);
+    if (pod == null) return null;
+    return math.max(pod.bottom, 2 * pod.center.dy - top);
+  }
+
+  /// The winning tax's pill, measured for the countdown before a deal: its
+  /// lines can stand taller than [_Felt.taxPillHeight] reckons (an emoji in
+  /// the level's title).
+  final GlobalKey _taxKey = GlobalKey(debugLabel: 'tax pill');
+
   /// One key per place, naming that place's pod. A column's middle is known
   /// from the [SeatRing], but where the pod sits in it depends on everything
   /// under it — cards, a hand name, a bet — so the hammer is aimed at the pod
@@ -1679,6 +1709,11 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
             }
           }
           final taxWidth = math.max(0.0, 2 * taxHalf);
+          // The foot of the tag, which stands over the status slot: the
+          // countdown before a deal stays under it.
+          final tagFoot =
+              tagSlot.center.dy +
+              _Felt.plateHeight(taxScaler, TableType.boot(taxTheme)) / 2;
 
           // Every child is keyed (26 Sep 2026). Overlays come and go in the
           // middle of this list — a sideshow's thread, a hammer's, the
@@ -1762,8 +1797,11 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                 key: const ValueKey('centrepiece'),
               ),
               // The 3-2-1 before a deal (29 Sep 2026), where the starting line
-              // stood: on the cloth, under the tag, the pot and every seat, so
-              // the stars its numbers throw off pass behind them.
+              // stood: on the cloth, under the tag, the pot and every seat.
+              // What stands over its slot is glass — the tag, the tax pill,
+              // and at a table of two or four places the head seat's pod,
+              // faded while it sits a hand out — so it stays under them: its
+              // disc clear, its stars fading out there ([bounds]).
               Positioned.fill(
                 key: const ValueKey('start-countdown'),
                 child: StartCountdownLayer(
@@ -1776,6 +1814,25 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                       potY: _potDy * h,
                     ),
                   ),
+                  bounds: () {
+                    final head = ring.head;
+                    final seat = head == null
+                        ? null
+                        : _headSeatFoot(head.view, head.anchor.dy) ??
+                              headPod?.bottom;
+                    final tax = room.taxesWinner
+                        ? _laidOut(_taxKey)?.bottom ?? taxBottom
+                        : null;
+                    return Rect.fromLTRB(
+                      double.negativeInfinity,
+                      [tagFoot, ?tax, ?seat].reduce(math.max),
+                      double.infinity,
+                      double.infinity,
+                    );
+                  },
+                  // The missed-turn warning's slot too, but at a head seat's
+                  // table: it keeps its five seconds, the countdown waits.
+                  yieldToWarning: noticePocket == null,
                 ),
               ),
 
@@ -1862,6 +1919,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   width: tagSlot.width,
                   child: Center(
                     child: ConstrainedBox(
+                      key: _taxKey,
                       constraints: BoxConstraints(maxWidth: taxWidth),
                       // The viewer's level title, then the badge they hold
                       // and the rate their seat pays (owner, 27 Sep 2026:
@@ -3113,10 +3171,9 @@ class _Status extends StatelessWidget {
     // kick"): said here until the player acts again, from the count the
     // server keeps in their own snapshot ([warningFor]) — or, at a head
     // seat's table, in its own pocket, and this slot says its line.
-    // The countdown stands in this slot when it is up.
-    final warning = noticeInPocket || state.countdownShowing
-        ? null
-        : warningFor(state, room);
+    // It keeps its five seconds when the countdown before a deal is due: the
+    // countdown waits for it ([StartCountdownLayer.yieldToWarning]).
+    final warning = noticeInPocket ? null : warningFor(state, room);
     if (warning != null) {
       return MissedTurnsNotice(
         key: ValueKey('missed-turns-${warning.last}'),

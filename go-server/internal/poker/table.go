@@ -264,7 +264,7 @@ func newTableCore(opts TableOptions) *Table {
 			t.hooks.OnRoomPersistError(t, game.PersistErrorEvent{Reason: reason, Err: err})
 		},
 	})
-	t.Settler = game.NewSettler(ledger, clock, t.Actor, cfg.NextHandDelay, &t.version, deps.SettlementOwed, deps.Stats, game.SettlerHooks{
+	t.Settler = game.NewSettler(ledger, clock, t.Actor, game.SettleRetryBaseFor(cfg.NextHandDelay), &t.version, deps.SettlementOwed, deps.Stats, game.SettlerHooks{
 		Landed:      t.onSettleLanded,
 		RetryFailed: t.onSettleRetryFailed,
 		Abandoned:   t.onSettleAbandoned,

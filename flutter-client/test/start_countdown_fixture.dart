@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:lottie/lottie.dart';
 import 'package:teenpatti/models/dtos.dart';
+import 'package:teenpatti/net/game_connection.dart' show ShowdownNews;
 
 import 'table_scenes.dart' show pokerRoomJson;
 import 'package:teenpatti/state/start_countdown.dart';
@@ -34,24 +35,64 @@ void loadCountdownArt() {
   );
 }
 
-Map<String, dynamic> _seat(int i, {String status = 'waiting', int? chips}) => {
+Map<String, dynamic> _seat(
+  int i, {
+  String status = 'waiting',
+  int? chips,
+  bool afterHand = false,
+}) => {
   'seatIndex': i,
   'userId': countdownIds[i],
   'displayName': _names[i],
   'avatarUrl': null,
   'chips': chips,
   'status': status,
-  'isBlind': true,
-  'lastBet': 0,
-  'lastAction': null,
-  'contributed': 0,
+  'isBlind': !afterHand,
+  'lastBet': afterHand ? 400 : 0,
+  'lastAction': afterHand ? 'chaal' : null,
+  'contributed': afterHand ? 1200 : 0,
   'connected': true,
-  'cardCount': 0,
+  'cardCount': afterHand ? 3 : 0,
 };
+
+/// The hands shown down at the end of the hand before the countdown
+/// ([countingDownRoom]'s `afterHand`): the viewer's won, every other seat's
+/// beaten and face up, dimmed as a loser's is.
+const _shown = [
+  ['As', 'Ad', 'Kc'],
+  ['Qs', 'Jd', '9c'],
+  ['8h', '8d', '3s'],
+  ['Kh', '7h', '2h'],
+  ['6c', '5d', '4s'],
+];
+
+/// The showdown that ended the hand before the countdown: [players] hands,
+/// the viewer's the winner, the next deal at [nextHandAt] (the phone's clock).
+ShowdownNews countdownShowdown({required int players, int nextHandAt = 0}) => (
+  reveals: [
+    for (var i = 0; i < players; i++)
+      Reveal.fromJson({
+        'userId': countdownIds[i],
+        'displayName': _names[i],
+        'cards': _shown[i],
+        'handName': i == 0 ? 'Pair' : 'High Card',
+        'won': i == 0,
+      }),
+  ],
+  result: '',
+  winnerId: countdownIds[0],
+  winnerName: _names[0],
+  pot: 1200 * players,
+  nextHandAt: nextHandAt,
+  reason: 'show',
+);
 
 /// A table of [players] counting down: the deal [leftMs] away as the server
 /// says it, at [startsAt] on its own clock. [category] picks the game's
-/// cloth; [isPrivate] a private table of it.
+/// cloth; [isPrivate] a private table of it. Before its first deal every
+/// other seat is waiting (dimmed); [afterHand], the last hand is still on
+/// show — the viewer won it, every other seat lost with its cards face up
+/// (dimmed too) and its bet beside them ([countdownShowdown]).
 RoomState countingDownRoom({
   required int leftMs,
   int? startsAt,
@@ -65,6 +106,7 @@ RoomState countingDownRoom({
   int unfundedDeadline = 0,
   int missedTurns = 0,
   String roomId = 'r1',
+  bool afterHand = false,
 }) => RoomState.fromJson({
   'roomId': roomId,
   'code': 'ABCD2345',
@@ -87,18 +129,23 @@ RoomState countingDownRoom({
   'you': {
     'seatIndex': 0,
     'chips': 245000,
-    'status': 'waiting',
-    'isBlind': true,
-    'contributed': 0,
+    'status': afterHand ? 'won' : 'waiting',
+    'isBlind': !afterHand,
+    'contributed': afterHand ? 1200 : 0,
     'missedTurns': missedTurns,
     'maxMissedTurns': 3,
-    'cards': <String>[],
+    'cards': afterHand ? _shown[0] : <String>[],
     if (unfundedDeadline > 0) 'unfundedDeadline': unfundedDeadline,
   },
   'seats': [
     for (var i = 0; i < maxPlayers; i++)
       if (i < players)
-        _seat(i, chips: i == 0 || category == 'seen' ? 245000 : null)
+        _seat(
+          i,
+          chips: i == 0 || category == 'seen' ? 245000 : null,
+          status: afterHand ? (i == 0 ? 'won' : 'lost') : 'waiting',
+          afterHand: afterHand,
+        )
       else
         {'seatIndex': i, 'status': 'empty'},
   ],
@@ -172,8 +219,10 @@ User countdownViewer() => User.fromJson({
   'taxBps': 1743,
 });
 
-/// A Texas Hold'em room counting down, [leftMs] to the deal: before its first
-/// hand, or [afterHand] with the last hand's result still on the felt (the
+/// A Texas Hold'em room counting down, [leftMs] to the deal, as the server
+/// sends it between hands (`poker.street` empty): before its first hand —
+/// every seat waiting, nothing bet, no card anywhere — or [afterHand], the
+/// last hand's result still on the felt with every seat's cards and bets (the
 /// countdown then stands in the pocket right of the pot).
 RoomState countingDownPokerRoom({required int leftMs, bool afterHand = false}) {
   final json = pokerRoomJson()
@@ -182,14 +231,28 @@ RoomState countingDownPokerRoom({required int leftMs, bool afterHand = false}) {
     ..['pot'] = 0
     ..['startsAt'] = countdownNow + leftMs
     ..['startsInMs'] = leftMs;
-  (json['you'] as Map<String, dynamic>)
+  final you = (json['you'] as Map<String, dynamic>)
     ..remove('options')
-    ..['status'] = 'waiting'
     ..['cards'] = <String>[];
   final poker = json['poker'] as Map<String, dynamic>
+    ..['street'] = ''
     ..['community'] = <String>[]
-    ..['pots'] = <Object>[];
-  if (afterHand) {
+    ..['pots'] = <Object>[]
+    ..['currentBet'] = 0;
+  if (!afterHand) {
+    you
+      ..['status'] = 'waiting'
+      ..['contributed'] = 0
+      ..['streetBet'] = 0;
+    for (final seat in json['seats'] as List) {
+      (seat as Map<String, dynamic>)
+        ..['status'] = 'waiting'
+        ..['cardCount'] = 0
+        ..['contributed'] = 0
+        ..['streetBet'] = 0
+        ..remove('lastAction');
+    }
+  } else {
     poker['result'] = {
       'handId': 'h3',
       'reason': 'last_standing',

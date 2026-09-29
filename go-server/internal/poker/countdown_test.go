@@ -3,10 +3,12 @@ package poker
 import (
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/game"
+	"github.com/surajk543/king-teenpatti/go-server/internal/game/testclock"
 )
 
 // A poker room counts down before a deal exactly as a Teen Patti table does
@@ -80,4 +82,59 @@ func TestAPokerRoomCountsDownBeforeEveryDeal(t *testing.T) {
 func isCode(err error, code string) bool {
 	var ge *game.GameError
 	return errors.As(err, &ge) && ge.Code == code
+}
+
+// A refused hand-end settle is retried at the money path's own pace
+// (game.SettleRetryBase, 4 s), not the 6 s window between hands the
+// countdown made the default — the same rule as a Teen Patti table's.
+func TestAPokerRoomRetriesARefusedSettleAfterFourSecondsNotTheWindow(t *testing.T) {
+	var mu sync.Mutex
+	refuse, calls := true, 0
+	ledger := game.NewMemoryLedger(game.MemoryLedgerHooks{
+		Settle: func(game.SettleRequest, []game.SettleEntry) (map[string]int64, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			calls++
+			if refuse {
+				return nil, errors.New("settle down")
+			}
+			return map[string]int64{}, nil
+		},
+	})
+	h := newHarness(t, TexasHoldem)
+	h.cfg.NextHandDelay = 6 * time.Second
+	clock := testclock.New(start)
+	table := NewTable(TableOptions{
+		ID: "room-2", Code: "ROOM0002", Config: h.cfg, Listener: newRecorder(),
+		Deps: game.RoomDeps{Clock: clock, Ledger: ledger},
+	})
+	t.Cleanup(func() { _ = table.Destroy() })
+	for _, id := range []string{"a", "b"} {
+		if _, err := table.AddPlayer(game.NewPlayer{UserID: id, DisplayName: id, Chips: 5000, SocketID: "s-" + id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clock.Advance(game.StartCountdown)
+	view, err := table.SerializeFor("a")
+	if err != nil || view.Turn == nil || view.Turn.UserID == nil {
+		t.Fatalf("no hand dealt: %v", err)
+	}
+	if _, err := table.Act(*view.Turn.UserID, ActionFold, ActRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	count := func() int { mu.Lock(); defer mu.Unlock(); return calls }
+	if count() != 1 {
+		t.Fatalf("the hand's end settled %d times, want 1", count())
+	}
+	mu.Lock()
+	refuse = false
+	mu.Unlock()
+	clock.Advance(game.SettleRetryBase - time.Millisecond)
+	if count() != 1 {
+		t.Fatal("retried before 4 s")
+	}
+	clock.Advance(time.Millisecond)
+	if count() != 2 {
+		t.Fatalf("retried %d times at 4 s, want once", count()-1)
+	}
 }

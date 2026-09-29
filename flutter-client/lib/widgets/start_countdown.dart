@@ -14,6 +14,7 @@ import '../state/game_state.dart';
 import '../state/start_countdown.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
+import 'missed_turns_notice.dart';
 
 /// The owner's countdown (`assets/animations/Count Down.json`, 29 Sep 2026),
 /// cut to its 3-2-1 and parsed once for the app.
@@ -39,6 +40,12 @@ abstract final class StartCountdownArt {
   /// sized and placed by; the stars round it fly out over 2.4 discs.
   static const Offset discCentre = Offset(305.5, 268);
   static const double discPeak = 231;
+
+  /// The most the 3-2-1 ever paints, in the composition's own units: the box
+  /// round every pixel of every frame of the cut (measured by rendering them
+  /// all; `test/start_countdown_test.dart` holds it). About a disc above the
+  /// disc's middle, 1.1 below and 1.2 to either side — the stars' flight.
+  static const Rect reach = Rect.fromLTRB(19, 40, 577, 526);
 
   static LottieComposition? _composition;
   static Future<LottieComposition?>? _loading;
@@ -75,6 +82,14 @@ abstract final class StartCountdownArt {
   static set debugComposition(LottieComposition? composition) {
     _composition = composition;
     _loading = composition == null ? null : Future.value(composition);
+  }
+
+  /// For the tests: the art not parsed yet, and arriving when [loading]
+  /// completes — a table that opens before the parse has finished.
+  @visibleForTesting
+  static set debugLoading(Future<LottieComposition?> loading) {
+    _composition = null;
+    _loading = loading;
   }
 
   /// The owner's file cut to its 3-2-1: the layers whose in-point is from the
@@ -201,27 +216,172 @@ class StartCountdownColours {
   int get hashCode => Object.hash(disc, digit);
 }
 
+/// Where the countdown stands on the felt: the disc the felt asked for, kept
+/// clear of what stands over it, and the box its stars may fly in (29 Sep
+/// 2026).
+///
+/// Everything drawn over the countdown on the felt — a seat's pod, the tag,
+/// the winning tax's pill, the pot — is glass, and a seat sitting a hand out
+/// is faded to under half its strength: the stars that fly a disc above the
+/// numbers showed through the head seat's pod at a table of two or four
+/// places, over its name and its stack. So the felt names the box the
+/// countdown may draw in ([StartCountdownLayer.bounds]): the disc stays
+/// [gap] inside it, and the stars fade out as they reach an edge of it,
+/// over the room between that edge and the disc (at most
+/// [StartCountdownLayer.feather]) — never over the disc itself.
+@immutable
+class StartCountdownPlacement {
+  const StartCountdownPlacement({required this.disc, this.bounds});
+
+  /// Where the disc stands at the top of its pulse.
+  final Rect disc;
+
+  /// The box the countdown may draw in; an infinite edge is no edge. Null:
+  /// anywhere.
+  final Rect? bounds;
+
+  /// How far inside [bounds] the disc stays.
+  static const double gap = Space.xs;
+
+  /// The smallest disc: where there is less room than this, the disc takes
+  /// this much, centred on the room there is, rather than a number no one
+  /// can read.
+  static const double least = 24;
+
+  /// The disc [size] across with its middle on [anchor], kept inside
+  /// [bounds]: it gives way from the edge it would cross — from its top,
+  /// under a head seat's pod, keeping its foot where it was (clear of the
+  /// pot) — and never grows.
+  factory StartCountdownPlacement.of({
+    required Offset anchor,
+    required double size,
+    Rect? bounds,
+  }) {
+    var top = anchor.dy - size / 2;
+    var bottom = anchor.dy + size / 2;
+    final b = bounds;
+    if (b != null) {
+      if (b.top.isFinite) top = math.max(top, b.top + gap);
+      if (b.bottom.isFinite) bottom = math.min(bottom, b.bottom - gap);
+    }
+    var across = bottom - top;
+    if (across < least) {
+      final middle = (top + bottom) / 2;
+      across = least;
+      top = middle - least / 2;
+    }
+    return StartCountdownPlacement(
+      disc: Rect.fromLTWH(anchor.dx - across / 2, top, across, across),
+      bounds: b,
+    );
+  }
+
+  /// The owner's art as this placement draws it: the whole composition's box
+  /// ([composition] is its size in its own units), scaled so its disc is
+  /// [disc].
+  Rect artFor(Size composition) {
+    final scale = disc.width / StartCountdownArt.discPeak;
+    return Rect.fromLTWH(
+      disc.center.dx - StartCountdownArt.discCentre.dx * scale,
+      disc.center.dy - StartCountdownArt.discCentre.dy * scale,
+      composition.width * scale,
+      composition.height * scale,
+    );
+  }
+
+  /// The most the art ever paints here ([StartCountdownArt.reach], scaled),
+  /// before [bounds] are applied.
+  Rect get reach {
+    final scale = disc.width / StartCountdownArt.discPeak;
+    final r = StartCountdownArt.reach;
+    final c = StartCountdownArt.discCentre;
+    return Rect.fromLTRB(
+      disc.center.dx + (r.left - c.dx) * scale,
+      disc.center.dy + (r.top - c.dy) * scale,
+      disc.center.dx + (r.right - c.dx) * scale,
+      disc.center.dy + (r.bottom - c.dy) * scale,
+    );
+  }
+
+  /// Where the art can show at all: its [reach] inside [bounds].
+  Rect get painted {
+    final b = bounds;
+    return b == null ? reach : reach.intersect(b);
+  }
+
+  /// How far inside each edge of [bounds] the stars fade: the room between
+  /// that edge and the disc, at most [StartCountdownLayer.feather]; none on
+  /// an edge that is not there.
+  EdgeInsets get feather {
+    final b = bounds;
+    if (b == null) return EdgeInsets.zero;
+    double fade(double edge, double room) =>
+        edge.isFinite ? room.clamp(0.0, StartCountdownLayer.feather) : 0;
+    return EdgeInsets.fromLTRB(
+      fade(b.left, disc.left - b.left),
+      fade(b.top, disc.top - b.top),
+      fade(b.right, b.right - disc.right),
+      fade(b.bottom, b.bottom - disc.bottom),
+    );
+  }
+
+  /// A step of the way from this placement to [target] — the disc eases a
+  /// third of the way each frame, and lands once it is within half a point —
+  /// so a head seat that changes height mid-countdown (a player sitting down
+  /// in it) moves the disc rather than jumping it.
+  StartCountdownPlacement towards(StartCountdownPlacement target) {
+    final far = (disc.topLeft - target.disc.topLeft).distance;
+    if (far < 0.5 && (disc.width - target.disc.width).abs() < 0.5) {
+      return target;
+    }
+    return StartCountdownPlacement(
+      disc: Rect.lerp(disc, target.disc, 1 / 3)!,
+      bounds: target.bounds,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is StartCountdownPlacement &&
+      other.disc == disc &&
+      other.bounds == bounds;
+
+  @override
+  int get hashCode => Object.hash(disc, bounds);
+
+  @override
+  String toString() => 'StartCountdownPlacement($disc, bounds: $bounds)';
+}
+
 /// The countdown before a deal on the felt (owner, 29 Sep 2026: "whenever
 /// Game starts in any game table, instead of showing text "Starting game .."
 /// show this count Down animation 3,2,1").
 ///
 /// A layer the size of the felt, laid in its Stack under the tag, the pot and
-/// every seat, so the stars the numbers throw off pass BEHIND them and never
-/// over a word; the disc itself stands at [anchor] — where the waiting and
-/// starting line stood — [discSize] across at the top of its pulse, which the
-/// felt sizes to the room between the tag and the pot's plate.
+/// every seat, the disc at [anchor] — where the waiting and starting line
+/// stood — [discSize] across at the top of its pulse, which the felt sizes to
+/// the room between what stands over the slot and the pot's plate. Whatever
+/// stands over it is named by [bounds], read as the felt was last laid out
+/// on every frame the countdown shows: the disc stays inside them and the
+/// stars fade out at their edges ([StartCountdownPlacement]).
 ///
 /// It keeps its own time. The countdown is [GameState.startCountdown], the
 /// deal as this phone expects it ([StartCountdown]); the layer listens to
 /// GameState without rebuilding on its one-second notify, runs a ticker only
 /// while the numbers are on the table (the last three seconds before the
-/// deal) and repaints one painter off it — the composition was parsed when
-/// the table opened. It never restarts: a snapshot that repeats the same deal
+/// deal) and repaints one painter off it — the composition was parsed as the
+/// app started. It never restarts: a snapshot that repeats the same deal
 /// moves nothing, and one that joins mid-countdown (a reconnect) starts at
 /// the number the time left names. At the deal it fades as the cards fly;
 /// cancelled (a player left) it goes at once, and the waiting line is back.
 /// A phone set to reduce motion shows each number still, at its fullest, and
 /// no fades.
+///
+/// The status slot's more urgent lines outrank it: a seat held for a chip
+/// purchase, a missile volley in the air, and — where the missed-turn
+/// warning shares its slot ([yieldToWarning]) — that warning for its five
+/// seconds (owner, 27 Sep 2026: "missed turn text show only for 5 seconds");
+/// the countdown then comes in at the number the time left names.
 ///
 /// [onNumber] is a hook for a sound per number (3, then 2, then 1) — the
 /// owner did not ask for one, so nothing is passed and nothing plays.
@@ -230,6 +390,8 @@ class StartCountdownLayer extends StatefulWidget {
     super.key,
     required this.anchor,
     required this.discSize,
+    this.bounds,
+    this.yieldToWarning = false,
     this.onNumber,
   });
 
@@ -238,6 +400,16 @@ class StartCountdownLayer extends StatefulWidget {
 
   /// The disc's diameter at the top of its pulse, in logical pixels.
   final double discSize;
+
+  /// The box the countdown may draw in, in this layer's box, as the felt was
+  /// last laid out: the head seat's pod over it at a table of two or four
+  /// places, else the winning tax's pill or the category tag; the pocket's
+  /// edges on the poker felt. Null: anywhere.
+  final ValueGetter<Rect?>? bounds;
+
+  /// Whether the missed-turn warning stands in this countdown's slot, where
+  /// it keeps its five seconds and the countdown waits for them.
+  final bool yieldToWarning;
 
   /// Told each number as it comes up. Off (null) by default.
   final ValueChanged<int>? onNumber;
@@ -248,6 +420,18 @@ class StartCountdownLayer extends StatefulWidget {
   static double discFor(double room) => room.clamp(minDisc, maxDisc);
   static const double minDisc = 30;
   static const double maxDisc = 96;
+
+  /// The most the stars fade over as they reach an edge of [bounds].
+  static const double feather = 14;
+
+  /// Where the countdown built by [layer] (a [StartCountdownLayer]'s
+  /// element) stands, in the layer's own box; null before it has run.
+  @visibleForTesting
+  static StartCountdownPlacement? placementIn(Element layer) {
+    if (layer is! StatefulElement) return null;
+    final state = layer.state;
+    return state is _StartCountdownLayerState ? state._placement : null;
+  }
 
   /// How long it takes to come up, and to go at the deal.
   static const Duration fadeIn = Duration(milliseconds: 160);
@@ -270,8 +454,17 @@ class _StartCountdownLayerState extends State<StartCountdownLayer>
 
   GameState? _game;
   LottieDrawable? _drawable;
+
+  /// The art, parsed while a number stood on the plain disc: it takes over at
+  /// the next number, never in the middle of one (the plain disc and the
+  /// art's pulse at that moment are different sizes).
+  LottieDrawable? _waiting;
   StartCountdownColours? _colours;
   bool _still = false;
+
+  /// Where the disc stands, measured on the frames the countdown runs; null
+  /// until the first of them, and nothing is drawn before it.
+  StartCountdownPlacement? _placement;
 
   /// The countdown on the table, and the number it shows (0: none). A
   /// countdown the deal has [_ended] is kept while it fades, so its stars go
@@ -295,13 +488,18 @@ class _StartCountdownLayerState extends State<StartCountdownLayer>
     if (composition != null) {
       _drawable = LottieDrawable(composition, frameRate: FrameRate.max);
     } else {
-      // Parsed as the table opens, so the art is ready long before a deal.
+      // Parsed as the app starts (main.dart), so this is the rare table that
+      // opened before it had finished, or one where it failed and is tried
+      // again.
       StartCountdownArt.load().then((composition) {
         if (!mounted || composition == null || _drawable != null) return;
-        setState(() {
-          _drawable = LottieDrawable(composition, frameRate: FrameRate.max);
-          _drawable!.delegates = LottieDelegates(values: _colours?.delegates);
-        });
+        final drawable = LottieDrawable(composition, frameRate: FrameRate.max)
+          ..delegates = LottieDelegates(values: _colours?.delegates);
+        if (_number > 0) {
+          _waiting = drawable;
+        } else {
+          setState(() => _drawable = drawable);
+        }
       });
     }
   }
@@ -318,7 +516,9 @@ class _StartCountdownLayerState extends State<StartCountdownLayer>
     final colours = StartCountdownColours.at(GlassColors.of(context).dayShare);
     if (colours != _colours) {
       _colours = colours;
-      _drawable?.delegates = LottieDelegates(values: colours.delegates);
+      for (final drawable in [?_drawable, ?_waiting]) {
+        drawable.delegates = LottieDelegates(values: colours.delegates);
+      }
     }
     _sync();
   }
@@ -343,10 +543,14 @@ class _StartCountdownLayerState extends State<StartCountdownLayer>
     if (game == null || !mounted) return;
     final countdown = game.startCountdown;
     // A seat held for a chip purchase has its own countdown in the status
-    // slot and is not dealt in; a missile volley is still in the air.
+    // slot and is not dealt in; a missile volley is still in the air; a
+    // missed-turn warning sharing the slot keeps its five seconds.
     final blocked =
         game.missileStrike != null ||
-        (game.room?.you?.unfundedDeadline ?? 0) > 0;
+        (game.room?.you?.unfundedDeadline ?? 0) > 0 ||
+        (widget.yieldToWarning &&
+            game.missedTurnsNoticeShowing &&
+            missedTurnsWarning(game.room?.you, game.t) != null);
     if (countdown == null || blocked) {
       if (!_ended && (_countdown != null || _number != 0)) {
         _end(dealt: game.room?.state == TableState.betting);
@@ -394,10 +598,34 @@ class _StartCountdownLayerState extends State<StartCountdownLayer>
   void _rest() {
     if (_ticker.isActive) _ticker.stop();
     if (_number != 0 && mounted) setState(() => _number = 0);
+    _takeWaitingArt();
+  }
+
+  /// The art that arrived while a number stood on the plain disc, now that
+  /// none does.
+  void _takeWaitingArt() {
+    final waiting = _waiting;
+    if (waiting == null || !mounted) return;
+    _waiting = null;
+    setState(() => _drawable = waiting);
   }
 
   void _faded(AnimationStatus status) {
     if (status == AnimationStatus.dismissed && _leaving && _ended) _stop();
+  }
+
+  /// Where the disc stands now: the felt's anchor and size inside what
+  /// stands over them, as the felt was last laid out — an easing step from
+  /// where it stood last frame.
+  void _place() {
+    final target = StartCountdownPlacement.of(
+      anchor: widget.anchor,
+      size: widget.discSize,
+      bounds: widget.bounds?.call(),
+    );
+    final held = _placement;
+    final next = held == null || _still ? target : held.towards(target);
+    if (next != held) setState(() => _placement = next);
   }
 
   void _tick(Duration _) {
@@ -408,9 +636,11 @@ class _StartCountdownLayerState extends State<StartCountdownLayer>
       // Not yet: a frame or two early, or a later snapshot put the deal
       // further off — then wait for GameState to say the numbers are due.
       _fade.value = 0;
+      _place();
       if (left > StartCountdown.lengthMs + _early) _ticker.stop();
       return;
     }
+    _place();
     final number = left > 0 ? StartCountdown.numberFor(left) : 0;
     _progress.value = _still
         ? StartCountdownArt.peakOf(math.max(number, 1))
@@ -433,6 +663,7 @@ class _StartCountdownLayerState extends State<StartCountdownLayer>
       }
     }
     if (number != _number && number > 0) {
+      _takeWaitingArt();
       setState(() => _number = number);
       widget.onNumber?.call(number);
     }
@@ -449,59 +680,66 @@ class _StartCountdownLayerState extends State<StartCountdownLayer>
   @override
   Widget build(BuildContext context) {
     final lang = context.select<GameState, AppLang>((s) => s.lang);
+    final placement = _placement;
+    if (placement == null) return const SizedBox.expand();
     final showing = _number > 0;
     final colours = _colours ?? StartCountdownColours.night;
     final drawable = _drawable;
-    final art = drawable == null
-        ? _PlainDisc(
-            anchor: widget.anchor,
-            size: widget.discSize,
-            number: _number,
-            colours: colours,
-          )
+    final Widget art = drawable == null
+        ? _PlainDisc(disc: placement.disc, number: _number, colours: colours)
         : CustomPaint(
             size: Size.infinite,
             painter: _CountdownPainter(
               drawable: drawable,
               progress: _progress,
-              anchor: widget.anchor,
-              discSize: widget.discSize,
+              placement: placement,
               colours: colours,
             ),
           );
     return IgnorePointer(
-      child: Semantics(
-        container: true,
-        liveRegion: showing,
-        label: showing ? Strings(lang).startingIn(_number) : null,
-        child: ExcludeSemantics(
-          child: RepaintBoundary(
-            child: FadeTransition(
-              opacity: _fade,
-              child: showing || _fade.value > 0 ? art : const SizedBox.expand(),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: FadeTransition(
+                opacity: _fade,
+                child: showing || _fade.value > 0
+                    ? art
+                    : const SizedBox.expand(),
+              ),
             ),
           ),
-        ),
+          // What a screen reader hears, on the disc: "Starting in 3".
+          Positioned.fromRect(
+            rect: placement.disc,
+            child: Semantics(
+              key: const ValueKey('start-countdown-disc'),
+              container: true,
+              liveRegion: showing,
+              label: showing ? Strings(lang).startingIn(_number) : null,
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// One frame of the 3-2-1, the disc's middle on [anchor] and its pulse
-/// [discSize] across; the stars fly round it as far as they go.
+/// One frame of the 3-2-1, its disc on the placement's and its stars flying
+/// round it as far as the placement's bounds let them, fading at their
+/// edges.
 class _CountdownPainter extends CustomPainter {
   _CountdownPainter({
     required this.drawable,
     required this.progress,
-    required this.anchor,
-    required this.discSize,
+    required this.placement,
     required this.colours,
   }) : super(repaint: progress);
 
   final LottieDrawable drawable;
   final ValueListenable<double> progress;
-  final Offset anchor;
-  final double discSize;
+  final StartCountdownPlacement placement;
 
   /// Only so a theme change repaints: the drawable already carries them.
   final StartCountdownColours colours;
@@ -509,23 +747,100 @@ class _CountdownPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     drawable.setProgress(progress.value.clamp(0.0, 1.0));
-    final scale = discSize / StartCountdownArt.discPeak;
-    final bounds = drawable.composition.bounds;
-    final rect = Rect.fromLTWH(
-      anchor.dx - StartCountdownArt.discCentre.dx * scale,
-      anchor.dy - StartCountdownArt.discCentre.dy * scale,
-      bounds.width * scale,
-      bounds.height * scale,
+    final composition = drawable.composition.bounds;
+    final art = placement.artFor(
+      Size(composition.width.toDouble(), composition.height.toDouble()),
     );
-    drawable.draw(canvas, rect, fit: BoxFit.fill);
+    final bounds = placement.bounds;
+    final reach = placement.reach;
+    final feather = placement.feather;
+    // Nothing of the art comes near an edge: drawn as it is.
+    if (bounds == null ||
+        (reach.left >= bounds.left + feather.left &&
+            reach.top >= bounds.top + feather.top &&
+            reach.right <= bounds.right - feather.right &&
+            reach.bottom <= bounds.bottom - feather.bottom)) {
+      drawable.draw(canvas, art, fit: BoxFit.fill);
+      return;
+    }
+    final area = placement.painted;
+    if (area.isEmpty) return;
+    canvas
+      ..save()
+      ..clipRect(area)
+      ..saveLayer(area, Paint());
+    drawable.draw(canvas, art, fit: BoxFit.fill);
+    // Each edge fades the stars out over the room between it and the disc:
+    // the band's alpha multiplied from nothing at the edge to whole at the
+    // band's inner side (drawn inside the clip, so only what is there).
+    void fade(Rect band, Alignment from) {
+      if (band.width <= 0 || band.height <= 0) return;
+      canvas.drawRect(
+        band,
+        Paint()
+          ..blendMode = BlendMode.dstIn
+          ..shader = LinearGradient(
+            begin: from,
+            end: -from,
+            colors: const [Color(0x00000000), Color(0xFF000000)],
+          ).createShader(band),
+      );
+    }
+
+    if (feather.top > 0) {
+      fade(
+        Rect.fromLTRB(
+          area.left,
+          bounds.top,
+          area.right,
+          bounds.top + feather.top,
+        ),
+        Alignment.topCenter,
+      );
+    }
+    if (feather.bottom > 0) {
+      fade(
+        Rect.fromLTRB(
+          area.left,
+          bounds.bottom - feather.bottom,
+          area.right,
+          bounds.bottom,
+        ),
+        Alignment.bottomCenter,
+      );
+    }
+    if (feather.left > 0) {
+      fade(
+        Rect.fromLTRB(
+          bounds.left,
+          area.top,
+          bounds.left + feather.left,
+          area.bottom,
+        ),
+        Alignment.centerLeft,
+      );
+    }
+    if (feather.right > 0) {
+      fade(
+        Rect.fromLTRB(
+          bounds.right - feather.right,
+          area.top,
+          bounds.right,
+          area.bottom,
+        ),
+        Alignment.centerRight,
+      );
+    }
+    canvas
+      ..restore()
+      ..restore();
   }
 
   @override
   bool shouldRepaint(_CountdownPainter old) =>
       old.drawable != drawable ||
       old.progress != progress ||
-      old.anchor != anchor ||
-      old.discSize != discSize ||
+      old.placement != placement ||
       old.colours != colours;
 }
 
@@ -533,28 +848,28 @@ class _CountdownPainter extends CustomPainter {
 /// phone that could not parse it: the countdown still says how long is left.
 class _PlainDisc extends StatelessWidget {
   const _PlainDisc({
-    required this.anchor,
-    required this.size,
+    required this.disc,
     required this.number,
     required this.colours,
   });
 
-  final Offset anchor;
-  final double size;
+  /// The art's disc at the top of its pulse.
+  final Rect disc;
   final int number;
   final StartCountdownColours colours;
 
   @override
   Widget build(BuildContext context) {
     if (number <= 0) return const SizedBox.expand();
-    final disc = size * 184 / StartCountdownArt.discPeak;
+    final plain = disc.width * 184 / StartCountdownArt.discPeak;
     return Stack(
       children: [
-        Positioned(
-          left: anchor.dx - disc / 2,
-          top: anchor.dy - disc / 2,
-          width: disc,
-          height: disc,
+        Positioned.fromRect(
+          rect: Rect.fromCenter(
+            center: disc.center,
+            width: plain,
+            height: plain,
+          ),
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: colours.disc,
@@ -567,7 +882,7 @@ class _PlainDisc extends StatelessWidget {
                 style: TextStyle(
                   fontFamily: AppTheme.fontFamily,
                   fontWeight: FontWeight.w700,
-                  fontSize: disc * 0.5,
+                  fontSize: plain * 0.5,
                   height: 1,
                   color: colours.digit,
                 ),
