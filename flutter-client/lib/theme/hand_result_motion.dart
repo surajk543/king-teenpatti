@@ -676,14 +676,21 @@ abstract final class HandResultShape {
   /// [spread] ([HandResultBurstEffect.radialScale]), as the box of its
   /// ellipse in the hand's own pixels (the hand's top is 0) — its top held at
   /// [ceiling], the line nothing may cross into what stands over the hand, so
-  /// the light keeps its reach at the sides and below and gives way above.
+  /// the light keeps its reach below and gives way above; and no further past
+  /// the hand's left or right edge than [side], the room on the tighter of
+  /// the two (what stands beside the hand: the viewer's own pod, the key
+  /// cluster), narrowed on both so it stays centred behind the cards.
   static Rect radialBounds(
     Size hand,
     double spread, {
     double ceiling = double.negativeInfinity,
+    double side = double.infinity,
   }) {
     final h = hand.height;
-    final rx = (hand.width / 2 + h * radialReachX) * spread;
+    final rx = math.min(
+      (hand.width / 2 + h * radialReachX) * spread,
+      hand.width / 2 + math.max(0.0, side),
+    );
     final ry = (h / 2 + h * radialReachY) * spread;
     final centre = hand.center(Offset.zero);
     return Rect.fromLTRB(
@@ -715,11 +722,34 @@ abstract final class HandResultShape {
     return (allowed / reach).clamp(0.0, sparkRise);
   }
 
+  /// How much of its sideways flight a spark leaving at [angle] (radians)
+  /// may make, flying [reach] past a hand whose middle is [halfWidth] in from
+  /// its edges, so that its head, [head] wide, ends no more than [room] past
+  /// the edge it flies towards: all of it where the room allows, less the
+  /// flatter it flies, and nothing past the hand's own box where there is no
+  /// room at all (the burst is drawn behind the cards, and the box is wider
+  /// than three cards).
+  static double sparkSideFor({
+    required double angle,
+    required double reach,
+    required double halfWidth,
+    required double room,
+    double head = 0,
+  }) {
+    final across = math.cos(angle).abs();
+    if (across <= 0 || reach <= 0 || room.isInfinite) return 1;
+    // At the end of its flight the head stands across * (halfWidth + reach *
+    // s) from the hand's middle.
+    final allowed = (halfWidth + room - head / 2) / across - halfWidth;
+    return (allowed / reach).clamp(0.0, 1.0);
+  }
+
   /// A Trail's sparks. Each leaves from behind the cards, [sparkFrom] of the
   /// way out to the hand's edge, and flies past it by up to [sparkReach] of
   /// the cards' height — upwards only [sparkRise] of that, and never into
-  /// what stands over the hand ([sparkRiseFor]). Its streak is [sparkTail] of its life long, [sparkWidth] of
-  /// the cards' height wide (a tail [sparkTailWidth] as wide at
+  /// what stands over the hand ([sparkRiseFor]) or beside it
+  /// ([sparkSideFor]). Its streak is [sparkTail] of its life long,
+  /// [sparkWidth] of the cards' height wide (a tail [sparkTailWidth] as wide at
   /// [sparkTailStrength] of its light); it fades in over [sparkFadeIn] of its
   /// life and out along (1 − life)^[sparkFadeOut]. They leave evenly round
   /// the hand, each up to [sparkJitter] of a step off its place, at

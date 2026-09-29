@@ -224,14 +224,23 @@ List<Reveal> _reveals(
   ResultHand won,
   String loser,
   ResultHand beaten,
-) => [_reveal(winner, won, won: true), _reveal(loser, beaten, won: false)];
+  Map<String, ResultHand> also,
+) => [
+  _reveal(winner, won, won: true),
+  _reveal(loser, beaten, won: false),
+  for (final MapEntry(key: id, value: h) in also.entries)
+    _reveal(id, h, won: false),
+];
 
-/// `game:showdown`: the two hands, turned over. No winner yet.
+/// `game:showdown`: the hands still in, turned over — the two, and [also]
+/// every other one a showdown of three or more shows down (a missile's needs
+/// three). No winner yet.
 ShowdownNews resultReveal(
   String winner,
   ResultHand won, {
   String? loser,
   ResultHand? beaten,
+  Map<String, ResultHand> also = const {},
   String reason = 'show',
 }) => (
   reveals: _reveals(
@@ -239,6 +248,7 @@ ShowdownNews resultReveal(
     won,
     loser ?? (winner == 'u0' ? 'u3' : 'u0'),
     beaten ?? beatenHand,
+    also,
   ),
   result: '',
   winnerId: null,
@@ -254,6 +264,7 @@ ShowdownNews resultEnded(
   ResultHand won, {
   String? loser,
   ResultHand? beaten,
+  Map<String, ResultHand> also = const {},
   int nextInMs = 6000,
   String reason = 'show',
 }) {
@@ -264,6 +275,7 @@ ShowdownNews resultEnded(
       won,
       loser ?? (winner == 'u0' ? 'u3' : 'u0'),
       beaten ?? beatenHand,
+      also,
     ),
     result: '$name won 13400',
     winnerId: winner,
@@ -274,11 +286,13 @@ ShowdownNews resultEnded(
   );
 }
 
-/// The table once the pot is paid: the winner `won`, the other hand `lost`;
-/// the viewer's own cards face up unless they played the hand [blind].
+/// The table once the pot is paid: the winner `won`, the other hands (the
+/// [loser], and [alsoLost]) `lost`; the viewer's own cards face up unless
+/// they played the hand [blind].
 RoomState resultSettled(
   String winner, {
   String? loser,
+  List<String> alsoLost = const [],
   int places = 5,
   List<String> cards = const ['Qc', '8d', '3h'],
   int cardCount = 3,
@@ -289,8 +303,12 @@ RoomState resultSettled(
   return resultRoom(
     state: 'waiting',
     places: places,
-    inHand: [winner, beaten],
-    status: {winner: 'won', beaten: 'lost'},
+    inHand: [winner, beaten, ...alsoLost],
+    status: {
+      winner: 'won',
+      beaten: 'lost',
+      for (final id in alsoLost) id: 'lost',
+    },
     cards: cards,
     cardCount: cardCount,
     pot: 0,

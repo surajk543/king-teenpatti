@@ -15,11 +15,16 @@
 // while they are being chosen); the fourth blind bet's reveal as well as the
 // tap; that the light lands on cards at rest — after the flip, the wild turn
 // and the 5-Card arrangement, measured on the real felt; that nothing lights
-// at a show, a showdown, a missile or a sideshow; once a hand — a snapshot
-// repeat, a rebuilt felt, the next deal, a switch of table, packing; reduced
-// motion; both themes; that a settled hand repaints nothing; 640x360 at x1.25
-// in all five languages; and, below the table, the levels' own rows and the
-// group and card on their own.
+// at a show, a showdown, a missile or a sideshow — in the server's own order
+// too, the look's snapshot a frame or more before the showdown the same move
+// runs, and a look still on its way when a show, the last pack, a missile or
+// a sideshow ends it (dropped before it lands, settled once it has); once a
+// hand — a snapshot repeat, a rebuilt felt, the next deal, a switch of table,
+// packing; reduced motion; both themes; that a settled hand repaints nothing;
+// that nothing it draws crosses the bet badge over the hand, the viewer's pod
+// beside it or a key, at every phone size; 640x360 at x1.25 in all five
+// languages; and, below the table, the levels' own rows and the group and
+// card on their own.
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -166,6 +171,7 @@ Future<void> _deal(
   int cardCount = 3,
   int blindMovesLeft = 4,
   Map<String, dynamic>? variation,
+  List<String> inHand = const ['u0', 'u3'],
 }) async {
   state.handleState(
     resultRoom(
@@ -178,6 +184,7 @@ Future<void> _deal(
       blind: true,
       blindMovesLeft: blindMovesLeft,
       variation: variation,
+      inHand: inHand,
     ),
   );
   await _settle(tester, 3200);
@@ -203,6 +210,7 @@ Future<void> _see(
   Map<String, dynamic>? ownHand,
   Map<String, dynamic>? variation,
   String status = 'active',
+  List<String> inHand = const ['u0', 'u3'],
 }) async {
   state.handleState(
     resultRoom(
@@ -216,6 +224,7 @@ Future<void> _see(
       ownHand: ownHand,
       variation: variation,
       status: {'u0': status},
+      inHand: inHand,
     ),
   );
   await tester.pump(const Duration(milliseconds: 16));
@@ -381,7 +390,9 @@ void _litAsItsLevel(
 }
 
 /// The end of a hand shown down: the reveal, and a frame later the result
-/// and the settled table — the viewer's cards face up unless [viewerBlind].
+/// and the settled table — the viewer's cards face up unless [viewerBlind];
+/// [also] every other hand shown down and beaten (a missile's showdown has
+/// three or more).
 Future<void> _showdown(
   WidgetTester tester,
   GameState state, {
@@ -389,28 +400,117 @@ Future<void> _showdown(
   required ResultHand won,
   required ResultHand beaten,
   String? loser,
+  Map<String, ResultHand> also = const {},
   bool viewerBlind = false,
   String reason = 'show',
+  String category = 'seen',
 }) async {
   final lost = loser ?? (winner == 'u0' ? 'u3' : 'u0');
-  final viewer = winner == 'u0' ? won : beaten;
+  final viewer = winner == 'u0' ? won : (also['u0'] ?? beaten);
   state.handleShowdown(
-    resultReveal(winner, won, loser: lost, beaten: beaten, reason: reason),
+    resultReveal(
+      winner,
+      won,
+      loser: lost,
+      beaten: beaten,
+      also: also,
+      reason: reason,
+    ),
   );
   await tester.pump(const Duration(milliseconds: 16));
   state
     ..handleShowdown(
-      resultEnded(winner, won, loser: lost, beaten: beaten, reason: reason),
+      resultEnded(
+        winner,
+        won,
+        loser: lost,
+        beaten: beaten,
+        also: also,
+        reason: reason,
+      ),
     )
     ..handleState(
       resultSettled(
         winner,
         loser: lost,
+        alsoLost: also.keys.toList(),
         cards: viewer.cards,
+        cardCount: viewer.cards.length,
+        category: category,
         blind: viewerBlind,
       ),
     );
   await tester.pump(const Duration(milliseconds: 16));
+}
+
+/// For [ms] of frames from now: not one of the viewer's cards moves or is
+/// swept by the look's light, and — unless [settledOk], where a look that
+/// had landed keeps the small light its level rests at (a Trail's radial
+/// light included) — no card and no burst carries any light at all.
+Future<void> _nothingLands(
+  WidgetTester tester, {
+  int ms = 2500,
+  bool settledOk = false,
+  String why = '',
+}) async {
+  for (var at = 0; at < ms; at += 16) {
+    await tester.pump(const Duration(milliseconds: 16));
+    if (!settledOk) expect(_litCodes(tester), isEmpty, reason: '$why $at ms');
+    for (final c in _ownCodes(tester)) {
+      final e = _card(tester, c).effect;
+      expect(e.moves, isFalse, reason: '$why $c at $at ms');
+      expect(e.sweep, 0, reason: '$why $c at $at ms');
+    }
+    if (settledOk) {
+      expect(_group(tester).progress, 1, reason: '$why $at ms');
+    } else {
+      expect(_group(tester).debugLightBounds, isNull, reason: '$why $at ms');
+    }
+  }
+}
+
+/// Everything the viewer's own look paints this frame — each card as it is
+/// drawn, each card's edge light, the hand's burst — in global pixels.
+List<Rect> _lookPaints(WidgetTester tester) => [
+  for (final c in _ownCodes(tester)) ...[
+    MatrixUtils.transformRect(
+      _card(tester, c).child!.getTransformTo(null),
+      Offset.zero & _card(tester, c).child!.size,
+    ),
+    if (_card(tester, c).debugLightBounds case final halo?)
+      MatrixUtils.transformRect(
+        _card(tester, c).child!.getTransformTo(null),
+        halo,
+      ),
+  ],
+  ?_group(tester).debugLightBounds,
+];
+
+/// The viewer's own pod, and every key on the felt (Missile and Pack; the
+/// sideshow keys, Chaal and its steppers), in global pixels.
+({Rect pod, List<Rect> keys}) _besideTheHand(WidgetTester tester) => (
+  pod: tester.getRect(
+    find.byWidgetPredicate((w) => w is SeatPod && w.seat?.userId == 'u0'),
+  ),
+  keys: [
+    ...tester.widgetList(find.byType(MachinedKey)),
+    ...tester.widgetList(find.byType(StepperKey)),
+  ].map((w) => tester.getRect(find.byWidget(w))).toList(),
+);
+
+/// Nothing the look paints this frame ([_lookPaints]) lies over the viewer's
+/// pod or a key.
+void _clearOfPodAndKeys(
+  WidgetTester tester,
+  ({Rect pod, List<Rect> keys}) beside,
+  String why,
+) {
+  for (final r in _lookPaints(tester)) {
+    expect(r.overlaps(beside.pod), isFalse, reason: '$why: over the pod $r');
+    for (final key in beside.keys) {
+      expect(r.overlaps(key), isFalse, reason: '$why: over a key $key: $r');
+    }
+  }
 }
 
 /// A look at [h]: the hand dealt blind, the tap on See cards, the server's
@@ -423,6 +523,7 @@ Future<void> _look(
   bool isPrivate = false,
   String roomId = 'r1',
   int handNo = 7,
+  List<String> inHand = const ['u0', 'u3'],
 }) async {
   await _deal(
     tester,
@@ -431,6 +532,7 @@ Future<void> _look(
     isPrivate: isPrivate,
     roomId: roomId,
     handNo: handNo,
+    inHand: inHand,
   );
   await _tapSee(tester, state);
   await _see(
@@ -441,6 +543,7 @@ Future<void> _look(
     isPrivate: isPrivate,
     roomId: roomId,
     handNo: handNo,
+    inHand: inHand,
   );
 }
 
@@ -868,14 +971,19 @@ void main() {
     // Nothing the look draws — a risen card, its edge light, a Trail's radial
     // light and sparks — reaches the viewer's own bet badge over their cards
     // (review, 29 Sep 2026: a Trail's middle card lay over the lower third of
-    // "SEEN 800" and its light tinted the words).
+    // "SEEN 800" and its light tinted the words), nor the viewer's own pod
+    // beside it or a key (the next review, the same day: a Trail's sparks
+    // crossed the pod at every size and the key cluster on a 640dp phone).
     for (final (size, scale) in [
+      (const Size(592, 360), 1.25),
+      (const Size(640, 360), 1.0),
       (const Size(640, 360), 1.25),
       (const Size(891, 411), 1.0),
     ]) {
       for (final MapEntry(key: name, value: h) in resultHands.entries) {
         testWidgets('$name at ${size.width.toInt()}x${size.height.toInt()} '
-            'x$scale: never over the bet badge over the hand', (tester) async {
+            'x$scale: never over the bet badge over the hand, the pod beside '
+            'it or a key', (tester) async {
           final (state, _) = await _mount(tester, size: size, scale: scale);
           await _look(tester, state, h);
           final over = find.descendant(
@@ -884,6 +992,7 @@ void main() {
           );
           expect(over, findsOneWidget);
           var rose = 0.0;
+          var burst = false;
           for (var at = 0; at < 2000; at += 16) {
             await tester.pump(const Duration(milliseconds: 16));
             final line = tester.getRect(over).bottom;
@@ -919,15 +1028,47 @@ void main() {
                 greaterThanOrEqualTo(line - 0.01),
                 reason: 'the burst at $at ms',
               );
+              burst = true;
             }
+            _clearOfPodAndKeys(tester, _besideTheHand(tester), '$at ms');
           }
           // And it did rise: the brief's 2–6 px, bounded, not taken away.
           expect(rose, greaterThanOrEqualTo(2.5));
+          // And a Trail's burst was painted, within its bounds, not taken
+          // away either.
+          expect(burst, h == trailHand);
           await _unmount(tester, state);
         });
       }
     }
   });
+
+  // The Trail's burst — the one light that reaches past the cards — at every
+  // phone size: off the viewer's pod on its left and the key cluster on its
+  // right, however much room there is between them, while it still sparks.
+  for (final (size, scale) in [
+    (const Size(592, 360), 1.0),
+    (const Size(732, 412), 1.25),
+    (const Size(844, 390), 1.25),
+    (const Size(915, 412), 1.25),
+    (const Size(1280, 800), 1.25),
+  ]) {
+    testWidgets('a Trail at ${size.width.toInt()}x${size.height.toInt()} '
+        'x$scale: its burst stays between the pod and the keys', (
+      tester,
+    ) async {
+      final (state, _) = await _mount(tester, size: size, scale: scale);
+      await _look(tester, state, trailHand);
+      var burst = 0;
+      for (var at = 0; at < 2400; at += 16) {
+        await tester.pump(const Duration(milliseconds: 16));
+        if (_group(tester).debugLightBounds != null) burst++;
+        _clearOfPodAndKeys(tester, _besideTheHand(tester), '$at ms');
+      }
+      expect(burst, greaterThan(20), reason: 'it burst');
+      await _unmount(tester, state);
+    });
+  }
 
   group('never at a result', () {
     testWidgets('a show won by another seat, the viewer blind: their cards '
@@ -973,8 +1114,12 @@ void main() {
     for (final reason in ['show', 'forced_showdown', 'pot_limit', 'missile']) {
       testWidgets('a $reason the viewer looked before: nothing plays again, '
           'the look stays as it settled', (tester) async {
+        // A missile needs three players still in the hand (the firer's
+        // included).
+        final missile = reason == 'missile';
+        final inHand = missile ? ['u0', 'u1', 'u3'] : ['u0', 'u3'];
         final (state, heard) = await _mount(tester);
-        await _look(tester, state, pureSequenceHand);
+        await _look(tester, state, pureSequenceHand, inHand: inHand);
         await _settle(tester, 2000);
         expect(heard.heard, [HandResultLevel.pureSequence]);
         await _showdown(
@@ -983,6 +1128,7 @@ void main() {
           winner: 'u0',
           won: pureSequenceHand,
           beaten: pairHand,
+          also: missile ? {'u1': beatenHand} : const {},
           reason: reason,
         );
         for (var at = 0; at < 2500; at += 16) {
@@ -1002,32 +1148,326 @@ void main() {
         await _unmount(tester, state);
       });
     }
+  });
 
-    testWidgets('the fourth blind bet running the showdown in the same move: '
-        'the cards turn up with the hand over, and nothing lights', (
-      tester,
-    ) async {
+  // The server's own order (review, 29 Sep 2026): the look's own snapshot
+  // goes out BEFORE a showdown the same move runs — go-server table.go `see`
+  // emits the viewer's cards up and still betting, and only then does `bet`
+  // run advanceTurn into the round-cap or pot-cap showdown; table_fivecard.go
+  // `settlePick` emits the choice before runDeferredShowdown — and a look made
+  // a moment before a show, a missile or the last pack is still on its way
+  // when the result arrives. However the snapshots fall into frames, nothing
+  // lands once the hand is over: a look still waiting to land is dropped (not
+  // heard, never lit), and one already playing is settled at once.
+  group('a hand that ends while the look is on its way', () {
+    // The viewer's losing Trail: twos, beaten by Arjun's aces.
+    final twos = hand(['2s', '2h', '2d'], 'Trail', 5);
+
+    for (final between in [0, 1, 3]) {
+      testWidgets('the fourth blind bet reaching the pot cap, $between '
+          'frame(s) between the look and the showdown: the cards turn up and '
+          'nothing lights', (tester) async {
+        final (state, heard) = await _mount(tester);
+        await _deal(tester, state, blindMovesLeft: 1);
+        // `see`'s own room:state: still betting, the cards up …
+        state.handleState(resultRoom(cards: twos.cards));
+        for (var frame = 0; frame < between; frame++) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        // … then the bet's advanceTurn: the pot cap reached, every hand
+        // shown down, Arjun's aces take it.
+        await _showdown(
+          tester,
+          state,
+          winner: 'u3',
+          won: trailHand,
+          beaten: twos,
+          reason: 'pot_limit',
+        );
+        expect(_ownCodes(tester), unorderedEquals(twos.cards));
+        await _nothingLands(tester, why: 'pot limit');
+        expect(_group(tester).cue, isNull);
+        expect(heard.heard, isEmpty);
+        await _unmount(tester, state);
+      });
+    }
+
+    testWidgets('the round cap reached by the same move, in one snapshot: '
+        'nothing lights', (tester) async {
       final (state, heard) = await _mount(tester);
-      await _deal(tester, state, category: 'seen', blindMovesLeft: 1);
-      // The last blind chaal reached the round cap: the server turns the
-      // cards up, shows every hand down and settles, all in one move.
+      await _deal(tester, state, blindMovesLeft: 1);
+      // Both of the server's snapshots handled before one frame is drawn:
+      // the look is first seen with the hand already shown down.
+      state.handleState(resultRoom(cards: twos.cards));
       await _showdown(
         tester,
         state,
         winner: 'u3',
-        won: pairHand,
-        beaten: trailHand,
+        won: trailHand,
+        beaten: twos,
         reason: 'forced_showdown',
       );
-      expect(_ownCodes(tester), unorderedEquals(trailHand.cards));
-      for (var at = 0; at < 2500; at += 16) {
-        await tester.pump(const Duration(milliseconds: 16));
-        expect(_litCodes(tester), isEmpty, reason: 'at $at ms');
-      }
+      await _nothingLands(tester, why: 'forced showdown');
       expect(heard.heard, isEmpty);
       await _unmount(tester, state);
     });
 
+    // See cards tapped a moment (200 ms) before the hand ends another way.
+    Future<void> lookThenEnd(
+      WidgetTester tester, {
+      required ResultHand h,
+      required Future<void> Function(GameState state) end,
+      List<String> inHand = const ['u0', 'u3'],
+      bool heardNothing = true,
+    }) async {
+      final (state, heard) = await _mount(tester);
+      await _look(tester, state, h, inHand: inHand);
+      await _frames(tester, 200);
+      expect(_litCodes(tester), isEmpty, reason: 'not landed yet');
+      await end(state);
+      await tester.pump(const Duration(milliseconds: 16));
+      await _nothingLands(tester, why: h.name);
+      expect(_group(tester).cue, isNull);
+      expect(heard.heard, isEmpty);
+      await _unmount(tester, state);
+    }
+
+    testWidgets('a show won by another seat a moment after the look: its '
+        'light never lands', (tester) async {
+      await lookThenEnd(
+        tester,
+        h: twos,
+        end: (state) => _showdown(
+          tester,
+          state,
+          winner: 'u3',
+          won: trailHand,
+          beaten: twos,
+        ),
+      );
+    });
+
+    testWidgets('a show the viewer wins a moment after the look: its light '
+        'never lands under the winner\'s celebration', (tester) async {
+      await lookThenEnd(
+        tester,
+        h: trailHand,
+        end: (state) => _showdown(
+          tester,
+          state,
+          winner: 'u0',
+          won: trailHand,
+          beaten: pairHand,
+        ),
+      );
+    });
+
+    testWidgets('the last other player packing a moment after the look: its '
+        'light never lands', (tester) async {
+      await lookThenEnd(
+        tester,
+        h: pureSequenceHand,
+        end: (state) async {
+          state
+            ..handleShowdown((
+              reveals: const [],
+              result: 'Priya won 13400',
+              winnerId: 'u0',
+              winnerName: 'Priya',
+              pot: 13400,
+              nextHandAt: DateTime.now().millisecondsSinceEpoch + 6000,
+              reason: 'last_standing',
+            ))
+            ..handleState(resultSettled('u0', cards: pureSequenceHand.cards));
+        },
+      );
+    });
+
+    testWidgets('a missile fired a moment after the look: its light never '
+        'lands, in the volley or at the showdown it brings', (tester) async {
+      await lookThenEnd(
+        tester,
+        h: twos,
+        inHand: const ['u0', 'u1', 'u3'],
+        end: (state) async {
+          state.handleTableAction((
+            userId: 'u3',
+            action: GameAction.missile,
+            reason: null,
+          ));
+          expect(state.missileStrike, isNotNull);
+          await tester.pump(const Duration(milliseconds: 16));
+          await _showdown(
+            tester,
+            state,
+            winner: 'u3',
+            won: trailHand,
+            beaten: twos,
+            also: {'u1': beatenHand},
+            reason: 'missile',
+          );
+        },
+      );
+    });
+
+    testWidgets('a sideshow\'s two hands turned over a moment after the look: '
+        'its light never lands on them', (tester) async {
+      await lookThenEnd(
+        tester,
+        h: trailHand,
+        end: (state) async => state.handleSideshowReveal(
+          SideshowReveal.fromJson({
+            'hands': [
+              {'userId': 'u0', 'cards': trailHand.cards, 'handName': 'Trail'},
+              {
+                'userId': 'u3',
+                'cards': sequenceHand.cards,
+                'handName': 'Sequence',
+              },
+            ],
+            'packedUserId': 'u3',
+          }),
+        ),
+      );
+    });
+
+    testWidgets('the 5-Card three chosen, and a frame later the pot-cap '
+        'showdown it was holding: nothing lights', (tester) async {
+      // A private Variation table (a public one has no pot cap).
+      final five = variationBlock(selected: Variation.fiveCard);
+      final dealt = ['7s', '2c', '7h', '9d', '7d'];
+      final (state, heard) = await _mount(tester);
+      await _deal(
+        tester,
+        state,
+        category: 'variation',
+        isPrivate: true,
+        variation: five,
+        cardCount: 5,
+      );
+      await _tapSee(tester, state);
+      await _see(
+        tester,
+        state,
+        hand(dealt, '', 0),
+        category: 'variation',
+        isPrivate: true,
+        variation: five,
+        ownHand: ownHandOf(hand(dealt, '', 0), picking: true),
+      );
+      await _settle(tester, 1000);
+      // settlePick's own snapshot: the three chosen, still betting …
+      final sevens = hand(dealt, 'Trail', 5, best: ['7s', '7h', '7d']);
+      await _see(
+        tester,
+        state,
+        sevens,
+        category: 'variation',
+        isPrivate: true,
+        variation: five,
+        ownHand: ownHandOf(sevens, pickedBy: 'PLAYER'),
+      );
+      // … and a frame later runDeferredShowdown: Arjun's aces.
+      await _showdown(
+        tester,
+        state,
+        winner: 'u3',
+        won: trailHand,
+        beaten: sevens,
+        reason: 'pot_limit',
+        category: 'variation',
+      );
+      await _nothingLands(tester, ms: 3400, why: '5-Card');
+      expect(heard.heard, isEmpty);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('a look already playing when a show ends the hand settles at '
+        'once and plays no further', (tester) async {
+      final (state, heard) = await _mount(tester);
+      await _look(tester, state, trailHand);
+      await _frames(tester, 900); // landed: the burst is on
+      expect(_group(tester).progress, inExclusiveRange(0, 1));
+      expect(heard.heard, [HandResultLevel.trail]);
+      await _showdown(
+        tester,
+        state,
+        winner: 'u0',
+        won: trailHand,
+        beaten: pairHand,
+      );
+      expect(_group(tester).progress, 1);
+      await _nothingLands(tester, settledOk: true, why: 'settled');
+      for (final c in trailHand.cards) {
+        expect(
+          _card(tester, c).effect.glow,
+          HandResultProfile.trail.restGlow,
+          reason: c,
+        );
+      }
+      expect(heard.heard, [HandResultLevel.trail]);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('a felt built again after the hand ended shows a dropped look '
+        'as nothing, and a played one settled', (tester) async {
+      Future<void> rebuild(GameState state) async {
+        final feedback = await _feedback();
+        addTearDown(feedback.dispose);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpWidget(
+          tableApp(
+            state: state,
+            feedback: feedback,
+            theme: AppTheme.dark(sound: false),
+          ),
+        );
+      }
+
+      // Dropped: the showdown came a frame after the look.
+      var (state, _) = await _mount(tester);
+      await _deal(tester, state, blindMovesLeft: 1);
+      state.handleState(resultRoom(cards: twos.cards));
+      await tester.pump(const Duration(milliseconds: 16));
+      await _showdown(
+        tester,
+        state,
+        winner: 'u3',
+        won: trailHand,
+        beaten: twos,
+        reason: 'pot_limit',
+      );
+      await rebuild(state);
+      await _nothingLands(tester, ms: 1200, why: 'dropped, rebuilt');
+      expect(_group(tester).cue, isNull);
+      await _unmount(tester, state);
+
+      // Played: looked long before the show.
+      HandResultMemory.reset();
+      (state, _) = await _mount(tester);
+      await _look(tester, state, trailHand);
+      await _settle(tester, 2500);
+      await _showdown(
+        tester,
+        state,
+        winner: 'u0',
+        won: trailHand,
+        beaten: pairHand,
+      );
+      await rebuild(state);
+      await _nothingLands(tester, ms: 1200, settledOk: true, why: 'rebuilt');
+      for (final c in trailHand.cards) {
+        expect(
+          _card(tester, c).effect.glow,
+          HandResultProfile.trail.restGlow,
+          reason: c,
+        );
+      }
+      await _unmount(tester, state);
+    });
+  });
+
+  group('never at a result, a sideshow', () {
     testWidgets('a sideshow lights neither hand: the look was the viewer\'s '
         'moment', (tester) async {
       final (state, heard) = await _mount(tester);
@@ -1387,10 +1827,12 @@ void main() {
       tester,
     ) async {
       final (state, heard) = await _mount(tester);
-      final pairDealt = ['7s', '7h', '2c', '9d', 'Kd'];
       await lookAtFive(tester, state);
       await _settle(tester, 1000);
-      final lapsed = hand(pairDealt, 'Pair', 1, best: ['7s', '7h', '2c']);
+      // The same five cards (a hand's cards never change): the lapse plays
+      // the first three dealt, A♠ 2♣ A♥ — a pair of aces — and the server
+      // names it so, not the Trail the five could have made.
+      final lapsed = hand(dealt, 'Pair', 1, best: ['As', '2c', 'Ah']);
       await _see(
         tester,
         state,
@@ -1400,11 +1842,13 @@ void main() {
         ownHand: ownHandOf(lapsed, pickedBy: 'TIMEOUT'),
       );
       final watched = await _watch(tester, ms: 3000);
+      // The three that count stand raised in the arranged fan, right under
+      // the bet badge: the pair grows only as far as that room.
       _litAsItsLevel(
         watched.peaks,
-        ['7s', '7h'],
+        ['As', 'Ah'],
         HandResultProfile.pair,
-        growthKept: 0.4,
+        growthKept: 0,
       );
       _landsOnStillCards(watched.moments, reason: 'the lapse');
       expect(heard.heard, [HandResultLevel.pair]);
@@ -1545,15 +1989,11 @@ void main() {
         }
         expect(_group(tester).debugLightBounds, isNull);
         // The phone's own reduced motion runs the cards' turns twenty times
-        // faster; the look keeps its own time, so its mark still lands on
-        // still cards — a little later after them than it would, as it waits
-        // for turns taken at full length — and stays up for the level's run,
-        // not a frame.
-        _landsOnStillCards(
-          watched.moments,
-          reason: '${h.name} reduced',
-          late: 600,
-        );
+        // faster (their beats are timers, and keep their length); the look
+        // waits for the turns as they then run, so its mark lands a beat after
+        // the cards are still, as it does at full motion — and keeps its own
+        // time, so it stays up for the level's run, not a frame.
+        _landsOnStillCards(watched.moments, reason: '${h.name} reduced');
         await _unmount(tester, state);
         // And the mark stays up for the level's run, not a frame: frame by
         // frame over the look again, the edge light of a card it lights.
@@ -1576,6 +2016,70 @@ void main() {
         );
         await _unmount(tester, again);
       }
+    });
+
+    testWidgets('reduced motion: a wild card turned and the 5-Card three set '
+        'out, the mark a beat after the fan is still', (tester) async {
+      final wildPair = hand(
+        ['Ks', '9d', '2c'],
+        'Pair',
+        1,
+        wild: ['Ks'],
+        playsAs: ['9h', '9d', '2c'],
+      );
+      final ak47 = variationBlock(selected: Variation.ak47);
+      var (state, _) = await _mount(tester, reduced: true);
+      await _deal(tester, state, category: 'variation', variation: ak47);
+      await _tapSee(tester, state);
+      await _see(
+        tester,
+        state,
+        wildPair,
+        category: 'variation',
+        variation: ak47,
+        ownHand: ownHandOf(wildPair),
+      );
+      var watched = await _watch(tester, ms: 3000);
+      expect(
+        _group(tester).profile,
+        same(HandResultProfile.reducedOf(HandResultLevel.pair)),
+      );
+      _landsOnStillCards(watched.moments, reason: 'the wild card, reduced');
+      await _unmount(tester, state);
+
+      HandResultMemory.reset();
+      (state, _) = await _mount(tester, reduced: true);
+      final five = variationBlock(selected: Variation.fiveCard);
+      final dealt = ['As', '2c', 'Ah', '9d', 'Ad'];
+      await _deal(
+        tester,
+        state,
+        category: 'variation',
+        variation: five,
+        cardCount: 5,
+      );
+      await _tapSee(tester, state);
+      await _see(
+        tester,
+        state,
+        hand(dealt, '', 0),
+        category: 'variation',
+        variation: five,
+        ownHand: ownHandOf(hand(dealt, '', 0), picking: true),
+      );
+      await _settle(tester, 1000);
+      final chosen = hand(dealt, 'Trail', 5, best: ['As', 'Ah', 'Ad']);
+      await _see(
+        tester,
+        state,
+        chosen,
+        category: 'variation',
+        variation: five,
+        ownHand: ownHandOf(chosen, pickedBy: 'PLAYER'),
+      );
+      watched = await _watch(tester, ms: 3000);
+      _landsOnStillCards(watched.moments, reason: 'the 5-Card three, reduced');
+      await _unmount(tester, state);
     });
 
     for (final dark in [true, false]) {
@@ -1627,15 +2131,9 @@ void main() {
             await _tapSee(tester, state);
             await _see(tester, state, h);
             final view = Offset.zero & const Size(640, 360);
-            final keys = [
-              ...tester.widgetList(find.byType(MachinedKey)),
-              ...tester.widgetList(find.byType(StepperKey)),
-            ].map((w) => tester.getRect(find.byWidget(w))).toList();
-            final pod = tester.getRect(
-              find.byWidgetPredicate(
-                (w) => w is SeatPod && w.seat?.userId == 'u0',
-              ),
-            );
+            final beside = _besideTheHand(tester);
+            final keys = beside.keys;
+            final pod = beside.pod;
             for (var at = 0; at < 2200; at += 16) {
               await tester.pump(const Duration(milliseconds: 16));
               final badge = tester.getRect(
@@ -1657,6 +2155,13 @@ void main() {
                   expect(painted.overlaps(key), isFalse, reason: why);
                 }
               }
+              // And every light it paints — each card's edge light, a
+              // Trail's radial light and sparks — as well as the cards.
+              _clearOfPodAndKeys(
+                tester,
+                beside,
+                '${lang.code} ${h.name} at $at ms',
+              );
             }
             expect(heard.heard, [HandResultLevel.fromCategory(h.category)]);
             expect(tester.takeException(), isNull);
@@ -1673,6 +2178,7 @@ void main() {
       Key? key,
       HandResultLevel level = HandResultLevel.trail,
       double headroom = 20,
+      ({double left, double right})? beside,
     }) {
       final cue = HandResultCue(
         key: 'r9:3:u0',
@@ -1683,28 +2189,35 @@ void main() {
         total: const Duration(seconds: 3),
         startAt: const Duration(milliseconds: 500),
       );
-      return MaterialApp(
-        home: Center(
-          child: HandResultScope(
-            cue: cue,
-            child: HandResultGroup(
-              key: key,
-              userId: 'u0',
-              headroom: headroom,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (final c in ['As', 'Ah', 'Ad', 'Kc'])
-                    HandResultCard(
-                      code: c,
-                      cardHeight: 80,
-                      child: const SizedBox(width: 57, height: 80),
-                    ),
-                ],
-              ),
+      final hand = Center(
+        child: HandResultScope(
+          cue: cue,
+          child: HandResultGroup(
+            key: key,
+            userId: 'u0',
+            headroom: headroom,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final c in ['As', 'Ah', 'Ad', 'Kc'])
+                  HandResultCard(
+                    code: c,
+                    cardHeight: 80,
+                    child: const SizedBox(width: 57, height: 80),
+                  ),
+              ],
             ),
           ),
         ),
+      );
+      return MaterialApp(
+        home: beside == null
+            ? hand
+            : HandResultBounds(
+                left: beside.left,
+                right: beside.right,
+                child: hand,
+              ),
       );
     }
 
@@ -1876,6 +2389,60 @@ void main() {
           );
         }
       }
+    });
+
+    testWidgets('its light stays between what stands beside the hand, and '
+        'still bursts', (tester) async {
+      final clock = AnimationController(
+        vsync: const TestVSync(),
+        duration: const Duration(seconds: 3),
+      );
+      addTearDown(clock.dispose);
+      // Without bounds, a Trail's light reaches well past the hand's sides.
+      await tester.pumpWidget(stage(clock));
+      final hand = tester.getRect(find.byType(HandResultGroup));
+      HandResultGroupState group() =>
+          tester.state<HandResultGroupState>(find.byType(HandResultGroup));
+      var widest = hand;
+      for (var ms = 500; ms <= 1700; ms += 20) {
+        clock.value = ms / 3000;
+        await tester.pump();
+        if (group().debugLightBounds case final l?) {
+          widest = widest.expandToInclude(l);
+        }
+      }
+      expect(widest.left, lessThan(hand.left - 20));
+      expect(widest.right, greaterThan(hand.right + 20));
+      // With the viewer's pod 6 px to its left and the keys 3 px to its
+      // right, it stays between them — less the clearance — and still
+      // bursts.
+      final left = hand.left - 6;
+      final right = hand.right + 3;
+      clock.value = 0;
+      await tester.pumpWidget(stage(clock, beside: (left: left, right: right)));
+      var painted = 0;
+      var sparked = false;
+      for (var ms = 500; ms <= 1700; ms += 20) {
+        clock.value = ms / 3000;
+        await tester.pump();
+        final l = group().debugLightBounds;
+        if (l == null) continue;
+        painted++;
+        expect(
+          l.left,
+          greaterThanOrEqualTo(left + HandResultShape.clearance - 0.01),
+          reason: '$ms ms',
+        );
+        expect(
+          l.right,
+          lessThanOrEqualTo(right - HandResultShape.clearance + 0.01),
+          reason: '$ms ms',
+        );
+        // Sparks still fly out past the top or foot of the hand.
+        if (l.bottom > hand.bottom + 10) sparked = true;
+      }
+      expect(painted, greaterThan(20));
+      expect(sparked, isTrue);
     });
 
     testWidgets('a result played before, on a clock built again, is settled '

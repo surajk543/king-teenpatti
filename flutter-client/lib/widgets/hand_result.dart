@@ -11,9 +11,11 @@
 /// animation"): the felt (table_screen's `_FeltState._handResultCue`) cues it
 /// when the viewer's cards turn face up in a hand — See cards, or the reveal
 /// the fourth blind bet forces — once they have finished turning, and nothing
-/// lights at a show, a showdown or a sideshow, on any seat.
+/// lights at a show, a showdown or a sideshow, on any seat: a look still on
+/// its way when the hand ends never lands, and one already playing settles
+/// at once.
 ///
-/// One system, three pieces:
+/// One system, three pieces, and the room they light in:
 ///
 /// * [HandResultScope] — the felt's word on which look is being shown
 ///   ([HandResultCue]): whose hand, what it made, which of its cards made it,
@@ -25,6 +27,9 @@
 /// * [HandResultCard] — round each card. Where its card is one of the hand's,
 ///   it lifts it and lights it; everywhere else it paints the card and
 ///   nothing more.
+/// * [HandResultGroup.headroom] and [HandResultBounds] — what stands over the
+///   hand (the viewer's bet badge) and beside it (their pod, the key
+///   cluster): nothing the look draws crosses either.
 ///
 /// Nothing here owns a controller, a timer or a ticker: the look's clock,
 /// which the felt makes for it and runs once, is the only clock, so a rebuilt
@@ -251,6 +256,11 @@ abstract final class HandResultMemory {
 
   static final Map<String, int> _played = {};
 
+  /// The looks the hand's end stopped before their light landed (the felt's
+  /// `_endLook`), the last [keep] of them: a felt built again in that hand
+  /// shows them as they were shown — not at all — rather than settled.
+  static final Set<String> _dropped = {};
+
   /// Whether [cue]'s look has been played on a clock other than its own.
   static bool playedElsewhere(HandResultCue cue) {
     final clock = _played[cue.key];
@@ -267,9 +277,25 @@ abstract final class HandResultMemory {
     }
   }
 
+  /// Notes that the look [key] was stopped before its light landed.
+  static void drop(String key) {
+    _dropped
+      ..remove(key)
+      ..add(key);
+    while (_dropped.length > keep) {
+      _dropped.remove(_dropped.first);
+    }
+  }
+
+  /// Whether the look [key] was stopped before its light landed ([drop]).
+  static bool dropped(String key) => _dropped.contains(key);
+
   /// Forgets every look, for tests that play the same hand afresh.
   @visibleForTesting
-  static void reset() => _played.clear();
+  static void reset() {
+    _played.clear();
+    _dropped.clear();
+  }
 }
 
 /// The level's sound hook, once per look as its cards light up
@@ -305,7 +331,8 @@ class HandResultGroup extends StatefulWidget {
   /// (`TableSpace.hand`). Nothing the animation draws — a risen card, its
   /// edge light, a Trail's radial light and sparks — crosses it, less
   /// [HandResultShape.clearance] (review, 29 Sep 2026). It holds the whole
-  /// hand's rise, so the hand rises as one.
+  /// hand's rise, so the hand rises as one. What stands beside the hand is a
+  /// [HandResultBounds] over it.
   final double headroom;
 
   final Widget child;
@@ -921,6 +948,49 @@ class RenderHandResultCard extends RenderProxyBox {
   }
 }
 
+/// Where, across this box, a hand's own light may reach (review, 29 Sep
+/// 2026: a Trail's sparks crossed the viewer's own pod and, on a 640dp phone,
+/// the key cluster beside their hand): from [left] to [right], in this box's
+/// own pixels — the felt lays it over the whole table, from the right edge of
+/// the viewer's pod to the left edge of the key cluster. A Trail's radial
+/// light and sparks under it stay between the two, less
+/// [HandResultShape.clearance], as they stay under what stands over the hand
+/// ([HandResultGroup.headroom]). Nothing under it but a hand's burst reads
+/// it, and only while painting: it paints and lays out nothing itself.
+class HandResultBounds extends SingleChildRenderObjectWidget {
+  const HandResultBounds({
+    super.key,
+    required this.left,
+    required this.right,
+    super.child,
+  });
+
+  final double left;
+  final double right;
+
+  @override
+  RenderHandResultBounds createRenderObject(BuildContext context) =>
+      RenderHandResultBounds(left: left, right: right);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    RenderHandResultBounds renderObject,
+  ) => renderObject
+    ..left = left
+    ..right = right;
+}
+
+/// [HandResultBounds]' box. A burst reads [left] and [right] every frame it
+/// paints (it paints every frame while it moves, and nothing once settled),
+/// so a change needs no repaint here.
+class RenderHandResultBounds extends RenderProxyBox {
+  RenderHandResultBounds({required this.left, required this.right});
+
+  double left;
+  double right;
+}
+
 /// The hand's own light, behind its cards: a Trail's radial light and its
 /// sparks. Nothing at all for every other level. Its box is the hand's, the
 /// one its cards rise within ([HandResultGroup.headroom]).
@@ -1021,6 +1091,26 @@ class _RenderHandResultBurst extends RenderProxyBox {
   /// the headroom less [HandResultShape.clearance].
   double get _roomAbove => _headroom - HandResultShape.clearance;
 
+  /// How far past the hand's left and right edges its light may reach, in
+  /// its own pixels: to the nearest [HandResultBounds] over it, less
+  /// [HandResultShape.clearance]; without one, as far as it goes.
+  ({double left, double right}) _roomBeside() {
+    const open = (left: double.infinity, right: double.infinity);
+    var node = parent;
+    while (node != null && node is! RenderHandResultBounds) {
+      node = node.parent;
+    }
+    if (node is! RenderHandResultBounds || !hasSize) return open;
+    final toHand = Matrix4.tryInvert(getTransformTo(node));
+    if (toHand == null) return open;
+    final left = MatrixUtils.transformPoint(toHand, Offset(node.left, 0)).dx;
+    final right = MatrixUtils.transformPoint(toHand, Offset(node.right, 0)).dx;
+    return (
+      left: -left - HandResultShape.clearance,
+      right: right - size.width - HandResultShape.clearance,
+    );
+  }
+
   /// The least room any lit card of this hand has over it
   /// ([RenderHandResultCard._restPlace]), in the hand's pixels: what the whole
   /// hand rises within, so it rises as one and its tightest card — the fan's
@@ -1096,13 +1186,15 @@ class _RenderHandResultBurst extends RenderProxyBox {
       final canvas = context.canvas;
       final centre = (offset & size).center;
       final h = size.height;
+      final beside = _roomBeside();
       if (e.radial > 0) {
-        // Kept under what stands over the hand: it gives way above and
-        // keeps its reach at the sides and below.
+        // Kept under what stands over the hand and off what stands beside
+        // it: it gives way above and at the sides, and keeps its reach below.
         final bounds = HandResultShape.radialBounds(
           size,
           e.radialScale,
           ceiling: -_roomAbove,
+          side: math.min(beside.left, beside.right),
         ).shift(offset);
         assert(note(bounds));
         final rx = bounds.width / 2;
@@ -1136,7 +1228,7 @@ class _RenderHandResultBurst extends RenderProxyBox {
           life > 0) {
         final ax = size.width / 2;
         final ay = size.height / 2;
-        Offset at(_Spark spark, double tau, double rise) {
+        Offset at(_Spark spark, double tau, double rise, double across) {
           final out = Curves.easeOutCubic.transform(tau.clamp(0.0, 1.0));
           final reach = h * HandResultShape.sparkReach * spark.speed * out;
           final dx = math.cos(spark.angle);
@@ -1145,7 +1237,7 @@ class _RenderHandResultBurst extends RenderProxyBox {
           final along = from + (1 - from) * out;
           return centre +
               Offset(
-                dx * (ax * along + reach),
+                dx * (ax * along + reach * across),
                 dy * (ay * along + reach * (dy < 0 ? rise : 1)),
               );
         }
@@ -1173,19 +1265,28 @@ class _RenderHandResultBurst extends RenderProxyBox {
             room: _roomAbove,
             head: width,
           );
+          // And sideways only as far as the room beside the hand, on the
+          // side it flies to.
+          final across = HandResultShape.sparkSideFor(
+            angle: spark.angle,
+            reach: h * HandResultShape.sparkReach * spark.speed,
+            halfWidth: ax,
+            room: math.cos(spark.angle) < 0 ? beside.left : beside.right,
+            head: width,
+          );
           assert(
             note(
               Rect.fromPoints(
-                at(spark, tau - tail, rise),
-                at(spark, tau, rise),
+                at(spark, tau - tail, rise, across),
+                at(spark, tau, rise, across),
               ).inflate(width / 2),
             ),
           );
           // A spark, not a dash: a faint tail behind a bright head.
           canvas
             ..drawLine(
-              at(spark, tau - tail, rise),
-              at(spark, tau - tail / 3, rise),
+              at(spark, tau - tail, rise, across),
+              at(spark, tau - tail / 3, rise, across),
               Paint()
                 ..strokeCap = StrokeCap.round
                 ..strokeWidth = width * HandResultShape.sparkTailWidth
@@ -1194,8 +1295,8 @@ class _RenderHandResultBurst extends RenderProxyBox {
                 ),
             )
             ..drawLine(
-              at(spark, tau - tail / 3, rise),
-              at(spark, tau, rise),
+              at(spark, tau - tail / 3, rise, across),
+              at(spark, tau, rise, across),
               Paint()
                 ..strokeCap = StrokeCap.round
                 ..strokeWidth = width

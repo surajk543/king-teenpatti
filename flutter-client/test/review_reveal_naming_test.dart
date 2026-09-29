@@ -972,15 +972,18 @@ void main() {
       // becomes the look's cue: `_ownLook` is read by `_handResultCue` alone,
       // and `_handResultCue` by the HandResultScope over the felt alone.
       final screen = File('lib/screens/table_screen.dart').readAsStringSync();
-      String body(String signature) {
-        final start = screen.indexOf(signature);
+      String body(String signature, [String? source]) {
+        final text = source ?? screen;
+        final start = text.indexOf(signature);
         expect(start, greaterThanOrEqualTo(0), reason: signature);
-        final end = screen.indexOf('\n  }\n', start);
-        return screen.substring(start, end);
+        final end = text.indexOf('\n  }\n', start);
+        return text.substring(start, end);
       }
 
       final ownLook = body('Duration busy})? _ownLook(');
-      final cue = body('HandResultCue? _handResultCue(GameState state) {');
+      final cue = body(
+        'HandResultCue? _handResultCue(GameState state, BuildContext context) {',
+      );
       expect(RegExp(r'\bownLook\(').allMatches(screen), hasLength(1));
       expect(RegExp(r'\bownLook\(').allMatches(ownLook), hasLength(1));
       // The number it answers is a level of the animation, and nothing else.
@@ -992,6 +995,50 @@ void main() {
       expect(
         screen,
         contains('HandResultScope(\n    cue: _handResultCue(context.watch'),
+      );
+      // Not a call only: every USE of either name, in the code with its
+      // comments taken out — so neither is torn off into a variable and
+      // called through it (`final f = ownLook; f(cards)`), which a count of
+      // calls would miss (review, 29 Sep 2026). `ownLook` once, the call;
+      // `_ownLook` twice, its declaration and that call.
+      final screenCode = screen
+          .split('\n')
+          .where((l) => !l.trimLeft().startsWith('//'))
+          .join('\n');
+      expect(RegExp(r'\bownLook\b').allMatches(screenCode), hasLength(1));
+      expect(RegExp(r'\b_ownLook\b').allMatches(screenCode), hasLength(2));
+      // And what it answers is carried only by the look's cue: `_lookCue` —
+      // where the level lives — is read and written by the cue's method, the
+      // method that ends a look when the hand does, and its declaration,
+      // nowhere else on the felt; and the cue reaches the cards through
+      // HandResultScope alone, which only the hand's group reads.
+      final lookCue = RegExp(r'\b_lookCue\b');
+      final uses = lookCue.allMatches(screenCode).length;
+      final declared = RegExp(
+        r'HandResultCue\? _lookCue;',
+      ).allMatches(screenCode).length;
+      final inCue = lookCue
+          .allMatches(
+            body(
+              'HandResultCue? _handResultCue(GameState state, '
+              'BuildContext context) {',
+              screenCode,
+            ),
+          )
+          .length;
+      final inEnd = lookCue
+          .allMatches(body('void _endLook() {', screenCode))
+          .length;
+      expect(declared, 1);
+      expect(inCue, greaterThan(0));
+      expect(uses, declared + inCue + inEnd);
+      expect(
+        [
+          for (final f in files)
+            if (RegExp(r'HandResultScope\.of\(').hasMatch(f.readAsStringSync()))
+              path(f),
+        ],
+        ['lib/widgets/hand_result.dart'],
       );
     });
   });

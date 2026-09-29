@@ -1327,12 +1327,21 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
   /// A beat after the fan is still, so the light lands on cards at rest.
   static const Duration _lookBeat = Duration(milliseconds: 80);
 
+  /// How fast an [AnimationController] of the ordinary kind runs while the
+  /// phone asks for less motion: a twentieth of its length (the framework's
+  /// own figure for [AnimationBehavior.normal]). The cards' turns, a wild
+  /// card's turn and the 5-Card fan's slide run so; the beats between them
+  /// are timers and keep their length.
+  static const double _reducedMotion = 0.05;
+
   /// What the viewer's own face-up cards make, for the animation, and how
   /// long after this snapshot the fan is still moving ([busy]) — its cards
   /// turning face up when [turned] (each after [PlayingCard.flipStagger] × its
   /// place, for [PlayingCard.flipFor]), a wild card turning into its
   /// stand-in ([WildTransform.startsAfter], for [WildTransform.turnFor]), the
-  /// best three of five being set out ([_BestThreeStage]).
+  /// best three of five being set out ([_BestThreeStage]); under [reduced]
+  /// motion the turns and the slide at the speed they then run
+  /// ([_reducedMotion]), the beats between them as they are.
   ///
   /// At a Seen or Blind table, private ones too, what the cards make is read
   /// from the three codes themselves ([ownLook]: the server says nothing about
@@ -1349,10 +1358,13 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     RoomState room,
     You you, {
     required bool turned,
+    required bool reduced,
   }) {
+    Duration moving(Duration d) => reduced ? d * _reducedMotion : d;
     final cards = you.cards;
     var busy = turned
-        ? PlayingCard.flipStagger * (cards.length - 1) + PlayingCard.flipFor
+        ? PlayingCard.flipStagger * (cards.length - 1) +
+              moving(PlayingCard.flipFor)
         : Duration.zero;
     switch (room.category) {
       case TableCategory.seen || TableCategory.blind:
@@ -1386,20 +1398,22 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
         if (lit.isEmpty) return null;
         for (final (i, code) in cards.indexed) {
           if (hand.standInFor(code, i) == null) continue;
+          // Its wait is a timer (the whole of the card's own flip in it);
+          // its turn is an animation.
           final wild =
               WildTransform.startsAfter(
                 flippingUp: turned,
                 flipDelay: PlayingCard.flipStagger * i,
                 index: i,
               ) +
-              WildTransform.turnFor;
+              moving(WildTransform.turnFor);
           if (wild > busy) busy = wild;
         }
         if (cards.length > 3) {
           final arranged =
               _BestThreeStage.beforeAside +
               _BestThreeStage.beforeArranged +
-              Motion.arrive;
+              moving(Motion.arrive);
           if (arranged > busy) busy = arranged;
         }
         return (level: level, cards: lit, busy: busy);
@@ -1408,14 +1422,53 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     }
   }
 
+  /// Whether the hand is still being played, as the viewer sees it: dealt and
+  /// being bet on, with nothing on show that ends or judges it — no showdown's
+  /// hands turned over, no result, no missile in the air, no sideshow's two
+  /// hands. A look only ever lands while it is.
+  static bool _stillPlaying(GameState state, RoomState room) =>
+      room.state == TableState.betting &&
+      state.showdown.isEmpty &&
+      state.showdownResult.isEmpty &&
+      state.missileStrike == null &&
+      state.sideshowReveal == null;
+
+  /// The hand has stopped being played ([_stillPlaying]) while the look was
+  /// on its way (review, 29 Sep 2026: the server sends the look's own
+  /// snapshot BEFORE the showdown a fourth blind bet or a 5-Card choice runs,
+  /// and a frame between the two let the light land on the viewer's cards
+  /// over the winner's celebration; so did a look made a moment before a
+  /// show). A look whose light has not landed yet is dropped — it never
+  /// lands, is never heard, and is not shown settled by a felt built again
+  /// in this hand ([HandResultMemory.drop]); one already playing is settled
+  /// at once, as a look made long before the result would have settled
+  /// (the rarer hands keep their small edge light), and plays no further.
+  void _endLook() {
+    final cue = _lookCue;
+    final clock = _lookClock;
+    if (cue == null || clock == null || !identical(cue.clock, clock)) return;
+    if (clock.isCompleted) return;
+    final at = clock.value * cue.total.inMicroseconds;
+    if (at <= cue.startAt.inMicroseconds) {
+      clock.stop();
+      HandResultMemory.drop(cue.key);
+      _lookCue = null;
+    } else {
+      clock.value = 1;
+    }
+  }
+
   /// The cue for [HandResultScope]: the viewer's own look, or null. A look
   /// that has just arrived gets its clock, started after this frame, and its
   /// light lands a beat after the fan has stopped moving. A felt that first
   /// sees a hand with the look already made — a reconnect, the table screen
-  /// built again — shows it settled rather than playing it again. Cards the
-  /// hand's end turned up (the fourth blind bet running the showdown in the
-  /// same move) are no look: nothing lights at a showdown.
-  HandResultCue? _handResultCue(GameState state) {
+  /// built again — shows it settled rather than playing it again (or nothing,
+  /// where this phone dropped it). Nothing lands once the hand has stopped
+  /// being played ([_stillPlaying], [_endLook]): cards the hand's end turned
+  /// up — the fourth blind bet running the showdown, in the same snapshot or
+  /// the next — are no look, and a look on its way when a result arrives
+  /// never lands.
+  HandResultCue? _handResultCue(GameState state, BuildContext context) {
     final room = state.room;
     final you = room?.you;
     final me = state.user?.id;
@@ -1433,7 +1486,17 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
       _lookCue = null;
     }
     if (!up || you.status == SeatState.packed) return null;
-    final look = _ownLook(state, room, you, turned: turned);
+    // Decided before anything else: a look already on its way stops the
+    // frame the hand does, whatever this snapshot says of the cards.
+    final playing = _stillPlaying(state, room);
+    if (!playing) _endLook();
+    final look = _ownLook(
+      state,
+      room,
+      you,
+      turned: turned,
+      reduced: MediaQuery.maybeDisableAnimationsOf(context) ?? false,
+    );
     // Nothing new to say — a Variation hand's own `you.hand` goes when the
     // hand ends, while its cards stay on the felt: the look stays as it was.
     if (look == null) return _lookCue;
@@ -1442,20 +1505,15 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
         '${(look.cards.keys.toList()..sort()).join(',')}';
     if (key == _lookKey) return _lookCue;
     _lookKey = key;
-    final playing =
-        room.state == TableState.betting &&
-        state.showdown.isEmpty &&
-        state.showdownResult.isEmpty &&
-        state.missileStrike == null;
     if (!firstSight && !playing) return _lookCue = null;
+    if (firstSight && HandResultMemory.dropped(key)) return _lookCue = null;
     final startAt = firstSight ? Duration.zero : look.busy + _lookBeat;
     final total = startAt + HandResultProfile.of(look.level).duration;
     final spent = _lookClock;
     // Its own time even when the phone asks for less motion: the reduced
     // rows (HandResultProfile.reduced) are that answer — a smaller rise and
     // an edge light that rises and settles — and a clock run twenty times
-    // faster would flash that light for a frame, and land it while the last
-    // cards are still turning (their stagger is a timer, not a clock).
+    // faster would flash that light for a frame.
     final clock = _lookClock = AnimationController(
       vsync: this,
       duration: total,
@@ -1465,7 +1523,8 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
       clock.value = 1;
     } else {
       SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (mounted && identical(_lookClock, clock)) clock.forward();
+        // Not a look dropped before its first frame was out.
+        if (mounted && identical(_lookCue?.clock, clock)) clock.forward();
       });
     }
     // The last look's clock goes once this frame has let go of it.
@@ -1487,7 +1546,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) => HandResultScope(
-    cue: _handResultCue(context.watch<GameState>()),
+    cue: _handResultCue(context.watch<GameState>(), context),
     child: Builder(builder: _buildFelt),
   );
 
@@ -2204,6 +2263,11 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   least: TableSpace.handLift,
                   most: HandFan.liftFor(HandFan.cardHeightFor(handH)),
                   ceiling: _potDy * h + potPlate / 2 + Space.sm,
+                  lightLeft: me.anchor.dx + podW / 2,
+                  lightRight: SeatRing.keysLeftFor(
+                    MediaQuery.sizeOf(context),
+                    w,
+                  ),
                   child: Column(
                     key: const ValueKey('own-hand-column'),
                     mainAxisSize: MainAxisSize.min,
@@ -3371,6 +3435,11 @@ class _Status extends StatelessWidget {
 /// arriving at a showdown takes the room the lift had, and the cards settle
 /// the few dp back towards the floor as they are turned. The first placement
 /// is at once.
+///
+/// Its box is the felt's, so it also says how far across the felt the
+/// light of the viewer's own look may reach ([HandResultBounds]): from
+/// [lightLeft], the right edge of their pod, to [lightRight], the left edge
+/// of the key cluster.
 class _LiftedHand extends StatefulWidget {
   const _LiftedHand({
     required this.left,
@@ -3378,6 +3447,8 @@ class _LiftedHand extends StatefulWidget {
     required this.least,
     required this.most,
     required this.ceiling,
+    required this.lightLeft,
+    required this.lightRight,
     required this.child,
   });
 
@@ -3386,6 +3457,8 @@ class _LiftedHand extends StatefulWidget {
   final double least;
   final double most;
   final double ceiling;
+  final double lightLeft;
+  final double lightRight;
   final Widget child;
 
   @override
@@ -3442,17 +3515,21 @@ class _LiftedHandState extends State<_LiftedHand>
   }
 
   @override
-  Widget build(BuildContext context) => CustomSingleChildLayout(
-    delegate: _HandPlacement(
-      left: widget.left,
-      floor: widget.floor,
-      least: widget.least,
-      most: widget.most,
-      ceiling: widget.ceiling,
-      lift: _liftFor,
-      glide: _glide,
+  Widget build(BuildContext context) => HandResultBounds(
+    left: widget.lightLeft,
+    right: widget.lightRight,
+    child: CustomSingleChildLayout(
+      delegate: _HandPlacement(
+        left: widget.left,
+        floor: widget.floor,
+        least: widget.least,
+        most: widget.most,
+        ceiling: widget.ceiling,
+        lift: _liftFor,
+        glide: _glide,
+      ),
+      child: widget.child,
     ),
-    child: widget.child,
   );
 }
 

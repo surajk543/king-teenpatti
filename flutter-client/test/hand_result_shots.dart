@@ -2,8 +2,10 @@
 // frame, as the viewer LOOKS at their own cards (owner, the same day: "when
 // user click on see card, then acc to rank of card play animation"): each of
 // the five levels on the viewer's fan, dark and light, at 640x360 and 891x411
-// — the Trail under reduced motion too — and a show with nothing lit. Not
-// part of `flutter test` (the name has no `_test`): run it by hand.
+// — the Trail under reduced motion too — a show with nothing lit, and the
+// fourth blind bet's reveal running the pot-cap showdown in the server's own
+// order (the look's snapshot, a frame, then the showdown), nothing lit either.
+// Not part of `flutter test` (the name has no `_test`): run it by hand.
 //
 //   flutter test test/hand_result_shots.dart --dart-define=SHOTS_DIR=/abs/dir \
 //     --dart-define=ICON_FONT=<flutter>/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf
@@ -129,6 +131,27 @@ void main() {
         debugDisableShadows = false;
         try {
           await _show(tester, name, size, dark, problems);
+        } finally {
+          debugDisableShadows = true;
+        }
+      });
+    }
+  }
+
+  // The fourth blind bet's reveal and the pot-cap showdown it runs, in the
+  // server's order: the viewer's Trail of twos turned up, a frame, then
+  // Arjun's Trail of aces takes the pot. Nothing lights on the viewer's cards
+  // (review, 29 Sep 2026: their Trail sparked over Arjun's WINNER ribbon).
+  for (final size in const [Size(640, 360), Size(891, 411)]) {
+    for (final dark in [true, false]) {
+      final name =
+          'show_after_look_${size.width.toInt()}x${size.height.toInt()}_'
+          '${dark ? 'dark' : 'light'}';
+      if (!wanted(name)) continue;
+      testWidgets(name, (tester) async {
+        debugDisableShadows = false;
+        try {
+          await _showAfterLook(tester, name, size, dark, problems);
         } finally {
           debugDisableShadows = true;
         }
@@ -421,6 +444,33 @@ Future<void> _shoot(
   await _done(tester, state, run.name, problems);
 }
 
+/// The viewer's cards turned up by the fourth blind bet, and a frame later
+/// the pot-cap showdown the same move ran: another seat's Trail wins it, and
+/// nothing lights on the viewer's.
+Future<void> _showAfterLook(
+  WidgetTester tester,
+  String name,
+  Size size,
+  bool dark,
+  List<String> problems,
+) async {
+  final twos = hand(['2s', '2h', '2d'], 'Trail', 5);
+  final (state, key) = await _table(tester, size, dark);
+  state.handleState(resultRoom(cards: twos.cards));
+  await tester.pump(const Duration(milliseconds: 16));
+  state.handleShowdown(
+    resultReveal('u3', trailHand, beaten: twos, reason: 'pot_limit'),
+  );
+  await tester.pump(const Duration(milliseconds: 16));
+  state
+    ..handleShowdown(
+      resultEnded('u3', trailHand, beaten: twos, reason: 'pot_limit'),
+    )
+    ..handleState(resultSettled('u3', cards: twos.cards));
+  await _showRun(tester, name, key, problems);
+  await _done(tester, state, name, problems);
+}
+
 /// A show with nothing lit: the viewer's Pair looked at and long settled,
 /// then another seat's Trail wins the show.
 Future<void> _show(
@@ -440,6 +490,18 @@ Future<void> _show(
   state
     ..handleShowdown(resultEnded('u3', trailHand, beaten: pairHand))
     ..handleState(resultSettled('u3', cards: pairHand.cards));
+  await _showRun(tester, name, key, problems);
+  await _done(tester, state, name, problems);
+}
+
+/// A show's frames ([_showFrames]), the whole table each time, and any card
+/// lit in one noted as a problem.
+Future<void> _showRun(
+  WidgetTester tester,
+  String name,
+  GlobalKey key,
+  List<String> problems,
+) async {
   var at = 0;
   for (final ms in _showFrames) {
     await tester.pump();
@@ -469,5 +531,4 @@ Future<void> _show(
     final problem = tester.takeException();
     if (problem != null) problems.add('$name t=$ms: $problem');
   }
-  await _done(tester, state, name, problems);
 }
