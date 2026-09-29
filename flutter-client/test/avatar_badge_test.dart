@@ -221,9 +221,19 @@ void main() {
       await pumpLevelLobby(tester, state, screen: const Size(1280, 800));
       final art = find.descendant(of: _badge, matching: find.byType(BadgeArt));
       final before = art.evaluate().single.widget;
+      final badge = _badge.evaluate().single;
       final rebuilt = <Type>{};
-      debugOnRebuildDirtyWidget = (element, _) =>
-          rebuilt.add(element.widget.runtimeType);
+      // Only the badge's own subtree: an animating Lottie elsewhere in the
+      // lobby (the category cards' lock) rebuilds itself every frame of its
+      // own loop, which is the lottie package playing, not the tick.
+      debugOnRebuildDirtyWidget = (element, _) {
+        var underBadge = false;
+        element.visitAncestorElements((ancestor) {
+          underBadge = identical(ancestor, badge);
+          return !underBadge;
+        });
+        if (underBadge) rebuilt.add(element.widget.runtimeType);
+      };
       addTearDown(() => debugOnRebuildDirtyWidget = null);
       for (var i = 0; i < 3; i++) {
         _notify(state);

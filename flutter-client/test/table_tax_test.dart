@@ -613,15 +613,18 @@ Finder _card(String category, int boot) => find.byWidgetPredicate(
 );
 
 /// Taps [icon] — a card's ⓘ or rules key — on that card.
+/// [mark] is the key's icon, or the rules key's book (its key).
 Future<void> _tapCornerKey(
   WidgetTester tester,
   String category,
   int boot,
-  IconData icon,
+  Object mark,
 ) async {
   final key = find.descendant(
     of: _card(category, boot),
-    matching: find.byIcon(icon, skipOffstage: false),
+    matching: mark is Key
+        ? find.byKey(mark, skipOffstage: false)
+        : find.byIcon(mark as IconData, skipOffstage: false),
   );
   await tester.ensureVisible(key);
   await tester.pump(const Duration(milliseconds: 400));
@@ -1296,7 +1299,7 @@ void main() {
         tester,
         TableCategory.variation,
         2000000,
-        Icons.menu_book_outlined,
+        const ValueKey('rule-book'),
       );
       expect(find.text(rule), findsOneWidget);
       await tester.tap(find.byTooltip(t.close));
@@ -1306,7 +1309,7 @@ void main() {
         tester,
         TableCategory.variation,
         50000,
-        Icons.menu_book_outlined,
+        const ValueKey('rule-book'),
       );
       expect(find.text(rule), findsNothing);
       await tester.tap(find.byTooltip(t.close));

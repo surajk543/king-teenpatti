@@ -752,10 +752,11 @@ void main() {
     state.dispose();
   });
 
-  testWidgets('a seen table card has no chips line; the SEEN card and the blind '
-      'tables keep theirs', (tester) async {
+  testWidgets('no seen or blind table card has a chips line; the SEEN and '
+      'BLIND cards keep theirs', (tester) async {
     // Owner, 29 Sep 2026: "Everyone's chips are visible" off the 200 and
-    // 50,000 tables.
+    // 50,000 tables, then "Only your own chips are visible" off the 200,
+    // 5,000, 50,000 and 20 Lakh ones.
     final state = _state(
       chips: 300000,
       tables: [
@@ -767,8 +768,9 @@ void main() {
     await _pumpLobby(tester, state, screen: const Size(891, 411));
     state.openLobbyEngine(TableEngine.teenPatti);
     await _settleLevel(tester);
-    // The SEEN category card still says it.
+    // The SEEN and BLIND category cards still say it.
     expect(find.text(t.everyoneChips, skipOffstage: false), findsOneWidget);
+    expect(find.text(t.onlyYourChips, skipOffstage: false), findsOneWidget);
 
     state.openLobbyCategory(TableCategory.seen);
     await _settleLevel(tester);
@@ -780,7 +782,9 @@ void main() {
     await _settleLevel(tester);
     state.openLobbyCategory(TableCategory.blind);
     await _settleLevel(tester);
-    expect(find.text(t.onlyYourChips, skipOffstage: false), findsNWidgets(4));
+    expect(tester.takeException(), isNull);
+    expect(find.text(t.tapToSit, skipOffstage: false), findsNWidgets(4));
+    expect(find.text(t.onlyYourChips, skipOffstage: false), findsNothing);
     await _unmount(tester);
     state.dispose();
   });

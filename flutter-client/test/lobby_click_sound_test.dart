@@ -286,7 +286,7 @@ void main() {
       // under it neither clicks nor opens (no door, no seat).
       await tap(find.byIcon(Icons.info_outline_rounded).first, clicks: 1);
       await _closeAll(tester, state);
-      await tap(find.byIcon(Icons.menu_book_outlined).first, clicks: 1);
+      await tap(find.byKey(const ValueKey('rule-book')).first, clicks: 1);
       await _closeAll(tester, state);
       expect(sounds.heard, isNot(contains('sfx/door.wav')));
 
@@ -509,7 +509,10 @@ void main() {
       await _settle(tester);
       await once('ⓘ', find.byIcon(Icons.info_outline_rounded).first);
       await _closeAll(tester, state);
-      await once('the rules key', find.byIcon(Icons.menu_book_outlined).first);
+      await once(
+        'the rules key',
+        find.byKey(const ValueKey('rule-book')).first,
+      );
       await _closeAll(tester, state);
       await once('the back tile', find.byIcon(Icons.arrow_back_rounded));
       await _settle(tester);
