@@ -24,6 +24,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/screens/table_screen.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/widgets/hand_result.dart' show HandResultMemory;
 
 import 'table_scenes.dart' show silentFeedback, tableApp;
 import 'winner_scenes.dart';
@@ -135,6 +136,10 @@ ThemeData _theme(bool dark, AppLang lang) {
 
 void main() {
   setUpAll(_loadAssets);
+  // Every picture plays its hand's result afresh: the hands share their keys
+  // (room, hand, winner), and a result remembered from an earlier picture
+  // would be shown settled (widgets/hand_result.dart).
+  setUp(HandResultMemory.reset);
   final problems = <String>[];
   tearDownAll(() {
     if (_dir.isEmpty) return;

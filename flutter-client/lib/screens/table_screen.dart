@@ -24,6 +24,7 @@ import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/hand_fan.dart';
+import '../widgets/hand_result.dart';
 import '../widgets/hammer_flight.dart';
 import '../widgets/missed_turns_notice.dart';
 import '../widgets/missile_flight.dart';
@@ -993,6 +994,7 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
       _party = _Party(
         clock: clock,
         total: total,
+        resultAt: resultAt,
         pile: pile,
         stack: stack,
         flight: clock.drive(
@@ -1325,8 +1327,38 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     if (mounted) context.read<FeedbackSettings>().hammerHit();
   }
 
+  /// The winning hand's result animation (owner, 29 Sep 2026;
+  /// `widgets/hand_result.dart`): the showdown winner's reveal, on the
+  /// celebration's own clock, from the moment the ribbon strikes. Null
+  /// whenever this frame's state holds no such result — no celebration yet,
+  /// or one already dropped by the next deal — so an old hand's light can
+  /// never reach the next one's cards.
+  HandResultCue? _handResultCue(GameState state) {
+    final party = _party;
+    final room = state.room;
+    final winner = state.winnerId;
+    if (party == null || room == null || winner == null) return null;
+    final key = '${room.roomId}:${room.handNo}:$winner';
+    if (_partyKey != key) return null;
+    return HandResultCue.forWinner(
+      key: key,
+      reveal: state.showdown.where((r) => r.userId == winner).firstOrNull,
+      clock: party.clock,
+      total: party.total,
+      startAt: party.resultAt,
+      category: room.category,
+      bootAmount: room.bootAmount,
+      variation: state.shownVariation,
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => HandResultScope(
+    cue: _handResultCue(context.watch<GameState>()),
+    child: Builder(builder: _buildFelt),
+  );
+
+  Widget _buildFelt(BuildContext context) {
     final state = context.watch<GameState>();
     _follow(state.hammerStrike);
     _followMissile(state.missileStrike);
@@ -3631,7 +3663,7 @@ class _OwnHand extends StatelessWidget {
             : asideCount * cardW * _tucked + (slot - asideCount) * wide;
         final setAside = picking && stage != _PickStage.held;
 
-        return SizedBox(
+        final fan = SizedBox(
           width: width,
           height: HandFan.heightFor(cardHeight),
           child: Stack(
@@ -3709,32 +3741,37 @@ class _OwnHand extends StatelessWidget {
                       child: SetBack(
                         setBack: setAside && !counted.contains(cards[i]),
                         cardHeight: cardHeight,
-                        child: WildTransform(
-                          height: cardHeight,
+                        child: HandResultCard(
                           code: i < cards.length ? cards[i] : null,
-                          // The card on top covers its neighbours' inner
-                          // edges, so a card to its right prints its index on
-                          // its right; and the hand turns over left to right.
-                          indexOnRight: HandFan.indexOnRight(
-                            slotOf[i],
-                            topSlot,
+                          cardHeight: cardHeight,
+                          child: WildTransform(
+                            height: cardHeight,
+                            code: i < cards.length ? cards[i] : null,
+                            // The card on top covers its neighbours' inner
+                            // edges, so a card to its right prints its index on
+                            // its right; and the hand turns over left to right.
+                            indexOnRight: HandFan.indexOnRight(
+                              slotOf[i],
+                              topSlot,
+                            ),
+                            flipDelay: PlayingCard.flipStagger * i,
+                            standIn: i >= cards.length
+                                ? null
+                                : you.hand != null
+                                ? you.hand!.standInFor(cards[i], i)
+                                : (playsAs.length == cards.length &&
+                                          wild.contains(cards[i])
+                                      ? playsAs[i]
+                                      : null),
+                            wild:
+                                i < cards.length &&
+                                (wild.contains(cards[i]) ||
+                                    (you.hand?.wild.contains(cards[i]) ??
+                                        false)),
+                            index: i,
+                            label: state.t.wildCard,
+                            dimmed: packed,
                           ),
-                          flipDelay: PlayingCard.flipStagger * i,
-                          standIn: i >= cards.length
-                              ? null
-                              : you.hand != null
-                              ? you.hand!.standInFor(cards[i], i)
-                              : (playsAs.length == cards.length &&
-                                        wild.contains(cards[i])
-                                    ? playsAs[i]
-                                    : null),
-                          wild:
-                              i < cards.length &&
-                              (wild.contains(cards[i]) ||
-                                  (you.hand?.wild.contains(cards[i]) ?? false)),
-                          index: i,
-                          label: state.t.wildCard,
-                          dimmed: packed,
                         ),
                       ),
                     ),
@@ -3823,6 +3860,14 @@ class _OwnHand extends StatelessWidget {
                 ),
             ],
           ),
+        );
+        // The viewer's winning hand lit by what it made (hand_result.dart),
+        // never over their own bet badge, which stands TableSpace.hand over
+        // it whenever a hand is on show (`myBetShown`: in it, won or lost).
+        return HandResultGroup(
+          userId: state.user?.id,
+          headroom: TableSpace.hand,
+          child: fan,
         );
       },
     );
@@ -4097,6 +4142,7 @@ class _Party {
   const _Party({
     required this.clock,
     required this.total,
+    required this.resultAt,
     required this.flight,
     required this.strike,
     required this.left,
@@ -4109,6 +4155,10 @@ class _Party {
   /// from the result.
   final Animation<double> clock;
   final Duration total;
+
+  /// When on [clock] the result lands — the ribbon strikes, and the winner's
+  /// cards light up by what they made (`widgets/hand_result.dart`).
+  final Duration resultAt;
 
   /// The pot's run ([PotFlight.progress]) and the ribbon's strike, each 0
   /// until the result and 1 once it is over.

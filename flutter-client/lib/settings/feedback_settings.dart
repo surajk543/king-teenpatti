@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../theme/hand_result_motion.dart';
+
 /// Whether the game clicks and buzzes, and the two switches that decide.
 ///
 /// Deliberately NOT part of GameState. Nothing here touches the game, the
@@ -214,6 +216,27 @@ class FeedbackSettings extends ChangeNotifier {
   /// every mission of an award is its own bar and its own sound. At full
   /// volume, as the card click, which it peaks with.
   void xpNotification() => unawaited(_playAsset(xpNotificationClip, volume: 1));
+
+  /// The clip a winning hand's result animation plays as its cards light up
+  /// (hand-result animations, 29 Sep 2026), one line per level. All silent
+  /// until the owner supplies recordings: put an `assets/sound/…` path on a
+  /// level's line (and the file in pubspec's assets) and [handResult] plays
+  /// it, behind the Sound switch like every other clip.
+  static String? handResultClip(HandResultLevel level) => switch (level) {
+    HandResultLevel.pair => null,
+    HandResultLevel.color => null,
+    HandResultLevel.sequence => null,
+    HandResultLevel.pureSequence => null,
+    HandResultLevel.trail => null,
+  };
+
+  /// A winning hand's cards lighting up, once per result, at the moment the
+  /// WINNER ribbon strikes (`widgets/hand_result.dart`). Plays
+  /// [handResultClip]'s clip for [level] — nothing today.
+  void handResult(HandResultLevel level) {
+    final clip = handResultClip(level);
+    if (clip != null) unawaited(_playAsset(clip, volume: 1));
+  }
 
   /// A tap on a control.
   ///
