@@ -36,7 +36,14 @@ class FeedbackSettings extends ChangeNotifier {
   final Map<String, AudioPlayer> _voices = {};
 
   /// The audio profile every one of these clips plays under.
-  static final AudioContext _uiSound = AudioContext(
+  ///
+  /// iOS's ambient category already mixes with other audio, and the plugin
+  /// asserts that `mixWithOthers` is set only on playback, playAndRecord or
+  /// multiRoute. With it set here the context threw on every clip in a debug
+  /// build, and every sound of the game — the deal, the look, the hammer, the
+  /// missile — fell back to the platform click (29 Sep 2026).
+  @visibleForTesting
+  static final AudioContext uiSound = AudioContext(
     android: AudioContextAndroid(
       isSpeakerphoneOn: false,
       stayAwake: false,
@@ -44,10 +51,7 @@ class FeedbackSettings extends ChangeNotifier {
       usageType: AndroidUsageType.assistanceSonification,
       audioFocus: AndroidAudioFocus.none,
     ),
-    iOS: AudioContextIOS(
-      category: AVAudioSessionCategory.ambient,
-      options: const {AVAudioSessionOptions.mixWithOthers},
-    ),
+    iOS: AudioContextIOS(category: AVAudioSessionCategory.ambient),
   );
 
   /// The clips in `assets/sfx/` are synthesised, not sourced: nothing there
@@ -136,7 +140,7 @@ class FeedbackSettings extends ChangeNotifier {
           // music. These are interface sounds: they belong in the same category
           // as a keyboard click, mixing over anything else rather than
           // interrupting it, and they respect the player's own silent mode.
-          unawaited(p.setAudioContext(_uiSound));
+          unawaited(p.setAudioContext(uiSound));
           return p;
         },
       );

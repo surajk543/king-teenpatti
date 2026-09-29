@@ -2744,26 +2744,30 @@ class _TableCard extends StatelessWidget {
                           // poker lines, which say how the game
                           // differs, a half-step heavier. A third line
                           // rather than a cut-off one when a long
-                          // translation wraps at a large text size.
-                          Text(
-                            poker
-                                ? t.pokerVariantNote(category)
-                                : variation
-                                ? t.variationTableNote
-                                : blind
-                                ? t.onlyYourChips
-                                : t.everyoneChips,
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: text.bodySmall?.copyWith(
-                              fontSize: m.blurbSize,
-                              fontWeight: variation || poker
-                                  ? FontWeight.w500
-                                  : null,
-                              color: glass.textBody,
+                          // translation wraps at a large text size. A
+                          // seen table has none (owner, 29 Sep 2026:
+                          // "Everyone's chips are visible" off the 200
+                          // and 50,000 tables): its category card, the
+                          // ⓘ popup and the rules still say it.
+                          if (poker || variation || blind) ...[
+                            Text(
+                              poker
+                                  ? t.pokerVariantNote(category)
+                                  : variation
+                                  ? t.variationTableNote
+                                  : t.onlyYourChips,
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: text.bodySmall?.copyWith(
+                                fontSize: m.blurbSize,
+                                fontWeight: variation || poker
+                                    ? FontWeight.w500
+                                    : null,
+                                color: glass.textBody,
+                              ),
                             ),
-                          ),
-                          CardGap(m.gap),
+                            CardGap(m.gap),
+                          ],
 
                           // What the room actually plays like, stated
                           // before the player sits down rather than

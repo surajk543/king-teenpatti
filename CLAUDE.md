@@ -3462,6 +3462,17 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   DateTime.now()` inside an `AnimationController` — never from the 1s tick. No clock-skew correction.
 - **Sounds** (`settings/feedback_settings.dart`, fired by `TurnBuzzer` in `table_chrome.dart` on both felts): one low-latency
   `AudioPlayer` per clip, played as sonification with no audio focus (music keeps playing), all behind the Sound switch.
+  **Until 29 Sep 2026 no DEBUG build played a single one of these** (owner: "Make sure hammer sound plays when i hit force
+  sideshow", "Make sure missile sounds plays when i hit in gametable"): the shared `FeedbackSettings.uiSound` context set
+  `mixWithOthers` on iOS's ambient category, which `AudioContextIOS` asserts is allowed only on playback, playAndRecord or
+  multiRoute, so it threw inside `playClip` on every clip and the catch played the platform click instead — the deal, the
+  look, the hammer, the missile and the lobby click were all the same system tick (a release build strips asserts and never
+  hit it). Ambient mixes with other audio by itself, so the option went. Every sound test replaces `playClip`, so none had
+  built the real context; `test/feedback_audio_context_test.dart` does, with asserts on. **Checking a clip on an emulator**:
+  a play the app ASKS for proves nothing — look for an `AT::add` whose client is the APP's pid in `adb shell dumpsys
+  media.audio_flinger` (the system's own clicks are pid 1000's), and its frame count is the clip's length (the missile
+  187,776 at 44.1 kHz, the hammer 94,464 at 48 kHz on TP_Small). The emulator's own output reached the host silent here, so a
+  host recording is no check.
   `assets/sfx/` holds the synthesised clips (tick, coins, alarm, door, win); **`assets/sound/see card sound.mp3`** is the
   owner's recording (26 Sep 2026: "this sound should be played when player see cards — when I see card then also and
   someone also see card then also"), played at full volume by `cards()` whenever a player dealt into the hand turns from
@@ -3484,7 +3495,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`_thudIfDue`, the missile buzz's pattern) at `HammerTiming.sound` (810 ms): the clip strikes 90–100 ms in, so it lands
   with `impact`; a strike joined after the landing is not heard late, and an ordinary sideshow has no hammer and no sound.
   On the emulators (a build logging each clip): a two-player deal played 6, a four-player one 12, each Force Sideshow one
-  hammer, and Android's audio service logged every start. `test/deal_sound_test.dart`, `test/hammer_strike_test.dart`.
+  hammer, and Android's audio service logged every start — though, as above, what those debug builds sounded was the platform click. `test/deal_sound_test.dart`, `test/hammer_strike_test.dart`.
   **The missile** (same day: "this is the sound should be played when user click on missile button and everybody should
   listen this sound"): **`assets/sound/Missile hit.mp3`** (`missileHit()`, 0.85 — its blast is at full scale), 4.3 s: the
   missiles' roar from 0.2 s, the blast at 1.4 s, a rumble to 3.8 s. Played once per volley from its LAUNCH, where the felt
@@ -3660,7 +3671,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   - *Type* (`_CardMetrics`): the boot `s × 0.108` (22–36dp; 24.5 on a 640dp phone, where it was `s × 0.14`, 32) — a
     step under a group card's name (`s × 0.112`), still the largest figure on a table card and under twice its next
     largest words; the badge's word 11–15dp (10 on a 640dp phone before); every blurb in the body's ink (the variation
-    and poker lines a half-step heavier where they were display-ink semibold), allowed a third line; a fact's label
+    and poker lines a half-step heavier where they were display-ink semibold), allowed a third line — and a SEEN table card has none since 29 Sep 2026 (owner: "Everyone's chips visible" off the 200 and 50,000 tables; the SEEN category card, the ⓘ popup and the rules sheet still say it, and Blind, Variation and poker cards keep their line; `lobby_categories_test`); a fact's label
     shrinks to the room its value leaves rather than "bo…", and a fact row is never shorter than its glyphs; the foot
     key's words shrink rather than ellipsise.
   - *Spacing* on the cards' own 4dp grid, **`CardSpace`** (4/8/12/16/20/24/32) — **the app-wide `Space` ramp
