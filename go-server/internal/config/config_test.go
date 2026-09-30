@@ -42,7 +42,7 @@ func TestDefaultsMatchNode(t *testing.T) {
 		// turn it off, and the window is what decides how long a replayed
 		// action_id is still refused as the duplicate it is.
 		"DB.LedgerPurgeInterval": 5 * time.Minute, "DB.LedgerPurgeAfter": 10 * time.Minute,
-		"Game.WelcomeChips": int64(1000000), "Game.BootAmount": int64(200),
+		"Game.WelcomeChips": int64(500000), "Game.BootAmount": int64(200),
 		"Game.TableStakes": []int64{200, 5000, 50000, 2000000},
 		// Every Teen Patti table taxes its winners (owner, 26–27 Sep 2026:
 		// tax=1, "Apply this tax rule on all the tables, blind, seen,
@@ -246,7 +246,7 @@ func TestEveryKey(t *testing.T) {
 func TestEmptyIntegerKeepsDefault(t *testing.T) {
 	// Node: Number.parseInt('') is NaN → fallback. `PORT=` in a .env is harmless.
 	cfg := mustLoad(t, map[string]string{"PORT": "", "TURN_TIMEOUT_MS": "", "WELCOME_CHIPS": ""})
-	if cfg.Port != 3000 || cfg.Game.TurnTimeout != 25*time.Second || cfg.Game.WelcomeChips != 1000000 {
+	if cfg.Port != 3000 || cfg.Game.TurnTimeout != 25*time.Second || cfg.Game.WelcomeChips != 500000 {
 		t.Errorf("empty integers must keep defaults: %+v", cfg)
 	}
 }
@@ -256,7 +256,7 @@ func TestEmptyIntegerKeepsDefault(t *testing.T) {
 // nothing of a default one (owner, 30 Sep 2026: the rows decide what a new
 // account gets).
 func TestWelcomeChipsSetIsToldApartFromTheDefault(t *testing.T) {
-	if cfg := mustLoad(t, map[string]string{}); cfg.Game.WelcomeChipsSet || cfg.Game.WelcomeChips != 1000000 {
+	if cfg := mustLoad(t, map[string]string{}); cfg.Game.WelcomeChipsSet || cfg.Game.WelcomeChips != 500000 {
 		t.Errorf("unset: %d set=%v", cfg.Game.WelcomeChips, cfg.Game.WelcomeChipsSet)
 	}
 	if cfg := mustLoad(t, map[string]string{"WELCOME_CHIPS": ""}); cfg.Game.WelcomeChipsSet {
@@ -570,7 +570,7 @@ func TestAVariationPotCapThatOverflowsStopsTheBoot(t *testing.T) {
 func TestPublicGameConfigValues(t *testing.T) {
 	g := mustLoad(t, nil).Game
 	if g.MaxPlayers != 5 || g.MinPlayers != 2 || g.BootAmount != 200 || g.TurnTimeout.Milliseconds() != 25000 ||
-		g.WelcomeChips != 1000000 || g.MaxBetRounds != 20 || g.SideshowTimeout.Milliseconds() != 6000 || g.SideshowMinPlayers != 3 ||
+		g.WelcomeChips != 500000 || g.MaxBetRounds != 20 || g.SideshowTimeout.Milliseconds() != 6000 || g.SideshowMinPlayers != 3 ||
 		g.EntryCapBoot != 200 || g.EntryCapCategory != "blind" || g.EntryCapMaxChips != 2000000 || g.PrivateBoot != 200 || g.PrivateMaxPot != 500000 ||
 		g.MaxBlindMoves != 4 {
 		t.Errorf("public game config scalars drifted: %+v", g)

@@ -83,21 +83,22 @@ func wallets(t *testing.T, d *db.DB, userID string) [4]int64 {
 	return w
 }
 
-// The seed holds today's diamonds, hammers and missile — what the users
-// column DEFAULTs gave every account until the rows took over, so deploying
-// this changes nothing a player sees — and NO chips row: that one is the
-// server's, from WELCOME_CHIPS. The trigger stamps updated_at on every UPDATE.
-func TestTheSeedHoldsTheDiamondsHammersAndMissileAndNoChipsRow(t *testing.T) {
+// The seed holds 5 Lakh chips (owner, 30 Sep 2026: "Also add 5Lakh chips in
+// welcome reward"), first, and today's diamonds, hammers and missile — what
+// the users column DEFAULTs gave every account until the rows took over. The
+// trigger stamps updated_at on every UPDATE.
+func TestTheSeedHoldsFiveLakhChipsTheDiamondsHammersAndMissile(t *testing.T) {
 	d := dbtest.Open(t, "welcome")
 	got := welcomeRows(t, d)
 	want := []welcomeRowOf{
+		{Code: "chips", Type: "CHIPS", Active: true, Sort: 10},
 		{Code: "diamonds", Type: "DIAMOND", Active: true, Sort: 20},
 		{Code: "hammers", Type: "HAMMER", Active: true, Sort: 30},
 		{Code: "missiles", Type: "MISSILE", Active: true, Sort: 40},
 	}
-	values := []int64{9, 20, 1}
+	values := []int64{500000, 9, 20, 1}
 	if len(got) != len(want) {
-		t.Fatalf("the seed holds %d welcome rows, want 3: %+v", len(got), got)
+		t.Fatalf("the seed holds %d welcome rows, want 4: %+v", len(got), got)
 	}
 	for i := range want {
 		if got[i].Code != want[i].Code || got[i].Type != want[i].Type || value(got[i].Value) != values[i] ||
@@ -117,8 +118,8 @@ func TestTheSeedHoldsTheDiamondsHammersAndMissileAndNoChipsRow(t *testing.T) {
 	if v := countOf(t, d, `SELECT reward_value FROM welcome_rewards WHERE code = 'hammers'`); v != 25 {
 		t.Errorf("after a reboot the hammers row gives %d, want the owner's 25", v)
 	}
-	if n := countOf(t, d, `SELECT count(*) FROM welcome_rewards`); n != 3 {
-		t.Errorf("%d rows after a reboot, want 3", n)
+	if n := countOf(t, d, `SELECT count(*) FROM welcome_rewards`); n != 4 {
+		t.Errorf("%d rows after a reboot, want 4", n)
 	}
 	// The CHECKs: a code is a lower-case word, an amount is never negative.
 	for _, bad := range []string{
@@ -133,57 +134,66 @@ func TestTheSeedHoldsTheDiamondsHammersAndMissileAndNoChipsRow(t *testing.T) {
 	}
 }
 
-// The chips row is written from WELCOME_CHIPS the first time — a
-// deployment's first boot carries its .env's welcome into the table — and
-// never again: a later figure is compared with it, not written over it, and a
-// reboot of the schema leaves it as it is. A welcome of 0 writes the row
-// switched off; a negative one is refused.
-func TestTheChipsRowIsWrittenFromWelcomeChipsOnceAndNeverOverwritten(t *testing.T) {
+// The seed gives 5 Lakh chips (owner, 30 Sep 2026: "Also add 5Lakh chips in
+// welcome reward"). In production (set false) WELCOME_CHIPS never writes over
+// the row — it is compared with it, not written — and fills only a table with
+// no chips row; outside production (set true) it sets the row, and says so
+// only when it changed it. A reboot of the schema leaves the row as it is. A
+// welcome of 0 writes the row switched off; a negative one is refused.
+func TestTheSeedGivesFiveLakhAndWelcomeChipsSetsTheRowOnlyOutsideProduction(t *testing.T) {
 	d := dbtest.Open(t, "welcome")
 	ctx := context.Background()
 	w := db.NewWelcome(d, nil)
 
-	first, err := w.EnsureChipsRow(ctx, 500000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !first.Created || first.Type != "CHIPS" || first.Value != 500000 || !first.Active || first.Total != 500000 {
-		t.Fatalf("first boot: %+v", first)
-	}
 	rows := welcomeRows(t, d)
 	if len(rows) != 4 || rows[0].Code != db.WelcomeChipsCode || rows[0].Sort != 10 {
-		t.Fatalf("the chips row goes first: %+v", rows)
+		t.Fatalf("the seed's chips row goes first: %+v", rows)
+	}
+	if chips, err := w.Chips(ctx); err != nil || chips != 500000 {
+		t.Fatalf("the seed's welcome: %d, %v", chips, err)
 	}
 
-	second, err := w.EnsureChipsRow(ctx, 700000)
+	prod, err := w.EnsureChipsRow(ctx, 1000000, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Created || second.Value != 500000 || second.Total != 500000 {
-		t.Fatalf("a later boot with another figure overwrote the row: %+v", second)
-	}
-	reboot(t, d)
-	if v := countOf(t, d, `SELECT reward_value FROM welcome_rewards WHERE code = 'chips'`); v != 500000 {
-		t.Fatalf("after a reboot the chips row gives %d", v)
-	}
-	if chips, err := w.Chips(ctx); err != nil || chips != 500000 {
-		t.Fatalf("Chips = %d, %v", chips, err)
+	if prod.Created || prod.Set || prod.Type != "CHIPS" || prod.Value != 500000 || !prod.Active || prod.Total != 500000 {
+		t.Fatalf("production wrote over the seeded row: %+v", prod)
 	}
 
-	// Switched off by an owner: what a new account gets is 0, and the next
-	// boot says so without switching it back on.
+	set, err := w.EnsureChipsRow(ctx, 700000, true)
+	if err != nil || set.Created || !set.Set || set.Value != 700000 || !set.Active || set.Total != 700000 {
+		t.Fatalf("outside production WELCOME_CHIPS sets the row: %+v %v", set, err)
+	}
+	again, err := w.EnsureChipsRow(ctx, 700000, true)
+	if err != nil || again.Set || again.Value != 700000 {
+		t.Fatalf("a row already at the figure is not written again: %+v %v", again, err)
+	}
+	reboot(t, d)
+	if v := countOf(t, d, `SELECT reward_value FROM welcome_rewards WHERE code = 'chips'`); v != 700000 {
+		t.Fatalf("after a reboot the chips row gives %d: the seed rewrote it", v)
+	}
+
+	// Switched off by an owner: production leaves it off.
 	execSQL(t, d, `UPDATE welcome_rewards SET is_active = FALSE WHERE code = 'chips'`)
-	off, err := w.EnsureChipsRow(ctx, 500000)
-	if err != nil || off.Created || off.Active || off.Total != 0 {
+	off, err := w.EnsureChipsRow(ctx, 500000, false)
+	if err != nil || off.Created || off.Set || off.Active || off.Total != 0 {
 		t.Fatalf("a switched-off row: %+v %v", off, err)
 	}
 
-	zero := dbtest.Open(t, "welcome")
-	z, err := db.NewWelcome(zero, nil).EnsureChipsRow(ctx, 0)
-	if err != nil || !z.Created || z.Active || z.Value != 0 || z.Total != 0 {
-		t.Fatalf("WELCOME_CHIPS=0 writes the row switched off: %+v %v", z, err)
+	// A table with no chips row is filled either way.
+	execSQL(t, d, `DELETE FROM welcome_rewards WHERE code = 'chips'`)
+	filled, err := w.EnsureChipsRow(ctx, 300000, false)
+	if err != nil || !filled.Created || filled.Value != 300000 || !filled.Active || filled.Total != 300000 {
+		t.Fatalf("an empty table is filled: %+v %v", filled, err)
 	}
-	if _, err := db.NewWelcome(zero, nil).EnsureChipsRow(ctx, -1); err == nil {
+
+	zero := dbtest.Open(t, "welcome")
+	z, err := db.NewWelcome(zero, nil).EnsureChipsRow(ctx, 0, true)
+	if err != nil || z.Created || !z.Set || z.Active || z.Value != 0 || z.Total != 0 {
+		t.Fatalf("WELCOME_CHIPS=0 sets the row switched off: %+v %v", z, err)
+	}
+	if _, err := db.NewWelcome(zero, nil).EnsureChipsRow(ctx, -1, true); err == nil {
 		t.Fatal("a negative welcome was accepted")
 	}
 }
@@ -491,7 +501,7 @@ func TestTheWelcomeChipsCacheReadsTheRowsOncePerTTL(t *testing.T) {
 	d := dbtest.Open(t, "welcome")
 	ctx := context.Background()
 	w := db.NewWelcome(d, nil)
-	if _, err := w.EnsureChipsRow(ctx, 400000); err != nil {
+	if _, err := w.EnsureChipsRow(ctx, 400000, true); err != nil {
 		t.Fatal(err)
 	}
 	clock := &testClock{now: time.UnixMilli(1_900_000_000_000)}

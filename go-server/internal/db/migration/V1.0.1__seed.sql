@@ -59,9 +59,8 @@
 --   THE APP VERSIONS  a row per app platform with no floor (owner, 28 Sep
 --                 2026; app_versions).
 --   THE WELCOME   what a new account is given (owner, 30 Sep 2026;
---                 welcome_rewards): the diamonds, hammers and missile. The
---                 chips row is the server's, written at boot from WELCOME_CHIPS
---                 (the section says why).
+--                 welcome_rewards): 5 Lakh chips, 9 diamonds, 20 hammers and
+--                 1 missile.
 --
 -- Data, not structure: V1.0.0__baseline.sql builds every table these rows go
 -- into, and it runs FIRST — before this file and before anything numbered
@@ -1260,15 +1259,14 @@ VALUES ('android', 'NORMAL', '0.0.0', '0.0.0',
 -- WELCOME REWARDS). A new account gets every ACTIVE row, inside the
 -- transaction that creates it; an existing account's login gets nothing.
 --
--- These three are exactly what the users column DEFAULTs gave every account
--- until today — 9 diamonds, 20 hammers, 1 missile — so the deploy changes
--- nothing a player sees. The CHIPS row is deliberately NOT here: the server
--- writes it at boot, coded 'chips' with sort_order 10, from WELCOME_CHIPS when
--- the table has no 'chips' row (db.Welcome.EnsureChipsRow), so a deployment's
--- first boot carries its own .env's welcome into the table — production's
--- figure, a test schema's, a parity profile's — and from then on the ROW
--- decides; a boot whose WELCOME_CHIPS differs says so in one WARN and leaves
--- the row alone.
+-- 5 Lakh chips (owner, 30 Sep 2026: "Also add 5Lakh chips in welcome
+-- reward"), and the 9 diamonds, 20 hammers and 1 missile the users column
+-- DEFAULTs gave every account until today. In production the ROWS decide:
+-- WELCOME_CHIPS never writes over the chips row, and a boot whose
+-- WELCOME_CHIPS differs from it says so in one WARN. Outside production
+-- (NODE_ENV not `production`: tests, parity, a local run) the server sets the
+-- chips row from WELCOME_CHIPS at every boot (db.Welcome.EnsureChipsRow), so a
+-- test schema or a parity profile starts accounts where its env says.
 --
 -- ON CONFLICT (code) DO NOTHING: an owner's UPDATE survives every restart.
 -- Change a figure, or switch a grant off, with an UPDATE — it applies to the
@@ -1303,7 +1301,8 @@ VALUES ('android', 'NORMAL', '0.0.0', '0.0.0',
 -- `welcome reward left out` naming its code, and the account is created
 -- without it.
 INSERT INTO welcome_rewards (code, reward_type, reward_value, sort_order)
-VALUES ('diamonds', 'DIAMOND', 9,  20),
+VALUES ('chips',    'CHIPS',   500000, 10),
+       ('diamonds', 'DIAMOND', 9,  20),
        ('hammers',  'HAMMER',  20, 30),
        ('missiles', 'MISSILE', 1,  40)
     ON CONFLICT (code) DO NOTHING;

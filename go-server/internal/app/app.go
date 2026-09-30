@@ -275,7 +275,10 @@ func New(opts Options) (*App, error) {
 	users := db.NewUsers(opts.DB, cfg.Game.WelcomeChips, clock.Now)
 	users.SetLogger(logger)
 	// What a new account is given comes from the welcome_rewards rows (owner,
-	// 30 Sep 2026); WELCOME_CHIPS writes the chips row when there is none.
+	// 30 Sep 2026; the seed's chips row 5 Lakh). In production the rows
+	// decide; outside it WELCOME_CHIPS sets the chips row at boot, so a test
+	// or parity schema starts accounts where its env says.
+	users.SetWelcomeChipsWins(cfg.Env != config.EnvProduction)
 	a.welcomeChips = ensureWelcome(cfg, opts.DB, users, clock.Now, logger)
 	pictures := db.NewPictures(opts.DB, users, clock.Now)
 	tablePictures := db.NewTablePictures(opts.DB, users, clock.Now)

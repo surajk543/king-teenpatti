@@ -387,15 +387,16 @@ type LobbyTable struct {
 // with .Milliseconds() wherever the value goes on the wire (turnTimeoutMs,
 // sideshowTimeoutMs, …) — see PORT_PLAN.md §Time.
 type GameConfig struct {
-	// WelcomeChips is WELCOME_CHIPS 1000000 (requirement 5; owner, 27 Sep
-	// 2026: "every new user will get 1 missile 20 Hammers and 10Lakh coin" — 3
-	// lakh from 14 Sep 2026, 2 lakh before). Since 30 Sep 2026 (owner: "new
-	// account will get how much coins, hammers, diamonds, profile_picture,
-	// emoji — this data should come from database") it is NOT what a new
-	// account gets: the welcome_rewards rows decide that, and this figure only
-	// writes the chips row on a deployment's first boot, when the table has
-	// none (db.Welcome.EnsureChipsRow). After that the row decides, and a boot
-	// whose WELCOME_CHIPS differs from it says so in one WARN. Never negative.
+	// WelcomeChips is WELCOME_CHIPS 500000 (requirement 5; the seed's chips
+	// row, owner 30 Sep 2026: "Also add 5Lakh chips in welcome reward" — 10
+	// Lakh from 27 Sep 2026, 3 lakh from 14 Sep, 2 lakh before). Since 30 Sep
+	// 2026 (owner: "new account will get how much coins, hammers, diamonds,
+	// profile_picture, emoji — this data should come from database") it is
+	// NOT what a new account gets in production: the welcome_rewards rows
+	// decide that, and a boot whose WELCOME_CHIPS differs from the chips row
+	// says so in one WARN. Outside production it sets the chips row at boot
+	// (tests, parity, a local run; db.Users.SetWelcomeChipsWins). Never
+	// negative.
 	WelcomeChips int64
 	// WelcomeChipsSet is whether WELCOME_CHIPS was set (to a non-empty value)
 	// rather than defaulted: the boot compares it with the chips row only then.
@@ -664,7 +665,7 @@ func Defaults() *Config {
 			LedgerPurgeAfter:    10 * time.Minute,
 		},
 		Game: GameConfig{
-			WelcomeChips: 1000000,
+			WelcomeChips: 500000,
 			BootAmount:   200,
 			TableStakes:  []int64{200, 5000, 50000, 2000000},
 			// The blind ladder is banded by stack as well as by stake, so a

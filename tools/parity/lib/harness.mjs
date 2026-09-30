@@ -118,9 +118,14 @@ export const YOU_KEYS = [
   'seatIndex', 'chips', 'status', 'isBlind', 'blindMovesLeft', 'contributed', 'missedTurns', 'maxMissedTurns',
   'canMissile', 'cards', 'options',
 ];
+/**
+ * A seated Teen Patti seat. `level` (29 Sep 2026) is the seat's player level
+ * and its art — `{level, assetUrl?, assetFormat?}`, absent only where the
+ * level is not known, which no account a parity run makes is.
+ */
 export const SEAT_KEYS = [
   'seatIndex', 'userId', 'displayName', 'avatarUrl', 'chips', 'status', 'isBlind', 'lastBet', 'lastAction',
-  'contributed', 'connected', 'cardCount',
+  'contributed', 'connected', 'cardCount', 'level',
 ];
 export const OPTIONS_KEYS = [
   'canSee', 'canSideshow', 'sideshowWith', 'canForceSideshow', 'canMissile', 'chaal', 'raise', 'raiseSteps', 'maxBet', 'show', 'canPack', 'isBlind',

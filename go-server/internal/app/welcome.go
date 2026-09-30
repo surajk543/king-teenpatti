@@ -19,10 +19,11 @@ const welcomeBootTimeout = 10 * time.Second
 
 // ensureWelcome settles the welcome at boot, after the migrations (owner,
 // 30 Sep 2026: what a new account is given comes from the welcome_rewards
-// rows). The chips row is written from WELCOME_CHIPS when the table has none —
-// so a deployment's first boot carries its .env's welcome into the table —
-// and never changed after: from then on the ROW decides, and one WARN says so
-// when WELCOME_CHIPS was set and a new account would now get another figure.
+// rows; the seed's chips row is 5 Lakh). In production the ROW decides: the
+// chips row is written from WELCOME_CHIPS only when the table has none, and
+// one WARN says so when WELCOME_CHIPS was set and a new account gets another
+// figure. Outside production (tests, parity, a local run) WELCOME_CHIPS sets
+// the chips row (Users.SetWelcomeChipsWins), logged at INFO.
 // It answers the cache session:ready's welcomeChips is read through, holding
 // the boot's figure. With no database it holds WELCOME_CHIPS and reads
 // nothing; when the boot's write fails (logged) the cache holds WELCOME_CHIPS
@@ -42,6 +43,9 @@ func ensureWelcome(cfg *config.Config, database *db.DB, users *db.Users, now fun
 	if row.Created {
 		log.Info("welcome chips row written from WELCOME_CHIPS", "welcomeChips", row.Value, "active", row.Active)
 	}
+	if row.Set {
+		log.Info("welcome chips row set from WELCOME_CHIPS (not production)", "welcomeChips", row.Value, "active", row.Active)
+	}
 	if cfg.Game.WelcomeChipsSet && row.Total != cfg.Game.WelcomeChips {
 		log.Warn("WELCOME_CHIPS differs from the welcome_rewards chips; the rows win",
 			"welcomeChipsEnv", cfg.Game.WelcomeChips,
@@ -49,7 +53,7 @@ func ensureWelcome(cfg *config.Config, database *db.DB, users *db.Users, now fun
 			"chipsRowActive", row.Active,
 			"chipsRowType", row.Type,
 			"newAccountChips", row.Total,
-			"hint", "UPDATE welcome_rewards SET reward_value = … WHERE code = 'chips' changes the welcome; WELCOME_CHIPS only writes the row when there is none")
+			"hint", "UPDATE welcome_rewards SET reward_value = … WHERE code = 'chips' changes the welcome; in production WELCOME_CHIPS only writes the row when there is none")
 	}
 	return db.NewWelcomeChipsCache(users.Welcome(), row.Total, true, welcomeChipsCacheTTL, now, log)
 }

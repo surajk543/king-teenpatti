@@ -103,6 +103,9 @@ func NewWelcome(d *DB, clock func() time.Time) *Welcome {
 type WelcomeChipsRow struct {
 	// Created: this call wrote the row (the table had none coded 'chips').
 	Created bool
+	// Set: this call changed a row that was there to the amount given (set
+	// was asked for — outside production — and the row said otherwise).
+	Set bool
 	// Type, Value and Active are the row's reward_type, reward_value (0 when
 	// NULL) and is_active — an owner may have changed any of them.
 	Type   string
@@ -114,13 +117,15 @@ type WelcomeChipsRow struct {
 }
 
 // EnsureChipsRow writes the chips row — code 'chips', CHIPS, amount,
-// sort_order 10 — when welcome_rewards has no row coded 'chips', and reports
-// the row as it stands. It never changes a row that is there: after a
-// deployment's first boot the ROW decides, and a later WELCOME_CHIPS is only
-// compared with it (app.New warns when they differ). An amount of 0 writes
-// the row switched off, so it is not left out with a WARN at every new
-// account; a negative one is refused.
-func (w *Welcome) EnsureChipsRow(ctx context.Context, amount int64) (WelcomeChipsRow, error) {
+// sort_order 10 — when welcome_rewards has no row coded 'chips' (the seed puts
+// one there, 5 Lakh), and reports the row as it stands. With set it also
+// changes a row that is there to the amount — what a run outside production
+// does, so a test schema or a parity profile starts accounts at its
+// WELCOME_CHIPS; without it (production) it never changes the row: the ROW
+// decides, and WELCOME_CHIPS is only compared with it (app.New warns when they
+// differ). An amount of 0 writes the row switched off, so it is not left out
+// with a WARN at every new account; a negative one is refused.
+func (w *Welcome) EnsureChipsRow(ctx context.Context, amount int64, set bool) (WelcomeChipsRow, error) {
 	if amount < 0 {
 		return WelcomeChipsRow{}, fmt.Errorf("welcome chips must not be negative, got %d", amount)
 	}
@@ -135,6 +140,19 @@ func (w *Welcome) EnsureChipsRow(ctx context.Context, amount int64) (WelcomeChip
 			return err
 		}
 		out.Created = tag.RowsAffected() == 1
+		if !out.Created && set {
+			tag, err := tx.Exec(ctx,
+				`UPDATE welcome_rewards
+				    SET reward_type = $2, reward_value = $3, reward_ref_id = NULL, is_active = $4
+				  WHERE code = $1
+				    AND (reward_type <> $2 OR reward_value IS DISTINCT FROM $3
+				         OR reward_ref_id IS NOT NULL OR is_active <> $4)`,
+				WelcomeChipsCode, WelcomeRewardChips, amount, amount > 0)
+			if err != nil {
+				return err
+			}
+			out.Set = tag.RowsAffected() == 1
+		}
 		var value *int64
 		if err := tx.QueryRow(ctx,
 			`SELECT reward_type, reward_value, is_active FROM welcome_rewards WHERE code = $1`,

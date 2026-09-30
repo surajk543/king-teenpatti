@@ -256,12 +256,18 @@ type Users struct {
 	db *DB
 	// welcomeChips is WELCOME_CHIPS: NOT what a new account gets — the
 	// welcome_rewards rows decide that (Welcome, owner 30 Sep 2026) — but the
-	// figure the chips row is written with when the table has none
+	// figure the chips row is written with when the table has none, and,
+	// while welcomeSets holds, set to when it says otherwise
 	// (EnsureWelcomeChips).
 	welcomeChips int64
-	clock        func() time.Time
-	welcome      *Welcome
-	logger       *slog.Logger // may be nil: a welcome reward left out is then not reported
+	// welcomeSets is whether welcomeChips is written over a chips row that
+	// is there: true for a store as built (a test, a tool — it starts accounts
+	// where it was told to), and what app.New says for the server — false in
+	// production, where the row decides.
+	welcomeSets bool
+	clock       func() time.Time
+	welcome     *Welcome
+	logger      *slog.Logger // may be nil: a welcome reward left out is then not reported
 
 	// chipsMu guards chipsReady: whether this store has made sure the chips
 	// row exists (EnsureWelcomeChips), which it does once, before the first
@@ -271,14 +277,21 @@ type Users struct {
 }
 
 // NewUsers builds the store. welcomeChips is config.Game.WelcomeChips
-// (requirement 5): what the welcome_rewards chips row is written with when a
-// database has none — app.New does it at boot, and the store itself before the
-// first account it creates, so a store built without the app (a test, a tool)
-// starts accounts where it was told to. What a new account is given is the
-// rows' (SignIn). clock nil → time.Now.
+// (requirement 5): what the welcome_rewards chips row is set to — app.New does
+// it at boot, and the store itself before the first account it creates, so a
+// store built without the app (a test, a tool) starts accounts where it was
+// told to. The server in production says otherwise (SetWelcomeChipsWins): the
+// row decides there. What a new account is given is the rows' (SignIn). clock
+// nil → time.Now.
 func NewUsers(d *DB, welcomeChips int64, clock func() time.Time) *Users {
-	return &Users{db: d, welcomeChips: welcomeChips, clock: clock, welcome: NewWelcome(d, clock)}
+	return &Users{db: d, welcomeChips: welcomeChips, welcomeSets: true, clock: clock, welcome: NewWelcome(d, clock)}
 }
+
+// SetWelcomeChipsWins says whether WELCOME_CHIPS is written over a chips row
+// that is there (true, the store's own default: outside production) or only
+// fills an empty table (false: production, where the seeded row and an
+// owner's UPDATE decide). Call it before the store is used.
+func (u *Users) SetWelcomeChipsWins(wins bool) { u.welcomeSets = wins }
 
 // SetLogger names the logger a welcome reward left out is reported on (`welcome
 // reward left out`, WARN). Call it before the store is used.
@@ -288,14 +301,14 @@ func (u *Users) SetLogger(logger *slog.Logger) { u.logger = logger }
 func (u *Users) Welcome() *Welcome { return u.welcome }
 
 // EnsureWelcomeChips writes the welcome_rewards chips row from WELCOME_CHIPS
-// when the table has none (Welcome.EnsureChipsRow) and reports the row as it
-// stands. app.New calls it at boot, after the migrations, and compares the
+// when the table has none, or (SetWelcomeChipsWins) when it says otherwise
+// (Welcome.EnsureChipsRow), and reports the row as it stands. app.New calls it at boot, after the migrations, and compares the
 // row with WELCOME_CHIPS; SignIn calls it before the store's first new
 // account (once per store; a failure is tried again next time).
 func (u *Users) EnsureWelcomeChips(ctx context.Context) (WelcomeChipsRow, error) {
 	u.chipsMu.Lock()
 	defer u.chipsMu.Unlock()
-	row, err := u.welcome.EnsureChipsRow(ctx, u.welcomeChips)
+	row, err := u.welcome.EnsureChipsRow(ctx, u.welcomeChips, u.welcomeSets)
 	if err == nil {
 		u.chipsReady = true
 	}
@@ -309,7 +322,7 @@ func (u *Users) ensureWelcomeChipsOnce(ctx context.Context) error {
 	if u.chipsReady {
 		return nil
 	}
-	if _, err := u.welcome.EnsureChipsRow(ctx, u.welcomeChips); err != nil {
+	if _, err := u.welcome.EnsureChipsRow(ctx, u.welcomeChips, u.welcomeSets); err != nil {
 		return err
 	}
 	u.chipsReady = true

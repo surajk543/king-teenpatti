@@ -631,9 +631,11 @@ the app then carries on as it does offline, and the legacy `MIN_CLIENT_BUILD` fl
 - **The three lobby rewards are gone** (the 25-hand milestone, the 4-hour bonus, the daily bonus): `POST /api/rewards/*` answer
   the JSON 404 and the account carries no `rewards` key, so an installed app stops drawing the three chips the moment this build
   runs. `user_milestones` stays in the schema, unused, so a rollback to go-server/v1.12.0 still finds it.
-- **What a new account gets is the `welcome_rewards` table.** The deploy's migration creates it and seeds `diamonds` 9, `hammers`
-  20, `missiles` 1 (the old column defaults); the first BOOT writes the `chips` row from the `.env`'s `WELCOME_CHIPS`. New players
-  see no change. After that the rows decide — edit them, no restart:
+- **What a new account gets is the `welcome_rewards` table.** The deploy's migration creates it and seeds `chips` 500000 (owner,
+  30 Sep 2026: "Also add 5Lakh chips in welcome reward"), `diamonds` 9, `hammers` 20, `missiles` 1. **New players get 5 Lakh chips
+  where they got the `.env`'s `WELCOME_CHIPS` (300000)**, and the boot logs one WARN saying `WELCOME_CHIPS` differs from the row —
+  expected: in production the rows decide and `WELCOME_CHIPS` writes nothing over them (set it to 500000, or leave it, to taste; it
+  is also what an older tag grants after a rollback). Edit the rows, no restart:
 
 ```bash
 sudo -u postgres psql gameplay -c "SET statement_timeout = '5s'; SELECT code, reward_type, reward_value, reward_ref_id, is_active FROM welcome_rewards ORDER BY sort_order"
@@ -645,7 +647,8 @@ sudo -u postgres psql gameplay -c "SET statement_timeout = '5s'; SELECT code, re
 #     (SELECT id::text FROM profile_pictures WHERE name = 'Lovestruck Cat'), 50) ON CONFLICT (code) DO NOTHING;
 ```
 
-  A later change to `WELCOME_CHIPS` in `.env` does nothing but log one WARN at boot: the row is the welcome now.
+  A later change to `WELCOME_CHIPS` in `.env` does nothing in production but log one WARN at boot: the row is the welcome now.
+  (Outside production — `NODE_ENV` not `production`: tests, parity, a local run — `WELCOME_CHIPS` sets the chips row at every boot.)
 - **Rollback**: an older tag ignores `welcome_rewards` (it stays, harmless) and grants `WELCOME_CHIPS` and the column defaults
   again, and serves the three rewards again.
 

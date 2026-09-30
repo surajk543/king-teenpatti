@@ -15,8 +15,8 @@ import (
 )
 
 // What a new account is given comes from the welcome_rewards rows (owner,
-// 30 Sep 2026), on the real wiring: the boot writes the chips row from
-// WELCOME_CHIPS, POST /api/auth/login answers a new account with its
+// 30 Sep 2026), on the real wiring: the boot (outside production) sets the
+// chips row from WELCOME_CHIPS, POST /api/auth/login answers a new account with its
 // `welcome` — each item exactly as its catalogue route lists it — and a
 // returning one without it, session:ready's welcomeChips follows the rows, and
 // an owner's UPDATE reaches the next account with no restart.
@@ -159,44 +159,58 @@ func TestTheLoginAnswersANewAccountWithWhatItWasWelcomedWith(t *testing.T) {
 	}
 }
 
-// The boot writes the chips row from WELCOME_CHIPS only when there is none; a
-// later boot whose WELCOME_CHIPS differs is told so in one WARN and the row
-// still decides — a boot that did not set WELCOME_CHIPS says nothing.
-func TestABootWhoseWelcomeChipsDiffersFromTheRowWarnsAndTheRowWins(t *testing.T) {
+// In production the seed's chips row decides (5 Lakh; owner, 30 Sep 2026): a
+// boot whose WELCOME_CHIPS differs is told so in one WARN and writes nothing.
+// Outside production WELCOME_CHIPS sets the row (tests, parity, a local run),
+// and a production boot after it leaves that row alone — and one that did
+// not set WELCOME_CHIPS says nothing.
+func TestInProductionTheChipsRowDecidesAndOutsideItWelcomeChipsSetsIt(t *testing.T) {
 	database := dbtest.Open(t, "app")
 
-	firstCfg := testConfig(t, publicDir(t))
-	firstCfg.Game.WelcomeChips, firstCfg.Game.WelcomeChipsSet = 350000, true
-	_, firstLogs := bootLogged(t, firstCfg, database)
-	if logs := firstLogs.String(); !strings.Contains(logs, `"msg":"welcome chips row written from WELCOME_CHIPS"`) ||
-		strings.Contains(logs, "differs from the welcome_rewards chips") {
-		t.Fatalf("the first boot's log: %s", logs)
-	}
-
-	secondCfg := testConfig(t, publicDir(t))
-	secondCfg.Game.WelcomeChips, secondCfg.Game.WelcomeChipsSet = 999, true
-	second, secondLogs := bootLogged(t, secondCfg, database)
-	logs := secondLogs.String()
+	prodCfg := testConfig(t, publicDir(t))
+	prodCfg.Env = config.EnvProduction
+	prodCfg.Game.WelcomeChips, prodCfg.Game.WelcomeChipsSet = 350000, true
+	prod, prodLogs := bootLogged(t, prodCfg, database)
+	logs := prodLogs.String()
 	if strings.Count(logs, "differs from the welcome_rewards chips") != 1 || !strings.Contains(logs, `"level":"WARN"`) ||
-		!strings.Contains(logs, `"welcomeChipsEnv":999`) || !strings.Contains(logs, `"newAccountChips":350000`) ||
-		strings.Contains(logs, "welcome chips row written") {
-		t.Fatalf("the second boot's log: %s", logs)
+		!strings.Contains(logs, `"welcomeChipsEnv":350000`) || !strings.Contains(logs, `"newAccountChips":500000`) ||
+		strings.Contains(logs, "welcome chips row written") || strings.Contains(logs, "welcome chips row set") {
+		t.Fatalf("the production boot's log: %s", logs)
 	}
-	ts := httptest.NewServer(second.Handler())
+	ts := httptest.NewServer(prod.Handler())
 	defer ts.Close()
-	status, raw := loginRaw(t, ts.URL, "welcome-row-wins")
+	status, raw := loginRaw(t, ts.URL, "welcome-seed-decides")
 	var body struct {
 		WelcomeChips int64 `json:"welcomeChips"`
 	}
-	if err := json.Unmarshal(raw, &body); err != nil || status != http.StatusOK || body.WelcomeChips != 350000 {
-		t.Fatalf("the row decides: %d %s", status, raw)
+	if err := json.Unmarshal(raw, &body); err != nil || status != http.StatusOK || body.WelcomeChips != 500000 {
+		t.Fatalf("the seed's 5 Lakh decides in production: %d %s", status, raw)
+	}
+
+	devCfg := testConfig(t, publicDir(t))
+	devCfg.Game.WelcomeChips, devCfg.Game.WelcomeChipsSet = 999, true
+	_, devLogs := bootLogged(t, devCfg, database)
+	if logs := devLogs.String(); !strings.Contains(logs, `"msg":"welcome chips row set from WELCOME_CHIPS (not production)"`) ||
+		strings.Contains(logs, "differs from the welcome_rewards chips") {
+		t.Fatalf("the boot outside production: %s", logs)
+	}
+	var chips int64
+	if err := database.Pool.QueryRow(context.Background(),
+		`SELECT reward_value FROM welcome_rewards WHERE code = 'chips'`).Scan(&chips); err != nil || chips != 999 {
+		t.Fatalf("outside production the row is WELCOME_CHIPS: %d %v", chips, err)
 	}
 
 	unsetCfg := testConfig(t, publicDir(t))
-	unsetCfg.Game.WelcomeChips = 999 // the default, as it were: not set in the environment
+	unsetCfg.Env = config.EnvProduction
+	unsetCfg.Game.WelcomeChips = 500000 // the default, as it were: not set in the environment
 	_, unsetLogs := bootLogged(t, unsetCfg, database)
-	if strings.Contains(unsetLogs.String(), "differs from the welcome_rewards chips") {
-		t.Fatalf("a boot with WELCOME_CHIPS unset warned: %s", unsetLogs.String())
+	if strings.Contains(unsetLogs.String(), "differs from the welcome_rewards chips") ||
+		strings.Contains(unsetLogs.String(), "welcome chips row set") {
+		t.Fatalf("a production boot with WELCOME_CHIPS unset: %s", unsetLogs.String())
+	}
+	if err := database.Pool.QueryRow(context.Background(),
+		`SELECT reward_value FROM welcome_rewards WHERE code = 'chips'`).Scan(&chips); err != nil || chips != 999 {
+		t.Fatalf("production left the row alone: %d %v", chips, err)
 	}
 }
 
