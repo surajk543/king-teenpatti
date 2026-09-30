@@ -94,7 +94,8 @@ type loginRequest struct {
 	DisplayName string `json:"displayName,omitempty"`
 }
 
-// userAnswer is {user} (GET /api/auth/me, POST /api/profile/avatar).
+// userAnswer is {user} (GET /api/auth/me, POST /api/profile/avatar) and the
+// user of POST /api/rewards/bonus's {claimed, amount, readyAt, user}.
 type userAnswer struct {
 	User *protocol.User `json:"user"`
 }
@@ -133,6 +134,17 @@ func (a *HTTPAPI) Tables(ctx context.Context) (protocol.Catalogue, error) {
 // Me is GET /api/auth/me.
 func (a *HTTPAPI) Me(ctx context.Context, token string) (protocol.User, error) {
 	return a.user(ctx, http.MethodGet, "/api/auth/me", token, nil)
+}
+
+// CollectBonus collects the lobby's 6-hour bonus any player may (POST
+// /api/rewards/bonus: 25,000 chips every six hours, back on the game server
+// since 30 Sep 2026) and returns the account after it. A refusal (409
+// reward_not_ready while it recharges, 409 seated at a table, …) is the
+// server's, as an *protocol.APIError. The daily bonus and the hands-played
+// milestone went for good with the lobby rewards (30 Sep 2026): their routes
+// answer 404, and the fleet does not ask them.
+func (a *HTTPAPI) CollectBonus(ctx context.Context, token string) (protocol.User, error) {
+	return a.user(ctx, http.MethodPost, "/api/rewards/bonus", token, struct{}{})
 }
 
 // FreePictureIDs reads GET /api/profiles and keeps FREE, non-RIVE rows, in

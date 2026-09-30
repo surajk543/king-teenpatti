@@ -21,8 +21,9 @@ type account struct {
 	id, device, name, token string
 	chips                   int64
 	picture                 *int64
-	sess                    *session // the live connection, if any
-	seat                    *seat    // where it sits, if anywhere
+	bonusAt                 time.Time // zero: the bonus is ready
+	sess                    *session  // the live connection, if any
+	seat                    *seat     // where it sits, if anywhere
 	conns                   int
 	resume                  *resumeOffer
 }
@@ -87,6 +88,28 @@ func (a api) Me(ctx context.Context, token string) (protocol.User, error) {
 	})
 }
 
+// CollectBonus is POST /api/rewards/bonus: 25,000 chips every six hours,
+// refused 409 seated at a table and 409 reward_not_ready while recharging.
+func (a api) CollectBonus(ctx context.Context, token string) (protocol.User, error) {
+	return call(ctx, a.s, func() (protocol.User, error) {
+		s := a.s
+		acct, err := s.bearer(token)
+		if err != nil {
+			return protocol.User{}, err
+		}
+		if acct.seat != nil {
+			return protocol.User{}, &protocol.APIError{Status: http.StatusConflict, Code: protocol.CodeSeated, Message: "Collect your reward from the lobby, not while you are at a table."}
+		}
+		if s.now().Before(acct.bonusAt) {
+			return protocol.User{}, &protocol.APIError{Status: http.StatusConflict, Code: "reward_not_ready", Message: "The bonus is still recharging."}
+		}
+		acct.chips += bonusChips
+		acct.bonusAt = s.now().Add(bonusEvery)
+		s.stats.Minted += bonusChips
+		return s.userOf(acct), nil
+	})
+}
+
 // FreePictureIDs lists the free profile pictures.
 func (a api) FreePictureIDs(ctx context.Context) ([]int64, error) {
 	if err := ctx.Err(); err != nil {
@@ -115,7 +138,8 @@ func (s *Server) bearer(token string) (*account, error) {
 }
 
 func (s *Server) userOf(a *account) protocol.User {
-	return protocol.User{ID: a.id, DisplayName: a.name, Chips: a.chips, ActivePictureID: a.picture}
+	return protocol.User{ID: a.id, DisplayName: a.name, Chips: a.chips, ActivePictureID: a.picture,
+		Rewards: protocol.Rewards{BonusReadyAt: millis(a.bonusAt)}}
 }
 
 // cleanName keeps letters, marks, digits and spaces, up to the name limit.

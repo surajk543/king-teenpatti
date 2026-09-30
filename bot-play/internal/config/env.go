@@ -30,6 +30,7 @@ var EnvKeys = []string{
 	"LOG_LEVEL",                       // log.level
 	"LOG_FORMAT",                      // log.format
 	"BOT_RECONNECT_MAX_DELAY_SECONDS", // reconnect.max_delay, whole seconds
+	"BOT_COLLECT_BONUS",               // bankroll.collect_bonus
 	"BOT_DEV_REPLENISH",               // bankroll.dev_replenish
 	"BOT_BOOTS_TO_SIT",                // table.boots_to_sit
 	"BOT_LOBBY_TABLES",                // table.lobby_tables, comma-separated entries (seen:200,blind:50000:fleet=50-80)
@@ -215,6 +216,7 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	r.str("LOG_LEVEL", &c.Log.Level)
 	r.str("LOG_FORMAT", &c.Log.Format)
 	r.count("BOT_RECONNECT_MAX_DELAY_SECONDS", &c.Reconnect.MaxDelay, time.Second, "seconds")
+	r.flag("BOT_COLLECT_BONUS", &c.Bankroll.CollectBonus)
 	r.flag("BOT_DEV_REPLENISH", &c.Bankroll.DevReplenish)
 	r.number("BOT_BOOTS_TO_SIT", &c.Table.BootsToSit)
 	r.lobbyTables("BOT_LOBBY_TABLES", &c.Table.LobbyTables, &c.Table.FleetByTable)

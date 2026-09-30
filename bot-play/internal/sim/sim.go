@@ -101,6 +101,8 @@ const (
 	variationWindow    = 10 * time.Second
 	reconnectGrace     = 60 * time.Second
 	resumeOfferFor     = 10 * time.Minute
+	bonusChips         = 25_000
+	bonusEvery         = 6 * time.Hour
 	chatLimit          = 5
 	chatWindow         = 5 * time.Second
 	chatMaxLength      = 140
@@ -213,7 +215,7 @@ func NewServer(cfg Config) *Server {
 type Stats struct {
 	Accounts, Tables, HandsDealt, HandsCompleted, Moves, Refusals, Drops int
 	// Chips is every wallet plus every pot in play; Minted is every chip the
-	// simulation has created (welcome chips). They are equal at
+	// simulation has created (welcome chips and bonuses). They are equal at
 	// all times — the conservation check.
 	Chips, Minted int64
 }

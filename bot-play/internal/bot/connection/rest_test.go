@@ -74,7 +74,7 @@ func answer(status int, body string) func(http.ResponseWriter) {
 	return func(w http.ResponseWriter) { writeJSON(w, status, body) }
 }
 
-const userJSON = `{"id":"u1","displayName":"Bot One","chips":1000000,"activePictureId":null,"email":null,"diamond":9}`
+const userJSON = `{"id":"u1","displayName":"Bot One","chips":1000000,"activePictureId":null,"rewards":{"bonusReadyAt":1790000000000},"email":null,"diamond":9}`
 
 func TestLoginSignsInAGuestDevice(t *testing.T) {
 	rs := newRESTServer(t, map[string]func(http.ResponseWriter){
@@ -86,7 +86,8 @@ func TestLoginSignsInAGuestDevice(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res.Token != "tok-1" || !res.IsNew || res.WelcomeChips != 1000000 ||
-		res.User.ID != "u1" || res.User.Chips != 1000000 || res.User.ActivePictureID != nil {
+		res.User.ID != "u1" || res.User.Chips != 1000000 || res.User.ActivePictureID != nil ||
+		res.User.Rewards.BonusReadyAt != 1790000000000 {
 		t.Fatalf("login decoded as %+v", res)
 	}
 	got := rs.last(t)
@@ -139,14 +140,15 @@ func TestALoginWithoutATokenIsAnError(t *testing.T) {
 
 func TestRefusalsAreAPIErrorsWithTheServersCode(t *testing.T) {
 	rs := newRESTServer(t, map[string]func(http.ResponseWriter){
-		"POST /api/auth/login": answer(429, `{"error":"rate_limited","message":""}`),
+		"POST /api/rewards/bonus": answer(409, `{"error":"reward_not_ready","message":"Your bonus is not ready yet","readyAt":1790000000000,"user":`+userJSON+`}`),
+		"POST /api/auth/login":    answer(429, `{"error":"rate_limited","message":""}`),
 		"GET /api/auth/me": func(w http.ResponseWriter) {
 			w.Header().Set("Content-Type", "text/html")
 			w.WriteHeader(http.StatusBadGateway)
 			_, _ = io.WriteString(w, "<html>502 Bad Gateway</html>")
 		},
 		"GET /api/tables":          answer(503, `{"code":1}`),
-		"POST /api/profile/avatar": answer(403, `{"error":"picture_locked","message":"Buy this picture before wearing it.","pictureId":99}`),
+		"POST /api/profile/avatar": answer(403, `{"error":"picture_locked","message":"Buy this picture before wearing it."}`),
 	})
 	api := NewHTTPAPI(rs.srv.URL, nil)
 	ctx := context.Background()
@@ -161,7 +163,9 @@ func TestRefusalsAreAPIErrorsWithTheServersCode(t *testing.T) {
 			t.Fatalf("APIError %+v, want %d %s %q", ae, status, code, message)
 		}
 	}
-	_, err := api.Login(ctx, "d", "n")
+	_, err := api.CollectBonus(ctx, "tok")
+	check(err, 409, "reward_not_ready", "Your bonus is not ready yet")
+	_, err = api.Login(ctx, "d", "n")
 	check(err, 429, "rate_limited", "")
 	_, err = api.Me(ctx, "tok")
 	check(err, 502, "http_502", "Bad Gateway")
@@ -175,6 +179,7 @@ func TestRefusalsAreAPIErrorsWithTheServersCode(t *testing.T) {
 func TestOnlyAuthenticatedCallsCarryTheBearerToken(t *testing.T) {
 	rs := newRESTServer(t, map[string]func(http.ResponseWriter){
 		"GET /api/auth/me":         answer(200, `{"user":`+userJSON+`}`),
+		"POST /api/rewards/bonus":  answer(200, `{"claimed":true,"amount":10000,"readyAt":1790000000000,"user":`+userJSON+`}`),
 		"POST /api/profile/avatar": answer(200, `{"user":`+userJSON+`}`),
 		"GET /api/tables":          answer(200, `{"version":"v1","tables":[]}`),
 		"GET /api/profiles":        answer(200, `{"profiles":[]}`),
@@ -188,6 +193,13 @@ func TestOnlyAuthenticatedCallsCarryTheBearerToken(t *testing.T) {
 	}
 	if got := rs.last(t); got.auth != "Bearer tok-me" || got.method != http.MethodGet {
 		t.Fatalf("Me sent %+v", got)
+	}
+	u, err = api.CollectBonus(ctx, "tok-bonus")
+	if err != nil || u.ID != "u1" {
+		t.Fatalf("CollectBonus: %+v, %v", u, err)
+	}
+	if got := rs.last(t); got.auth != "Bearer tok-bonus" || got.method != http.MethodPost || got.path != "/api/rewards/bonus" {
+		t.Fatalf("CollectBonus sent %+v", got)
 	}
 	if err := api.WearPicture(ctx, "tok-wear", 7); err != nil {
 		t.Fatal(err)
@@ -308,5 +320,37 @@ func TestTheDefaultClientIsPooledAndBounded(t *testing.T) {
 	own := &http.Client{}
 	if NewHTTPAPI("http://x", own).client != own {
 		t.Fatal("a given client was not used")
+	}
+}
+
+// A broke bot in the lobby takes the 6-hour bonus and nothing else: the
+// daily bonus and the milestone are gone from the game server (30 Sep 2026),
+// so their routes are never asked — here they would answer 404 — and a
+// recharging bonus is the server's refusal.
+func TestCollectBonusAsksTheSixHourBonusAlone(t *testing.T) {
+	ready := newRESTServer(t, map[string]func(http.ResponseWriter){
+		"POST /api/rewards/bonus": answer(200, `{"claimed":true,"amount":25000,"readyAt":1790000000000,"user":`+userJSON+`}`),
+		"POST /api/rewards/daily": answer(404, `{"error":"not_found","message":"Not found"}`),
+	})
+	u, err := NewHTTPAPI(ready.srv.URL, nil).CollectBonus(context.Background(), "tok")
+	if err != nil || u.ID != "u1" {
+		t.Fatalf("the 6-hour bonus: %+v, %v", u, err)
+	}
+	if got := ready.last(t); got.path != "/api/rewards/bonus" || got.method != http.MethodPost {
+		t.Fatalf("CollectBonus asked %+v", got)
+	}
+	ready.mu.Lock()
+	n := len(ready.got)
+	ready.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("CollectBonus made %d requests, want the one", n)
+	}
+	recharging := newRESTServer(t, map[string]func(http.ResponseWriter){
+		"POST /api/rewards/bonus": answer(409, `{"error":"reward_not_ready","message":"Your bonus is not ready yet","readyAt":1790000000000}`),
+	})
+	_, err = NewHTTPAPI(recharging.srv.URL, nil).CollectBonus(context.Background(), "tok")
+	var apiErr *protocol.APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != 409 || apiErr.Code != "reward_not_ready" {
+		t.Fatalf("recharging: %v", err)
 	}
 }

@@ -292,16 +292,59 @@ func TestAFullTableIsRetried(t *testing.T) {
 	again.reply <- roomAck("r3")
 }
 
-// A kick for chips sends the bot back to the lobby to look again for a table
-// its stack admits. There is no lobby reward to collect first: the game
-// server removed the daily, 4-hour and milestone rewards (30 Sep 2026).
-func TestAKickForChipsLooksAgain(t *testing.T) {
+// A bot that signs in broke — no table on the menu admits a stack of
+// nothing — collects the 6-hour bonus (25,000 chips) and sits at a 200 table
+// with it, where it used to rest for ever: the fleet never mints chips
+// against a real server.
+func TestABrokeBotCollectsTheSixHourBonusAndSits(t *testing.T) {
+	fs := newFakeServer(t)
+	fs.mu.Lock()
+	fs.chips = 0
+	fs.bonusChips = 25_000
+	fs.mu.Unlock()
+	h := start(t, fs, nil)
+	s := h.fs.nextSession()
+	s.push(protocol.EvSessionReady, protocol.SessionReady{User: protocol.User{ID: "u-botplay-000001", Chips: 0}})
+	join := s.expect(t, protocol.EvRoomQuickJoin, 10*time.Second, h.advance)
+	join.reply <- roomAck("r1")
+	fs.mu.Lock()
+	collected, chips := fs.bonusChips == 0, fs.chips
+	fs.mu.Unlock()
+	must(t, collected && chips == 25_000, "the broke bot collected the bonus (%d chips) before it sat", chips)
+}
+
+// Collection can be switched off (bankroll.collect_bonus, BOT_COLLECT_BONUS):
+// the broke bot then rests, the bonus left where it is.
+func TestABrokeBotWithCollectionOffRests(t *testing.T) {
+	fs := newFakeServer(t)
+	fs.mu.Lock()
+	fs.chips = 0
+	fs.bonusChips = 25_000
+	fs.mu.Unlock()
+	h := start(t, fs, func(c *config.Config) { c.Bankroll.CollectBonus = false })
+	s := h.fs.nextSession()
+	s.push(protocol.EvSessionReady, protocol.SessionReady{User: protocol.User{ID: "u-botplay-000001", Chips: 0}})
+	h.waitState(state.Resting)
+	fs.mu.Lock()
+	untouched := fs.bonusChips == 25_000
+	fs.mu.Unlock()
+	must(t, untouched, "the bonus was collected with collection off")
+}
+
+func TestAKickForChipsCollectsTheBonusAndLooksAgain(t *testing.T) {
 	fs := newFakeServer(t)
 	h := start(t, fs, nil)
 	s := h.seat()
+	fs.mu.Lock()
+	fs.bonusChips = 25_000
+	fs.mu.Unlock()
 	s.push(protocol.EvRoomKicked, protocol.RoomKicked{RoomID: "r1", Reason: protocol.CodeInsufficientChips})
 	join := s.expect(t, protocol.EvRoomQuickJoin, 10*time.Second, h.advance)
 	join.reply <- roomAck("r4")
+	fs.mu.Lock()
+	collected := fs.bonusChips == 0
+	fs.mu.Unlock()
+	must(t, collected, "the bot collected the lobby bonus before looking again")
 }
 
 func TestAServerRestartIsReconnectedAndPlayResumes(t *testing.T) {

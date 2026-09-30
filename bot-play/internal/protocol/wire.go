@@ -212,10 +212,16 @@ type ActionAck struct {
 // User is the account as the server returns it (login, session:ready,
 // /api/auth/me). Only what a bot reads.
 type User struct {
-	ID              string `json:"id"`
-	DisplayName     string `json:"displayName"`
-	Chips           int64  `json:"chips"`
-	ActivePictureID *int64 `json:"activePictureId"`
+	ID              string  `json:"id"`
+	DisplayName     string  `json:"displayName"`
+	Chips           int64   `json:"chips"`
+	ActivePictureID *int64  `json:"activePictureId"`
+	Rewards         Rewards `json:"rewards"`
+}
+
+// Rewards is user.rewards: when the 6-hour bonus can next be collected.
+type Rewards struct {
+	BonusReadyAt int64 `json:"bonusReadyAt"` // epoch ms; 0 or past = ready
 }
 
 // LoginResult is POST /api/auth/login's answer.

@@ -215,6 +215,9 @@ func (f *fakeAPI) Login(context.Context, string, string) (protocol.LoginResult, 
 func (f *fakeAPI) Me(context.Context, string) (protocol.User, error) {
 	return protocol.User{}, errors.New("unused")
 }
+func (f *fakeAPI) CollectBonus(context.Context, string) (protocol.User, error) {
+	return protocol.User{}, errors.New("unused")
+}
 func (f *fakeAPI) FreePictureIDs(context.Context) ([]int64, error)  { return nil, errors.New("unused") }
 func (f *fakeAPI) WearPicture(context.Context, string, int64) error { return errors.New("unused") }
 

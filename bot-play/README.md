@@ -141,6 +141,7 @@ naming the variable.
 | `LOG_LEVEL` | `info` | `log.level`: debug, info, warn, error |
 | `LOG_FORMAT` | `json` | `log.format`: json or text |
 | `BOT_RECONNECT_MAX_DELAY_SECONDS` | `30` | `reconnect.max_delay` |
+| `BOT_COLLECT_BONUS` | `true` | `bankroll.collect_bonus`: a broke bot collects the 6-hour bonus |
 | `BOT_DEV_REPLENISH` | `false` | `bankroll.dev_replenish`: refused outside simulation |
 | `BOT_BOOTS_TO_SIT` | `25` | `table.boots_to_sit` |
 | `BOT_LOBBY_TABLES` | *(every table)* | `table.lobby_tables`: the lobby tables the fleet plays, comma-separated entries `category:boot`, each optionally `:fleet=FLOOR-CEILING` (*The fleet's layout*, below) |
@@ -175,9 +176,8 @@ The YAML sections, in `configs/bot.yaml`'s order:
   `table_gap_seconds` 6, `table_per_min` 6, `language` `mixed` | `english`.
 - **`reconnect`** — `base_delay_ms` 1000, `max_delay_seconds` 30,
   `max_attempts` 0 (for ever).
-- **`bankroll`** — `dev_replenish` false. (`collect_bonus` went with the lobby
-  rewards the game server removed on 30 Sep 2026; a file that still names it is
-  refused as an unknown key.)
+- **`bankroll`** — `collect_bonus` true (a broke bot collects the lobby's 6-hour
+  bonus, 25,000 chips, `POST /api/rewards/bonus`), `dev_replenish` false.
 - **`debug`** — `addr`, `show_cards`. **`metrics`** — `addr`. **`log`** — `level`,
   `format`.
 
@@ -224,15 +224,21 @@ like the server's (CLAUDE.md §14.4).
 **systemd** (on the game host):
 
 ```bash
-bash ops/build.sh                    # as deploy
+bash ops/build.sh                    # as the checkout's owner
 sudo bash ops/install.sh             # copies ops/bot-play.service to /etc/systemd/system/, enables, restarts
+sudo BOT_USER=gameplay bash ops/install.sh   # the same, run as that user
 journalctl -u bot-play -f            # watch it
 sudo systemctl restart bot-play      # after a rebuild
 sudo systemctl stop bot-play         # every bot finishes its hand and leaves
 sudo bash ops/install.sh uninstall   # stop and remove
 ```
 
-The unit runs `bin/bot-play -config configs/bot.yaml` as `deploy` in
+The unit runs as `BOT_USER` — unset, the user the installed fleet already runs as
+(drop-ins included), else the unit's own `deploy`; production has no `deploy` and
+runs it as `gameplay`, the game server's own user (30 Sep 2026: the unit as
+shipped restart-looped there on systemd's 217/USER, so `install.sh` now refuses a
+user the host does not have, or who cannot run the binary). It runs
+`bin/bot-play -config configs/bot.yaml` in
 `/var/www/gameplay/king-teenpatti/bot-play` with `BOT_MODE=server`,
 `SERVER_URL=http://127.0.0.1:3000`, `BOT_COUNT=450`, the fleet's five lobby
 tables and their sizes (`BOT_LOBBY_TABLES`, `BOT_FLEET_PER_TABLE`, *Production
@@ -715,9 +721,15 @@ hand-for-hand replay is proven on a fake clock in the tests
   9 Sep 2026, to the load generator). Set `SERVER_URL` only for a fleet that
   genuinely runs off-host.
 - **Bankroll: the bots obey the wallet.** They sit only where their stack is
-  admitted, and otherwise rest. There is no lobby reward to collect: the game
-  server removed the daily, 4-hour and milestone rewards on 30 Sep 2026, and the
-  fleet no longer calls `/api/rewards/*`.
+  admitted, and otherwise rest. A bot whose stack no table admits — kicked for
+  chips, refused a seat for them, or signing in broke — first collects the
+  lobby's **6-hour bonus** (25,000 chips, `POST /api/rewards/bonus`) as any player
+  may, and looks again: 25,000 sits at a 200 table, so a broke bot plays again
+  within six hours. Without it (30 Sep 2026, when the game server removed the
+  daily, 4-hour and milestone rewards and the fleet stopped collecting) a broke
+  bot rested for good and the fleet shrank. The daily bonus and the milestone
+  stay gone: their routes answer 404 and the fleet does not ask them.
+  `collect_bonus` (`BOT_COLLECT_BONUS`) switches it off.
   **They never mint chips against a real server**: `dev_replenish` is refused
   outside simulation (the Node fleet's `--on-broke rotate` did mint, one welcome
   per rotation). They buy nothing and spend no hammers, missiles or diamonds.

@@ -121,6 +121,7 @@ reconnect:
   max_attempts: 0                 # 0 = for ever
 
 bankroll:
+  collect_bonus: true             # BOT_COLLECT_BONUS: a broke bot collects the 6-hour bonus, as any player
   # Top a broke bot up from nothing. Refused unless mode is simulation: no
   # chips are ever minted against a real server.
   dev_replenish: false            # BOT_DEV_REPLENISH
