@@ -273,6 +273,15 @@ class Strings {
 
   /// A weekday's short name, 1 Monday … 7 Sunday.
   String weekdayShort(int iso) => _('weekday${iso.clamp(1, 7)}');
+
+  /// The weekly login popup's foot: "Today's reward: 20,000 chips".
+  String todaysReward(String prize) =>
+      _('todaysReward').replaceAll('{prize}', prize);
+
+  /// What the other programs gave with the same tap: "Also: Clapping Hands
+  /// emoji".
+  String rewardsAlso(String list) =>
+      _('rewardsAlso').replaceAll('{list}', list);
   String get luckyPrizes => _('luckyPrizes');
   String get luckyNoPrize => _('luckyNoPrize');
   String get luckyCongrats => _('luckyCongrats');
@@ -1966,6 +1975,8 @@ class Strings {
       'rewardProgramMonthlyLogin': 'Monthly Login Streak',
       'rewardProgramWeeklyCalendar': 'Weekly Calendar Rewards',
       'rewardProgramMonthlyCalendar': 'Monthly Calendar Rewards',
+      'todaysReward': 'Today\'s reward: {prize}',
+      'rewardsAlso': 'Also: {list}',
       'weekday1': 'Mon',
       'weekday2': 'Tue',
       'weekday3': 'Wed',
@@ -2915,6 +2926,8 @@ class Strings {
       'rewardProgramMonthlyLogin': 'मासिक लॉगिन स्ट्रीक',
       'rewardProgramWeeklyCalendar': 'साप्ताहिक कैलेंडर रिवॉर्ड',
       'rewardProgramMonthlyCalendar': 'मासिक कैलेंडर रिवॉर्ड',
+      'todaysReward': 'आज का रिवॉर्ड: {prize}',
+      'rewardsAlso': 'साथ में: {list}',
       'weekday1': 'सोम',
       'weekday2': 'मंगल',
       'weekday3': 'बुध',
@@ -3848,6 +3861,8 @@ class Strings {
       'rewardProgramMonthlyLogin': 'মাসিক লগইন স্ট্রিক',
       'rewardProgramWeeklyCalendar': 'সাপ্তাহিক ক্যালেন্ডার রিওয়ার্ড',
       'rewardProgramMonthlyCalendar': 'মাসিক ক্যালেন্ডার রিওয়ার্ড',
+      'todaysReward': 'আজকের রিওয়ার্ড: {prize}',
+      'rewardsAlso': 'সাথে: {list}',
       'weekday1': 'সোম',
       'weekday2': 'মঙ্গল',
       'weekday3': 'বুধ',
@@ -4780,6 +4795,8 @@ class Strings {
       'rewardProgramMonthlyLogin': 'માસિક લોગિન સ્ટ્રીક',
       'rewardProgramWeeklyCalendar': 'સાપ્તાહિક કૅલેન્ડર રિવોર્ડ',
       'rewardProgramMonthlyCalendar': 'માસિક કૅલેન્ડર રિવોર્ડ',
+      'todaysReward': 'આજનું રિવોર્ડ: {prize}',
+      'rewardsAlso': 'સાથે: {list}',
       'weekday1': 'સોમ',
       'weekday2': 'મંગળ',
       'weekday3': 'બુધ',
@@ -5708,6 +5725,8 @@ class Strings {
       'rewardProgramMonthlyLogin': 'ਮਾਸਿਕ ਲਾਗਇਨ ਸਟ੍ਰੀਕ',
       'rewardProgramWeeklyCalendar': 'ਹਫ਼ਤਾਵਾਰੀ ਕੈਲੰਡਰ ਰਿਵਾਰਡ',
       'rewardProgramMonthlyCalendar': 'ਮਾਸਿਕ ਕੈਲੰਡਰ ਰਿਵਾਰਡ',
+      'todaysReward': 'ਅੱਜ ਦਾ ਰਿਵਾਰਡ: {prize}',
+      'rewardsAlso': 'ਨਾਲ ਹੀ: {list}',
       'weekday1': 'ਸੋਮ',
       'weekday2': 'ਮੰਗਲ',
       'weekday3': 'ਬੁੱਧ',

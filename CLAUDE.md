@@ -1419,7 +1419,9 @@ table." — a CHIPS reward is a lobby-only credit, §5.1) and the wallet limiter
 `{granted:[{programCode, programName, mode, periodType, day, rewardType, rewardValue, rewardRefId, picture?|…, alreadyOwned, claimedAt}],
 programs, user}` — `granted` is what THIS call gave, empty once today is claimed (every later call of the day), so a client celebrates
 exactly that and never twice; idempotent by construction (the action_id is `reward:<userId>:<programCode>:<claimDate>`), so no client
-key. **The login does not claim**: the app claims as its lobby appears (§8.1), which is what keeps a seated player's chips out of it;
+key. **The login does not claim, and nor does the app by itself**: the lobby reads the programs as it appears and puts the weekly
+login popup up while today's is still to collect (§8.1/§8.4); the claim is the player's tap — which is also what keeps a seated
+player's chips out of it;
 **A disabled account** (owner, 26 Sep 2026: "Add a flag is_active in users table by default keep its value true and
 when it is marked false, it means user is disabled … he cannot join the table also"): `users.is_active` (§7.3), switched
 off by hand — `UPDATE users SET is_active = FALSE WHERE id = …` — and back on the same way, with nothing else about the
@@ -2456,16 +2458,20 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   from an older server's `welcomeChips` — replacing an English-only chips line. The picture and table-picture catalogue loaders drop an
   answer made under another token (as the emoji loader did), so a cold start's anonymous read landing late can no longer show a granted
   picture locked. `test/welcome_grant_test.dart`.
-- **The reward programs on the phone** (30 Sep 2026; server §7.2/§7.3; the chip, the screen and the celebration §8.4).
-  `GameState.claimRewardPrograms()` POSTs `/api/reward-programs/claim` whenever the lobby appears (`_RewardsChip`'s first build, once
-  the resume veil is down) and at every `session:ready` in the lobby (`_wire`) — never at a table (`room != null`; the server would
-  answer 409 `seated`, and the lobby asks again on the way back), and a call within `rewardClaimEvery` (30 s) of the last answer is
-  skipped unless `force`d (the rewards screen opening) — and takes the answer's `programs` (`rewardPrograms`, `RewardProgramState` in
-  `dtos.dart`), its `user` (the wallet after) and, when `granted` is not empty, `rewardsGranted` for the celebration; an item won
-  re-reads the catalogues (`_loadPictures`). A 404 or 503 (an older server, none running) leaves `rewardPrograms` null and is no
-  failure; a lost network is one only while nothing is held (`rewardProgramsFailed`; Try again → `loadRewardPrograms()`, the GET,
-  which claims nothing); an answer to a session that has ended is dropped; sign-out and deletion forget everything.
-  `test/reward_programs_test.dart`.
+- **The reward programs on the phone** (30 Sep 2026; server §7.2/§7.3; the popup, the chip, the screen and the celebration §8.4).
+  `GameState.loadRewardPrograms()` GETs `/api/reward-programs` whenever the lobby appears (`_RewardsChip`'s first build, once the
+  resume veil is down), at every `session:ready` in the lobby (`_wire`) and when the rewards screen opens — never at a table — and
+  keeps the answer as `rewardPrograms` (`RewardProgramState` in `dtos.dart`); then `offerWeeklyLogin()` puts the weekly login popup
+  up (`weeklyLoginOffer`) when a WEEKLY login streak's today is still to collect and that day has not been offered this session
+  (`_weeklyOfferedFor`, `<code>:<today>`; the chip's tap offers it `again`). **Nothing is claimed by itself** (owner: "if user has
+  claimed it should not show when user start the app, otherwise show it" — the claim is the player's tap):
+  `claimRewardPrograms({celebrate})` POSTs `/api/reward-programs/claim` on the popup's Collect (`celebrate: false` — the popup shows
+  what was given) or the screen's (the lobby's celebration then shows `rewardsGranted`), answers the grants, takes the answer's
+  `programs` and `user` (the wallet after), re-reads the catalogues when an item was won (`_loadPictures`), and is refused at a table
+  (`room != null`; the server would answer 409 `seated`). A 404 or 503 (an older server, none running) leaves `rewardPrograms` null and
+  is no failure; a lost network is one only while nothing is held (`rewardProgramsFailed`; Try again → `loadRewardPrograms()`); an
+  answer to a session that has ended is dropped; sign-out and deletion forget everything, the popup included.
+  `test/reward_programs_test.dart`, `test/weekly_login_test.dart`.
 - **The app version gate** (owner, 28 Sep 2026; server side §7.1/§7.2 "The app version gate"; `net/app_version.dart`). The app
   **declares itself** — `appPlatformName()` (`android` | `ios` from `defaultTargetPlatform`, null elsewhere) and pubspec's version
   from `package_info_plus` (read and AWAITED at start, 2 s bound — it used to be fire-and-forget) — as `X-App-Platform` /
@@ -3003,9 +3009,34 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
 - **The reward programs** (owner's brief, 30 Sep 2026; `screens/reward_programs_screen.dart`, server side §7.2/§7.3, the claim §8.1).
   **The lobby chip** (`_RewardsChip`, keyed `rewards-chip`) stands beside the Lucky Draw's in the bottom-left corner — the two in one Row
   under `_luckyChip`, so `lobbyNoticeArea` keeps a toast off both: REWARDS over "Collect now", lit, while any program's today is
-  unclaimed, else the longest streak ("3 day streak") or "Collected today"; its room is kept, unseen, while the first claim is out (as
-  the Lucky Draw's is); none from a server with no programs. **The screen** (`showRewardPrograms`, a page risen from the foot like the
-  Lucky Draw's; it claims again as it opens, the day may have turned): one `_ProgramPanel` a program — a LOGIN STREAK / CALENDAR tag
+  unclaimed, else the longest streak ("3 day streak") or "Collected today"; its room is kept, unseen, while the first read is out (as
+  the Lucky Draw's is); none from a server with no programs; a tap opens the weekly login popup while its day waits, else the screen.
+  **The weekly login popup** (owner, the same day: "Use this animation which shows up everyday in case of weekly login and put the
+  prize in blue boxes, it should pop after login and if user has claimed it should not show when user start the app, otherwise show
+  it"; `widgets/weekly_login.dart`): the owner's `assets/animations/WeekLy.json` — a desk calendar, 600×250, 30 fps, 3 s, no 3D,
+  expressions or images, whose seven blue boxes (four on the top row, three on the bottom) pop in one after another over 1.5 s and
+  pop out again by its end — drawn through a window on the card (`WeeklyCalendarGeometry.window`, the outer sparkles let go), played
+  ONCE to `holdFrame` 66 (every box in, before the first leaves) and held there, its white solid hidden, its one darker box drawn the
+  same blue as the other six, and by night its grey skyline ground in charcoal (`WeeklyCalendar.delegates(brightness)`). The seven
+  boxes are Day 1 to Day 7 in reading order and **each day's prize is drawn over its box by Flutter** (`_PrizeInBox`, keyed
+  `weekly-box-<day>`: "Day n" above the box, the prize's mark and figure inside it in white, a green tick when collected, a gold ring
+  — `BlurStyle.outer`, a shadow under a clear box tinted the blue — and a gold label for today, faded with a small lock when not
+  reached), placed from the file's own geometry (`boxCentres`, `boxSide`, read off its layers and held to the file by
+  `test/weekly_login_test.dart`) and popping with its box on the box's own frames (`boxPops`, an `Interval` with `Motion.settle`), so
+  the prize and the box cannot drift apart. `WeeklyLoginOverlay` (a `Positioned.fill` in the lobby's Stack under the celebration,
+  while `weeklyLoginOffer` stands and the resume veil is down): a scrim (a tap outside, the × key and Back — `_BackGuard` — close it),
+  the panel (the Lucky Draw page's glass), the program's name and "2 day streak" / "Start your streak today", the calendar sized to
+  the room left (`WeeklyCalendar.sizeFor`/`widthFor`), then "Today's reward: 20,000 chips" (`todaysReward`) beside the gold **Collect
+  now** key — which claims (`claimRewardPrograms(celebrate: false)`) and turns the foot into what was given: "+ 20,000 chips", the
+  other programs' grants after it ("Also: Clapping Hands emoji", `rewardsAlso`), fireworks, the third box ticked, "3 day streak" and
+  Tap to close; a claim that fails says so in the foot and keeps the key. Offered once a day a session; the next start offers it
+  again while it is still to collect. Two strings in all five languages. `test/weekly_login_test.dart` (58: the file's geometry,
+  layers, pops and traps; the delegates; the prizes over their boxes and popping with them, the file held at its frame; the popup
+  after sign-in, not when collected, Collect and Close, nothing celebrated twice, once a day, the chip, a new day, a tap outside and
+  Back, a failed claim, and 640x360 / 592x360 ×1.25 in all five languages and both themes); pictures by hand,
+  `test/weekly_login_shots.dart`. **The screen** (`showRewardPrograms`, a page risen from the foot like the
+  Lucky Draw's; it reads again as it opens, the day may have turned; a gold **Collect now** key in its header while any program's
+  today waits, `reward-programs-collect`, which claims and closes the screen over the lobby's celebration): one `_ProgramPanel` a program — a LOGIN STREAK / CALENDAR tag
   (gold / the blind table's sapphire), the program's name (the four seeded ones in the player's language, `rewardProgramName`; any other
   by the server's `name`), the headline — **"3 day streak"** (`streakDays`; "Start your streak today" at 0) for a streak, **"Day 10
   reward"** (`calendarDayReward`) for a calendar, the brief's §27 difference kept on the screen — on a second line where the three cannot

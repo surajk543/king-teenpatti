@@ -1,31 +1,30 @@
 // The reward programs (owner, 30 Sep 2026): the login streaks and the
 // calendar rewards the SERVER runs — it decides every day, every reward and
-// every claim; the app claims when the lobby appears, shows what it is told,
-// and celebrates only what a claim's answer says it gave.
+// every claim; the app reads them as the lobby appears, shows what it is
+// told, collects on the player's tap and celebrates only what a claim's
+// answer says it gave.
 //
 // These hold the wire (a program's days, today, the run and the next reward
 // read as sent; a claim's grants; the dates the tiles are labelled with),
-// the words (a reward named in every language), GameState (one POST as the
-// lobby appears, throttled and forced, nothing at a table, an older server,
-// a refusal, a lost network, Try again's GET, sign-out), the lobby chip
-// (Collect now until the claim lands, then the streak; beside the Lucky Draw
-// and clear of the foot's keys; no chip without a program), the screen ("3
-// day streak" over seven tiles, "Day 10 reward" over thirty-one, the next
-// reward, the tiles' words for a screen reader, no line cut at 640x360 x1.25
-// in all five languages) and the celebration (one line per grant, closed by
-// its key; never from anything but a claim's answer).
+// the words (a reward named in every language), GameState (one GET as the
+// lobby appears and nothing claimed by itself; a tap's POST; nothing at a
+// table, an older server, a refusal, a lost network, Try again's GET,
+// sign-out), the lobby chip (Collect now while a day waits, then the streak;
+// beside the Lucky Draw and clear of the foot's keys; no chip without a
+// program), the screen ("3 day streak" over seven tiles, "Day 10 reward"
+// over thirty-one, the next reward, the Collect key, the tiles' words for a
+// screen reader, no line cut at 640x360 x1.25 in all five languages) and the
+// celebration (one line per grant, closed by its key; never from anything but
+// a claim's answer). The weekly login popup is `weekly_login_test.dart`.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
@@ -35,334 +34,20 @@ import 'package:teenpatti/screens/reward_programs_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
-import 'package:teenpatti/widgets/premium_surface.dart';
 
-import 'script_fonts.dart';
-
-const _server = 'http://127.0.0.1:9';
-
-/// Wednesday 7 October 2026, the third day of its week; Saturday 10 October,
-/// the tenth of its month.
-const _wednesday = '2026-10-07';
-const _tenth = '2026-10-10';
-
-Map<String, Object?> _userJson({int chips = 1000000, int hammer = 20}) => {
-  'id': 'u0',
-  'provider': 'guest',
-  'displayName': 'Ravi',
-  'chips': chips,
-  'diamond': 9,
-  'hammer': hammer,
-  'missile': 1,
-  // A standing, so the lobby's foot has its level key.
-  'playerLevel': {
-    'level': 10,
-    'title': 'Rising Star',
-    'icon': '🌟',
-    'xp': 4180,
-    'taxBps': 1743,
-    'next': {
-      'level': 11,
-      'title': 'Pro Player',
-      'icon': '🏅',
-      'minXp': 5200,
-      'taxBps': 1714,
-    },
-  },
-};
-
-Map<String, Object?> _day(
-  int day,
-  String type, {
-  int? value,
-  String? ref,
-  bool claimed = false,
-  Map<String, Object?>? emoji,
-  Map<String, Object?>? picture,
-  Map<String, Object?>? tablePicture,
-  Map<String, Object?>? badge,
-}) => {
-  'day': day,
-  'rewardType': type,
-  'rewardValue': value,
-  'rewardRefId': ref,
-  'claimed': claimed,
-  'emoji': ?emoji,
-  'picture': ?picture,
-  'tablePicture': ?tablePicture,
-  'badge': ?badge,
-};
-
-const _clappingHands = {
-  'id': 5,
-  'name': 'Clapping Hands',
-  'url': 'https://example.test/clap.json',
-  'assetFormat': 'LOTTIE',
-  'currency': 'HAMMER',
-  'type': 'PREMIUM',
-  'cost': 5,
-  'durationDays': 30,
-  'owned': false,
-};
-
-const _lovestruckCat = {
-  'id': 26,
-  'name': 'Lovestruck Cat',
-  'url': 'https://example.test/cat.json',
-  'assetFormat': 'LOTTIE',
-  'currency': 'HAMMER',
-  'type': 'PREMIUM',
-  'cost': 50,
-  'durationDays': 50,
-  'owned': false,
-};
-
-const _linesBackground = {
-  'id': 1,
-  'name': 'Lines Background',
-  'dayUrl': 'https://example.test/lines.json',
-  'nightUrl': 'https://example.test/lines-night.json',
-  'assetFormat': 'LOTTIE',
-  'currency': 'COIN',
-  'type': 'PREMIUM',
-  'cost': 100000,
-  'durationDays': 7,
-  'owned': false,
-};
-
-const _royalAce = {
-  'code': 'ROYAL_ACE',
-  'title': 'Royal Ace',
-  'icon': '🃏',
-  'validityDays': 7,
-  'held': false,
-  'expiresAt': 0,
-};
-
-/// The owner's WEEKLY_LOGIN, as seeded, the first [claimed] days of a run
-/// marked.
-List<Map<String, Object?>> _weeklyLoginRewards({int claimed = 0}) => [
-  _day(1, 'CHIPS', value: 10000, claimed: claimed >= 1),
-  _day(2, 'HAMMER', value: 1, claimed: claimed >= 2),
-  _day(3, 'CHIPS', value: 20000, claimed: claimed >= 3),
-  _day(4, 'DIAMOND', value: 1, claimed: claimed >= 4),
-  _day(5, 'CHIPS', value: 30000, claimed: claimed >= 5),
-  _day(6, 'HAMMER', value: 2, claimed: claimed >= 6),
-  _day(7, 'DIAMOND', value: 1, claimed: claimed >= 7),
-];
-
-/// A month's 31 days: chips on most, an emoji on the 10th, a table picture
-/// on the 25th and a badge on the 31st, the [claimed] days marked.
-List<Map<String, Object?>> _monthlyCalendarRewards({
-  Set<int> claimed = const {},
-}) => [
-  for (var k = 1; k <= 31; k++)
-    switch (k) {
-      10 => _day(
-        k,
-        'EMOJI',
-        ref: '5',
-        claimed: claimed.contains(k),
-        emoji: _clappingHands,
-      ),
-      25 => _day(
-        k,
-        'TABLE_PICTURE',
-        ref: '1',
-        claimed: claimed.contains(k),
-        tablePicture: _linesBackground,
-      ),
-      31 => _day(
-        k,
-        'BADGE',
-        ref: 'ROYAL_ACE',
-        claimed: claimed.contains(k),
-        badge: _royalAce,
-      ),
-      _ => _day(k, 'CHIPS', value: 5000 * k, claimed: claimed.contains(k)),
-    },
-];
-
-Map<String, Object?> _program({
-  required String code,
-  required String mode,
-  required String periodType,
-  bool reset = true,
-}) => {
-  'id': code.hashCode & 0xffff,
-  'code': code,
-  'name': code.replaceAll('_', ' '),
-  'mode': mode,
-  'periodType': periodType,
-  'timezone': 'UTC',
-  'weekStartDay': 1,
-  'resetOnMissedDay': reset,
-  'startsAt': null,
-  'endsAt': null,
-  'periodStart': 1791590400000,
-  'periodEnd': 1792195200000,
-};
-
-/// The weekly streak on its third day (Wednesday), today's collected unless
-/// [claimedToday] says not.
-Map<String, Object?> _streakJson({
-  int day = 3,
-  bool claimedToday = true,
-  String today = _wednesday,
-}) => {
-  'program': _program(
-    code: 'WEEKLY_LOGIN',
-    mode: 'LOGIN_STREAK',
-    periodType: 'WEEKLY',
-  ),
-  'today': today,
-  'dayOfPeriod': 3,
-  'periodDays': 7,
-  'currentDay': day,
-  'claimedToday': claimedToday,
-  'claimedDays': claimedToday ? day : day - 1,
-  'rewards': _weeklyLoginRewards(claimed: claimedToday ? day : day - 1),
-};
-
-/// The monthly calendar on the 10th, six days collected before it (the 4th,
-/// 6th and 8th missed), today's still waiting unless [claimedToday].
-Map<String, Object?> _calendarJson({bool claimedToday = false}) => {
-  'program': _program(
-    code: 'MONTHLY_CALENDAR',
-    mode: 'CALENDAR',
-    periodType: 'MONTHLY',
-    reset: false,
-  ),
-  'today': _tenth,
-  'dayOfPeriod': 10,
-  'periodDays': 31,
-  'currentDay': 10,
-  'claimedToday': claimedToday,
-  'claimedDays': claimedToday ? 7 : 6,
-  'rewards': _monthlyCalendarRewards(
-    claimed: {1, 2, 3, 5, 7, 9, if (claimedToday) 10},
-  ),
-};
-
-Map<String, Object?> _grant({
-  required String code,
-  required int day,
-  required Map<String, Object?> reward,
-  bool alreadyOwned = false,
-}) => {
-  'programCode': code,
-  'programName': code.replaceAll('_', ' '),
-  'mode': code.endsWith('LOGIN') ? 'LOGIN_STREAK' : 'CALENDAR',
-  'periodType': code.startsWith('WEEKLY') ? 'WEEKLY' : 'MONTHLY',
-  'day': day,
-  ...reward,
-  'alreadyOwned': alreadyOwned,
-  'claimedAt': 1791801600000,
-};
-
-/// A claim's answer: what it gave, every program after, the account after.
-Map<String, Object?> _claimJson({
-  List<Map<String, Object?>>? granted,
-  List<Map<String, Object?>>? programs,
-  int chips = 1010000,
-}) => {
-  'granted': granted ?? const [],
-  'programs': programs ?? [_streakJson(), _calendarJson(claimedToday: true)],
-  'user': _userJson(chips: chips),
-};
-
-/// The grants a first claim of the day gives: the streak's Day 3 chips and
-/// the calendar's 10th, an emoji.
-List<Map<String, Object?>> _twoGrants() => [
-  _grant(code: 'WEEKLY_LOGIN', day: 3, reward: _day(3, 'CHIPS', value: 20000)),
-  _grant(
-    code: 'MONTHLY_CALENDAR',
-    day: 10,
-    reward: _day(10, 'EMOJI', ref: '5', emoji: _clappingHands),
-  ),
-];
-
-/// [body] as the server sends it: JSON in UTF-8 (a badge's icon is an emoji,
-/// which `http.Response(String)` would refuse as Latin-1).
-http.Response _json(Object body, [int status = 200]) => http.Response.bytes(
-  utf8.encode(jsonEncode(body)),
-  status,
-  headers: const {'content-type': 'application/json; charset=utf-8'},
-);
-
-/// A fake server: the claim answers [claim] (or [claimResponse]), the read
-/// answers [programs] (or [programsResponse]); every request is kept in
-/// [sent].
-MockClient _fake({
-  required List<http.Request> sent,
-  Map<String, Object?>? claim,
-  http.Response? claimResponse,
-  Map<String, Object?>? programs,
-  http.Response? programsResponse,
-  Completer<void>? release,
-}) => MockClient((request) async {
-  sent.add(request);
-  if (release != null) await release.future;
-  if (request.url.path == '/api/reward-programs/claim') {
-    if (request.method != 'POST') {
-      return _json({'error': 'not_found'}, 404);
-    }
-    return claimResponse ?? _json(claim ?? _claimJson());
-  }
-  if (request.url.path == '/api/reward-programs') {
-    return programsResponse ??
-        _json(
-          programs ??
-              {
-                'programs': [_streakJson(), _calendarJson()],
-              },
-        );
-  }
-  // The lobby's Friends key reads its count as the lobby appears, and
-  // hides itself from a server without the route: nobody waiting here.
-  if (request.url.path == '/api/friends/requests') {
-    return _json({
-      'incoming': const [],
-      'outgoing': const [],
-      'incomingTotal': 0,
-      'outgoingTotal': 0,
-      'nextIncoming': null,
-      'nextOutgoing': null,
-    });
-  }
-  if (request.url.path == '/api/friends') {
-    return _json({'friends': const [], 'total': 0, 'nextCursor': null});
-  }
-  return _json({'error': 'not_found'}, 404);
-});
+import 'reward_fixtures.dart';
 
 List<String> _posts(List<http.Request> sent) => [
   for (final r in sent)
     if (r.method == 'POST') r.url.path,
 ];
 
-GameState _state({AppLang lang = AppLang.english, bool signedIn = true}) {
-  // Play is never started; the override only keeps the purchase plugin from
-  // registering an Android billing client in a unit test.
-  debugDefaultTargetPlatformOverride = TargetPlatform.linux;
-  final state = GameState(serverUrl: _server);
-  debugDefaultTargetPlatformOverride = null;
-  state
-    ..lang = lang
-    ..screen = Screen.lobby
-    ..config = GameConfig.fromJson({
-      'maxPlayers': 5,
-      'minPlayers': 2,
-      'bootAmount': 200,
-      'turnTimeoutMs': 25000,
-      'tables': [
-        {'category': 'seen', 'bootAmount': 200, 'maxPot': 2000000},
-      ],
-    })
-    ..user = User.fromJson(_userJson());
-  if (signedIn) state.debugToken = 'tok';
-  return state;
-}
+/// The reads of the programs (the lobby's Friends key reads its count too).
+List<String> _gets(List<http.Request> sent) => [
+  for (final r in sent)
+    if (r.method == 'GET' && r.url.path.startsWith('/api/reward-programs'))
+      r.url.path,
+];
 
 /// The Lucky Draw's chip in its corner beside the rewards', at its widest.
 LuckyDrawState _luckyDraw() => LuckyDrawState.fromJson({
@@ -390,61 +75,12 @@ RoomState _table() => RoomState.fromJson({
   'seats': const [],
 });
 
-Future<void> _setView(
-  WidgetTester tester, {
-  Size screen = const Size(640, 360),
-  double textScale = 1.0,
-}) async {
-  tester.view.physicalSize = screen;
-  tester.view.devicePixelRatio = 1;
-  tester.platformDispatcher.textScaleFactorTestValue = textScale;
-  addTearDown(tester.view.reset);
-  addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-}
-
-Widget _app(
-  GameState state,
-  FeedbackSettings feedback,
-  Widget home, {
-  Brightness brightness = Brightness.dark,
-}) => MultiProvider(
-  providers: [
-    ChangeNotifierProvider<GameState>.value(value: state),
-    ChangeNotifierProvider<FeedbackSettings>.value(value: feedback),
-  ],
-  child: MaterialApp(
-    debugShowCheckedModeBanner: false,
-    theme: withScriptFallback(
-      brightness == Brightness.dark
-          ? AppTheme.dark(sound: false)
-          : AppTheme.light(sound: false),
-    ),
-    builder: (context, child) => GlassBudget(child: child!),
-    home: home,
-  ),
-);
-
-Future<void> _pumpLobby(
-  WidgetTester tester,
-  GameState state, {
-  Brightness brightness = Brightness.dark,
-}) async {
-  final feedback = FeedbackSettings();
-  addTearDown(feedback.dispose);
-  await tester.pumpWidget(
-    _app(state, feedback, const LobbyScreen(), brightness: brightness),
-  );
-  await tester.pump();
-  await tester.pump(const Duration(seconds: 1));
-  await tester.pump(const Duration(seconds: 1));
-}
-
 /// A bare page with a key that opens the rewards, as the lobby's chip does.
 Future<void> _openScreen(WidgetTester tester, GameState state) async {
   final feedback = FeedbackSettings();
   addTearDown(feedback.dispose);
   await tester.pumpWidget(
-    _app(
+    rewardApp(
       state,
       feedback,
       Builder(
@@ -465,49 +101,10 @@ Future<void> _openScreen(WidgetTester tester, GameState state) async {
   await tester.pump(const Duration(milliseconds: 600));
 }
 
-/// Nothing pumped in the tree ends the lobby's drifting chips before the
-/// state is disposed.
-Future<void> _unmount(WidgetTester tester, GameState state) async {
-  await tester.pumpWidget(const SizedBox.shrink());
-  await tester.pump(const Duration(seconds: 1));
-  state.dispose();
-}
-
-/// Whether every line of [finder]'s paragraphs is whole.
-void _expectWhole(WidgetTester tester, Finder finder, String reason) {
-  for (final paragraph in tester.renderObjectList<RenderParagraph>(
-    find.descendant(of: finder, matching: find.byType(RichText)),
-  )) {
-    expect(
-      paragraph.didExceedMaxLines,
-      isFalse,
-      reason: '$reason: ${paragraph.text.toPlainText()}',
-    );
-  }
-}
-
 void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
-    await loadScriptFonts();
-    // On a Mac (no Noto fonts at the Linux path script_fonts.dart reads) the
-    // system's own Indic fonts stand in under the Noto names, so the four
-    // Indic languages are laid out with real glyph widths here too.
-    if (!haveScriptFonts()) {
-      const mac = {
-        'Noto Sans Devanagari': '/System/Library/Fonts/Kohinoor.ttc',
-        'Noto Sans Bengali': '/System/Library/Fonts/KohinoorBangla.ttc',
-        'Noto Sans Gujarati': '/System/Library/Fonts/KohinoorGujarati.ttc',
-        'Noto Sans Gurmukhi': '/System/Library/Fonts/Supplemental/Gurmukhi.ttf',
-      };
-      for (final MapEntry(key: family, value: path) in mac.entries) {
-        final file = File(path);
-        if (!file.existsSync()) continue;
-        final loader = FontLoader(family)
-          ..addFont(Future.value(ByteData.sublistView(file.readAsBytesSync())));
-        await loader.load();
-      }
-    }
+    await loadRewardFonts();
   });
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -515,14 +112,14 @@ void main() {
     test('a program reads its days in order, today, the run and what is '
         'next', () {
       final s = RewardProgramState.fromJson({
-        ..._streakJson(),
-        'rewards': _weeklyLoginRewards(claimed: 3).reversed.toList(),
+        ...streakJson(),
+        'rewards': weeklyLoginRewards(claimed: 3).reversed.toList(),
       });
       expect(s.program.code, 'WEEKLY_LOGIN');
       expect(s.program.isStreak, isTrue);
       expect(s.program.isWeekly, isTrue);
       expect(s.program.resetOnMissedDay, isTrue);
-      expect(s.today, _wednesday);
+      expect(s.today, wednesday);
       expect(s.dayOfPeriod, 3);
       expect(s.periodDays, 7);
       expect(s.currentDay, 3);
@@ -549,22 +146,22 @@ void main() {
     test('the next reward is today while it waits, tomorrow once collected, '
         'and none past the period', () {
       final waiting = RewardProgramState.fromJson(
-        _streakJson(claimedToday: false),
+        streakJson(claimedToday: false),
       );
       expect(waiting.nextDay, 3);
       expect(waiting.claimedDays, 2);
       final last = RewardProgramState.fromJson(
-        _streakJson(day: 7, claimedToday: true),
+        streakJson(day: 7, claimedToday: true),
       );
       expect(last.nextDay, isNull);
       expect(last.nextReward, isNull);
-      final calendar = RewardProgramState.fromJson(_calendarJson());
+      final calendar = RewardProgramState.fromJson(calendarJson());
       expect(calendar.program.isStreak, isFalse);
       expect(calendar.nextDay, 10);
       expect(calendar.nextReward?.prize.kind, RewardKind.emoji);
       expect(calendar.nextReward?.prize.itemName, 'Clapping Hands');
       final collected = RewardProgramState.fromJson(
-        _calendarJson(claimedToday: true),
+        calendarJson(claimedToday: true),
       );
       expect(collected.nextDay, 11);
       expect(collected.claimedDays, 7);
@@ -572,7 +169,7 @@ void main() {
 
     test("a day's date comes from today: a streak counts back along its "
         'run, a calendar along the period', () {
-      final streak = RewardProgramState.fromJson(_streakJson());
+      final streak = RewardProgramState.fromJson(streakJson());
       // Day 3 is Wednesday 7 October; Day 1 was the Monday, Day 7 will be
       // the Sunday.
       expect(streak.todayDate, DateTime.utc(2026, 10, 7));
@@ -580,16 +177,16 @@ void main() {
       expect(streak.dateOfDay(1), DateTime.utc(2026, 10, 5));
       expect(streak.weekdayOfDay(1), DateTime.monday);
       expect(streak.weekdayOfDay(7), DateTime.sunday);
-      final calendar = RewardProgramState.fromJson(_calendarJson());
+      final calendar = RewardProgramState.fromJson(calendarJson());
       expect(calendar.dateOfDay(1), DateTime.utc(2026, 10, 1));
       expect(calendar.dateOfDay(31), DateTime.utc(2026, 10, 31));
       expect(calendar.weekdayOfDay(1), DateTime.thursday);
       // A streak on Day 5 whose today is the 7th began on the 3rd.
-      final older = RewardProgramState.fromJson(_streakJson(day: 5));
+      final older = RewardProgramState.fromJson(streakJson(day: 5));
       expect(older.dateOfDay(1), DateTime.utc(2026, 10, 3));
       // No date at all: today, at least.
       final bare = RewardProgramState.fromJson({
-        ..._streakJson(),
+        ...streakJson(),
         'today': 'someday',
       });
       final now = DateTime.now().toUtc();
@@ -598,7 +195,7 @@ void main() {
 
     test('a reward is its kind: a wallet amount, an item with its catalogue '
         'row, a badge with its days, or nothing', () {
-      final chips = RewardPrize.fromJson(_day(1, 'CHIPS', value: 10000));
+      final chips = RewardPrize.fromJson(dayJson(1, 'CHIPS', value: 10000));
       expect(chips.kind, RewardKind.chips);
       expect(chips.isWallet, isTrue);
       expect(chips.isItem, isFalse);
@@ -606,7 +203,7 @@ void main() {
       expect(chips.itemName, '');
 
       final emoji = RewardPrize.fromJson(
-        _day(10, 'EMOJI', ref: '5', emoji: _clappingHands),
+        dayJson(10, 'EMOJI', ref: '5', emoji: clappingHands),
       );
       expect(emoji.isItem, isTrue);
       expect(emoji.refId, '5');
@@ -615,33 +212,33 @@ void main() {
       expect(emoji.amount, 0);
 
       final picture = RewardPrize.fromJson(
-        _day(25, 'PROFILE_PICTURE', ref: '26', picture: _lovestruckCat),
+        dayJson(25, 'PROFILE_PICTURE', ref: '26', picture: lovestruckCat),
       );
       expect(picture.picture?.name, 'Lovestruck Cat');
       expect(picture.itemName, 'Lovestruck Cat');
 
       final table = RewardPrize.fromJson(
-        _day(25, 'TABLE_PICTURE', ref: '1', tablePicture: _linesBackground),
+        dayJson(25, 'TABLE_PICTURE', ref: '1', tablePicture: linesBackground),
       );
       expect(table.tablePicture?.name, 'Lines Background');
       expect(table.itemName, 'Lines Background');
 
       final badge = RewardPrize.fromJson(
-        _day(31, 'BADGE', ref: 'ROYAL_ACE', badge: _royalAce),
+        dayJson(31, 'BADGE', ref: 'ROYAL_ACE', badge: royalAce),
       );
       expect(badge.badge?.code, 'ROYAL_ACE');
       expect(badge.badge?.validityDays, 7);
       expect(badge.badge?.held, isFalse);
       expect(badge.itemName, 'Royal Ace');
 
-      final none = RewardPrize.fromJson(_day(4, 'NO_REWARD'));
+      final none = RewardPrize.fromJson(dayJson(4, 'NO_REWARD'));
       expect(none.isNothing, isTrue);
       expect(none.isWallet, isFalse);
       expect(none.isItem, isFalse);
 
       // A kind this build has never heard of is neither a wallet nor an
       // item, and is still read.
-      final other = RewardPrize.fromJson(_day(4, 'CARD_BACK', ref: '9'));
+      final other = RewardPrize.fromJson(dayJson(4, 'CARD_BACK', ref: '9'));
       expect(other.kind, 'CARD_BACK');
       expect(other.isWallet, isFalse);
       expect(other.isItem, isFalse);
@@ -649,7 +246,7 @@ void main() {
 
     test('a claim reads what it gave, every program after and the account', () {
       final r = RewardClaimResult.fromJson(
-        _claimJson(granted: _twoGrants(), chips: 1020000),
+        claimJson(granted: twoGrants(), chips: 1020000),
       );
       expect(r.granted.length, 2);
       final first = r.granted.first;
@@ -684,11 +281,11 @@ void main() {
         'not a program',
         7,
         {
-          ..._streakJson(),
+          ...streakJson(),
           'rewards': [
-            ..._weeklyLoginRewards(),
-            _day(0, 'CHIPS', value: 1),
-            _day(-3, 'CHIPS', value: 1),
+            ...weeklyLoginRewards(),
+            dayJson(0, 'CHIPS', value: 1),
+            dayJson(-3, 'CHIPS', value: 1),
             'not a day',
           ],
         },
@@ -696,7 +293,7 @@ void main() {
       expect(programs.length, 1);
       expect(programs.single.rewards.map((d) => d.day), [1, 2, 3, 4, 5, 6, 7]);
       // A program with no program block reads as nothing, not a crash.
-      final bare = RewardProgramState.fromJson(const {'today': _wednesday});
+      final bare = RewardProgramState.fromJson(const {'today': wednesday});
       expect(bare.program.code, '');
       expect(bare.rewards, isEmpty);
       expect(bare.nextDay, isNull);
@@ -710,30 +307,30 @@ void main() {
         final t = Strings(lang);
         final chips = rewardPrizeLabel(
           t,
-          RewardPrize.fromJson(_day(1, 'CHIPS', value: 10000)),
+          RewardPrize.fromJson(dayJson(1, 'CHIPS', value: 10000)),
         );
         expect(chips, contains('10,000'), reason: lang.name);
         final hammers = rewardPrizeLabel(
           t,
-          RewardPrize.fromJson(_day(6, 'HAMMER', value: 2)),
+          RewardPrize.fromJson(dayJson(6, 'HAMMER', value: 2)),
         );
         expect(hammers, contains('2'), reason: lang.name);
         expect(hammers, isNot(equals(chips)), reason: lang.name);
         final oneHammer = rewardPrizeLabel(
           t,
-          RewardPrize.fromJson(_day(2, 'HAMMER', value: 1)),
+          RewardPrize.fromJson(dayJson(2, 'HAMMER', value: 1)),
         );
         expect(oneHammer, isNot(equals(hammers)), reason: lang.name);
         final diamond = rewardPrizeLabel(
           t,
-          RewardPrize.fromJson(_day(4, 'DIAMOND', value: 1)),
+          RewardPrize.fromJson(dayJson(4, 'DIAMOND', value: 1)),
         );
         expect(diamond, isNotEmpty, reason: lang.name);
         expect(diamond, isNot(equals(oneHammer)), reason: lang.name);
         final emoji = rewardPrizeLabel(
           t,
           RewardPrize.fromJson(
-            _day(10, 'EMOJI', ref: '5', emoji: _clappingHands),
+            dayJson(10, 'EMOJI', ref: '5', emoji: clappingHands),
           ),
         );
         expect(emoji, contains('Clapping Hands'), reason: lang.name);
@@ -741,7 +338,7 @@ void main() {
         final badge = rewardPrizeLabel(
           t,
           RewardPrize.fromJson(
-            _day(31, 'BADGE', ref: 'ROYAL_ACE', badge: _royalAce),
+            dayJson(31, 'BADGE', ref: 'ROYAL_ACE', badge: royalAce),
           ),
         );
         expect(badge, contains('Royal Ace'), reason: lang.name);
@@ -749,18 +346,18 @@ void main() {
         final forever = rewardPrizeLabel(
           t,
           RewardPrize.fromJson(
-            _day(
+            dayJson(
               31,
               'BADGE',
               ref: 'ROYAL_ACE',
-              badge: {..._royalAce, 'validityDays': 0},
+              badge: {...royalAce, 'validityDays': 0},
             ),
           ),
         );
         expect(forever, contains('Royal Ace'), reason: lang.name);
         expect(forever, isNot(contains('7')), reason: lang.name);
         expect(
-          rewardPrizeLabel(t, RewardPrize.fromJson(_day(4, 'NO_REWARD'))),
+          rewardPrizeLabel(t, RewardPrize.fromJson(dayJson(4, 'NO_REWARD'))),
           t.rewardNothing,
           reason: lang.name,
         );
@@ -781,51 +378,78 @@ void main() {
           t.rewardProgramName('DECEMBER_2026', 'December Rewards'),
           'December Rewards',
         );
-        // The headline, both ways, and the seven weekdays.
+        // The headline, both ways, the seven weekdays, and the popup's two.
         expect(t.streakDays(3), contains('3'), reason: lang.name);
         expect(t.streakDays(1), isNot(equals(t.streakDays(2))));
         expect(t.calendarDayReward(10), contains('10'), reason: lang.name);
         final weekdays = {for (var d = 1; d <= 7; d++) t.weekdayShort(d)};
         expect(weekdays.length, 7, reason: lang.name);
+        expect(t.todaysReward(chips), contains(chips), reason: lang.name);
+        expect(t.rewardsAlso(emoji), contains(emoji), reason: lang.name);
       }
     });
 
     test('the short figure on a tile', () {
       expect(
-        rewardPrizeShort(RewardPrize.fromJson(_day(1, 'CHIPS', value: 10000))),
+        rewardPrizeShort(
+          RewardPrize.fromJson(dayJson(1, 'CHIPS', value: 10000)),
+        ),
         '10,000',
       );
       expect(
-        rewardPrizeShort(RewardPrize.fromJson(_day(6, 'HAMMER', value: 2))),
+        rewardPrizeShort(RewardPrize.fromJson(dayJson(6, 'HAMMER', value: 2))),
         '×2',
       );
       expect(
         rewardPrizeShort(
           RewardPrize.fromJson(
-            _day(10, 'EMOJI', ref: '5', emoji: _clappingHands),
+            dayJson(10, 'EMOJI', ref: '5', emoji: clappingHands),
           ),
         ),
         'Clapping Hands',
       );
-      expect(rewardPrizeShort(RewardPrize.fromJson(_day(4, 'NO_REWARD'))), '');
+      expect(
+        rewardPrizeShort(RewardPrize.fromJson(dayJson(4, 'NO_REWARD'))),
+        '',
+      );
     });
   });
 
   group('GameState', () {
+    test('a read is one GET with the session; it claims nothing', () async {
+      final sent = <http.Request>[];
+      await http.runWithClient(() async {
+        final state = rewardState();
+        addTearDown(state.dispose);
+        await state.loadRewardPrograms();
+        expect(_gets(sent), ['/api/reward-programs']);
+        expect(_posts(sent), isEmpty);
+        expect(sent.single.headers['Authorization'], 'Bearer tok');
+        expect(state.rewardPrograms?.map((p) => p.program.code), [
+          'WEEKLY_LOGIN',
+          'MONTHLY_CALENDAR',
+        ]);
+        expect(state.rewardProgramsFailed, isFalse);
+        expect(state.rewardsGranted, isNull);
+        expect(state.user?.chips, 1000000);
+      }, () => fakeRewards(sent: sent));
+    });
+
     test('a claim sends one POST with the session, takes what it gave, the '
         'programs and the account, and celebrates the grants', () async {
       final sent = <http.Request>[];
       await http.runWithClient(
         () async {
-          final state = _state();
+          final state = rewardState();
           addTearDown(state.dispose);
           var notified = 0;
           state.addListener(() => notified++);
-          await state.claimRewardPrograms();
+          final granted = await state.claimRewardPrograms();
           expect(_posts(sent), ['/api/reward-programs/claim']);
           final post = sent.singleWhere((r) => r.method == 'POST');
           expect(post.headers['Authorization'], 'Bearer tok');
           expect(post.body, '{}');
+          expect(granted?.length, 2);
           expect(state.rewardClaimPending, isFalse);
           expect(state.rewardProgramsFailed, isFalse);
           expect(state.rewardPrograms?.map((p) => p.program.code), [
@@ -842,45 +466,59 @@ void main() {
           state.dismissRewardsGranted();
           expect(state.rewardsGranted, isNull);
         },
-        () => _fake(
+        () => fakeRewards(
           sent: sent,
-          claim: _claimJson(granted: _twoGrants(), chips: 1020000),
+          claim: claimJson(granted: twoGrants(), chips: 1020000),
         ),
       );
     });
 
-    test('a second claim within the trust window is not sent; the screen '
-        'opening forces one; nothing granted raises no celebration', () async {
+    test('every tap claims; nothing granted raises no celebration; a claim '
+        'told not to celebrate leaves the celebration to its caller', () async {
       final sent = <http.Request>[];
       await http.runWithClient(() async {
-        final state = _state();
+        final state = rewardState();
         addTearDown(state.dispose);
-        await state.claimRewardPrograms();
-        await state.claimRewardPrograms();
-        expect(_posts(sent).length, 1);
-        await state.claimRewardPrograms(force: true);
+        final first = await state.claimRewardPrograms();
+        final second = await state.claimRewardPrograms();
         expect(_posts(sent).length, 2);
+        expect(first, isEmpty);
+        expect(second, isEmpty);
         expect(state.rewardsGranted, isNull);
         expect(state.rewardPrograms?.length, 2);
         // The shelves were not read: nothing was won.
         expect(sent.map((r) => r.url.path), isNot(contains('/api/profiles')));
-      }, () => _fake(sent: sent, claim: _claimJson()));
+      }, () => fakeRewards(sent: sent, claim: claimJson()));
+      final quiet = <http.Request>[];
+      await http.runWithClient(
+        () async {
+          final state = rewardState();
+          addTearDown(state.dispose);
+          final granted = await state.claimRewardPrograms(celebrate: false);
+          expect(granted?.length, 2);
+          expect(state.rewardsGranted, isNull);
+          expect(state.user?.chips, 1020000);
+        },
+        () => fakeRewards(
+          sent: quiet,
+          claim: claimJson(granted: twoGrants(), chips: 1020000),
+        ),
+      );
     });
 
-    test('nothing is claimed at a table, or signed out', () async {
+    test('nothing is claimed or read at a table, or signed out', () async {
       final sent = <http.Request>[];
       await http.runWithClient(() async {
-        final seated = _state()..room = _table();
+        final seated = rewardState()..room = _table();
         addTearDown(seated.dispose);
-        await seated.claimRewardPrograms();
-        await seated.claimRewardPrograms(force: true);
+        expect(await seated.claimRewardPrograms(), isNull);
         expect(sent, isEmpty);
-        final out = _state(signedIn: false);
+        final out = rewardState(signedIn: false);
         addTearDown(out.dispose);
-        await out.claimRewardPrograms(force: true);
+        expect(await out.claimRewardPrograms(), isNull);
         await out.loadRewardPrograms();
         expect(sent, isEmpty);
-      }, () => _fake(sent: sent));
+      }, () => fakeRewards(sent: sent));
     });
 
     test(
@@ -890,25 +528,23 @@ void main() {
           final sent = <http.Request>[];
           await http.runWithClient(
             () async {
-              final state = _state();
+              final state = rewardState();
               addTearDown(state.dispose);
-              await state.claimRewardPrograms();
-              expect(state.rewardPrograms, isNull);
-              expect(state.rewardProgramsFailed, isFalse);
-              expect(state.rewardsGranted, isNull);
               await state.loadRewardPrograms();
               expect(state.rewardPrograms, isNull);
               expect(state.rewardProgramsFailed, isFalse);
-              // Not trusted as an answer: the next lobby asks again.
-              await state.claimRewardPrograms();
-              expect(_posts(sent).length, 2);
+              expect(state.weeklyLoginOffer, isNull);
+              expect(await state.claimRewardPrograms(), isNull);
+              expect(state.rewardPrograms, isNull);
+              expect(state.rewardProgramsFailed, isFalse);
+              expect(state.rewardsGranted, isNull);
             },
             () {
               final refusal = http.Response(
                 jsonEncode({'error': 'reward_programs_unavailable'}),
                 status,
               );
-              return _fake(
+              return fakeRewards(
                 sent: sent,
                 claimResponse: refusal,
                 programsResponse: refusal,
@@ -923,16 +559,16 @@ void main() {
       final sent = <http.Request>[];
       await http.runWithClient(
         () async {
-          final state = _state();
+          final state = rewardState();
           addTearDown(state.dispose);
-          await state.claimRewardPrograms();
+          expect(await state.claimRewardPrograms(), isNull);
           expect(_posts(sent).length, 1);
           expect(state.rewardPrograms, isNull);
           expect(state.rewardProgramsFailed, isFalse);
           expect(state.rewardsGranted, isNull);
           expect(state.user?.chips, 1000000);
         },
-        () => _fake(
+        () => fakeRewards(
           sent: sent,
           claimResponse: http.Response(
             jsonEncode({
@@ -952,9 +588,9 @@ void main() {
         var down = true;
         await http.runWithClient(
           () async {
-            final state = _state();
+            final state = rewardState();
             addTearDown(state.dispose);
-            await state.claimRewardPrograms();
+            expect(await state.claimRewardPrograms(), isNull);
             expect(state.rewardPrograms, isNull);
             expect(state.rewardProgramsFailed, isTrue);
             // Try again reads without claiming.
@@ -967,7 +603,7 @@ void main() {
             expect(state.rewardsGranted, isNull);
             // Held now: a later loss keeps what is held and says nothing.
             down = true;
-            await state.claimRewardPrograms(force: true);
+            expect(await state.claimRewardPrograms(), isNull);
             expect(state.rewardPrograms?.length, 2);
             expect(state.rewardProgramsFailed, isFalse);
           },
@@ -975,11 +611,11 @@ void main() {
             sent.add(request);
             if (down) throw const SocketException('no route');
             if (request.url.path == '/api/reward-programs') {
-              return _json({
-                'programs': [_streakJson(), _calendarJson()],
+              return rewardJson({
+                'programs': [streakJson(), calendarJson()],
               });
             }
-            return http.Response(jsonEncode({'error': 'not_found'}), 404);
+            return rewardJson({'error': 'not_found'}, 404);
           }),
         );
       },
@@ -990,45 +626,53 @@ void main() {
       final release = Completer<void>();
       await http.runWithClient(
         () async {
-          final state = _state();
+          final state = rewardState();
           addTearDown(state.dispose);
           final claim = state.claimRewardPrograms();
           expect(state.rewardClaimPending, isTrue);
           await state.signOut();
           release.complete();
-          await claim;
+          expect(await claim, isNull);
           expect(state.rewardPrograms, isNull);
           expect(state.rewardsGranted, isNull);
           expect(state.user, isNull);
         },
-        () => _fake(
+        () => fakeRewards(
           sent: sent,
           release: release,
-          claim: _claimJson(granted: _twoGrants()),
+          claim: claimJson(granted: twoGrants()),
         ),
       );
     });
 
-    test('sign-out forgets the programs and the celebration', () async {
-      final sent = <http.Request>[];
-      await http.runWithClient(
-        () async {
-          final state = _state();
-          addTearDown(state.dispose);
-          await state.claimRewardPrograms();
-          expect(state.rewardPrograms, isNotNull);
-          expect(state.rewardsGranted, isNotNull);
-          await state.signOut();
-          expect(state.rewardPrograms, isNull);
-          expect(state.rewardsGranted, isNull);
-          expect(state.rewardProgramsFailed, isFalse);
-        },
-        () => _fake(
-          sent: sent,
-          claim: _claimJson(granted: _twoGrants()),
-        ),
-      );
-    });
+    test(
+      'sign-out forgets the programs, the popup and the celebration',
+      () async {
+        final sent = <http.Request>[];
+        await http.runWithClient(
+          () async {
+            final state = rewardState();
+            addTearDown(state.dispose);
+            await state.claimRewardPrograms();
+            expect(state.rewardPrograms, isNotNull);
+            expect(state.rewardsGranted, isNotNull);
+            await state.loadRewardPrograms();
+            await state.signOut();
+            expect(state.rewardPrograms, isNull);
+            expect(state.rewardsGranted, isNull);
+            expect(state.weeklyLoginOffer, isNull);
+            expect(state.rewardProgramsFailed, isFalse);
+          },
+          () => fakeRewards(
+            sent: sent,
+            claim: claimJson(granted: twoGrants()),
+            programs: {
+              'programs': [streakJson(claimedToday: false), calendarJson()],
+            },
+          ),
+        );
+      },
+    );
 
     test(
       'the API answers null on 404 and 503, throws the refusal otherwise',
@@ -1036,7 +680,7 @@ void main() {
         for (final status in [404, 503]) {
           await http.runWithClient(
             () async {
-              final api = ApiClient(_server);
+              final api = ApiClient(rewardServer);
               expect(await api.rewardPrograms('tok'), isNull);
               expect(await api.claimRewardPrograms('tok'), isNull);
             },
@@ -1051,7 +695,7 @@ void main() {
         await http.runWithClient(
           () async {
             await expectLater(
-              ApiClient(_server).claimRewardPrograms('tok'),
+              ApiClient(rewardServer).claimRewardPrograms('tok'),
               throwsA(
                 isA<ApiException>().having((e) => e.code, 'code', 'seated'),
               ),
@@ -1069,17 +713,21 @@ void main() {
   });
 
   group('the lobby', () {
-    testWidgets('claims as it appears, keeps the chip\'s room meanwhile, then '
-        'says the streak and opens the screen', (tester) async {
-      await _setView(tester);
+    testWidgets('reads as it appears and claims nothing, keeps the chip\'s '
+        'room meanwhile, then says the streak and opens the screen', (
+      tester,
+    ) async {
+      await setRewardView(tester);
       final sent = <http.Request>[];
       final release = Completer<void>();
       await http.runWithClient(
         () async {
-          final state = _state();
-          await _pumpLobby(tester, state);
-          // The claim is out: one POST, the chip's room kept and nothing shown.
-          expect(_posts(sent), ['/api/reward-programs/claim']);
+          final state = rewardState();
+          await pumpRewardLobby(tester, state);
+          // The read is out: one GET, no POST, the chip's room kept and
+          // nothing shown.
+          expect(_gets(sent), ['/api/reward-programs']);
+          expect(_posts(sent), isEmpty);
           expect(find.byKey(const ValueKey('rewards-chip')), findsNothing);
           final held = find.ancestor(
             of: find.text(state.t.rewardsChip),
@@ -1090,7 +738,8 @@ void main() {
           release.complete();
           await tester.pump();
           await tester.pump(const Duration(seconds: 1));
-          // Landed, everything collected: the chip says the streak.
+          // Landed, everything collected: the chip says the streak, no
+          // popup, no celebration.
           final chip = find.byKey(const ValueKey('rewards-chip'));
           expect(chip, findsOneWidget);
           expect(
@@ -1104,26 +753,24 @@ void main() {
             ),
             findsOneWidget,
           );
-          // The celebration of what the claim gave.
           expect(
-            find.byKey(const ValueKey('rewards-celebration')),
-            findsOneWidget,
+            find.byKey(const ValueKey('weekly-login-overlay')),
+            findsNothing,
           );
-          await tester.tap(find.text(state.t.tapToClose));
-          await tester.pump();
-          await tester.pump(const Duration(milliseconds: 400));
           expect(
             find.byKey(const ValueKey('rewards-celebration')),
             findsNothing,
           );
-          // A tap opens the screen, which claims again — the day may have
+          expect(_posts(sent), isEmpty);
+          // A tap opens the screen, which reads again — the day may have
           // turned — and shows the programs.
           await tester.tap(chip);
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 600));
           await tester.pump(const Duration(milliseconds: 600));
           expect(find.byType(RewardProgramsScreen), findsOneWidget);
-          expect(_posts(sent).length, 2);
+          expect(_gets(sent).length, 2);
+          expect(_posts(sent), isEmpty);
           expect(
             find.byKey(const ValueKey('reward-program-WEEKLY_LOGIN')),
             findsOneWidget,
@@ -1132,12 +779,14 @@ void main() {
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 600));
           expect(find.byType(RewardProgramsScreen), findsNothing);
-          await _unmount(tester, state);
+          await unmountReward(tester, state);
         },
-        () => _fake(
+        () => fakeRewards(
           sent: sent,
           release: release,
-          claim: _claimJson(granted: _twoGrants(), chips: 1020000),
+          programs: {
+            'programs': [streakJson(), calendarJson(claimedToday: true)],
+          },
         ),
       );
     });
@@ -1145,12 +794,12 @@ void main() {
     testWidgets('while a reward waits the chip says Collect now', (
       tester,
     ) async {
-      await _setView(tester);
+      await setRewardView(tester);
       final sent = <http.Request>[];
       await http.runWithClient(
         () async {
-          final state = _state();
-          await _pumpLobby(tester, state);
+          final state = rewardState();
+          await pumpRewardLobby(tester, state);
           final chip = find.byKey(const ValueKey('rewards-chip'));
           expect(chip, findsOneWidget);
           expect(
@@ -1160,32 +809,35 @@ void main() {
             ),
             findsOneWidget,
           );
-          await _unmount(tester, state);
+          await unmountReward(tester, state);
         },
-        () => _fake(
+        () => fakeRewards(
           sent: sent,
-          claim: _claimJson(
-            programs: [_streakJson(claimedToday: false), _calendarJson()],
-          ),
+          programs: {
+            'programs': [streakJson(), calendarJson()],
+          },
         ),
       );
     });
 
     testWidgets('a server with no programs shows no chip', (tester) async {
-      await _setView(tester);
+      await setRewardView(tester);
       final sent = <http.Request>[];
       await http.runWithClient(
         () async {
-          final state = _state();
-          await _pumpLobby(tester, state);
-          expect(_posts(sent), ['/api/reward-programs/claim']);
+          final state = rewardState();
+          await pumpRewardLobby(tester, state);
+          expect(_gets(sent), ['/api/reward-programs']);
           expect(find.byKey(const ValueKey('rewards-chip')), findsNothing);
           expect(find.text(state.t.rewardsChip), findsNothing);
-          await _unmount(tester, state);
+          await unmountReward(tester, state);
         },
-        () => _fake(
+        () => fakeRewards(
           sent: sent,
-          claimResponse: http.Response(jsonEncode({'error': 'not_found'}), 404),
+          programsResponse: http.Response(
+            jsonEncode({'error': 'not_found'}),
+            404,
+          ),
         ),
       );
     });
@@ -1202,63 +854,71 @@ void main() {
           '(${brightness.name}) the chip stands beside the Lucky Draw, on '
           'the screen, clear of the foot keys, and a toast keeps off it',
           (tester) async {
-            await _setView(tester, screen: screen, textScale: scale);
+            await setRewardView(tester, screen: screen, textScale: scale);
             final sent = <http.Request>[];
-            await http.runWithClient(() async {
-              final state = _state()..luckyDraw = _luckyDraw();
-              await _pumpLobby(tester, state, brightness: brightness);
-              expect(tester.takeException(), isNull);
-              final t = state.t;
-              final rewards = tester.getRect(
-                find.byKey(const ValueKey('rewards-chip')),
-              );
-              final lucky = tester.getRect(
-                find.byKey(const ValueKey('lucky-draw-chip')),
-              );
-              final level = tester.getRect(
-                find.byKey(const ValueKey('level-key')),
-              );
-              final friends = tester.getRect(find.byTooltip(t.friends));
-              final onScreen = Offset.zero & screen;
-              for (final (name, r) in [
-                ('the rewards', rewards),
-                ('the Lucky Draw', lucky),
-                ('the level key', level),
-                ('Friends', friends),
-              ]) {
-                expect(r.isEmpty, isFalse, reason: name);
-                expect(
-                  onScreen.contains(r.topLeft) &&
-                      onScreen.contains(r.bottomRight - const Offset(1, 1)),
-                  isTrue,
-                  reason: '$name at $r',
+            await http.runWithClient(
+              () async {
+                final state = rewardState()..luckyDraw = _luckyDraw();
+                await pumpRewardLobby(tester, state, brightness: brightness);
+                expect(tester.takeException(), isNull);
+                final t = state.t;
+                final rewards = tester.getRect(
+                  find.byKey(const ValueKey('rewards-chip')),
                 );
-                expect(
-                  r.height,
-                  greaterThanOrEqualTo(Dim.minTouch),
-                  reason: name,
+                final lucky = tester.getRect(
+                  find.byKey(const ValueKey('lucky-draw-chip')),
                 );
-              }
-              // In the left-hand corner after the Lucky Draw, level with it.
-              expect(rewards.left, greaterThanOrEqualTo(lucky.right));
-              expect((rewards.bottom - lucky.bottom).abs(), lessThan(1));
-              expect(rewards.overlaps(lucky), isFalse);
-              expect(rewards.overlaps(level), isFalse);
-              expect(rewards.overlaps(friends), isFalse);
-              expect(rewards.right, lessThan(level.left));
-              // Its two lines whole.
-              _expectWhole(
-                tester,
-                find.byKey(const ValueKey('rewards-chip')),
-                '${screen.width.toInt()} x$scale',
-              );
-              // A toast keeps off both chips.
-              final lobby = tester.element(find.byType(LobbyScreen));
-              final toast = lobbyNoticeArea(lobby);
-              expect(toast, isNotNull);
-              expect(toast!.left, greaterThanOrEqualTo(rewards.right));
-              await _unmount(tester, state);
-            }, () => _fake(sent: sent, claim: _claimJson()));
+                final level = tester.getRect(
+                  find.byKey(const ValueKey('level-key')),
+                );
+                final friends = tester.getRect(find.byTooltip(t.friends));
+                final onScreen = Offset.zero & screen;
+                for (final (name, r) in [
+                  ('the rewards', rewards),
+                  ('the Lucky Draw', lucky),
+                  ('the level key', level),
+                  ('Friends', friends),
+                ]) {
+                  expect(r.isEmpty, isFalse, reason: name);
+                  expect(
+                    onScreen.contains(r.topLeft) &&
+                        onScreen.contains(r.bottomRight - const Offset(1, 1)),
+                    isTrue,
+                    reason: '$name at $r',
+                  );
+                  expect(
+                    r.height,
+                    greaterThanOrEqualTo(Dim.minTouch),
+                    reason: name,
+                  );
+                }
+                // In the left-hand corner after the Lucky Draw, level with it.
+                expect(rewards.left, greaterThanOrEqualTo(lucky.right));
+                expect((rewards.bottom - lucky.bottom).abs(), lessThan(1));
+                expect(rewards.overlaps(lucky), isFalse);
+                expect(rewards.overlaps(level), isFalse);
+                expect(rewards.overlaps(friends), isFalse);
+                expect(rewards.right, lessThan(level.left));
+                // Its two lines whole.
+                expectRewardWhole(
+                  tester,
+                  find.byKey(const ValueKey('rewards-chip')),
+                  '${screen.width.toInt()} x$scale',
+                );
+                // A toast keeps off both chips.
+                final lobby = tester.element(find.byType(LobbyScreen));
+                final toast = lobbyNoticeArea(lobby);
+                expect(toast, isNotNull);
+                expect(toast!.left, greaterThanOrEqualTo(rewards.right));
+                await unmountReward(tester, state);
+              },
+              () => fakeRewards(
+                sent: sent,
+                programs: {
+                  'programs': [streakJson(), calendarJson(claimedToday: true)],
+                },
+              ),
+            );
           },
         );
       }
@@ -1268,22 +928,22 @@ void main() {
   group('the screen', () {
     testWidgets('a streak is headed by its run, a calendar by its day; the '
         'week has seven tiles and the month thirty-one; the next reward is '
-        'named; and every tile says its day, its reward and its standing', (
-      tester,
-    ) async {
-      await _setView(tester, textScale: 1.25);
+        'named; every tile says its day, its reward and its standing; and '
+        'Collect claims and closes', (tester) async {
+      await setRewardView(tester, textScale: 1.25);
       final sent = <http.Request>[];
       await http.runWithClient(
         () async {
-          final state = _state();
+          final state = rewardState();
           final handle = tester.ensureSemantics();
           await _openScreen(tester, state);
           final t = state.t;
           expect(tester.takeException(), isNull);
           expect(find.byType(RewardProgramsScreen), findsOneWidget);
           expect(find.text(t.rewardsTitle), findsOneWidget);
-          // Opening claimed (forced), and the screen shows the answer.
-          expect(_posts(sent), ['/api/reward-programs/claim']);
+          // Opening read (no claim), and the screen shows the answer.
+          expect(_gets(sent), ['/api/reward-programs']);
+          expect(_posts(sent), isEmpty);
 
           // The streak: "3 day streak", LOGIN STREAK, seven tiles, Day 4's
           // diamond next.
@@ -1333,12 +993,12 @@ void main() {
             contains(
               rewardPrizeLabel(
                 t,
-                RewardPrize.fromJson(_day(4, 'DIAMOND', value: 1)),
+                RewardPrize.fromJson(dayJson(4, 'DIAMOND', value: 1)),
               ),
             ),
           );
-          // What a screen reader hears of Day 3 — today's, collected — and of
-          // Day 5, not reached, and Day 1, collected on Monday.
+          // What a screen reader hears of Day 3 — today's, collected — and
+          // of Day 5, not reached, and Day 1, collected on Monday.
           String heard(String code, int k) => tester
               .getSemantics(find.byKey(ValueKey('reward-day-$code-$k')))
               .label;
@@ -1349,8 +1009,8 @@ void main() {
           expect(heard('WEEKLY_LOGIN', 5), contains(t.rewardTileLocked));
           expect(heard('WEEKLY_LOGIN', 1), contains(t.weekdayShort(1)));
 
-          // The calendar: "Day 10 reward", CALENDAR, thirty-one tiles, the 4th
-          // missed, the 10th today's and waiting, the emoji next.
+          // The calendar: "Day 10 reward", CALENDAR, thirty-one tiles, the
+          // 4th missed, the 10th today's and waiting, the emoji next.
           final list = find.byKey(const ValueKey('reward-programs-list'));
           final calendar = find.byKey(
             const ValueKey('reward-program-MONTHLY_CALENDAR'),
@@ -1400,22 +1060,62 @@ void main() {
             contains('Clapping Hands'),
           );
           handle.dispose();
-          await _unmount(tester, state);
+
+          // The calendar's 10th waits: Collect stands, claims on a tap, and
+          // the screen closes over the lobby's celebration.
+          final collect = find.byKey(const ValueKey('reward-programs-collect'));
+          expect(collect, findsOneWidget);
+          await tester.tap(collect);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 600));
+          await tester.pump(const Duration(milliseconds: 600));
+          expect(_posts(sent), ['/api/reward-programs/claim']);
+          expect(find.byType(RewardProgramsScreen), findsNothing);
+          expect(state.rewardsGranted?.length, 2);
+          expect(state.user?.chips, 1020000);
+          await unmountReward(tester, state);
         },
-        () => _fake(
+        () => fakeRewards(
           sent: sent,
-          claim: _claimJson(programs: [_streakJson(), _calendarJson()]),
+          programs: {
+            'programs': [streakJson(), calendarJson()],
+          },
+          claim: claimJson(granted: twoGrants(), chips: 1020000),
+        ),
+      );
+    });
+
+    testWidgets('with everything collected there is no Collect key', (
+      tester,
+    ) async {
+      await setRewardView(tester);
+      final sent = <http.Request>[];
+      await http.runWithClient(
+        () async {
+          final state = rewardState();
+          await _openScreen(tester, state);
+          expect(
+            find.byKey(const ValueKey('reward-programs-collect')),
+            findsNothing,
+          );
+          await unmountReward(tester, state);
+        },
+        () => fakeRewards(
+          sent: sent,
+          programs: {
+            'programs': [streakJson(), calendarJson(claimedToday: true)],
+          },
         ),
       );
     });
 
     testWidgets('a streak not yet begun says so, and a day that gives '
         'nothing is drawn as none', (tester) async {
-      await _setView(tester);
+      await setRewardView(tester);
       final sent = <http.Request>[];
       await http.runWithClient(
         () async {
-          final state = _state();
+          final state = rewardState();
           final handle = tester.ensureSemantics();
           await _openScreen(tester, state);
           final t = state.t;
@@ -1436,33 +1136,33 @@ void main() {
             contains(t.rewardNothing),
           );
           handle.dispose();
-          await _unmount(tester, state);
+          await unmountReward(tester, state);
         },
-        () => _fake(
+        () => fakeRewards(
           sent: sent,
-          claim: _claimJson(
-            programs: [
+          programs: {
+            'programs': [
               {
-                ..._streakJson(day: 1, claimedToday: false),
+                ...streakJson(day: 1, claimedToday: false),
                 'rewards': [
-                  _day(1, 'CHIPS', value: 10000),
-                  _day(3, 'CHIPS', value: 20000),
+                  dayJson(1, 'CHIPS', value: 10000),
+                  dayJson(3, 'CHIPS', value: 20000),
                 ],
               },
             ],
-          ),
+          },
         ),
       );
     });
 
     testWidgets('with nothing running it says so; a failed read offers Try '
         'again, which reads without claiming', (tester) async {
-      await _setView(tester);
+      await setRewardView(tester);
       final sent = <http.Request>[];
       var down = true;
       await http.runWithClient(
         () async {
-          final state = _state();
+          final state = rewardState();
           await _openScreen(tester, state);
           final t = state.t;
           expect(find.text(t.rewardLoadFailed), findsOneWidget);
@@ -1475,12 +1175,12 @@ void main() {
           expect(sent.last.url.path, '/api/reward-programs');
           expect(find.text(t.rewardNone), findsOneWidget);
           expect(find.text(t.luckyRetry), findsNothing);
-          await _unmount(tester, state);
+          await unmountReward(tester, state);
         },
         () => MockClient((request) async {
           sent.add(request);
           if (down) throw const SocketException('no route');
-          return _json({'programs': const []});
+          return rewardJson({'programs': const []});
         }),
       );
     });
@@ -1488,16 +1188,16 @@ void main() {
     for (final lang in AppLang.values) {
       testWidgets('fits a 640x360 phone at text x1.25 in ${lang.name}, no '
           'line cut, in both themes', (tester) async {
-        await _setView(tester, textScale: 1.25);
+        await setRewardView(tester, textScale: 1.25);
         for (final brightness in Brightness.values) {
           final sent = <http.Request>[];
           await http.runWithClient(
             () async {
-              final state = _state(lang: lang);
+              final state = rewardState(lang: lang);
               final feedback = FeedbackSettings();
               addTearDown(feedback.dispose);
               await tester.pumpWidget(
-                _app(
+                rewardApp(
                   state,
                   feedback,
                   Builder(
@@ -1520,6 +1220,17 @@ void main() {
               expect(tester.takeException(), isNull);
               final reason = '${lang.name} ${brightness.name}';
               final view = Offset.zero & const Size(640, 360);
+              // The Collect key, whole and on the screen.
+              final collect = find.byKey(
+                const ValueKey('reward-programs-collect'),
+              );
+              expect(collect, findsOneWidget, reason: reason);
+              expectRewardWhole(tester, collect, '$reason collect');
+              expect(
+                view.contains(tester.getRect(collect).bottomRight),
+                isTrue,
+                reason: reason,
+              );
               for (final code in const ['WEEKLY_LOGIN', 'MONTHLY_CALENDAR']) {
                 final panel = find.byKey(ValueKey('reward-program-$code'));
                 await tester.dragUntilVisible(
@@ -1528,7 +1239,7 @@ void main() {
                   const Offset(0, -120),
                 );
                 await tester.pump();
-                _expectWhole(tester, panel, reason);
+                expectRewardWhole(tester, panel, reason);
                 final headline = find.byKey(ValueKey('reward-headline-$code'));
                 expect(
                   tester
@@ -1565,13 +1276,15 @@ void main() {
                   findsNWidgets(code == 'WEEKLY_LOGIN' ? 7 : 31),
                   reason: '$reason $code',
                 );
-                _expectWhole(tester, tiles, '$reason $code tiles');
+                expectRewardWhole(tester, tiles, '$reason $code tiles');
               }
-              await _unmount(tester, state);
+              await unmountReward(tester, state);
             },
-            () => _fake(
+            () => fakeRewards(
               sent: sent,
-              claim: _claimJson(programs: [_streakJson(), _calendarJson()]),
+              programs: {
+                'programs': [streakJson(), calendarJson()],
+              },
             ),
           );
         }
@@ -1583,104 +1296,123 @@ void main() {
     testWidgets('lists what the claim gave, one line each, and closes', (
       tester,
     ) async {
-      await _setView(tester);
+      await setRewardView(tester);
       final sent = <http.Request>[];
-      await http.runWithClient(() async {
-        final state = _state()
-          ..rewardPrograms = rewardProgramsFromJson([
-            _streakJson(),
-            _calendarJson(claimedToday: true),
-          ])
-          ..rewardsGranted = [
-            for (final g in [
-              ..._twoGrants(),
-              _grant(
-                code: 'MONTHLY_CALENDAR',
-                day: 25,
-                reward: _day(
-                  25,
-                  'TABLE_PICTURE',
-                  ref: '1',
-                  tablePicture: _linesBackground,
-                ),
-                alreadyOwned: true,
-              ),
+      await http.runWithClient(
+        () async {
+          final state = rewardState()
+            ..rewardPrograms = rewardProgramsFromJson([
+              streakJson(),
+              calendarJson(claimedToday: true),
             ])
-              RewardGrant.fromJson(g),
-          ];
-        await _pumpLobby(tester, state);
-        expect(tester.takeException(), isNull);
-        final t = state.t;
-        final party = find.byKey(const ValueKey('rewards-celebration'));
-        expect(party, findsOneWidget);
-        expect(
-          find.descendant(
-            of: party,
-            matching: find.text(t.rewardsCollectedTitle),
-          ),
-          findsOneWidget,
-        );
-        String lineOf(Map<String, Object?> reward) =>
-            rewardPrizeLabel(t, RewardPrize.fromJson(reward));
-        expect(
-          find.descendant(
-            of: party,
-            matching: find.text('+ ${lineOf(_day(3, 'CHIPS', value: 20000))}'),
-          ),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(
-            of: party,
-            matching: find.text(
-              lineOf(_day(10, 'EMOJI', ref: '5', emoji: _clappingHands)),
+            ..rewardsGranted = [
+              for (final g in [
+                ...twoGrants(),
+                grantJson(
+                  code: 'MONTHLY_CALENDAR',
+                  day: 25,
+                  reward: dayJson(
+                    25,
+                    'TABLE_PICTURE',
+                    ref: '1',
+                    tablePicture: linesBackground,
+                  ),
+                  alreadyOwned: true,
+                ),
+              ])
+                RewardGrant.fromJson(g),
+            ];
+          await pumpRewardLobby(tester, state);
+          expect(tester.takeException(), isNull);
+          final t = state.t;
+          final party = find.byKey(const ValueKey('rewards-celebration'));
+          expect(party, findsOneWidget);
+          expect(
+            find.descendant(
+              of: party,
+              matching: find.text(t.rewardsCollectedTitle),
             ),
-          ),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(
-            of: party,
-            matching: find.textContaining(t.rewardAlreadyOwned),
-          ),
-          findsOneWidget,
-        );
-        expect(
-          find.descendant(
-            of: party,
-            matching: find.textContaining(
-              t.rewardProgramName('WEEKLY_LOGIN', ''),
+            findsOneWidget,
+          );
+          String lineOf(Map<String, Object?> reward) =>
+              rewardPrizeLabel(t, RewardPrize.fromJson(reward));
+          expect(
+            find.descendant(
+              of: party,
+              matching: find.text(
+                '+ ${lineOf(dayJson(3, 'CHIPS', value: 20000))}',
+              ),
             ),
-          ),
-          findsOneWidget,
-        );
-        // The lobby's own purchase celebration is not shown as well.
-        expect(find.text(t.rewardCollected), findsNothing);
-        await tester.tap(find.text(t.tapToClose));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 400));
-        expect(state.rewardsGranted, isNull);
-        expect(party, findsNothing);
-        await _unmount(tester, state);
-      }, () => _fake(sent: sent, claim: _claimJson()));
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(
+              of: party,
+              matching: find.text(
+                lineOf(dayJson(10, 'EMOJI', ref: '5', emoji: clappingHands)),
+              ),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(
+              of: party,
+              matching: find.textContaining(t.rewardAlreadyOwned),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(
+              of: party,
+              matching: find.textContaining(
+                t.rewardProgramName('WEEKLY_LOGIN', ''),
+              ),
+            ),
+            findsOneWidget,
+          );
+          // The lobby's own purchase celebration is not shown as well.
+          expect(find.text(t.rewardCollected), findsNothing);
+          await tester.tap(find.text(t.tapToClose));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 400));
+          expect(state.rewardsGranted, isNull);
+          expect(party, findsNothing);
+          await unmountReward(tester, state);
+        },
+        () => fakeRewards(
+          sent: sent,
+          programs: {
+            'programs': [streakJson(), calendarJson(claimedToday: true)],
+          },
+        ),
+      );
     });
 
-    testWidgets('is raised by nothing but a claim that gave something', (
-      tester,
-    ) async {
-      await _setView(tester);
+    testWidgets('the lobby claims nothing by itself: no celebration until the '
+        'player collects', (tester) async {
+      await setRewardView(tester);
       final sent = <http.Request>[];
-      await http.runWithClient(() async {
-        final state = _state();
-        await _pumpLobby(tester, state);
-        // The lobby claimed, was given nothing (today already collected on
-        // another phone): no celebration.
-        expect(_posts(sent), ['/api/reward-programs/claim']);
-        expect(state.rewardPrograms, isNotNull);
-        expect(state.rewardsGranted, isNull);
-        expect(find.byKey(const ValueKey('rewards-celebration')), findsNothing);
-        await _unmount(tester, state);
-      }, () => _fake(sent: sent, claim: _claimJson()));
+      await http.runWithClient(
+        () async {
+          final state = rewardState();
+          await pumpRewardLobby(tester, state);
+          expect(_gets(sent), ['/api/reward-programs']);
+          expect(_posts(sent), isEmpty);
+          expect(state.rewardPrograms, isNotNull);
+          expect(state.rewardsGranted, isNull);
+          expect(
+            find.byKey(const ValueKey('rewards-celebration')),
+            findsNothing,
+          );
+          await unmountReward(tester, state);
+        },
+        () => fakeRewards(
+          sent: sent,
+          programs: {
+            'programs': [streakJson(), calendarJson()],
+          },
+        ),
+      );
     });
   });
 }

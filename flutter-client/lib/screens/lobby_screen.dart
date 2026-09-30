@@ -45,6 +45,7 @@ import '../widgets/premium_surface.dart';
 import '../widgets/rules_sheet.dart';
 import '../widgets/table_ground.dart';
 import '../widgets/table_tax.dart';
+import '../widgets/weekly_login.dart';
 import 'friends_screen.dart';
 import 'lucky_draw_screen.dart';
 import 'reward_programs_screen.dart';
@@ -613,6 +614,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ],
                 ),
               ),
+              // The weekly login popup (30 Sep 2026): the owner's calendar
+              // with the week's prizes in its boxes, up after sign-in while
+              // today's is still to collect.
+              const WeeklyLoginOverlay(),
               // Sits last so it covers the foot and the rail. A wallet filling
               // is the one moment in the lobby worth interrupting for.
               const _RewardCelebration(),
@@ -6146,7 +6151,7 @@ class _RewardsChipState extends State<_RewardsChip> {
     if (!_asked && !state.resuming) {
       _asked = true;
       final gameState = context.read<GameState>();
-      scheduleMicrotask(() => unawaited(gameState.claimRewardPrograms()));
+      scheduleMicrotask(() => unawaited(gameState.loadRewardPrograms()));
     }
     final programs = state.rewardPrograms;
     if (programs == null || programs.isEmpty) {
@@ -6180,6 +6185,14 @@ class _RewardsChipState extends State<_RewardsChip> {
         : streak > 0
         ? t.streakDays(streak)
         : t.rewardsCollected;
+    // A tap: the weekly login popup while its day waits (the owner's
+    // calendar, the same one that pops at sign-in), else the rewards screen.
+    void open() {
+      if (!context.read<GameState>().offerWeeklyLogin(again: true)) {
+        showRewardPrograms(context);
+      }
+    }
+
     return Padding(
       padding: const EdgeInsets.only(left: Space.sm),
       child: KeyedSubtree(
@@ -6189,8 +6202,8 @@ class _RewardsChipState extends State<_RewardsChip> {
           title: t.rewardsChip,
           subtitle: subtitle,
           enabled: due,
-          onTap: () => showRewardPrograms(context),
-          onWaitTap: () => showRewardPrograms(context),
+          onTap: open,
+          onWaitTap: open,
         ),
       ),
     );

@@ -574,6 +574,13 @@ class _BackGuard extends StatelessWidget {
           lobbyClick(context);
         }
 
+        // The weekly login popup over the lobby (30 Sep 2026) closes first,
+        // as a drawer does.
+        if (screen == Screen.lobby && state.weeklyLoginOffer != null) {
+          state.dismissWeeklyLogin();
+          return;
+        }
+
         // An open drawer — chat, menu, settings, stats — closes first. Back
         // only reaches the leave-or-quit question when nothing is over the
         // screen; otherwise a player closing the chat is asked to leave.

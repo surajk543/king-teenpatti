@@ -29,9 +29,8 @@ import '../widgets/premium_surface.dart';
 /// its own, risen from the foot of the screen, which the back gesture
 /// closes.
 Future<void> showRewardPrograms(BuildContext context) {
-  // Claimed again as it opens: the day may have turned while the app was up,
-  // and the server grants nothing twice.
-  unawaited(context.read<GameState>().claimRewardPrograms(force: true));
+  // Read again as it opens: the day may have turned while the app was up.
+  unawaited(context.read<GameState>().loadRewardPrograms());
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
@@ -150,6 +149,21 @@ class RewardProgramsScreen extends StatelessWidget {
       (short ? text.titleMedium : text.titleLarge)!,
       weight: FontWeight.w700,
     );
+    // Collecting is the player's tap (30 Sep 2026): the key stands while
+    // any program's today is still to collect, and the lobby's celebration
+    // shows what it gave once the screen has closed over it.
+    final due = programs?.any((p) => !p.claimedToday) ?? false;
+    final claiming = context.select<GameState, bool>(
+      (s) => s.rewardClaimPending,
+    );
+    Future<void> collect() async {
+      final state = context.read<GameState>();
+      final granted = await state.claimRewardPrograms();
+      if (granted != null && context.mounted) {
+        await Navigator.maybePop(context);
+      }
+    }
+
     final header = ConstrainedBox(
       constraints: const BoxConstraints(minHeight: Dim.minTouch),
       child: Row(
@@ -169,6 +183,17 @@ class RewardProgramsScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(width: Space.sm),
+          if (due)
+            GlassButton(
+              key: const ValueKey('reward-programs-collect'),
+              style: GlassButtonStyle.primary,
+              click: true,
+              onPressed: claiming ? null : collect,
+              child: claiming
+                  ? const GameLoaderRing(size: 18)
+                  : Text(t.rewardsCollect),
+            ),
+          if (due) const SizedBox(width: Space.sm),
           PressScale(
             child: IconButton(
               key: const ValueKey('reward-programs-close'),
