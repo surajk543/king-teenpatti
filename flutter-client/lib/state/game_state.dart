@@ -2767,16 +2767,10 @@ class GameState extends ChangeNotifier {
       await prefs.setString('token', r.token);
       await loadConsent(prefs);
 
-      // A new account is told what it was given, in its own language; a
-      // returning one hears nothing.
-      if (r.isNew) {
-        final welcome = welcomeNotice(
-          t,
-          r.welcome,
-          welcomeChips: r.welcomeChips,
-        );
-        if (welcome != null) notice = welcome;
-      }
+      // A new account is shown what it was given — the welcome rewards
+      // popup, after the no-winnings panel and before the weekly login's
+      // ([welcomePending]); a returning one sees nothing.
+      if (r.isNew) _welcomeGranted(r.welcome, welcomeChips: r.welcomeChips);
 
       _conn.connect(r.token);
       screen = Screen.lobby;
@@ -2837,16 +2831,10 @@ class GameState extends ChangeNotifier {
       await prefs.setString('token', r.token);
       await loadConsent(prefs);
 
-      // A new account is told what it was given, in its own language; a
-      // returning one hears nothing.
-      if (r.isNew) {
-        final welcome = welcomeNotice(
-          t,
-          r.welcome,
-          welcomeChips: r.welcomeChips,
-        );
-        if (welcome != null) notice = welcome;
-      }
+      // A new account is shown what it was given — the welcome rewards
+      // popup, after the no-winnings panel and before the weekly login's
+      // ([welcomePending]); a returning one sees nothing.
+      if (r.isNew) _welcomeGranted(r.welcome, welcomeChips: r.welcomeChips);
 
       _conn.connect(r.token);
       screen = Screen.lobby;
@@ -2939,6 +2927,7 @@ class GameState extends ChangeNotifier {
     rewardsGranted = null;
     weeklyLoginOffer = null;
     _weeklyOfferedFor = null;
+    welcomePending = null;
     consentPending = false;
     _consentKnownFor = null;
     // The next player on this phone never sees this one's friends.
@@ -2984,7 +2973,39 @@ class GameState extends ChangeNotifier {
     if (id != null) await NoWinningsConsent.record(id);
     consentPending = false;
     _consentKnownFor = id;
-    // The weekly login popup waited behind the panel (offerWeeklyLogin).
+    // The welcome rewards popup stands next ([welcomePending], shown by
+    // main.dart once the panel is down), and the weekly login popup waited
+    // behind both (offerWeeklyLogin: nothing while the welcome is pending).
+    if (room == null) offerWeeklyLogin();
+    notifyListeners();
+  }
+
+  /// What a NEW account's sign-in granted, until the player has confirmed
+  /// it (owner, 30 Sep 2026: "WHen user login with new account it should
+  /// show first consent pop up "before you play", then after show pop up
+  /// Welcome Rewards which user must select confirm otherwise not able to
+  /// proceed then Weekly Login pop up"). main.dart shows the welcome rewards
+  /// popup while this stands and the no-winnings panel is down; the weekly
+  /// login popup is not offered until [confirmWelcome] clears it. A returning
+  /// account never has one. Not kept across a restart: the grant comes with
+  /// the login that created the account and with nothing else.
+  WelcomeGrant? welcomePending;
+
+  /// A new account's login has landed: what it was given, as the popup
+  /// shows it — the server's `welcome` block, or, from a server before the
+  /// grant, its `welcomeChips` alone (a grant of nothing is still welcomed).
+  void _welcomeGranted(WelcomeGrant? grant, {int welcomeChips = 0}) {
+    welcomePending =
+        grant ??
+        (welcomeChips > 0 ? WelcomeGrant(chips: welcomeChips) : null) ??
+        const WelcomeGrant();
+  }
+
+  /// The welcome rewards popup has been confirmed: the weekly login popup
+  /// may come now.
+  void confirmWelcome() {
+    if (welcomePending == null) return;
+    welcomePending = null;
     if (room == null) offerWeeklyLogin();
     notifyListeners();
   }
@@ -3430,6 +3451,7 @@ class GameState extends ChangeNotifier {
     rewardsGranted = null;
     weeklyLoginOffer = null;
     _weeklyOfferedFor = null;
+    welcomePending = null;
     friends.reset();
     reports.reset();
     xpMissions.clear();
@@ -4839,6 +4861,9 @@ class GameState extends ChangeNotifier {
     // Not before this account's consent is known: the programs' read can
     // land first, and the popup would go up under the panel.
     if (_consentKnownFor != user?.id) return false;
+    // Nor while a new account's welcome rewards wait to be confirmed: that
+    // popup comes first, and confirmWelcome offers this one.
+    if (welcomePending != null) return false;
     final key = '${due.program.code}:${due.today}';
     if (!again && _weeklyOfferedFor == key) return false;
     _weeklyOfferedFor = key;
@@ -5232,13 +5257,15 @@ enum NumberSystem {
   );
 }
 
-/// The toast a NEW account's sign-in raises (30 Sep 2026): what the server's
-/// welcome grant gave it, in the player's language, and nothing it did not —
-/// "Welcome! Added to your account: 10 Lakh chips · 9 diamonds · 20 hammers ·
-/// 1 missile · 1 picture · 2 emojis". A grant of nothing is a plain welcome.
-/// A server from before the grant sends no `welcome`, only `welcomeChips`: its
-/// chips alone, or no toast at all when it gave none (as before). The caller
-/// asks only for a new account; a returning one hears nothing.
+/// What a NEW account's sign-in granted, in one line in the player's
+/// language (30 Sep 2026) — what the server's welcome grant gave it and
+/// nothing it did not: "Welcome! Added to your account: 10 Lakh chips · 9
+/// diamonds · 20 hammers · 1 missile · 1 picture · 2 emojis"; a grant of
+/// nothing is a plain welcome. A server from before the grant sends no
+/// `welcome`, only `welcomeChips`: its chips alone, or nothing when it gave
+/// none. It was the sign-in's toast until the welcome rewards popup
+/// (`widgets/welcome_rewards.dart`) took its place the same day; it is now
+/// the popup's one-line summary — what a screen reader hears.
 String? welcomeNotice(Strings t, WelcomeGrant? grant, {int welcomeChips = 0}) {
   if (grant == null) {
     if (welcomeChips <= 0) return null;

@@ -341,6 +341,13 @@ class Strings {
   String countEmojis(int n) =>
       _(n == 1 ? 'countEmojiOne' : 'countEmojis').replaceAll('{n}', '$n');
 
+  // --- the welcome rewards popup (owner, 30 Sep 2026): after the no-winnings
+  // panel and before the weekly login popup, a new account confirms what it
+  // was given — the one way on. The rows are the rewards' own words.
+  String get welcomeRewardsTitle => _('welcomeRewardsTitle');
+  String get welcomeRewardsLead => _('welcomeRewardsLead');
+  String get welcomeConfirm => _('welcomeConfirm');
+
   // --- Friends (owner, 26 Sep 2026): the lobby's key, the page, Add Friend
   // and a player's profile. Nothing here names a wallet.
   String get friends => _('friends');
@@ -2015,6 +2022,9 @@ class Strings {
       'countMissiles': '{n} missiles',
       'welcomeAdded': 'Welcome! Added to your account: {items}',
       'welcomePlain': 'Welcome to King Teen Patti!',
+      'welcomeRewardsTitle': 'Welcome rewards',
+      'welcomeRewardsLead': 'Added to your account:',
+      'welcomeConfirm': 'Confirm',
       'countPictureOne': '1 picture',
       'countPictures': '{n} pictures',
       'countTablePictureOne': '1 table picture',
@@ -2970,6 +2980,9 @@ class Strings {
       'countMissiles': '{n} मिसाइलें',
       'welcomeAdded': 'स्वागत है! आपके खाते में जोड़ा गया: {items}',
       'welcomePlain': 'King Teen Patti में आपका स्वागत है!',
+      'welcomeRewardsTitle': 'स्वागत इनाम',
+      'welcomeRewardsLead': 'आपके खाते में जोड़ा गया:',
+      'welcomeConfirm': 'पुष्टि करें',
       'countPictureOne': '1 तस्वीर',
       'countPictures': '{n} तस्वीरें',
       'countTablePictureOne': '1 टेबल की तस्वीर',
@@ -3907,6 +3920,9 @@ class Strings {
       'countMissiles': '{n}টি মিসাইল',
       'welcomeAdded': 'স্বাগতম! আপনার অ্যাকাউন্টে যোগ হয়েছে: {items}',
       'welcomePlain': 'King Teen Patti-তে আপনাকে স্বাগতম!',
+      'welcomeRewardsTitle': 'স্বাগত পুরস্কার',
+      'welcomeRewardsLead': 'আপনার অ্যাকাউন্টে যোগ হয়েছে:',
+      'welcomeConfirm': 'নিশ্চিত করুন',
       'countPictureOne': '1টি ছবি',
       'countPictures': '{n}টি ছবি',
       'countTablePictureOne': '1টি টেবিলের ছবি',
@@ -4844,6 +4860,9 @@ class Strings {
       'countMissiles': '{n} મિસાઇલ',
       'welcomeAdded': 'સ્વાગત છે! તમારા ખાતામાં ઉમેરાયું: {items}',
       'welcomePlain': 'King Teen Patti માં આપનું સ્વાગત છે!',
+      'welcomeRewardsTitle': 'સ્વાગત ઇનામ',
+      'welcomeRewardsLead': 'તમારા ખાતામાં ઉમેરાયું:',
+      'welcomeConfirm': 'પુષ્ટિ કરો',
       'countPictureOne': '1 ફોટો',
       'countPictures': '{n} ફોટા',
       'countTablePictureOne': '1 ટેબલનો ફોટો',
@@ -5778,6 +5797,9 @@ class Strings {
       'countMissiles': '{n} ਮਿਜ਼ਾਈਲਾਂ',
       'welcomeAdded': 'ਜੀ ਆਇਆਂ ਨੂੰ! ਤੁਹਾਡੇ ਖਾਤੇ ਵਿੱਚ ਜੋੜਿਆ ਗਿਆ: {items}',
       'welcomePlain': 'King Teen Patti ਵਿੱਚ ਜੀ ਆਇਆਂ ਨੂੰ!',
+      'welcomeRewardsTitle': 'ਸੁਆਗਤ ਇਨਾਮ',
+      'welcomeRewardsLead': 'ਤੁਹਾਡੇ ਖਾਤੇ ਵਿੱਚ ਜੋੜਿਆ ਗਿਆ:',
+      'welcomeConfirm': 'ਪੁਸ਼ਟੀ ਕਰੋ',
       'countPictureOne': '1 ਤਸਵੀਰ',
       'countPictures': '{n} ਤਸਵੀਰਾਂ',
       'countTablePictureOne': '1 ਟੇਬਲ ਦੀ ਤਸਵੀਰ',

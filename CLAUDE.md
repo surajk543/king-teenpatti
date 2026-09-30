@@ -2458,13 +2458,33 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   asked again on that device (quit, relaunch, resume included). Keyed per account, not per device: a
   second account on the same phone is asked once for itself. Client-only, nothing goes to the server.
   Not shown over the update screen. Back while it is up = the usual quit question. `test/consent_test.dart`.
-- **The welcome message** (30 Sep 2026; server §7.2/§7.3): a new account's login carries `welcome` (`WelcomeGrant`, `dtos.dart`;
-  `ApiClient.loginGuest`/`loginProvider`), and `welcomeNotice` (`game_state.dart`) says in the player's language exactly what was
-  granted — "Welcome! Added to your account: 10 Lakh chips · 9 diamonds · 20 hammers · 1 missile · 1 picture · 1 emoji", singular and
-  plural right (the wallet words are `priceIn`/`countMissiles`'), "Welcome to King Teen Patti!" for a grant of nothing, the chips alone
-  from an older server's `welcomeChips` — replacing an English-only chips line. The picture and table-picture catalogue loaders drop an
-  answer made under another token (as the emoji loader did), so a cold start's anonymous read landing late can no longer show a granted
-  picture locked. `test/welcome_grant_test.dart`.
+- **The welcome rewards popup** (30 Sep 2026; server §7.2/§7.3): a new account's login carries `welcome` (`WelcomeGrant`, `dtos.dart`;
+  `ApiClient.loginGuest`/`loginProvider`), which the two login doors leave in **`GameState.welcomePending`** (`_welcomeGranted`: the
+  block, or an older server's `welcomeChips` alone, or a grant of nothing — a returning account never has one). **A new account meets
+  three things in a fixed order** (owner, the same day: "WHen user login with new account it should show first consent pop up "before
+  you play", then after show pop up Welcome Rewards which user must select confirm otherwise not able to proceed then Weekly Login pop
+  up"): the no-winnings statement, then this popup, then the weekly login popup. `widgets/welcome_rewards.dart` `WelcomeRewardsPanel` is
+  the consent gate's twin — a layer in main.dart's root Stack right after it (`welcome-rewards`, shown while `welcomePending` stands,
+  `consentPending` is false and the screen is the lobby or a table), never a route: a tap outside does nothing (the scrim is an opaque
+  `ColoredBox`), Back offers to quit as under the statement (`_BackGuard` skips the click and `closeLobbyLevel` while it is up), and the
+  one way on is its **Confirm** key (`welcome-rewards-confirm` → `GameState.confirmWelcome`, which clears the grant and offers the weekly
+  login; `offerWeeklyLogin` answers false while a welcome waits, as it does while consent is pending). The card: a gift mark and "Welcome
+  rewards", "Added to your account:" (or "Welcome to King Teen Patti!" for a grant of nothing), one row a reward (`prizesOf`: chips,
+  diamonds, hammers, missiles, then each picture, table picture and emoji by name, as `RewardPrize`s drawn with the reward programs'
+  `rewardPrizeLabel`/`rewardPrizeIcon`/`rewardPrizeInk` — "5 Lakh chips", "Lovestruck Cat picture"; the wallet rows two to a line on a
+  card `twoUpFrom` 300dp or wider when there are more than three rows, an item's row always the whole width, since "Circle Background
+  Pattern table picture" is cut in half a card at ×1.25), the rows one Semantics node whose label is `welcomeNotice`'s line. It scrolls
+  as the consent panel does. `welcomeNotice` (`game_state.dart`) — "Welcome! Added to your account: 10 Lakh chips · 9 diamonds · 20
+  hammers · 1 missile · 1 picture · 1 emoji", singular and plural right (the wallet words are `priceIn`/`countMissiles`'), the plain
+  welcome for nothing, the chips alone from an older server — was the sign-in's toast until the popup took its place the same day and
+  is now what a screen reader hears of the list. Sign-out and account deletion forget a grant not yet confirmed. Three strings in all
+  five languages (`welcomeRewardsTitle`, `welcomeRewardsLead`, `welcomeConfirm`). The picture and table-picture catalogue loaders drop
+  an answer made under another token (as the emoji loader did), so a cold start's anonymous read landing late can no longer show a
+  granted picture locked. `test/welcome_grant_test.dart` (the grant's reading and summary; the sign-in leaving it for the popup, nothing
+  for a returning account, sign-out forgetting it), `test/welcome_rewards_test.dart` (the rows in the summary's order; the strings; the
+  card in Hindi; the layout; nothing for nothing; the ORDER in the app as main.dart builds it — the statement, then the popup, a tap
+  outside and Back doing nothing to it, Confirm, then the weekly login, and no claim by any of it; a returning account; the state's
+  offer; 640x360 and 592x360 ×1.25 in all five languages and both themes, no word cut, Confirm reachable).
 - **The reward programs on the phone** (30 Sep 2026; server §7.2/§7.3; the popup, the chip, the screen and the celebration §8.4).
   `GameState.loadRewardPrograms()` GETs `/api/reward-programs` whenever the lobby appears (`_RewardsChip`'s first build, once the
   resume veil is down), at every `session:ready` in the lobby (`_wire`) and when the rewards screen opens — never at a table — and
@@ -3058,7 +3078,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   when i click "I confirm""): `offerWeeklyLogin` answers false until `loadConsent` has settled the account (`_consentKnownFor`) and
   while `consentPending`; `loadConsent` offers once it finds the account clear and `acceptConsent` offers on the tap. Offered once a
   day a session; the next start offers it again while it is still to collect. Strings `todaysReward`, `rewardsAlso`,
-  `todaysRewardTitle`, `continueKey`, `weeklyFinal` in all five languages. `test/weekly_login_test.dart` (26: the file's geometry,
+  `todaysRewardTitle`, `continueKey`, `weeklyFinal` in all five languages. `test/weekly_login_test.dart` (23: the file's geometry,
   layers, pops and traps; the delegates, the day states, the level's hue on the card and not on the boxes; the boxes then the prizes,
   the file held at its frame; the popup behind consent, after sign-in, not when collected; the figure's size; the level's colour inside
   Blind and Variation and the house gold at the front and inside Seen; Collect and Continue, nothing celebrated twice, once a day, the
