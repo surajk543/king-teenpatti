@@ -24,20 +24,21 @@ func TestAHammerPackThroughThePlayStoreIsBankedOnceAndSaysSo(t *testing.T) {
 	users := db.NewUsers(database, a.cfg.Game.WelcomeChips, time.Now)
 	store := &playStore{verifier: newFakePlayVerifier(t), db: database, users: users, credit: a.Rooms().CreditBoughtChips}
 	walletBefore, ledgerBefore := walletAndLedger(t, database, id)
+	_, _, hammers := softWallets(t, database, id) // the welcome's
 
 	out, err := store.Buy(ctx, id, "hammers_100_1299", "fake-play-hammer-receipt")
 	if err != nil {
 		t.Fatalf("buy: %v", err)
 	}
-	if !out.Credited || out.Hammers != 100 || out.Chips != 0 || out.Diamonds != 0 || out.User == nil || out.User.Hammer != 120 {
-		t.Fatalf("outcome %+v (user %+v), want 100 hammers credited onto the welcome 20", out, out.User)
+	if !out.Credited || out.Hammers != 100 || out.Chips != 0 || out.Diamonds != 0 || out.User == nil || int64(out.User.Hammer) != hammers+100 {
+		t.Fatalf("outcome %+v (user %+v), want 100 hammers credited onto the welcome's %d", out, out.User, hammers)
 	}
 	if wallet, ledger := walletAndLedger(t, database, id); wallet != walletBefore || ledger != ledgerBefore || out.Balance != walletBefore {
 		t.Fatalf("a hammer pack moved chips: wallet %d→%d, ledger %d→%d, balance %d", walletBefore, wallet, ledgerBefore, ledger, out.Balance)
 	}
 
 	again, err := store.Buy(ctx, id, "hammers_100_1299", "fake-play-hammer-receipt")
-	if err != nil || again.Credited || again.Hammers != 100 || again.User == nil || again.User.Hammer != 120 {
+	if err != nil || again.Credited || again.Hammers != 100 || again.User == nil || int64(again.User.Hammer) != hammers+100 {
 		t.Fatalf("replayed receipt: %+v %v", again, err)
 	}
 }

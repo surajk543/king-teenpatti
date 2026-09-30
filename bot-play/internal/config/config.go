@@ -15,6 +15,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -75,12 +77,20 @@ type Config struct {
 		NoHumanPatience time.Duration      // default 0 (bots may play among themselves)
 		// LobbyTables are the lobby tables the fleet plays, by key
 		// ("seen:200", "blind:50000"); empty = every table of Categories.
+		// An entry as written may carry its own fleet size after the key
+		// ("blind:200:fleet=50-80", ParseLobbyTable): the key is kept here,
+		// the size in FleetByTable.
 		LobbyTables []string
 		// FleetPerTable is how many of the fleet's bots each lobby table (a
 		// category and a boot, however many rooms it runs) should hold:
 		// [floor, ceiling]. Tables under their floor are filled first; one at
 		// its ceiling takes no more. 0 = none for either.
 		FleetPerTable [2]int
+		// FleetByTable is, per lobby table key, that table's own [floor,
+		// ceiling] — the fleet= option of its LobbyTables entry (owner, 30 Sep
+		// 2026: more of the fleet at Blind 200 and Blind 50,000 than at the
+		// other tables). A table it does not name takes FleetPerTable.
+		FleetByTable map[string][2]int
 	}
 	Timing struct {
 		MinReaction  time.Duration     // default 700 ms
@@ -153,6 +163,7 @@ func Default() Config {
 	c.Table.NoHumanPatience = 0
 	c.Table.LobbyTables = []string{}
 	c.Table.FleetPerTable = [2]int{0, 0}
+	c.Table.FleetByTable = map[string][2]int{}
 
 	c.Timing.MinReaction = 700 * time.Millisecond
 	c.Timing.MaxReaction = 5 * time.Second
@@ -238,4 +249,95 @@ func (c *Config) finish() {
 	if c.Mode == ModeSimulation && c.Seed == 0 {
 		c.Seed = SimulationSeed
 	}
+}
+
+// fleetOption is the one option a table.lobby_tables entry takes after its
+// key: fleet=FLOOR-CEILING.
+const fleetOption = "fleet"
+
+// ParseLobbyTable reads one table.lobby_tables entry: a key, category:boot,
+// optionally followed by options in the game server's LOBBY_TABLES style
+// ("blind:5000:max=200000000"). The one option the fleet knows is
+// fleet=FLOOR-CEILING, that table's own floor and ceiling of the fleet's
+// bots in place of table.fleet_per_table (a ceiling of 0 is none, as there):
+//
+//	seen:200               key seen:200, table.fleet_per_table's size
+//	blind:200:fleet=50-80  key blind:200, floor 50, ceiling 80
+//
+// The entry is read in lower case, each option trimmed. An empty option, an
+// unknown one, fleet= given twice, or a range that is not two whole numbers
+// with the floor no higher than the ceiling is an error naming the entry.
+// The key itself — category:boot, a category the fleet plays, listed once —
+// is Validate's to check.
+func ParseLobbyTable(entry string) (key string, fleet [2]int, hasFleet bool, err error) {
+	entry = lowerTrim(entry)
+	parts := strings.Split(entry, ":")
+	if len(parts) <= 2 {
+		return entry, [2]int{}, false, nil
+	}
+	key = parts[0] + ":" + parts[1]
+	for _, opt := range parts[2:] {
+		opt = strings.TrimSpace(opt)
+		name, value, found := strings.Cut(opt, "=")
+		switch name = strings.TrimSpace(name); {
+		case opt == "":
+			return "", [2]int{}, false, fmt.Errorf("entry %q has an empty option: want %s or %s:fleet=FLOOR-CEILING", entry, key, key)
+		case name != fleetOption:
+			return "", [2]int{}, false, fmt.Errorf("entry %q: unknown option %q (the one option is fleet=FLOOR-CEILING, such as %s:fleet=50-80)", entry, opt, key)
+		case hasFleet:
+			return "", [2]int{}, false, fmt.Errorf("entry %q gives fleet= twice", entry)
+		case !found:
+			return "", [2]int{}, false, fmt.Errorf("entry %q: fleet needs a range, fleet=FLOOR-CEILING (such as fleet=50-80)", entry)
+		}
+		if fleet, err = parseFleetRange(strings.TrimSpace(value)); err != nil {
+			return "", [2]int{}, false, fmt.Errorf("entry %q: %w", entry, err)
+		}
+		hasFleet = true
+	}
+	return key, fleet, hasFleet, nil
+}
+
+// parseFleetRange reads a fleet= option's FLOOR-CEILING: two whole numbers,
+// 0 or more, the floor no higher than the ceiling unless the ceiling is 0
+// (none).
+func parseFleetRange(v string) ([2]int, error) {
+	lo, hi, ok := strings.Cut(v, "-")
+	floor, errLo := wholeDigits(lo)
+	ceiling, errHi := wholeDigits(hi)
+	if !ok || errLo != nil || errHi != nil {
+		return [2]int{}, fmt.Errorf("fleet=%s is not FLOOR-CEILING, two whole numbers such as fleet=50-80", v)
+	}
+	if ceiling > 0 && floor > ceiling {
+		return [2]int{}, fmt.Errorf("fleet=%s puts the floor %d above the ceiling %d (a ceiling of 0 is none)", v, floor, ceiling)
+	}
+	return [2]int{floor, ceiling}, nil
+}
+
+// wholeDigits is a whole number written in decimal digits alone (spaces
+// around it allowed; no sign).
+func wholeDigits(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.TrimLeft(s, "0123456789") != "" {
+		return 0, fmt.Errorf("%q is not a whole number", s)
+	}
+	return strconv.Atoi(s)
+}
+
+// readLobbyTables parses table.lobby_tables entries (ParseLobbyTable) into
+// their keys and each one's own fleet size. at names an entry for an error
+// (its index in entries).
+func readLobbyTables(entries []string, at func(i int, err error) error) ([]string, map[string][2]int, error) {
+	keys := make([]string, 0, len(entries))
+	fleet := map[string][2]int{}
+	for i, e := range entries {
+		key, f, has, err := ParseLobbyTable(e)
+		if err != nil {
+			return nil, nil, at(i, err)
+		}
+		keys = append(keys, key)
+		if has {
+			fleet[key] = f
+		}
+	}
+	return keys, fleet, nil
 }

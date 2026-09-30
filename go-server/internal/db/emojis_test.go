@@ -184,7 +184,7 @@ func TestAChipPricedEmojiIsBoughtOnceThroughTheLedgerAndRenewedWhenItLapses(t *t
 	if !bought.Charged || bought.Spent != 50000 || bought.Balance != welcome-50000 || !bought.Emoji.Owned || bought.Emoji.ExpiresAt == 0 {
 		t.Fatalf("purchase = %+v", bought)
 	}
-	if bought.User == nil || bought.User.Chips != welcome-50000 || bought.User.Diamond != 9 || bought.User.Hammer != 20 {
+	if bought.User == nil || bought.User.Chips != welcome-50000 || bought.User.Diamond != user.Diamond || bought.User.Hammer != user.Hammer {
 		t.Fatalf("the response user after a chip buy: %+v", bought.User)
 	}
 	rows := f.ledgerRows(user.ID)
@@ -285,6 +285,11 @@ func TestDiamondAndHammerEmojisLeaveTheChipsAloneAndSellAtATable(t *testing.T) {
 	laughing := emojiRow(t, f, "Laughing", db.PictureCurrencyDiamond, db.PicturePremium, 5, 0, 0, 10)
 	hammerTime := emojiRow(t, f, "Hammer Time", db.PictureCurrencyHammer, db.PicturePremium, 12, 30, 0, 20)
 	heart := emojiRow(t, f, "Heart", db.PictureCurrencyCoin, db.PicturePremium, 50000, 7, 0, 30)
+	// The buyer holds 9 diamonds and 20 hammers, enough for both, whatever a
+	// new account is given (the welcome is data: V1.0.1__seed.sql).
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET diamond = 9, hammer = 20 WHERE id = $1`, user.ID); err != nil {
+		t.Fatal(err)
+	}
 	ledgerRows := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE user_id = $1`, user.ID)
 
 	if _, err := store.BuyAtTable(f.ctx, user.ID, heart); !errors.Is(err, db.ErrEmojiAtTable) {

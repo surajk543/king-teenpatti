@@ -69,6 +69,9 @@ func run(configPath string) error {
 	}
 	log.Info("bot-play starting", "version", version, "mode", cfg.Mode, "bots", cfg.Bots.Count,
 		"prefix", cfg.Bots.DevicePrefix, "server", cfg.ServerURL, "seed", seed, "config", path)
+	if len(cfg.Table.LobbyTables) > 0 {
+		log.Info("fleet layout", "tables", fleetLayout(cfg))
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -134,6 +137,19 @@ func run(configPath string) error {
 	forced := mgr.Stop(grace)
 	log.Info("stopped", "forced", forced)
 	return nil
+}
+
+// fleetLayout names each lobby table the fleet plays with its floor and
+// ceiling of the fleet's bots, as a table.lobby_tables entry would give them
+// ("blind:200:fleet=50-80"; a ceiling of 0 is none), for the start-up log.
+func fleetLayout(cfg config.Config) []string {
+	layout := table.FleetLayout{Default: cfg.Table.FleetPerTable, ByTable: cfg.Table.FleetByTable}
+	out := make([]string, 0, len(cfg.Table.LobbyTables))
+	for _, key := range cfg.Table.LobbyTables {
+		floor, ceiling := layout.For(key)
+		out = append(out, fmt.Sprintf("%s:fleet=%d-%d", key, floor, ceiling))
+	}
+	return out
 }
 
 // waitForMenu reads the table menu, waiting for a game server that is not up

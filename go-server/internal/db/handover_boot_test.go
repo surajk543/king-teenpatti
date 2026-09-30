@@ -237,44 +237,45 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 		t.Fatalf("boots under §7 must leave exactly one idx_users_last_login, found %d", n)
 	}
 
-	// 5. Hammers work on §7's grants: the account signed in above holds the 20
-	// every account starts with, and a Force Sideshow can spend one.
+	// 5. Hammers work on §7's grants: the account signed in above holds the
+	// hammers the welcome gives every new account (welcome_rewards), and a
+	// Force Sideshow can spend one.
 	var hammers int64
 	if err := admin.QueryRow(ctx, `SELECT hammer FROM `+qualified("users")+` WHERE id = $1`, u.ID).Scan(&hammers); err != nil {
 		t.Fatal(err)
 	}
-	if hammers != 20 {
-		t.Fatalf("a new account holds %d hammers, want 20", hammers)
+	if want := welcomeGrant(t, d, db.RewardHammer); hammers != want {
+		t.Fatalf("a new account holds %d hammers, want the welcome's %d", hammers, want)
 	}
 	spent, err := db.NewHammers(d, nil, nil).SpendHammer(ctx, game.HammerSpend{
 		HandID: "handover", UserID: u.ID, ActionID: game.ForceSideshowSpendID("handover", u.ID, suffix),
 	})
-	if err != nil || spent.Remaining != 19 {
+	if err != nil || spent.Remaining != hammers-1 {
 		t.Fatalf("a Force Sideshow's hammer must be spendable on §7's grants: %+v %v", spent, err)
 	}
 
-	// 6. Missiles too: the account holds the 9 diamonds and 1 missile every
-	// new account gets, can fire it, and can trade for more — the superuser
-	// sets its wallet to the cheapest pack's 15 diamonds first, so the trade's
-	// result is exact.
+	// 6. Missiles too: the account holds the diamonds and the missile the
+	// welcome gives every new account, can fire it, and can trade for more —
+	// the superuser sets its wallet to the cheapest pack's 15 diamonds first,
+	// so the trade's result is exact.
 	var diamonds, missiles int64
 	if err := admin.QueryRow(ctx, `SELECT diamond, missile FROM `+qualified("users")+` WHERE id = $1`, u.ID).Scan(&diamonds, &missiles); err != nil {
 		t.Fatal(err)
 	}
-	if diamonds != 9 || missiles != 1 {
-		t.Fatalf("a new account holds %d diamonds and %d missiles, want 9 and 1", diamonds, missiles)
+	if wantD, wantM := welcomeGrant(t, d, db.RewardDiamond), welcomeGrant(t, d, db.RewardMissile); diamonds != wantD || missiles != wantM {
+		t.Fatalf("a new account holds %d diamonds and %d missiles, want the welcome's %d and %d", diamonds, missiles, wantD, wantM)
 	}
 	store := db.NewMissiles(d, db.NewUsers(d, welcome, nil), nil, nil)
 	fired, err := store.SpendMissile(ctx, game.MissileSpend{
 		HandID: "handover", UserID: u.ID, ActionID: game.MissileSpendID("handover", u.ID, suffix),
 	})
-	if err != nil || fired.Remaining != 0 {
+	if err != nil || fired.Remaining != missiles-1 {
 		t.Fatalf("a missile must be spendable on §7's grants: %+v %v", fired, err)
 	}
 	if _, err := admin.Exec(ctx, `UPDATE `+qualified("users")+` SET diamond = 15 WHERE id = $1`, u.ID); err != nil {
 		t.Fatal(err)
 	}
-	if trade, err := store.TradeMissiles(ctx, u.ID, "missiles_1", "handover-"+suffix); err != nil || !trade.Charged || trade.User.Diamond != 0 || trade.User.Missile != 1 {
+	if trade, err := store.TradeMissiles(ctx, u.ID, "missiles_1", "handover-"+suffix); err != nil || !trade.Charged || trade.User.Diamond != 0 || int64(trade.User.Missile) != missiles {
 		t.Fatalf("a missile trade must work on §7's grants: %+v %v", trade, err)
 	}
 

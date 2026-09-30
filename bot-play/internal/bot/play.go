@@ -975,14 +975,14 @@ func (b *Bot) joinSomewhere(attempt int) {
 		Occupancy:       b.d.Fleet.Occupancy(),
 		Only:            b.d.Config.Table.LobbyTables,
 		Held:            b.d.Fleet.Held(b.now()),
-		Floor:           b.d.Config.Table.FleetPerTable[0],
-		Ceiling:         b.d.Config.Table.FleetPerTable[1],
+		Fleet:           b.fleetLayout(),
 	}
 	choice, ok := table.Select(menu, in, b.rand)
 	if !ok && table.FullOfFleet(menu, in) {
 		// Every table this stack could sit at already holds its share of the
-		// fleet (config table.fleet_per_table): nothing is wrong, the fleet is
-		// big enough there. Rest, and look again next session.
+		// fleet (config table.fleet_per_table, or a table's own fleet=):
+		// nothing is wrong, the fleet is big enough there. Rest, and look
+		// again next session.
 		b.log.Info("every table holds its share of the fleet; resting", "chips", b.chips)
 		b.outcome = outEnded
 		return
@@ -1004,8 +1004,8 @@ func (b *Bot) joinSomewhere(attempt int) {
 		return
 	}
 	// Take the place before asking for it: bots choosing at the same moment
-	// must not all fill a table's last places (config table.fleet_per_table).
-	if !b.d.Fleet.ClaimTable(b.userID, choice.Key, b.d.Config.Table.FleetPerTable[1], b.now()) {
+	// must not all fill a table's last places (that table's own ceiling).
+	if _, ceiling := in.Fleet.For(choice.Key); !b.d.Fleet.ClaimTable(b.userID, choice.Key, ceiling, b.now()) {
 		if attempt >= 8 {
 			b.outcome = outEnded
 			return
@@ -1077,7 +1077,7 @@ func (b *Bot) joinSame() {
 		return
 	}
 	// The same kind again only while it has room for the fleet.
-	if !b.d.Fleet.ClaimTable(b.userID, c.Key, b.d.Config.Table.FleetPerTable[1], b.now()) {
+	if _, ceiling := b.fleetLayout().For(c.Key); !b.d.Fleet.ClaimTable(b.userID, c.Key, ceiling, b.now()) {
 		b.joinSomewhere(0)
 		return
 	}
@@ -1092,6 +1092,13 @@ func (b *Bot) joinSame() {
 		b.d.Metrics.Refused(ack.Code)
 		b.joinSomewhere(0)
 	}
+}
+
+// fleetLayout is how many of the fleet's bots each lobby table should hold:
+// config table.fleet_per_table, and a table's own fleet= option in
+// table.lobby_tables.
+func (b *Bot) fleetLayout() table.FleetLayout {
+	return table.FleetLayout{Default: b.d.Config.Table.FleetPerTable, ByTable: b.d.Config.Table.FleetByTable}
 }
 
 // playsTable reports whether the fleet plays lobby table key (config

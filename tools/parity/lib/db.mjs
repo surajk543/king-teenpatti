@@ -41,6 +41,25 @@ export const ledgerSum = async (userId) => {
   return rows[0].total;
 };
 
+/**
+ * What a new account is given of one of the wallets with no ledger —
+ * 'DIAMOND', 'HAMMER' or 'MISSILE' — as the server grants it: the sum of the
+ * ACTIVE welcome_rewards rows of that type (go-server's V1.0.1__seed.sql, THE
+ * WELCOME, on a fresh schema; an owner's UPDATE on a server the suite attaches
+ * to). The suites that check what a new account holds read it here rather
+ * than repeat the seed's figures, which go-server pins in one place
+ * (TestTheSeedHoldsFiveLakhChipsTheDiamondsHammersAndMissile). The chips are
+ * the profile's WELCOME_CHIPS, which a non-production boot writes into the
+ * chips row.
+ */
+export const welcomeGrant = async (rewardType) => {
+  const { rows } = await query(
+    'SELECT COALESCE(SUM(reward_value), 0)::bigint AS n FROM welcome_rewards WHERE reward_type = $1 AND is_active',
+    [rewardType],
+  );
+  return rows[0].n;
+};
+
 export const wallet = async (userId) => {
   const { rows } = await query('SELECT chips FROM users WHERE id = $1', [userId]);
   return rows[0]?.chips;

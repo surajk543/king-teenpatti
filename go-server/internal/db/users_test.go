@@ -376,11 +376,11 @@ func TestADiamondPictureIsPaidInDiamondsAndTheWalletsStayApart(t *testing.T) {
 		return f.scalar(`SELECT diamond FROM users WHERE id = $1`, id)
 	}
 
-	// Every account starts with nine diamonds (the baseline's users.diamond
-	// default; two, and one before that, earlier), and this diamond picture
-	// costs one.
-	if user.Diamond != 9 || diamonds(user.ID) != 9 {
-		t.Fatalf("a new account holds %d diamonds (wire %d), want 9", diamonds(user.ID), user.Diamond)
+	// Every account starts with the diamonds the welcome gives
+	// (welcome_rewards; the seed's 5), and this diamond picture costs one.
+	start := f.welcomeGrant(db.RewardDiamond)
+	if int64(user.Diamond) != start || diamonds(user.ID) != start {
+		t.Fatalf("a new account holds %d diamonds (wire %d), want the welcome's %d", diamonds(user.ID), user.Diamond, start)
 	}
 	if pic.Type != db.PicturePremium || pic.AssetFormat != "LOTTIE" || pic.Currency != db.PictureCurrencyDiamond || pic.Cost != 1 || pic.DurationDays != 100 {
 		t.Fatalf("diamond picture = %+v, want a PREMIUM LOTTIE at 1 diamond for 100 days", pic)
@@ -394,13 +394,13 @@ func TestADiamondPictureIsPaidInDiamondsAndTheWalletsStayApart(t *testing.T) {
 	if !bought.Charged || bought.Spent != 1 || !bought.Picture.Owned {
 		t.Fatalf("charged=%v spent=%d owned=%v, want a 1-diamond charge", bought.Charged, bought.Spent, bought.Picture.Owned)
 	}
-	if got := diamonds(user.ID); got != 8 {
-		t.Fatalf("diamonds after the purchase = %d, want 8", got)
+	if got := diamonds(user.ID); got != start-1 {
+		t.Fatalf("diamonds after the purchase = %d, want %d", got, start-1)
 	}
 	if got := f.chips(user.ID); got != chipsBefore {
 		t.Fatalf("a diamond purchase moved chips %d -> %d", chipsBefore, got)
 	}
-	if bought.User == nil || bought.User.Diamond != 8 || bought.User.Chips != chipsBefore {
+	if bought.User == nil || int64(bought.User.Diamond) != start-1 || bought.User.Chips != chipsBefore {
 		t.Fatalf("the response user does not show the purchase: %+v", bought.User)
 	}
 	if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE user_id = $1 AND reason = 'picture_purchase'`, user.ID); n != 0 {
@@ -420,7 +420,7 @@ func TestADiamondPictureIsPaidInDiamondsAndTheWalletsStayApart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.Charged || diamonds(user.ID) != 8 {
+	if again.Charged || diamonds(user.ID) != start-1 {
 		t.Fatalf("a second buy charged: %+v, diamonds %d", again, diamonds(user.ID))
 	}
 
@@ -433,7 +433,7 @@ func TestADiamondPictureIsPaidInDiamondsAndTheWalletsStayApart(t *testing.T) {
 	if _, err := f.pictures.Buy(f.ctx, user.ID, coin.ID); err != nil {
 		t.Fatal(err)
 	}
-	if diamonds(user.ID) != 8 || f.chips(user.ID) != chipsBefore-coin.Cost {
+	if diamonds(user.ID) != start-1 || f.chips(user.ID) != chipsBefore-coin.Cost {
 		t.Fatalf("after a coin buy: diamonds %d, chips %d", diamonds(user.ID), f.chips(user.ID))
 	}
 	f.reconcile()
@@ -517,8 +517,13 @@ func TestAHammerPictureIsPaidInHammersAndTheOtherWalletsStayAsTheyWere(t *testin
 	if pic.Type != db.PicturePremium || pic.AssetFormat != "LOTTIE" || pic.Cost != 10 || pic.DurationDays != 10 {
 		t.Fatalf("seeded hammer picture = %+v, want a PREMIUM LOTTIE at 10 hammers for 10 days", pic)
 	}
-	if user.Hammer != 20 || f.hammersOf(user.ID) != 20 {
-		t.Fatalf("a new account holds %d hammers (wire %d), want 20", f.hammersOf(user.ID), user.Hammer)
+	if want := f.welcomeGrant(db.RewardHammer); int64(user.Hammer) != want || f.hammersOf(user.ID) != want {
+		t.Fatalf("a new account holds %d hammers (wire %d), want the welcome's %d", f.hammersOf(user.ID), user.Hammer, want)
+	}
+	// The player buys it twice (again once it has run out), so the wallet
+	// holds exactly two prices, whatever the welcome gave.
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET hammer = $2 WHERE id = $1`, user.ID, 2*pic.Cost); err != nil {
+		t.Fatal(err)
 	}
 
 	chips, diamonds := f.chips(user.ID), f.diamondsOf(user.ID)
@@ -1311,11 +1316,12 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 	// stats (Player stats v2, 27 Sep 2026) is the career per bucket, after the
 	// six totals it sums to; playerLevel, badges and taxBps (26–27 Sep 2026)
 	// are the player's own standing — level and XP, the badges they hold, and
-	// the winning tax they pay (db.Standing) — last. There is no `rewards`
-	// key (owner, 30 Sep 2026: the three lobby rewards were removed) — left
-	// out, never sent empty, so an installed app draws no reward chip.
+	// the winning tax they pay (db.Standing) — last. `rewards` is the 6-hour
+	// bonus (owner, 30 Sep 2026: gone that morning with the other two lobby
+	// rewards, back that evening), after stats, with the four keys the
+	// four-hour bonus sent; the milestone and the daily bonus stay gone.
 	wantKeys := []string{"id", "provider", "displayName", "email", "avatarUrl", "providerAvatarUrl", "activePictureId", "tablePicture", "chips", "diamond", "hammer", "missile",
-		"handsPlayed", "handsWon", "handsLost", "handsLeftMid", "totalWinnings", "biggestPot", "stats", "createdAt", "lastLoginAt", "playerLevel",
+		"handsPlayed", "handsWon", "handsLost", "handsLeftMid", "totalWinnings", "biggestPot", "stats", "rewards", "createdAt", "lastLoginAt", "playerLevel",
 		"badges", "taxBps"}
 	if len(m) != len(wantKeys) {
 		t.Fatalf("user has %d keys, want %d: %s", len(m), len(wantKeys), out)
@@ -1325,7 +1331,7 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 			t.Fatalf("missing key %q in %s", k, out)
 		}
 	}
-	for _, forbidden := range []string{"providerUserId", "updatedAt", "milestoneClaimed", "nextBonusAt", "rewards"} {
+	for _, forbidden := range []string{"providerUserId", "updatedAt", "milestoneClaimed", "nextBonusAt"} {
 		if _, ok := m[forbidden]; ok {
 			t.Fatalf("key %q must never be exposed", forbidden)
 		}
@@ -1344,6 +1350,11 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 	}
 	if string(m["chips"]) != "200000" || string(m["activePictureId"]) != "null" || string(m["avatarUrl"]) != `"https://pic"` {
 		t.Fatalf("values: chips=%s activePictureId=%s avatarUrl=%s", m["chips"], m["activePictureId"], m["avatarUrl"])
+	}
+	// The bonus alone: no milestone or daily-bonus key rides in it. A new
+	// account's is ready now.
+	if got := string(m["rewards"]); got != `{"bonusReadyAt":0,"bonusAvailable":true,"bonusReward":25000,"bonusIntervalMs":21600000}` {
+		t.Fatalf("rewards = %s", got)
 	}
 	// A guest's nullables are JSON null, not "" or absent.
 	g := f.user("Null")

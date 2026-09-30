@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import {
   guestLogin, openClient, closeAll, closeOpenClients, stakeCounter, dealtTable, pause, UUID, profile, assertKeys,
 } from './lib/harness.mjs';
-import { query, closeDb, wallet, ledgerSum, setWallet } from './lib/db.mjs';
+import { query, closeDb, wallet, ledgerSum, setWallet, welcomeGrant } from './lib/db.mjs';
 
 test.after(async () => {
   await closeOpenClients();
@@ -168,7 +168,7 @@ test('a forced sideshow needs no answer, costs one hammer, and is refused withou
   const bystander = t.entries.find((e) => e !== asker && e !== asked);
   const hammers = async (id) => (await query('SELECT hammer FROM users WHERE id = $1', [id])).rows[0].hammer;
 
-  assert.equal(asker.user.hammer, 20, 'every account starts with 20 hammers');
+  assert.equal(asker.user.hammer, await welcomeGrant('HAMMER'), "every account starts with the welcome's hammers");
   await pause(50);
   const options = asker.client.state().you.options;
   assert.equal(options.canForceSideshow, true);
@@ -184,6 +184,7 @@ test('a forced sideshow needs no answer, costs one hammer, and is refused withou
   assert.equal(asker.client.state().you.options.canSideshow, true, 'the refusal did not use the ask');
   assert.equal(bystander.client.count('game:sideshowResolved'), 0);
 
+  // Twenty hammers, whatever the welcome gave, so the spend shows.
   await query('UPDATE users SET hammer = 20 WHERE id = $1', [asker.user.id]);
   const bystanderMark = bystander.client.count('game:sideshowReveal');
   ack = await asker.client.emit('game:action', { action: 'forceSideshow', actionId: 'force-1' });
@@ -212,7 +213,7 @@ test('a forced sideshow needs no answer, costs one hammer, and is refused withou
   assert.equal(bystander.client.state().seats.find((s) => s.userId === loser.user.id).status, 'packed');
 
   assert.equal(await hammers(asker.user.id), 19, 'one hammer spent');
-  assert.equal(await hammers(asked.user.id), 20, 'the asked player pays nothing');
+  assert.equal(await hammers(asked.user.id), asked.user.hammer, 'the asked player pays nothing');
   const { rows } = await query('SELECT count(*)::int AS n FROM hammer_spends WHERE user_id = $1', [asker.user.id]);
   assert.equal(rows[0].n, 1);
   assert.equal(await ledgerSum(asker.user.id), await wallet(asker.user.id), 'hammers never touch the chip books');

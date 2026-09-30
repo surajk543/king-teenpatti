@@ -126,6 +126,11 @@ func TestTheEmojiCatalogueIsListedWithAnOptionalTokenAndBoughtOverREST(t *testin
 	t.Logf("GET /api/emojis (anonymous): %s", anonymous)
 
 	token, id := login(t, ts.URL, "emoji-buyer-device", "Emoji Buyer")
+	// The buyer holds 9 diamonds, whatever a new account is given (the
+	// welcome is data: V1.0.1__seed.sql), so what the buy leaves shows.
+	if _, err := database.Pool.Exec(ctx, `UPDATE users SET diamond = 9 WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
 	res := postJSON(ts.URL, token, "/api/emojis/buy", map[string]any{"emojiId": laughing})
 	if res.err != nil || res.status != http.StatusOK || res.body["charged"] != true || res.body["spent"] != float64(5) {
 		t.Fatalf("a diamond buy: %d %v %v", res.status, res.body, res.err)
@@ -231,6 +236,11 @@ func TestASeatedPlayerBuysAHammerEmojiAndSendsItToTheTable(t *testing.T) {
 
 	token, id := login(t, ts.URL, "emoji-seated-device", "Emoji Seated")
 	otherToken, _ := login(t, ts.URL, "emoji-other-device", "Emoji Other")
+	// The buyer holds the 12 hammers HammerTime costs, whatever a new account
+	// is given (the welcome is data: V1.0.1__seed.sql).
+	if _, err := database.Pool.Exec(ctx, `UPDATE users SET hammer = 12 WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
 	c := dial(t, ts.URL, token)
 	joined := mustOK(t, c, socket.EvRoomQuickJoin, map[string]any{"bootAmount": 200, "category": "seen"})
 	var room struct {

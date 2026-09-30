@@ -278,7 +278,7 @@ void main() {
       ]);
 
       // The back tile, back to the front.
-      await tap(find.byKey(const ValueKey('back-mark')), clicks: 1);
+      await tap(find.byKey(const ValueKey('back-arrow')), clicks: 1);
       await _settle(tester);
       expect(state.lobbyCategory, isNull);
 
@@ -338,7 +338,7 @@ void main() {
     await _settle(tester);
     await tester.tap(find.byKey(const ValueKey('info-wave')).first);
     await _closeAll(tester, state);
-    await tester.tap(find.byKey(const ValueKey('back-mark')));
+    await tester.tap(find.byKey(const ValueKey('back-arrow')));
     await _settle(tester);
 
     expect(sounds.heard, isEmpty);
@@ -481,7 +481,7 @@ void main() {
         find.byKey(const ValueKey('rule-book')).first,
       );
       await _closeAll(tester, state);
-      await once('the back tile', find.byKey(const ValueKey('back-mark')));
+      await once('the back tile', find.byKey(const ValueKey('back-arrow')));
       await _settle(tester);
 
       // The detector hears a tick where one is made: a plain button of the

@@ -30,7 +30,7 @@ func diamondsAndMissiles(t *testing.T, database *db.DB, userID string) (diamonds
 }
 
 // POST /api/store/missiles over HTTP, against PostgreSQL: a new account holds
-// 9 diamonds and 1 missile; a trade answers {user, charged, diamonds, missiles}
+// the diamonds and the missile the welcome gives; a trade answers {user, charged, diamonds, missiles}
 // and moves the wallets once per requestId; a replay, an unknown pack, a bad
 // requestId, a short wallet and a malformed body each get their own answer
 // with nothing moved; and a seated player may trade, with their seat and
@@ -42,8 +42,10 @@ func TestTheMissileStoreTradesDiamondsForMissilesOverHTTP(t *testing.T) {
 	ctx := context.Background()
 
 	token, id := login(t, ts.URL, "missile-store-buyer", "Trader")
-	if d, m := diamondsAndMissiles(t, database, id); d != 9 || m != 1 {
-		t.Fatalf("a new account holds %d diamonds and %d missiles, want 9 and 1", d, m)
+	m0 := welcomeGrant(t, database, db.RewardMissile)
+	if d, m := diamondsAndMissiles(t, database, id); d != welcomeGrant(t, database, db.RewardDiamond) || m != m0 {
+		t.Fatalf("a new account holds %d diamonds and %d missiles, want the welcome's %d and %d",
+			d, m, welcomeGrant(t, database, db.RewardDiamond), m0)
 	}
 	walletBefore, ledgerBefore := walletAndLedger(t, database, id)
 	trade := func(body any) restAnswer {
@@ -72,7 +74,7 @@ func TestTheMissileStoreTradesDiamondsForMissilesOverHTTP(t *testing.T) {
 	if r.status != http.StatusOK || len(r.body) != 4 || r.body["charged"] != true || r.body["diamonds"] != float64(15) || r.body["missiles"] != float64(1) {
 		t.Fatalf("first trade: %d %v", r.status, r.body)
 	}
-	if u := userOf(r); u["diamond"] != float64(2) || u["missile"] != float64(2) || u["id"] != id {
+	if u := userOf(r); u["diamond"] != float64(2) || u["missile"] != float64(m0+1) || u["id"] != id {
 		t.Fatalf("the answer's user: %v", u)
 	}
 
@@ -80,7 +82,7 @@ func TestTheMissileStoreTradesDiamondsForMissilesOverHTTP(t *testing.T) {
 	if r.status != http.StatusOK || r.body["charged"] != false || r.body["diamonds"] != float64(0) || r.body["missiles"] != float64(0) {
 		t.Fatalf("a replay: %d %v", r.status, r.body)
 	}
-	if u := userOf(r); u["diamond"] != float64(2) || u["missile"] != float64(2) {
+	if u := userOf(r); u["diamond"] != float64(2) || u["missile"] != float64(m0+1) {
 		t.Fatalf("a replay's user: %v", u)
 	}
 
@@ -127,8 +129,8 @@ func TestTheMissileStoreTradesDiamondsForMissilesOverHTTP(t *testing.T) {
 		t.Fatalf("no session: %d %v", r.status, r.body)
 	}
 
-	if d, m := diamondsAndMissiles(t, database, id); d != 2 || m != 2 {
-		t.Fatalf("after the refusals the wallet holds %d diamonds and %d missiles, want 2 and 2", d, m)
+	if d, m := diamondsAndMissiles(t, database, id); d != 2 || m != m0+1 {
+		t.Fatalf("after the refusals the wallet holds %d diamonds and %d missiles, want 2 and %d", d, m, m0+1)
 	}
 	var trades int64
 	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM missile_purchases WHERE user_id = $1`, id).Scan(&trades); err != nil || trades != 1 {
@@ -146,7 +148,7 @@ func TestTheMissileStoreTradesDiamondsForMissilesOverHTTP(t *testing.T) {
 	if r.status != http.StatusOK || r.body["charged"] != true || r.body["diamonds"] != float64(140) || r.body["missiles"] != float64(10) {
 		t.Fatalf("a seated trade: %d %v", r.status, r.body)
 	}
-	if u := userOf(r); u["diamond"] != float64(0) || u["missile"] != float64(12) {
+	if u := userOf(r); u["diamond"] != float64(0) || u["missile"] != float64(m0+11) {
 		t.Fatalf("a seated trade's user: %v", u)
 	}
 	if a.Rooms().GetTableForPlayer(id) == nil || seatOf(t, a, id) != seatBefore {

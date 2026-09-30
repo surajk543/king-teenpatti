@@ -285,6 +285,12 @@ func TestHammerAndDiamondTablePicturesLeaveTheChipsAloneAndSellAtATable(t *testi
 	lines := tablePictureRow(t, f, "Carbon Weave", db.PictureCurrencyHammer, db.PicturePremium, 10, 30)
 	purple := tablePictureRow(t, f, "Royal Purple", db.PictureCurrencyDiamond, db.PicturePremium, 5, 100)
 	sapphire := tablePictureRow(t, f, "Royal Sapphire", db.PictureCurrencyCoin, db.PicturePremium, 50000, 7)
+	// The buyer holds 20 hammers and 9 diamonds, whatever a new account is
+	// given (the welcome is data: V1.0.1__seed.sql), so what each buy leaves
+	// behind shows.
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE users SET hammer = 20, diamond = 9 WHERE id = $1`, user.ID); err != nil {
+		t.Fatal(err)
+	}
 	ledgerRows := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE user_id = $1`, user.ID)
 
 	// At a table: the chip picture is refused, the others sold.

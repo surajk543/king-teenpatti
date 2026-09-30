@@ -699,3 +699,171 @@ func TestTheFleetsTableLayoutIsValidated(t *testing.T) {
 		t.Errorf("fleet_per_table = %v", c.Table.FleetPerTable)
 	}
 }
+
+// A lobby table's own fleet size (owner, 30 Sep 2026: "add some bots which
+// plays blind 50000, blind 200 also"): an entry is category:boot, optionally
+// followed by :fleet=FLOOR-CEILING, in the game server's LOBBY_TABLES style.
+// The key stays category:boot; the size lands in FleetByTable; a plain
+// entry takes table.fleet_per_table.
+func TestALobbyTableEntryCarriesItsOwnFleetSize(t *testing.T) {
+	c := load(t, `
+table:
+  lobby_tables: [seen:200, Blind:200:Fleet=50-80, "blind:50000:fleet=50-80", variation:50000]
+  fleet_per_table: [30, 50]
+`, nil)
+	want := []string{"seen:200", "blind:200", "blind:50000", "variation:50000"}
+	if !slices.Equal(c.Table.LobbyTables, want) {
+		t.Errorf("lobby_tables = %v, want the keys %v", c.Table.LobbyTables, want)
+	}
+	wantFleet := map[string][2]int{"blind:200": {50, 80}, "blind:50000": {50, 80}}
+	if !reflect.DeepEqual(c.Table.FleetByTable, wantFleet) {
+		t.Errorf("fleet by table = %v, want %v", c.Table.FleetByTable, wantFleet)
+	}
+	if c.Table.FleetPerTable != [2]int{30, 50} {
+		t.Errorf("fleet_per_table = %v", c.Table.FleetPerTable)
+	}
+
+	// The block form, and spaces round the option's parts (not after its
+	// colon: "blind:200: fleet" is a YAML mapping, refused as not text).
+	c = load(t, "table:\n  lobby_tables:\n    - seen:200\n    - blind:200:fleet = 50 - 80\n", nil)
+	if !slices.Equal(c.Table.LobbyTables, []string{"seen:200", "blind:200"}) || c.Table.FleetByTable["blind:200"] != [2]int{50, 80} {
+		t.Errorf("block form: %v %v", c.Table.LobbyTables, c.Table.FleetByTable)
+	}
+
+	// The environment's list replaces the file's, sizes and all.
+	c = load(t, "table:\n  lobby_tables: [seen:200:fleet=10-20, blind:200]\n", map[string]string{
+		"BOT_LOBBY_TABLES": "seen:200, blind:200:fleet=5-6",
+	})
+	if !reflect.DeepEqual(c.Table.FleetByTable, map[string][2]int{"blind:200": {5, 6}}) {
+		t.Errorf("the environment's list should replace the file's sizes: %v", c.Table.FleetByTable)
+	}
+
+	// A floor with no ceiling, and a table taken out of the default band.
+	c = load(t, "table:\n  fleet_per_table: [30, 50]\n  lobby_tables: [seen:200:fleet=40-0, blind:200:fleet=0-0]\n", nil)
+	if !reflect.DeepEqual(c.Table.FleetByTable, map[string][2]int{"seen:200": {40, 0}, "blind:200": {0, 0}}) {
+		t.Errorf("fleet by table = %v", c.Table.FleetByTable)
+	}
+
+	// No option anywhere: no sizes of their own.
+	c = load(t, "table:\n  lobby_tables: [seen:200, blind:200]\n", nil)
+	if c.Table.FleetByTable == nil || len(c.Table.FleetByTable) != 0 {
+		t.Errorf("fleet by table = %#v, want empty", c.Table.FleetByTable)
+	}
+}
+
+func TestALobbyTableEntrysFleetOptionIsValidated(t *testing.T) {
+	for _, tc := range []struct {
+		entry string
+		wants []string
+	}{
+		{"blind:200:max=5", []string{"unknown option", `"max=5"`, "fleet=FLOOR-CEILING"}},
+		{"blind:200:pot=5:fleet=50-80", []string{"unknown option", `"pot=5"`}},
+		{"blind:200:", []string{"empty option"}},
+		{"blind:200:fleet", []string{"fleet needs a range"}},
+		{"blind:200:fleet=", []string{"not FLOOR-CEILING"}},
+		{"blind:200:fleet=50", []string{"fleet=50 is not FLOOR-CEILING"}},
+		{"blind:200:fleet=50-", []string{"not FLOOR-CEILING"}},
+		{"blind:200:fleet=-5-10", []string{"not FLOOR-CEILING"}},
+		{"blind:200:fleet=+5-10", []string{"not FLOOR-CEILING"}},
+		{"blind:200:fleet=a-b", []string{"not FLOOR-CEILING"}},
+		{"blind:200:fleet=50-80-90", []string{"not FLOOR-CEILING"}},
+		{"blind:200:fleet=5.5-80", []string{"not FLOOR-CEILING"}},
+		{"blind:200:fleet=99999999999999999999-1", []string{"not FLOOR-CEILING"}},
+		{"blind:200:fleet=80-50", []string{"floor 80 above the ceiling 50"}},
+		{"blind:200:fleet=50-80:fleet=60-90", []string{"fleet= twice"}},
+	} {
+		// Every refusal names the entry: from the file with its line…
+		loadErr(t, "table:\n  lobby_tables:\n    - seen:200\n    - \""+tc.entry+"\"\n", nil,
+			append([]string{"table.lobby_tables[1] (line 4)", `"` + tc.entry + `"`}, tc.wants...)...)
+		// …and from the environment with its variable.
+		loadErr(t, "", map[string]string{"BOT_LOBBY_TABLES": "seen:200," + tc.entry},
+			append([]string{"BOT_LOBBY_TABLES", `entry "` + tc.entry + `"`}, tc.wants...)...)
+	}
+	// The key after the option is stripped is checked as before.
+	loadErr(t, "table:\n  lobby_tables: [blind:abc:fleet=50-80]\n", nil, `"blind:abc"`, "category:boot")
+	loadErr(t, "table:\n  lobby_tables: [poker:200:fleet=50-80]\n", nil, "not one table.categories plays")
+	loadErr(t, "", map[string]string{"BOT_LOBBY_TABLES": "blind:200,blind:200:fleet=50-80"}, `"blind:200"`, "twice")
+}
+
+func TestParseLobbyTableSplitsTheKeyFromItsFleetSize(t *testing.T) {
+	for entry, want := range map[string]struct {
+		key   string
+		fleet [2]int
+		has   bool
+	}{
+		"seen:200":                  {"seen:200", [2]int{}, false},
+		" SEEN:200 ":                {"seen:200", [2]int{}, false},
+		"blind:200:fleet=50-80":     {"blind:200", [2]int{50, 80}, true},
+		"blind:50000:FLEET=050-080": {"blind:50000", [2]int{50, 80}, true},
+		"variation:50000:fleet=0-0": {"variation:50000", [2]int{0, 0}, true},
+		"seen:50000:fleet=30-0":     {"seen:50000", [2]int{30, 0}, true},
+		"seen":                      {"seen", [2]int{}, false}, // Validate refuses the key
+	} {
+		key, fleet, has, err := ParseLobbyTable(entry)
+		if err != nil || key != want.key || fleet != want.fleet || has != want.has {
+			t.Errorf("ParseLobbyTable(%q) = %q %v %v %v, want %q %v %v", entry, key, fleet, has, err, want.key, want.fleet, want.has)
+		}
+	}
+}
+
+// A Config built any way but Load is held to the same rules.
+func TestValidateHoldsATablesOwnFleetSizeToTheRules(t *testing.T) {
+	c := Default()
+	c.Table.LobbyTables = []string{"seen:200", "blind:200"}
+	c.Table.FleetByTable = map[string][2]int{"blind:200": {50, 80}}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("a good layout: %v", err)
+	}
+	c.Table.FleetByTable = map[string][2]int{"blind:200": {80, 50}}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "blind:200 fleet=80-50") {
+		t.Errorf("a floor above its ceiling: %v", err)
+	}
+	c.Table.FleetByTable = map[string][2]int{"blind:200": {-1, 50}}
+	if err := c.Validate(); err == nil {
+		t.Error("a negative floor was accepted")
+	}
+	c.Table.FleetByTable = map[string][2]int{"blind:50000": {50, 80}}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "does not list it") {
+		t.Errorf("a size for a table the list does not name: %v", err)
+	}
+	// An option left in the list itself is not a key.
+	c.Table.LobbyTables = []string{"blind:200:fleet=50-80"}
+	c.Table.FleetByTable = map[string][2]int{}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "category:boot") {
+		t.Errorf("an entry with its option in LobbyTables: %v", err)
+	}
+}
+
+// The production unit (ops/bot-play.service) is a configuration Load accepts,
+// over the shipped file, and it is the owner's layout: five lobby tables, 30
+// to 50 of the fleet at three, 50 to 80 at Blind 200 and Blind 50,000.
+func TestTheProductionUnitsEnvironmentLoads(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "ops", "bot-play.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if kv, ok := strings.CutPrefix(strings.TrimSpace(line), "Environment="); ok {
+			k, v, _ := strings.Cut(kv, "=")
+			vars[k] = v
+		}
+	}
+	c, err := Load(filepath.Join("..", "..", "configs", "bot.yaml"), env(vars))
+	if err != nil {
+		t.Fatalf("the unit's environment %v: %v", vars, err)
+	}
+	want := []string{"seen:200", "seen:50000", "blind:200", "blind:50000", "variation:50000"}
+	if !slices.Equal(c.Table.LobbyTables, want) {
+		t.Errorf("lobby tables %v, want %v", c.Table.LobbyTables, want)
+	}
+	if c.Table.FleetPerTable != [2]int{30, 50} {
+		t.Errorf("fleet_per_table %v, want [30 50]", c.Table.FleetPerTable)
+	}
+	if want := map[string][2]int{"blind:200": {50, 80}, "blind:50000": {50, 80}}; !reflect.DeepEqual(c.Table.FleetByTable, want) {
+		t.Errorf("the tables' own sizes %v, want %v", c.Table.FleetByTable, want)
+	}
+	if c.Mode != ModeServer || c.Bots.Count != 450 || c.Table.BootsToSit != 20 {
+		t.Errorf("mode %s, bots %d, boots to sit %v", c.Mode, c.Bots.Count, c.Table.BootsToSit)
+	}
+}

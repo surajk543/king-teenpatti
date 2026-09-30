@@ -18,6 +18,35 @@ import (
 // (requirement 5; config default WELCOME_CHIPS=200000).
 const welcome int64 = 200000
 
+// welcomeGrant is what a new account is given of one of the wallets without a
+// ledger — db.RewardDiamond, db.RewardHammer or db.RewardMissile — read from
+// the ACTIVE welcome_rewards rows of that type (V1.0.1__seed.sql's THE
+// WELCOME; the chips are `welcome`, which this package's WELCOME_CHIPS sets).
+// The tests of what a new account holds read it rather than repeat the seed's
+// figures, which one test pins:
+// TestTheSeedHoldsFiveLakhChipsTheDiamondsHammersAndMissile. It fails the test
+// when the rows give none, since every caller's premise is a wallet with
+// something in it.
+func welcomeGrant(t *testing.T, d *db.DB, rewardType string) int64 {
+	t.Helper()
+	var n int64
+	if err := d.Pool.QueryRow(context.Background(),
+		`SELECT COALESCE(SUM(reward_value), 0)::bigint FROM welcome_rewards WHERE reward_type = $1 AND is_active`,
+		rewardType).Scan(&n); err != nil {
+		t.Fatalf("the welcome's %s: %v", rewardType, err)
+	}
+	if n <= 0 {
+		t.Fatalf("the welcome gives no %s", rewardType)
+	}
+	return n
+}
+
+// welcomeGrant is the package helper on the fixture's schema.
+func (f *fixture) welcomeGrant(rewardType string) int64 {
+	f.t.Helper()
+	return welcomeGrant(f.t, f.d, rewardType)
+}
+
 // fixture is one throwaway schema with a Users store and a Ledger on it.
 type fixture struct {
 	t        *testing.T

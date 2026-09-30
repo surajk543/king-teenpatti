@@ -27,7 +27,6 @@ import '../widgets/fireworks.dart';
 import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/avatar_badge.dart';
-import '../widgets/back_mark.dart';
 import '../widgets/card_coins.dart';
 import '../widgets/entry_wallet.dart';
 import '../widgets/glass_panels.dart';
@@ -2704,19 +2703,22 @@ class _BackTile extends StatelessWidget {
                     children: [
                       // The key itself: a neutral well, so it reads as the
                       // way out and not as one more thing in the level's
-                      // colour — and in it the owner's back key (30 Sep
-                      // 2026), whose own ring is the well's edge, in the
-                      // card's display ink ([BackMark]).
+                      // colour. A still arrow (owner, 30 Sep 2026: "keep
+                      // simple static back arrow just like old" — the
+                      // animated Back Button Lottie it wore for a day went).
                       Container(
+                        key: const ValueKey('back-arrow'),
                         width: disc,
                         height: disc,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: glass.wellFill,
+                          border: Border.all(color: glass.cardBorder),
                         ),
-                        child: BackMark(
-                          size: disc,
-                          fallbackInk: glass.textDisplay,
+                        child: Icon(
+                          Icons.arrow_back_rounded,
+                          size: disc * 0.5,
+                          color: glass.textDisplay,
                         ),
                       ),
                       const SizedBox(height: Space.lg),

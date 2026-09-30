@@ -33,7 +33,6 @@ import '../widgets/missile_flight.dart';
 import '../widgets/picture_shelf.dart';
 import '../widgets/playing_card.dart';
 import '../widgets/poker_chip.dart';
-import '../widgets/pot_coins.dart';
 import '../widgets/player_drawer.dart';
 import '../widgets/pot_flight.dart';
 import '../widgets/premium_surface.dart';
@@ -864,7 +863,6 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
     unawaited(HammerArt.load());
     unawaited(MissileArt.load());
     unawaited(FireworksArt.load());
-    unawaited(PotCoinsArt.load());
   }
 
   @override
@@ -2190,7 +2188,6 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                         room: room,
                         pot: pot,
                         chipSize: (podW * 0.17).clamp(12.0, 20.0),
-                        maxWidth: w * _Felt._potShare,
                         pileKey: _pileKey,
                         // The pot crossing to the winner: the figure falls as
                         // the chips leave the pile, and holds the whole pot
@@ -3063,7 +3060,6 @@ class _Pot extends StatelessWidget {
     required this.room,
     required this.chipSize,
     required this.pot,
-    required this.maxWidth,
     this.pileKey,
     this.leaving,
     this.paying = 0,
@@ -3078,44 +3074,6 @@ class _Pot extends StatelessWidget {
   /// The same figure the chips flying in are drawn at, so the pile and the
   /// chips landing on it are the same size.
   final double chipSize;
-
-  /// The most the plinth may take across (its fifth of the felt): what the
-  /// figure does not need of it is the pile's.
-  final double maxWidth;
-
-  /// The plinth's own padding, its edge and the gap between pile and figure.
-  static const EdgeInsets padding = EdgeInsets.symmetric(
-    horizontal: Space.sm,
-    vertical: Space.xs,
-  );
-  static const double gap = Space.sm;
-
-  /// How wide the figure of [pot] is set, at the phone's text size.
-  static double figureWidth(BuildContext context, TextStyle style, int pot) {
-    final painter = TextPainter(
-      text: TextSpan(text: formatChips(pot), style: style),
-      textDirection: TextDirection.ltr,
-      textScaler: MediaQuery.textScalerOf(context),
-      maxLines: 1,
-    )..layout();
-    final width = painter.width;
-    painter.dispose();
-    return width;
-  }
-
-  /// The pile's width: [_PotChips.pileShare] chip sizes across, less
-  /// whatever the figure needs of the plinth's room (the plate's padding
-  /// and the gap; its edge is painted over the padding, not inside it) — the
-  /// figure is never set down for the pile (`table_final_polish_test`) — and
-  /// never under [_PotChips.pileMin].
-  double pileWidth(BuildContext context, TextStyle style) {
-    final room = maxWidth - padding.horizontal - gap - 1;
-    final figure = figureWidth(context, style, math.max(pot, paying));
-    return (room - figure).clamp(
-      chipSize * _PotChips.pileMin,
-      chipSize * _PotChips.pileShare,
-    );
-  }
 
   /// Names the pile, which the felt aims the chips at.
   final Key? pileKey;
@@ -3142,7 +3100,10 @@ class _Pot extends StatelessWidget {
       opacity: 0.52,
       elevation: 3,
       accent: AppTheme.goldBright.withValues(alpha: 0.22),
-      padding: _Pot.padding,
+      padding: const EdgeInsets.symmetric(
+        horizontal: Space.sm,
+        vertical: Space.xs,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -3162,14 +3123,9 @@ class _Pot extends StatelessWidget {
               // land, so the middle of the table is where the eye goes.
               KeyedSubtree(
                 key: pileKey,
-                child: _PotChips(
-                  pot: pot,
-                  width: pileWidth(context, style),
-                  category: room.category,
-                  bootAmount: room.bootAmount,
-                ),
+                child: _PotChips(pot: pot, size: chipSize),
               ),
-              const SizedBox(width: _Pot.gap),
+              const SizedBox(width: Space.sm),
               Flexible(
                 // Chips arriving in the pot is the thing players watch, so the
                 // number travels to its new value instead of jumping. Tabular
@@ -3207,34 +3163,13 @@ class _Pot extends StatelessWidget {
   }
 }
 
-/// The pile on the plinth: the owner's coins falling into their stacks
-/// ([PotCoins], 30 Sep 2026 — the painted [ChipStack] until then), in the
-/// table's colour. It lifts and settles whenever the pot changes, and the
-/// last coins fall in again, so chips landing is something you see rather
-/// than only read.
+/// The pile on the plinth. It lifts and settles whenever the pot changes, so
+/// chips landing is something you see rather than only read.
 class _PotChips extends StatefulWidget {
-  const _PotChips({
-    required this.pot,
-    required this.width,
-    required this.category,
-    required this.bootAmount,
-  });
+  const _PotChips({required this.pot, required this.size});
 
   final int pot;
-
-  /// The pile's width ([_Pot.pileWidth]).
-  final double width;
-
-  /// The table's category and boot, which name its colour.
-  final String category;
-  final int bootAmount;
-
-  /// The pile's width at most, in chip sizes — about the width the painted
-  /// stack of four had plus its lift, so the plinth is no taller than it was
-  /// — and at least (the stack's own width), where the figure needs the room
-  /// on the narrowest phone at the largest text (`table_final_polish_test`).
-  static const double pileShare = 1.9;
-  static const double pileMin = 1.0;
+  final double size;
 
   @override
   State<_PotChips> createState() => _PotChipsState();
@@ -3251,10 +3186,6 @@ class _PotChipsState extends State<_PotChips>
   /// snapshot says so: the pile answers it when it comes down on it.
   Timer? _landing;
 
-  /// How many times chips have come down on the pile: each is a top-up of
-  /// the coins.
-  int _landings = 0;
-
   @override
   void didUpdateWidget(covariant _PotChips old) {
     super.didUpdateWidget(old);
@@ -3263,9 +3194,7 @@ class _PotChipsState extends State<_PotChips>
     if (widget.pot > old.pot) {
       _landing?.cancel();
       _landing = Timer(BetFlights.landsAt, () {
-        if (!mounted) return;
-        setState(() => _landings++);
-        _c.forward(from: 0);
+        if (mounted) _c.forward(from: 0);
       });
     }
   }
@@ -3279,12 +3208,6 @@ class _PotChipsState extends State<_PotChips>
 
   @override
   Widget build(BuildContext context) {
-    // The table's colour: gold, sapphire or violet (the cloth's).
-    final accent = AppTheme.paletteFor(
-      Theme.of(context).colorScheme,
-      category: widget.category,
-      bootAmount: widget.bootAmount,
-    ).accent;
     return RepaintBoundary(
       child: AnimatedBuilder(
         animation: _c,
@@ -3296,7 +3219,15 @@ class _PotChipsState extends State<_PotChips>
             child: Transform.scale(scale: 1 + 0.12 * lift, child: child),
           );
         },
-        child: PotCoins(width: widget.width, tint: accent, landings: _landings),
+        child: ChipStack(
+          size: widget.size,
+          colours: const [
+            AppTheme.goldDeep,
+            AppTheme.ink500,
+            AppTheme.gold,
+            AppTheme.goldBright,
+          ],
+        ),
       ),
     );
   }

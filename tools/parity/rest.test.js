@@ -2,10 +2,10 @@
  * REST parity: login providers, sessions, profile, health, error envelopes —
  * everything a client reaches over HTTP (integration.test.js #1–#9, #36;
  * statsAndRewards.test.js #4–#11 and #13 via the avatar routes; lobbyRules.test.js
- * name rules via POST /api/profile/name). The lobby rewards statsAndRewards.test.js
- * also covered — the milestone, the 4-hour bonus and the daily bonus — were
- * removed from the game server on 30 Sep 2026 (owner); their routes are checked
- * to be gone.
+ * name rules via POST /api/profile/name). Of the lobby rewards statsAndRewards.test.js
+ * also covered, the milestone and the daily bonus were removed from the game
+ * server on 30 Sep 2026 (owner), and their routes are checked to be gone; the
+ * 4-hour bonus came back the same evening as the 6-hour bonus, checked below.
  *
  * The few places where DECISIONS.md §5 records a deliberate Go difference (body
  * parse failures, unknown /api paths) branch on PARITY_TARGET and say so.
@@ -16,7 +16,7 @@ import {
   http, login, guestLogin, me, health, openClient, closeAll, stakeCounter, isNode, isGo, profile,
   assertKeys, decodeJwt, signJwt, UUID, pause, baseUrl, CONFIG_KEYS, closeOpenClients,
 } from './lib/harness.mjs';
-import { query, closeDb, wallet, setWallet } from './lib/db.mjs';
+import { query, closeDb, wallet, setWallet, welcomeGrant } from './lib/db.mjs';
 
 // A test that fails with a socket open would otherwise hold the runner until
 // the file timeout.
@@ -29,14 +29,21 @@ const uniqueStake = stakeCounter(100);
 
 const USER_KEYS = [
   'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'tablePicture', 'chips', 'diamond', 'hammer', 'missile',
-  // No 'rewards': the lobby rewards were removed on 30 Sep 2026 (owner), and
-  // the account no longer carries their state.
   'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'stats',
+  // 'rewards' is the 6-hour bonus alone (owner, 30 Sep 2026: the lobby
+  // rewards were removed that morning, and the bonus came back that evening);
+  // the milestone and the daily bonus stay gone.
+  'rewards',
   'createdAt', 'lastLoginAt',
   // The player's own standing (owner, 26–27 Sep 2026; Go only): their level
   // and XP, the badges they hold, and the winning tax they pay.
   'playerLevel', 'badges', 'taxBps',
 ];
+
+// The 6-hour bonus as a new account holds it: ready now, 25,000 chips, every
+// six hours — the four keys the 4-hour bonus sent, and nothing of the
+// milestone or the daily bonus.
+const NEW_ACCOUNT_REWARDS = { bonusReadyAt: 0, bonusAvailable: true, bonusReward: 25000, bonusIntervalMs: 6 * 60 * 60 * 1000 };
 
 // ------------------------------------------------------------------ login
 
@@ -47,16 +54,20 @@ test('guest login creates an account with the welcome chip grant, in the exact p
   // welcome_rewards rows — on a fresh schema the chips row the boot wrote from
   // WELCOME_CHIPS and the seed's diamonds, hammers and missile; no catalogue
   // item is seeded, and every list is [] rather than null.
+  const diamonds = await welcomeGrant('DIAMOND');
+  const hammers = await welcomeGrant('HAMMER');
+  const missiles = await welcomeGrant('MISSILE');
+  assert.ok(diamonds > 0 && hammers > 0 && missiles > 0, 'the seed gives diamonds, hammers and a missile');
   assertKeys(body, ['token', 'user', 'isNew', 'welcomeChips', 'welcome'], 'login response');
   assert.equal(body.isNew, true);
   assert.equal(body.welcomeChips, profile.welcomeChips);
   assert.deepEqual(body.welcome, {
-    chips: profile.welcomeChips, diamonds: 9, hammers: 20, missiles: 1, pictures: [], tablePictures: [], emojis: [],
+    chips: profile.welcomeChips, diamonds, hammers, missiles, pictures: [], tablePictures: [], emojis: [],
   });
 
   const { user } = body;
   assertKeys(user, USER_KEYS, 'user');
-  assert.equal('rewards' in user, false, 'the account carries no lobby rewards');
+  assert.deepEqual(user.rewards, NEW_ACCOUNT_REWARDS, 'the account carries the 6-hour bonus, ready now');
   assert.match(user.id, UUID);
   assert.equal(user.provider, 'guest');
   assert.equal(user.displayName, 'Suraj');
@@ -65,10 +76,10 @@ test('guest login creates an account with the welcome chip grant, in the exact p
   assert.equal(user.providerAvatarUrl, null);
   assert.equal(user.activePictureId, null);
   assert.equal(user.tablePicture, null, 'the table as it comes, until a table picture is laid');
-  assert.equal(user.chips, profile.welcomeChips, 'a first-time player is granted 2 lakh chips');
-  assert.equal(user.diamond, 9, 'and nine diamonds, the premium currency');
-  assert.equal(user.hammer, 20, 'and twenty hammers');
-  assert.equal(user.missile, 1, 'and one missile');
+  assert.equal(user.chips, profile.welcomeChips, 'a first-time player is granted the welcome chips');
+  assert.equal(user.diamond, diamonds, "and the welcome's diamonds, the premium currency");
+  assert.equal(user.hammer, hammers, "and the welcome's hammers");
+  assert.equal(user.missile, missiles, "and the welcome's missile");
   for (const counter of ['handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot']) {
     assert.equal(user[counter], 0, counter);
   }
@@ -538,7 +549,8 @@ test('a hammer picture is paid in hammers, never chips or diamonds, and a new ac
   assert.equal(pic.assetFormat, 'LOTTIE');
 
   const { token, user } = await guestLogin('device-hammer-picture-0001', 'Hammer');
-  assert.equal(user.hammer, 20, 'every account starts with twenty hammers');
+  assert.equal(user.hammer, await welcomeGrant('HAMMER'), "every account starts with the welcome's hammers");
+  assert.ok(pic.cost <= user.hammer, 'which cover the 10-hammer picture');
 
   let r = await http('POST', '/api/profile/picture/buy', { token, body: { pictureId: pic.id } });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -593,8 +605,8 @@ test('a diamond picture is paid in diamonds, never chips, and a new account can 
   assert.equal(gem.assetFormat, 'LOTTIE');
 
   const { token, user } = await guestLogin('device-diamond-0001', 'Gem');
-  assert.equal(user.diamond, 9, 'every account starts with nine diamonds');
-  assert.ok(gem.cost <= user.diamond, 'which covers the seeded diamond picture');
+  assert.equal(user.diamond, await welcomeGrant('DIAMOND'), "every account starts with the welcome's diamonds");
+  assert.ok(gem.cost <= user.diamond, 'which cover the 1-diamond picture');
 
   let r = await http('POST', '/api/profile/picture/buy', { token, body: { pictureId: gem.id } });
   assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -630,12 +642,16 @@ test('a diamond picture is paid in diamonds, never chips, and a new account can 
 
 // The lobby rewards — the milestone (25,000 every 25 hands), the 4-hour bonus
 // and the 24-hour daily bonus — were removed on 30 Sep 2026 (owner: "Remove
-// 24-hour daily reward, 4-hour bonus, and milestone reward"). Their routes
-// answer the ordinary JSON 404 of an unknown /api path, signed in or not, and
-// pay nothing; no account read carries a `rewards` key any more.
-const REMOVED_REWARD_ROUTES = ['/api/rewards/milestone', '/api/rewards/bonus', '/api/rewards/daily'];
+// 24-hour daily reward, 4-hour bonus, and milestone reward"), and the bonus
+// came back that evening, every 6 hours ("IN Top left Add Again Every 6 hours
+// bonus 25000 Coins"). The milestone's and the daily bonus's routes answer the
+// ordinary JSON 404 of an unknown /api path, signed in or not, and pay
+// nothing; the bonus's route pays 25,000 chips once through the ledger (the
+// Go suite internal/app/timedbonus_test.go covers its countdown and its
+// refusals end to end).
+const REMOVED_REWARD_ROUTES = ['/api/rewards/milestone', '/api/rewards/daily'];
 
-test('the lobby reward routes are gone: each answers the JSON 404 and pays nothing', async () => {
+test('the lobby reward routes are gone but the 6-hour bonus: each answers the JSON 404 and pays nothing, and the bonus pays once', async () => {
   const { token, user } = await guestLogin('device-rewards-gone-01', 'NoReward');
   for (const path of REMOVED_REWARD_ROUTES) {
     for (const auth of [{ token }, {}]) {
@@ -646,7 +662,7 @@ test('the lobby reward routes are gone: each answers the JSON 404 and pays nothi
     }
   }
   const after = await me(token);
-  assert.equal('rewards' in after, false, 'GET /api/auth/me carries no lobby rewards');
+  assert.deepEqual(after.rewards, NEW_ACCOUNT_REWARDS, 'GET /api/auth/me carries the 6-hour bonus alone');
   assert.equal(after.chips, user.chips, 'nothing was paid');
   assert.equal(after.hammer, user.hammer, 'not even the daily hammer');
   assert.equal(await wallet(user.id), user.chips);
@@ -655,6 +671,26 @@ test('the lobby reward routes are gone: each answers the JSON 404 and pays nothi
     [user.id],
   );
   assert.equal(rows[0].n, 0, 'no reward row reached the ledger');
+
+  // The 6-hour bonus is there: it needs a session, pays 25,000 through one
+  // timed_bonus ledger row, and a second claim inside the six hours pays nothing.
+  let r = await http('POST', '/api/rewards/bonus', { body: {} });
+  assert.equal(r.status, 401, 'the bonus needs a session');
+  r = await http('POST', '/api/rewards/bonus', { token, body: {} });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.claimed, true);
+  assert.equal(r.body.amount, 25000);
+  assert.equal(r.body.user.chips, user.chips + 25000);
+  assert.equal(r.body.user.rewards.bonusAvailable, false, 'the countdown has started');
+  r = await http('POST', '/api/rewards/bonus', { token, body: {} });
+  assert.equal(r.status, 409, 'a second claim inside the six hours');
+  assert.equal(r.body.error, 'reward_not_ready');
+  assert.equal(await wallet(user.id), user.chips + 25000, 'paid once');
+  const bonus = await query(
+    "SELECT count(*)::int AS n, COALESCE(SUM(delta), 0)::bigint AS total FROM chip_ledger WHERE user_id = $1 AND reason = 'timed_bonus'",
+    [user.id],
+  );
+  assert.deepEqual(bonus.rows[0], { n: 1, total: 25000 }, 'one timed_bonus row of 25,000');
 });
 
 test('profile routes need a session', async () => {

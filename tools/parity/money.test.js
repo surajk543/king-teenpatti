@@ -39,12 +39,13 @@ test.after(closeDb);
 // The vocabulary of chip_ledger.reason. `boot`, `bet` and `show` are retired
 // (they belonged to the per-bet model) and must not appear in a fresh schema.
 //
-// The lobby rewards' reasons — milestone_reward, timed_bonus, daily_bonus —
-// are retired too (owner, 30 Sep 2026: the milestone, the 4-hour bonus and the
-// daily bonus were removed) and nothing writes them any more, but they stay
-// in the vocabulary: an older database's history keeps its rows, and the
-// ledger is append-only, so the audit must still read them as the chip
-// sources they were.
+// The lobby rewards' reasons — milestone_reward, timed_bonus, daily_bonus.
+// Two are retired (owner, 30 Sep 2026: the milestone and the daily bonus were
+// removed) and nothing writes them any more, but they stay in the vocabulary:
+// an older database's history keeps its rows, and the ledger is append-only,
+// so the audit must still read them as the chip sources they were.
+// timed_bonus is written again: the bonus came back that evening, every 6
+// hours (POST /api/rewards/bonus).
 const RETIRED_REWARD_REASONS = ['milestone_reward', 'timed_bonus', 'daily_bonus'];
 const REASONS = new Set([
   'welcome_bonus', 'hand_win', 'hand_loss', 'hand_packed', 'hand_left', ...RETIRED_REWARD_REASONS,

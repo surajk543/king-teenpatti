@@ -28,8 +28,9 @@ func TestAHammerSpendIsChargedOncePerKeyAndNeverGoesBelowZero(t *testing.T) {
 	f := newFixture(t)
 	u := f.user("forcer")
 	wallet := db.NewHammers(f.d, nil, nil)
-	if u.Hammer != 20 || f.hammersOf(u.ID) != 20 {
-		t.Fatalf("a new account holds %d hammers (row %d), want 20", u.Hammer, f.hammersOf(u.ID))
+	start := f.welcomeGrant(db.RewardHammer)
+	if int64(u.Hammer) != start || f.hammersOf(u.ID) != start {
+		t.Fatalf("a new account holds %d hammers (row %d), want the welcome's %d", u.Hammer, f.hammersOf(u.ID), start)
 	}
 	startRows := len(f.ledgerRows(u.ID))
 	spend := func(key string) (game.HammerSpendResult, error) {
@@ -43,10 +44,10 @@ func TestAHammerSpendIsChargedOncePerKeyAndNeverGoesBelowZero(t *testing.T) {
 	}
 
 	first, err := spend("a")
-	if err != nil || !first.Charged || first.Remaining != 19 {
+	if err != nil || !first.Charged || first.Remaining != start-1 {
 		t.Fatalf("first spend: %+v %v", first, err)
 	}
-	if f.hammersOf(u.ID) != 19 || spends("a") != 1 {
+	if f.hammersOf(u.ID) != start-1 || spends("a") != 1 {
 		t.Fatalf("after one spend: hammers %d, rows %d", f.hammersOf(u.ID), spends("a"))
 	}
 	if hand := f.count(`SELECT count(*) FROM hammer_spends WHERE user_id = $1 AND hand_id = 'hand-h'`, u.ID); hand != 1 {
@@ -54,7 +55,7 @@ func TestAHammerSpendIsChargedOncePerKeyAndNeverGoesBelowZero(t *testing.T) {
 	}
 
 	again, err := spend("a")
-	if err != nil || again.Charged || again.Remaining != 19 || f.hammersOf(u.ID) != 19 || spends("a") != 1 {
+	if err != nil || again.Charged || again.Remaining != start-1 || f.hammersOf(u.ID) != start-1 || spends("a") != 1 {
 		t.Fatalf("a retried key was charged again: %+v %v, hammers %d", again, err, f.hammersOf(u.ID))
 	}
 
@@ -102,6 +103,7 @@ func TestTheSameClientActionIdIsANewHammerSpendInAnotherHandOrForAnotherPlayer(t
 	f := newFixture(t)
 	a, b := f.user("force-key-a"), f.user("force-key-b")
 	wallet := db.NewHammers(f.d, nil, nil)
+	start := f.welcomeGrant(db.RewardHammer) // each new account's hammers
 	for _, c := range []struct {
 		what    string
 		handID  string
@@ -109,10 +111,10 @@ func TestTheSameClientActionIdIsANewHammerSpendInAnotherHandOrForAnotherPlayer(t
 		charged bool
 		left    int64
 	}{
-		{"the first spend", "hand-1", a, true, 19},
-		{"the same id in the next hand", "hand-2", a, true, 18},
-		{"the same id from another player", "hand-1", b, true, 19},
-		{"the same player's retry in the same hand", "hand-1", a, false, 18},
+		{"the first spend", "hand-1", a, true, start - 1},
+		{"the same id in the next hand", "hand-2", a, true, start - 2},
+		{"the same id from another player", "hand-1", b, true, start - 1},
+		{"the same player's retry in the same hand", "hand-1", a, false, start - 2},
 	} {
 		got, err := wallet.SpendHammer(f.ctx, game.HammerSpend{
 			RoomID: "room-k", HandID: c.handID, UserID: c.user.ID,
@@ -122,8 +124,8 @@ func TestTheSameClientActionIdIsANewHammerSpendInAnotherHandOrForAnotherPlayer(t
 			t.Fatalf("%s: %+v %v, want charged=%v with %d left", c.what, got, err, c.charged, c.left)
 		}
 	}
-	if f.hammersOf(a.ID) != 18 || f.hammersOf(b.ID) != 19 {
-		t.Fatalf("wallets hold %d and %d, want 18 and 19", f.hammersOf(a.ID), f.hammersOf(b.ID))
+	if f.hammersOf(a.ID) != start-2 || f.hammersOf(b.ID) != start-1 {
+		t.Fatalf("wallets hold %d and %d, want %d and %d", f.hammersOf(a.ID), f.hammersOf(b.ID), start-2, start-1)
 	}
 	if n := f.count(`SELECT count(*) FROM hammer_spends WHERE user_id IN ($1, $2)`, a.ID, b.ID); n != 3 {
 		t.Fatalf("%d spend rows, want 3", n)
@@ -184,15 +186,16 @@ func TestAHammerPackIsBankedOnceAndNeverTouchesChips(t *testing.T) {
 	token := "hammer-token-" + randomSuffix(t)
 	startRows := len(f.ledgerRows(u.ID))
 	diamonds := f.scalar(`SELECT diamond FROM users WHERE id = $1`, u.ID)
+	hammers := f.hammersOf(u.ID)
 
 	first, err := db.CreditHammerPurchase(f.ctx, f.d, f.users, u.ID, p, token)
 	if err != nil {
 		t.Fatalf("credit: %v", err)
 	}
-	if !first.Credited || first.Hammers != 50 || first.Diamonds != 0 || first.Chips != 0 || first.User == nil || first.User.Hammer != 70 {
+	if !first.Credited || first.Hammers != 50 || first.Diamonds != 0 || first.Chips != 0 || first.User == nil || int64(first.User.Hammer) != hammers+50 {
 		t.Fatalf("first credit: %+v", first)
 	}
-	if f.hammersOf(u.ID) != 70 || first.Balance != welcome {
+	if f.hammersOf(u.ID) != hammers+50 || first.Balance != welcome {
 		t.Fatalf("hammers %d balance %d", f.hammersOf(u.ID), first.Balance)
 	}
 	if f.chips(u.ID) != welcome || len(f.ledgerRows(u.ID)) != startRows || f.scalar(`SELECT diamond FROM users WHERE id = $1`, u.ID) != diamonds {
@@ -203,13 +206,14 @@ func TestAHammerPackIsBankedOnceAndNeverTouchesChips(t *testing.T) {
 	}
 
 	again, err := db.CreditHammerPurchase(f.ctx, f.d, f.users, u.ID, p, token)
-	if err != nil || again.Credited || again.Hammers != 50 || f.hammersOf(u.ID) != 70 {
+	if err != nil || again.Credited || again.Hammers != 50 || f.hammersOf(u.ID) != hammers+50 {
 		t.Fatalf("a replayed receipt was credited again: %+v %v, hammers %d", again, err, f.hammersOf(u.ID))
 	}
 
 	other := f.user("hammer-thief")
+	theirs := f.hammersOf(other.ID)
 	stolen, err := db.CreditHammerPurchase(f.ctx, f.d, f.users, other.ID, p, token)
-	if err != nil || stolen.Credited || f.hammersOf(other.ID) != 20 {
+	if err != nil || stolen.Credited || f.hammersOf(other.ID) != theirs {
 		t.Fatalf("a token already banked was credited to another account: %+v %v", stolen, err)
 	}
 
@@ -223,13 +227,14 @@ func TestAHammerPackIsBankedOnceAndNeverTouchesChips(t *testing.T) {
 	f.reconcile()
 }
 
-// A new account holds 20 hammers, and booting again adds no second column or
-// CHECK: the baseline declares users.hammer once, in CREATE TABLE users.
-func TestANewAccountHoldsTwentyHammersAndABootAddsNoSecondCheck(t *testing.T) {
+// A new account holds the hammers the welcome gives (welcome_rewards; the
+// seed's 10), and booting again adds no second column or CHECK: the baseline
+// declares users.hammer once, in CREATE TABLE users.
+func TestANewAccountHoldsTheWelcomesHammersAndABootAddsNoSecondCheck(t *testing.T) {
 	f := newFixture(t)
 	u := f.user("hammer-fresh")
-	if u.Hammer != 20 || f.hammersOf(u.ID) != 20 {
-		t.Fatalf("a new account holds %d hammers (row %d), want 20", u.Hammer, f.hammersOf(u.ID))
+	if want := f.welcomeGrant(db.RewardHammer); int64(u.Hammer) != want || f.hammersOf(u.ID) != want {
+		t.Fatalf("a new account holds %d hammers (row %d), want the welcome's %d", u.Hammer, f.hammersOf(u.ID), want)
 	}
 	again, err := db.Open(f.ctx, db.Options{URL: testURL(), Schema: f.d.Schema, PoolMax: 2})
 	if err != nil {

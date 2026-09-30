@@ -379,6 +379,42 @@ func TestTheFleetRegistryCountsBotsPerTable(t *testing.T) {
 	must(t, f.Seated() == 0 && f.BotsAt("r1") == 0, "empty")
 }
 
+// A lobby table's own fleet size (config table.lobby_tables' fleet=, owner
+// 30 Sep 2026: more of the fleet at the blind tables): with the fleet at the
+// default ceiling of 2 at both tables a bot rests; with Blind 200's own
+// ceiling of 3 it asks for a seat there — the choice and the claim both read
+// that table's own ceiling.
+func TestATablesOwnCeilingLetsTheFleetGrowThere(t *testing.T) {
+	for _, own := range []bool{false, true} {
+		t.Run(map[bool]string{false: "the default ceiling everywhere", true: "blind:200 with its own ceiling"}[own], func(t *testing.T) {
+			fs := newFakeServer(t)
+			h := start(t, fs, func(c *config.Config) {
+				c.Table.LobbyTables = []string{"seen:200", "blind:200"}
+				c.Table.FleetPerTable = [2]int{0, 2}
+				if own {
+					c.Table.FleetByTable = map[string][2]int{"blind:200": {0, 3}}
+				}
+			})
+			fleet := h.bot.d.Fleet
+			fleet.Seat("u-a", "s1", "seen:200")
+			fleet.Seat("u-b", "s1", "seen:200")
+			fleet.Seat("u-c", "b1", "blind:200")
+			fleet.Seat("u-d", "b1", "blind:200")
+			s := h.fs.nextSession()
+			s.push(protocol.EvSessionReady, protocol.SessionReady{User: protocol.User{ID: "u-botplay-000001", Chips: 1_000_000}})
+			if !own {
+				h.waitState(state.Resting)
+				return
+			}
+			join := s.expect(t, protocol.EvRoomQuickJoin, 5*time.Second, h.advance)
+			must(t, join.payload["category"] == "blind" && join.payload["bootAmount"] == float64(200),
+				"only blind:200 is under its ceiling, joined %v", join.payload)
+			must(t, fleet.Held(h.clk.Now())["blind:200"] == 3, "the claim holds the third place: %v", fleet.Held(h.clk.Now()))
+			join.reply <- roomAck("r1")
+		})
+	}
+}
+
 func TestAFleetOfTenHasEveryPersonalityFamily(t *testing.T) {
 	seen := map[strategy.Kind]int{}
 	for n := 1; n <= 10; n++ {
