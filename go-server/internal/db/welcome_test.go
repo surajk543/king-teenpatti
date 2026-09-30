@@ -205,26 +205,29 @@ func TestTheSeedGivesFiveLakhAndWelcomeChipsSetsTheRowOnlyOutsideProduction(t *t
 // very next account, with no restart.
 func TestANewAccountGetsExactlyTheActiveRows(t *testing.T) {
 	f := newFixture(t)
+	// The seed's rows, as the table holds them (their figures are pinned by
+	// TestTheSeedHoldsFiveLakhChipsTheDiamondsHammersAndMissile).
+	diamonds, hammers, missiles := f.welcomeGrant(db.RewardDiamond), f.welcomeGrant(db.RewardHammer), f.welcomeGrant(db.RewardMissile)
 
 	all := signIn(t, f.users, "All")
-	if g := all.Welcome; g.Chips != welcome || g.Diamonds != 5 || g.Hammers != 10 || g.Missiles != 1 ||
+	if g := all.Welcome; g.Chips != welcome || g.Diamonds != diamonds || g.Hammers != hammers || g.Missiles != missiles ||
 		len(g.Pictures) != 0 || len(g.TablePictures) != 0 || len(g.Emojis) != 0 {
 		t.Fatalf("every row: %+v", g)
 	}
-	if got := wallets(t, f.d, all.User.ID); got != [4]int64{welcome, 5, 10, 1} {
+	if got := wallets(t, f.d, all.User.ID); got != [4]int64{welcome, diamonds, hammers, missiles} {
 		t.Fatalf("wallets %v", got)
 	}
-	if u := all.User; u.Chips != welcome || u.Diamond != 5 || u.Hammer != 10 || u.Missile != 1 {
+	if u := all.User; u.Chips != welcome || int64(u.Diamond) != diamonds || int64(u.Hammer) != hammers || int64(u.Missile) != missiles {
 		t.Fatalf("the account as answered: %+v", u)
 	}
 
 	// Some: the chips and the hammers switched off. No restart, same store.
 	execSQL(t, f.d, `UPDATE welcome_rewards SET is_active = FALSE WHERE code IN ('chips', 'hammers')`)
 	some := signIn(t, f.users, "Some")
-	if g := some.Welcome; g.Chips != 0 || g.Diamonds != 5 || g.Hammers != 0 || g.Missiles != 1 {
+	if g := some.Welcome; g.Chips != 0 || g.Diamonds != diamonds || g.Hammers != 0 || g.Missiles != missiles {
 		t.Fatalf("some rows: %+v", g)
 	}
-	if got := wallets(t, f.d, some.User.ID); got != [4]int64{0, 5, 0, 1} {
+	if got := wallets(t, f.d, some.User.ID); got != [4]int64{0, diamonds, 0, missiles} {
 		t.Fatalf("wallets %v", got)
 	}
 	rows := f.ledgerRows(some.User.ID)
@@ -236,7 +239,7 @@ func TestANewAccountGetsExactlyTheActiveRows(t *testing.T) {
 	execSQL(t, f.d, `UPDATE welcome_rewards SET is_active = TRUE, reward_value = 300000 WHERE code = 'chips'`)
 	execSQL(t, f.d, `INSERT INTO welcome_rewards (code, reward_type, reward_value, sort_order) VALUES ('festival_diamonds', 'DIAMOND', 6, 25)`)
 	more := signIn(t, f.users, "More")
-	if g := more.Welcome; g.Chips != 300000 || g.Diamonds != 15 || g.Hammers != 0 || g.Missiles != 1 {
+	if g := more.Welcome; g.Chips != 300000 || g.Diamonds != diamonds+6 || g.Hammers != 0 || g.Missiles != missiles {
 		t.Fatalf("an UPDATE and a second diamond row: %+v", g)
 	}
 

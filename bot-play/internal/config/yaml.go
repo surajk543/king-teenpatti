@@ -138,7 +138,7 @@ func (d *decoder) schema() section {
 		"category_weights":   leaf(weights(&c.Table.CategoryWeights, strings.ToLower)),
 		"boots_to_sit":       leaf(number(&c.Table.BootsToSit)),
 		"max_bots_per_table": leaf(whole(&c.Table.MaxBotsPerTable)),
-		"lobby_tables":       leaf(textList(&c.Table.LobbyTables)),
+		"lobby_tables":       leaf(lobbyTables(&c.Table.LobbyTables, &c.Table.FleetByTable)),
 		"fleet_per_table":    leaf(wholePair(&c.Table.FleetPerTable)),
 	}
 	d.either(table, "table",
@@ -518,6 +518,27 @@ func textList(dst *[]string) handler {
 			out = append(out, s)
 		}
 		*dst = out
+		return nil
+	}
+}
+
+// lobbyTables reads table.lobby_tables: a list of entries, each a key with
+// an optional fleet= option (ParseLobbyTable) — the keys into *keys, each
+// entry's own fleet size into *fleet. A bad option is refused at its line.
+func lobbyTables(keys *[]string, fleet *map[string][2]int) handler {
+	return func(n *yaml.Node, path string) error {
+		var entries []string
+		if err := textList(&entries)(n, path); err != nil {
+			return err
+		}
+		n = deref(n)
+		k, f, err := readLobbyTables(entries, func(i int, err error) error {
+			return errAt(fmt.Sprintf("%s[%d]", path, i), n.Content[i], "%v", err)
+		})
+		if err != nil {
+			return err
+		}
+		*keys, *fleet = k, f
 		return nil
 	}
 }

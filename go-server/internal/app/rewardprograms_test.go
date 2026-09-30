@@ -95,8 +95,8 @@ func TestTheRewardProgramsAreClaimedFromTheLobbyOnceADay(t *testing.T) {
 	}
 	granted, _ := claim.body["granted"].([]any)
 	// The one program the seed runs, the owner's weekly login streak, gives
-	// today's — its Day 1, 10,000 chips (the other three are seeded inactive,
-	// with no days).
+	// today's — its Day 1, the chips its seeded row names (the other three are
+	// seeded inactive, with no days).
 	if len(granted) != 1 {
 		t.Fatalf("%d rewards granted, want 1: %v", len(granted), claim.body["granted"])
 	}
@@ -115,8 +115,13 @@ func TestTheRewardProgramsAreClaimedFromTheLobbyOnceADay(t *testing.T) {
 	if len(codes) != 1 || !codes["WEEKLY_LOGIN"] {
 		t.Fatalf("the grants' programs: %v", codes)
 	}
-	if chipsGranted != 10_000 {
-		t.Fatalf("chips granted %d, want Day 1's 10,000", chipsGranted)
+	var day1 int64
+	if err := database.Pool.QueryRow(ctx, `SELECT r.reward_value FROM reward_program_rewards r JOIN reward_programs p ON p.id = r.program_id
+	      WHERE p.code = 'WEEKLY_LOGIN' AND r.day_number = 1 AND r.reward_type = 'CHIPS'`).Scan(&day1); err != nil {
+		t.Fatalf("the seed's WEEKLY_LOGIN Day 1: %v", err)
+	}
+	if chipsGranted != day1 {
+		t.Fatalf("chips granted %d, want Day 1's %d", chipsGranted, day1)
 	}
 	if got := wallet("chips"); got != chips+chipsGranted {
 		t.Fatalf("chips %d, want %d after grants of %d", got, chips+chipsGranted, chipsGranted)

@@ -71,13 +71,13 @@ func TestAPremiumPackageBanksItsChipsMissilesAndHammersOnce(t *testing.T) {
 
 	// The same token from another account pays nobody anything.
 	other := f.user("premium-thief")
+	theirs := wallets(t, f.d, other.ID) // chips, diamonds, hammers, missiles as the welcome left them
 	stolen, err := db.CreditPurchase(f.ctx, f.d, f.users, other.ID, p, token)
 	if err != nil || stolen.Credited {
 		t.Fatalf("a token already banked was credited to another account: %+v %v", stolen, err)
 	}
-	if f.chips(other.ID) != welcome || f.missilesOf(other.ID) != 1 || f.hammersOf(other.ID) != 20 || f.diamondsOf(other.ID) != 9 {
-		t.Fatalf("the second account's wallets moved: chips %d, missiles %d, hammers %d, diamonds %d",
-			f.chips(other.ID), f.missilesOf(other.ID), f.hammersOf(other.ID), f.diamondsOf(other.ID))
+	if got := wallets(t, f.d, other.ID); got != theirs || got[0] != welcome {
+		t.Fatalf("the second account's wallets moved: chips, diamonds, hammers, missiles %v, want %v", got, theirs)
 	}
 	f.reconcile()
 }

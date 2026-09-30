@@ -102,6 +102,29 @@ func newAppOn(t *testing.T, cfg *config.Config, database *db.DB, store live.Stor
 	return a
 }
 
+// welcomeGrant is what a new account is given of one of the wallets without a
+// ledger — db.RewardDiamond, db.RewardHammer or db.RewardMissile — read from
+// the ACTIVE welcome_rewards rows of that type (V1.0.1__seed.sql's THE
+// WELCOME; the chips are cfg.Game.WelcomeChips, which a non-production boot
+// writes into the chips row). Tests of what a new account holds read it
+// rather than repeat the seed's figures, which internal/db's
+// TestTheSeedHoldsFiveLakhChipsTheDiamondsHammersAndMissile pins. It fails the
+// test when the rows give none: every caller needs a wallet with something in
+// it.
+func welcomeGrant(t *testing.T, database *db.DB, rewardType string) int64 {
+	t.Helper()
+	var n int64
+	if err := database.Pool.QueryRow(context.Background(),
+		`SELECT COALESCE(SUM(reward_value), 0)::bigint FROM welcome_rewards WHERE reward_type = $1 AND is_active`,
+		rewardType).Scan(&n); err != nil {
+		t.Fatalf("the welcome's %s: %v", rewardType, err)
+	}
+	if n <= 0 {
+		t.Fatalf("the welcome gives no %s", rewardType)
+	}
+	return n
+}
+
 func get(t *testing.T, h http.Handler, method, target string, mutate func(*http.Request)) (*http.Response, []byte) {
 	t.Helper()
 	req := httptest.NewRequest(method, target, nil)

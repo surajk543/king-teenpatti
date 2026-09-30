@@ -38,7 +38,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
 | Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation and `tools/lottie/bake_loop_expressions.py` writes its `loopOut()` expressions out as keyframes, both for the phone players (§12.3). `tools/tables/make_table_pictures.py` (Python 3, stdlib) draws the 16 SVG table pictures in `go-server/public/tables/` — eight designs, a day and a night file each (§7.3); `tools/tables/make_background_pattern.py` re-encodes the owner's Background Pattern Lottie (`background-pattern.json`, 122 KB) into the two 31 KB Drive files beside it, day and night (§7.3); `tools/tables/make_thank_you_day.py` recolours the owner's Thank You Lottie into its day file, deep gold for the light ground (§7.3). |
-| **Bot fleet** | `bot-play/` | The resident bots that keep production's lobby populated (`bot-play.service` on the game host, loopback to `:3000`). **Go since 27 Sep 2026** (module `github.com/surajk543/king-teenpatti/bot-play`, one static binary; the Node fleet it replaced is in git history, tagged `bot-play/v1.0.0`): `BOT_COUNT` bots (320 in the unit, about 200 seated at once: 30–50 at each of Seen 200, Seen 50,000, Blind 200, Blind 50,000 and Variation 50,000 — `BOT_LOBBY_TABLES`, `BOT_FLEET_PER_TABLE=30,50`, owner 27 Sep 2026), guest devices `botplay-<6 digits>` the server marks `is_bot`, each on its own goroutine, event loop and websocket-only Socket.IO connection, in sessions of play with rests between. Six personality families (CAUTIOUS … BEGINNER) stable per identity, blind/seen play, raises up the server's ladder, hand strength from a copy of `handrank.go` pinned by a fingerprint of all 22,100 hands (variation hands read from the server's `you.hand`), log-normal reaction times ending 3 s inside the turn clock, tables from `GET /api/tables`, chat under a per-table budget, a lost ack resent with the same `actionId`. `go run ./cmd/bot-play` (`BOT_MODE=simulation BOT_SEED=12345` runs an in-process stand-in server), `go test -race ./...`; `bot-play/README.md` is the reference. Separate from `tools/bot.js`, the practice bots for manual testing. |
+| **Bot fleet** | `bot-play/` | The resident bots that keep production's lobby populated (`bot-play.service` on the game host, loopback to `:3000`). **Go since 27 Sep 2026** (module `github.com/surajk543/king-teenpatti/bot-play`, one static binary; the Node fleet it replaced is in git history, tagged `bot-play/v1.0.0`): `BOT_COUNT` bots (450 in the unit since 30 Sep 2026, 320 before — about 280 seated at once: 30–50 at each of Seen 200, Seen 50,000 and Variation 50,000, and 50–80 at Blind 200 and Blind 50,000 — `BOT_LOBBY_TABLES=seen:200,seen:50000,blind:200:fleet=50-80,blind:50000:fleet=50-80,variation:50000`, `BOT_FLEET_PER_TABLE=30,50` for the entries without their own `:fleet=FLOOR-CEILING`; owner 27 Sep 2026, and 30 Sep 2026: "add some bots which plays blind 50000, blind 200 also". A new build must be built before its unit is installed: an older binary refuses a `:fleet=` entry and the unit would restart-loop), guest devices `botplay-<6 digits>` the server marks `is_bot`, each on its own goroutine, event loop and websocket-only Socket.IO connection, in sessions of play with rests between. Six personality families (CAUTIOUS … BEGINNER) stable per identity, blind/seen play, raises up the server's ladder, hand strength from a copy of `handrank.go` pinned by a fingerprint of all 22,100 hands (variation hands read from the server's `you.hand`), log-normal reaction times ending 3 s inside the turn clock, tables from `GET /api/tables`, chat under a per-table budget, a lost ack resent with the same `actionId`. `go run ./cmd/bot-play` (`BOT_MODE=simulation BOT_SEED=12345` runs an in-process stand-in server), `go test -race ./...`; `bot-play/README.md` is the reference. Separate from `tools/bot.js`, the practice bots for manual testing. |
 | Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
 | Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
 | Brief | `Requirements.txt` | 34 numbered requirements at lines 6–88 (**there is no #11**). Code comments cite these ("Requirement 22"). |
@@ -184,8 +184,7 @@ king-teenpatti/
     │   │                         rules_sheet, own_record (the lobby's Stats drawer, §8.4), level_art (a level's Lottie, §6.6),
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
     │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4),
-    │   │                         weekly_login (the weekly login popup: the owner's calendar, its day cards and the reward panel — §8.4),
-    │   │                         pot_coins (the pot's coins on the felt, the owner's Lottie drawn by a painter in the table's colour — §8.4)
+    │   │                         weekly_login (the weekly login popup: the owner's calendar, its day cards and the reward panel — §8.4)
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
     │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4); CasinoTableColors (the casino table's, §8.4)
     │   ├── theme/depth.dart      the depth ladder (28 Sep 2026, §8.4): Elevation, Depth/DepthScheme (every shadow and edge light), SurfaceLight, OuterShadow
@@ -201,7 +200,7 @@ king-teenpatti/
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
     │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
-    │          reward_programs and weekly_login on reward_fixtures.dart (§8.4), pot_coins (§8.4 "The pot's coins"),
+    │          reward_programs and weekly_login on reward_fixtures.dart (§8.4),
     │          casino_table, seat_ring, premium_cards (§8.4); by hand, not `_test`: table_shots and card_shots (pictures)
     ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext in DEBUG builds only (src/debug manifest),
     │                             no Android backup (allowBackup=false + res/xml/data_extraction_rules.xml), USE_BIOMETRIC/USE_FINGERPRINT removed
@@ -2715,11 +2714,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   the motion kept, one colour's callbacks shared and another's not). The table info popup (ⓘ) keeps the plain icons. An animating Lottie rebuilds ITSELF at its
   frame rate (the lottie package's `setState`), so `avatar_badge_test`'s "the tick never rebuilds it" counts rebuilds
   under the badge only. INSIDE
-  a category the rail is a slim `_BackTile` (the category's name over "All games"; its key the owner's `assets/animations/Back
-  Button.json` since 30 Sep 2026 — "use this back button animation for going back instead of using that icon"; `widgets/back_mark.dart`
-  `BackMark` over `FactMark`: a ring and arrow that press, sweep out left and come back in from the right, 1.53 s, 1080 units with the
-  ring at 364–714 filling the 44dp key — the ring is the key's edge, over its well fill — every stroke and fill in the card's display
-  ink (the file's charcoal #2B2B2B vanished by night); `test/back_mark_test.dart`) then that category's `_TableCard`s from
+  a category the rail is a slim `_BackTile` (the category's name over "All games"; its key the static back arrow, `Icons.arrow_back_rounded` on the card's well disc, keyed `back-arrow` — the owner's `Back Button.json` Lottie stood there on 30 Sep 2026 (`widgets/back_mark.dart`) and was taken out on 1 Oct 2026: "keep simple static back arrow just like old") then that category's `_TableCard`s from
   `GameState.lobbyTablesIn(category)`, **joinable → shut**, each group in the server's order. `GameState.lobbyCategory`
   (null = the front) lives in GameState, not the lobby's State: main.dart's `_BackGuard` closes it before it offers to
   quit (not while the consent panel is up), it survives a visit to a table (leave a Blind table → the Blind tables), it
@@ -3590,8 +3585,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   presentation only — the geometry, the card faces and every rule untouched). **Hierarchy**, Chaal over the pot over the
   contributions: the pot's plinth (`_Pot`) hugs its pile and figure inside the fifth of the felt it used to fill whatever it
   held (169dp round "6,800" on a 891dp phone, wider and darker than the Chaal key; about 95 now — only a figure past the fifth
-  shrinks; since the pot's coins (30 Sep 2026, below) the pile takes what the figure leaves of the fifth, `_Pot.pileWidth`, so a figure
-  the plinth can hold is still never set down for it); the viewer's own bet badge is scaled `_Felt.myBetScale` 1.1 of their pod (1.22, whose figure was 14dp at 891, the
+  shrinks); the viewer's own bet badge is scaled `_Felt.myBetScale` 1.1 of their pod (1.22, whose figure was 14dp at 891, the
   Chaal key's name size) and stands over their cards on a rim seat's terms (`myBetShown`: in the hand, or beaten while the
   showdown is on show — a packed hand wore a live-looking "BLIND 400" over its PACKED plate); `KeyPulse.still` 0.12 (0.18)
   against a primary breath of `breathLow`..`breathHigh` 0.22..0.40 (0.16..0.40), so Chaal's faintest glow outshines every other
@@ -3635,34 +3629,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   of 30 frames (59 of 60 before). `test/winner_flow_test.dart`; pictures by hand, `test/winner_shots.dart` (the sequence frame by
   frame, `<run>_t<ms>.png`, 640x360 and 891x411 both themes, key frames at 592x360, 915x412, ×1.25 and Hindi; fixture
   `test/winner_scenes.dart`); `table_final_polish_test` now waits for the flare fired at the landing.
-- **The pot's coins** (owner, 30 Sep 2026: "Use this animation on game Table for pot coins, change color of coin acc to blind, seen
-  and variation table"; `widgets/pot_coins.dart`): the owner's `assets/animations/PotCoin.json` — fourteen gold coins falling one after
-  another into three stacks (three, four and seven high) with a coin standing on edge on each, a rupee mark on its face; 1920×1080,
-  24 fps, 120 frames, every coin at rest by frame 75, no 3D, expressions or images — stands on the pot's plinth where the painted
-  `ChipStack` of four was (`_PotChips` → `PotCoins`), cropped to the pile at rest (`PotCoinsArt.window` 315,102–1641,960; the coins
-  fall in from above it and the plate's `ClipRRect` clips them), in the TABLE's colour: `AppTheme.paletteFor` of the room's category —
-  gold at a seen table, sapphire at a blind one, violet at a variation one (a private table its game's) — laid on the file's four golds
-  at their own luminances (`tintAt`, the lobby marks' rule; `potCoinsDelegates(tint)`, made once per colour), the white rupee marks
-  untouched. **Drawn by a painter, never the Lottie widget**: the file is parsed once as the table opens (`PotCoinsArt.load()` beside
-  `FireworksArt.load()`, or on the pile's first build) and `PotCoinsPainter`, on the pile's own `RepaintBoundary`, draws the frame a
-  `ValueNotifier` holds — the clock rounded to the file's 24 fps, so it repaints 24 times a second and not on every tick (§12.3: the
-  Lottie widget's per-frame `setState` under the felt's `LayoutBuilder` laid the felt out and re-recorded it on every frame; lottie
-  3.5.1's `LottieDrawable` takes its delegates AFTER construction, its constructor resolving them against a layer it has not built).
-  **It plays once** — from the first frame to `builtFrame` 75 as the table opens (3.1 s, the pile forming) — and holds; every time
-  chips land on the pot (`BetFlights.landsAt`, the moment the pile lifts) `_PotChips` counts a landing and the last eight coins and the
-  three standing ones fall in again from `topUpFrame` 35 (1.7 s, six coins staying at rest); the pot resetting to nought drops nothing;
-  looped whole it would empty the pot every five seconds. If the file cannot be read the painted stack stands in, in the table's
-  colour. **Its width is what the figure leaves** (`_Pot.pileWidth`): `_PotChips.pileShare` 1.9 chip sizes at most (about the painted
-  stack's width plus its lift, so the plinth is no taller than it was), less what the figure — measured with a `TextPainter` at the
-  phone's text size — needs of the plinth's fifth of the felt, never under `pileMin` 1.0 chip sizes (the old stack's width): at
-  592x360 ×1.25 the pile is 15dp and "6,800" is whole, at 891x411 the pile 36dp. Poker rooms keep their own pot bar.
-  `test/pot_coins_test.dart` (9: the file — canvas, rate, length, twenty layers of golds and white, no traps; every coin inside the
-  window at rest and filling it, the coins above it at the top-up frame, ten landing after it and six resting; the widget's box, its
-  painter and no Lottie widget, its clock through the built frame, the hold and the top-up at the file's rate; the delegates per colour
-  and the tint's hue and luminance; a seen, a blind and a variation table's pile in its own colour, left of a whole figure, both
-  themes; a landing topping the pile up once and a reset dropping nothing); `winner_flow_test`'s repaint checks hold the felt still
-  under it; `table_final_polish_test` the figure whole beside it. `seenTurnRoom(category:, boot:)` in `table_scenes.dart` builds the
-  same table as a blind or a variation one.
+- **The pot's pile is the painted `ChipStack` of four** (`_PotChips`, gold in every table), lifting and settling as chips land
+  (`BetFlights.landsAt`). The owner's `PotCoin.json` — fourteen coins falling into three stacks, in the table's colour — stood there
+  for a day (30 Sep 2026, `73e6b10`: `widgets/pot_coins.dart`, `test/pot_coins_test.dart`, `_Pot.pileWidth`) and was taken out on
+  1 Oct 2026 (owner: "restore old coin animation in pot amount"); it is recoverable from that commit.
 - **Variation tables** (owner, 18 Sep 2026; server side §6.1/§6.4). Everything is drawn from `room:state.variation`
   (`VariationState` in `dtos.dart`; `GameState.variation`, `variationSelecting`, `variationIsMine`, `shownVariation`,
   `shownTurnUp`) — the two `game:variation*` events only say the same thing a moment sooner, so a reconnect mid-window
@@ -4596,13 +4566,13 @@ its own; a translucent surface casts round itself (`DepthShadow`), never through
 - `GameConfig.fromJson` ints fall to 0 → `config.maxPlayers == 0 ? 5 : …` guards. The same tolerant reader parses the
   cached and fetched table catalogue; its per-table figures are NULL, never 0, when the server did not send them, so a
   missing figure is never mistaken for a real zero (the screens then fall back as before).
-- `_PotChips` animates only on increase (the lift, and since 30 Sep 2026 the pot coins' top-up — §8.4 "The pot's coins"). `PlayingCard`
+- `_PotChips` animates only on increase. `PlayingCard`
   flips only face-down↔up.
 - **The Lottie widget under the felt's `LayoutBuilder` lays the felt out on every frame** (30 Sep 2026): `Lottie`'s state calls
   `setState` at the file's frame rate, and a rebuild inside a `LayoutBuilder`'s subtree schedules the builder's layout, which re-runs
   the felt's callback and re-records its picture 24 times a second (`winner_flow_test` "the pot breathing between hands repaints its
   glow, not the felt or the screen" catches it). Anything animated on the felt is drawn by a painter from a parsed
-  `LottieComposition` (`FireworksArt`, `PotCoinsArt` + `PotCoinsPainter`, `repaint:` a listenable) — never the widget. The poker felt has only 5 `seatPlaces`; the Teen Patti felt's `SeatRing` lays 2..5.
+  `LottieComposition` (`FireworksArt`, `repaint:` a listenable) — never the widget. The poker felt has only 5 `seatPlaces`; the Teen Patti felt's `SeatRing` lays 2..5.
 - Google sign-in works (`google_sign_in` 7.x, `net/social_sign_in.dart`); the **Web** client id is the
   `serverClientId` and arrives as `--dart-define=GOOGLE_SERVER_CLIENT_ID`, without which sign-in
   succeeds and returns no `idToken`. Facebook was removed on 10 Sep 2026, restored on 22 Sep (`5b43510`) and

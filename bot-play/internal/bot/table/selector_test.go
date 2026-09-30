@@ -252,7 +252,7 @@ func TestATableAtItsCeilingTakesNoMoreOfTheFleet(t *testing.T) {
 	for range 500 {
 		c, ok := Select(m, SelectInput{
 			Chips: 1_000_000, Personality: persona(strategy.Balanced, 0.2, 0.5), BootsToSit: 20,
-			Only: fiveTables, Held: held, Floor: 30, Ceiling: 50,
+			Only: fiveTables, Held: held, Fleet: FleetLayout{Default: [2]int{30, 50}},
 		}, r)
 		if !ok || c.Key != "seen:50000" {
 			t.Fatalf("the one table under its ceiling is seen:50000, got %s %v", c.Key, ok)
@@ -261,7 +261,7 @@ func TestATableAtItsCeilingTakesNoMoreOfTheFleet(t *testing.T) {
 	held["seen:50000"] = 50
 	in := SelectInput{
 		Chips: 1_000_000, Personality: persona(strategy.Balanced, 0.2, 0.5), BootsToSit: 20,
-		Only: fiveTables, Held: held, Floor: 30, Ceiling: 50,
+		Only: fiveTables, Held: held, Fleet: FleetLayout{Default: [2]int{30, 50}},
 	}
 	if _, ok := Select(m, in, r); ok {
 		t.Fatal("every table holds its ceiling: nothing to pick")
@@ -277,7 +277,7 @@ func TestATableAtItsCeilingTakesNoMoreOfTheFleet(t *testing.T) {
 	}
 	// No ceiling: never full.
 	open := in
-	open.Ceiling = 0
+	open.Fleet = FleetLayout{Default: [2]int{30, 0}}
 	if FullOfFleet(m, open) {
 		t.Fatal("without a ceiling nothing is full")
 	}
@@ -292,7 +292,7 @@ func TestATableUnderItsFloorIsChosenFirst(t *testing.T) {
 	for range 500 {
 		c, ok := Select(m, SelectInput{
 			Chips: 1_000_000, Personality: persona(strategy.Cautious, 0.1, 0.5), BootsToSit: 20,
-			Only: fiveTables, Held: held, Floor: 30, Ceiling: 50,
+			Only: fiveTables, Held: held, Fleet: FleetLayout{Default: [2]int{30, 50}},
 		}, r)
 		if !ok || c.Key != "blind:50000" {
 			t.Fatalf("the table under its floor goes first, got %s %v", c.Key, ok)
@@ -303,10 +303,152 @@ func TestATableUnderItsFloorIsChosenFirst(t *testing.T) {
 	for range 200 {
 		c, ok := Select(m, SelectInput{
 			Chips: 100_000, Personality: persona(strategy.Cautious, 0.1, 0.5), BootsToSit: 20,
-			Only: fiveTables, Held: held, Floor: 30, Ceiling: 50,
+			Only: fiveTables, Held: held, Fleet: FleetLayout{Default: [2]int{30, 50}},
 		}, r)
 		if !ok || (c.Key != "seen:200" && c.Key != "blind:200") {
 			t.Fatalf("1 Lakh sits at a 200 table, got %s %v", c.Key, ok)
 		}
+	}
+}
+
+// The owner's layout of 30 Sep 2026: "add some bots which plays blind 50000,
+// blind 200 also" — more of the fleet at Blind 200 and Blind 50,000 than at
+// the other three tables, each lobby table with its own floor and ceiling.
+var ownersLayout = FleetLayout{
+	Default: [2]int{30, 50},
+	ByTable: map[string][2]int{"blind:200": {50, 80}, "blind:50000": {50, 80}},
+}
+
+func TestAFleetLayoutGivesEachTableItsOwnSizeAndTheRestTheDefault(t *testing.T) {
+	for key, want := range map[string][2]int{
+		"blind:200": {50, 80}, "blind:50000": {50, 80},
+		"seen:200": {30, 50}, "seen:50000": {30, 50}, "variation:50000": {30, 50},
+		"blind:5000": {30, 50}, // a table the layout does not name takes the default
+	} {
+		if f, c := ownersLayout.For(key); [2]int{f, c} != want {
+			t.Errorf("%s: %d-%d, want %v", key, f, c, want)
+		}
+	}
+	if f, c := (FleetLayout{}).For("seen:200"); f != 0 || c != 0 {
+		t.Errorf("the zero layout is %d-%d: want no floor and no ceiling", f, c)
+	}
+	// A table's own 0-0 takes it out of the default band.
+	free := FleetLayout{Default: [2]int{30, 50}, ByTable: map[string][2]int{"seen:200": {0, 0}}}
+	if f, c := free.For("seen:200"); f != 0 || c != 0 {
+		t.Errorf("seen:200 with its own 0-0 is %d-%d", f, c)
+	}
+}
+
+func TestATableBelowItsOwnFloorIsChosenFirstWhileOneAtTheDefaultFloorIsNot(t *testing.T) {
+	m := liveMenu()
+	r := rng.New(13)
+	// Blind 200 holds 45 — above the default floor of 30, below its own 50 —
+	// and every other table is at or above its floor (Blind 50,000 above its
+	// own 50; seen:200 AT the default 30, which is not under it). A CAUTIOUS
+	// bot leaning to the other low stake still goes to Blind 200.
+	held := map[string]int{"seen:200": 30, "seen:50000": 30, "blind:200": 45, "blind:50000": 60, "variation:50000": 30}
+	for range 500 {
+		c, ok := Select(m, SelectInput{
+			Chips: 1_000_000, Personality: persona(strategy.Cautious, 0.1, 0.5), BootsToSit: 20,
+			Only: fiveTables, Held: held, Fleet: ownersLayout,
+		}, r)
+		if !ok || c.Key != "blind:200" {
+			t.Fatalf("the one table under its own floor is blind:200, got %s %v", c.Key, ok)
+		}
+	}
+	// Under the default alone Blind 200's 45 is not short: nothing is under
+	// 30, so there is no short list and the bot spreads across the five
+	// (Blind 50,000 brought under the default ceiling of 50 to stay open).
+	held["blind:50000"] = 45
+	picked := map[string]int{}
+	for range 3000 {
+		c, ok := Select(m, SelectInput{
+			Chips: 1_000_000, Personality: persona(strategy.Balanced, r.Float64(), 0.5), BootsToSit: 20,
+			Only: fiveTables, Held: held, Fleet: FleetLayout{Default: [2]int{30, 50}},
+		}, r)
+		if !ok {
+			t.Fatal("nothing picked")
+		}
+		picked[c.Key]++
+	}
+	for _, k := range fiveTables {
+		if picked[k] == 0 {
+			t.Errorf("without its own floor blind:200 is not short-listed, yet %s was never picked: %v", k, picked)
+		}
+	}
+	// Two tables under their own floors share the short list; a table under
+	// the default floor joins them.
+	held = map[string]int{"seen:200": 29, "seen:50000": 40, "blind:200": 49, "blind:50000": 12, "variation:50000": 45}
+	short := map[string]int{}
+	for range 3000 {
+		c, _ := Select(m, SelectInput{
+			Chips: 1_000_000, Personality: persona(strategy.Balanced, r.Float64(), 0.5), BootsToSit: 20,
+			Only: fiveTables, Held: held, Fleet: ownersLayout,
+		}, r)
+		short[c.Key]++
+	}
+	for _, k := range []string{"seen:200", "blind:200", "blind:50000"} {
+		if short[k] == 0 {
+			t.Errorf("%s is under its floor and was never picked: %v", k, short)
+		}
+	}
+	for _, k := range []string{"seen:50000", "variation:50000"} {
+		if short[k] != 0 {
+			t.Errorf("%s is at or above its floor and was picked while others were short: %v", k, short)
+		}
+	}
+}
+
+func TestATableAtItsOwnCeilingIsFullWhileOneUnderAHigherCeilingIsChosen(t *testing.T) {
+	m := liveMenu()
+	r := rng.New(17)
+	// Every table holds 50: the default ceiling for three, and under the
+	// blind tables' own 80. Only the two blind tables take more.
+	held := map[string]int{"seen:200": 50, "seen:50000": 50, "blind:200": 50, "blind:50000": 50, "variation:50000": 50}
+	in := SelectInput{
+		Chips: 1_000_000, Personality: persona(strategy.Balanced, 0.5, 0.5), BootsToSit: 20,
+		Only: fiveTables, Held: held, Fleet: ownersLayout,
+	}
+	picked := map[string]int{}
+	for range 2000 {
+		c, ok := Select(m, in, r)
+		if !ok || (c.Key != "blind:200" && c.Key != "blind:50000") {
+			t.Fatalf("only the blind tables are under their ceilings, got %s %v", c.Key, ok)
+		}
+		picked[c.Key]++
+	}
+	if picked["blind:200"] == 0 || picked["blind:50000"] == 0 {
+		t.Fatalf("both blind tables have room: %v", picked)
+	}
+	if FullOfFleet(m, in) {
+		t.Fatal("two tables have room: the fleet is not full")
+	}
+	// Blind 200 at its own 80: Blind 50,000 alone.
+	held["blind:200"] = 80
+	for range 500 {
+		if c, ok := Select(m, in, r); !ok || c.Key != "blind:50000" {
+			t.Fatalf("blind:200 holds its 80; want blind:50000, got %s %v", c.Key, ok)
+		}
+	}
+	// Both at 80, the rest at 50: every table at its own ceiling.
+	held["blind:50000"] = 80
+	if _, ok := Select(m, in, r); ok {
+		t.Fatal("every table holds its own ceiling: nothing to pick")
+	}
+	if !FullOfFleet(m, in) {
+		t.Fatal("FullOfFleet should say the fleet is big enough at every table")
+	}
+	// The same seats under the default alone would have said so at 50.
+	held = map[string]int{"seen:200": 50, "seen:50000": 50, "blind:200": 50, "blind:50000": 50, "variation:50000": 50}
+	flat := in
+	flat.Held, flat.Fleet = held, FleetLayout{Default: [2]int{30, 50}}
+	if _, ok := Select(m, flat, r); ok || !FullOfFleet(m, flat) {
+		t.Fatal("without their own ceilings the blind tables are full at 50")
+	}
+	// A table with its own 0-0 has no ceiling: never full.
+	open := flat
+	open.Fleet = FleetLayout{Default: [2]int{30, 50}, ByTable: map[string][2]int{"variation:50000": {0, 0}}}
+	if c, ok := Select(m, open, r); !ok || c.Key != "variation:50000" || FullOfFleet(m, open) {
+		t.Fatalf("variation:50000 has no ceiling of its own: got %s %v", c.Key, ok)
 	}
 }

@@ -23,10 +23,31 @@ type SelectInput struct {
 	// Held is, per table key, how many of the fleet's bots sit at that lobby
 	// table or are on their way to it (Fleet.Held).
 	Held map[string]int
-	// Floor and Ceiling are config table.fleet_per_table: a lobby table
-	// holding Ceiling of the fleet's bots takes no more, and one holding
-	// fewer than Floor is chosen before any other. 0 = none.
-	Floor, Ceiling int
+	// Fleet is each lobby table's floor and ceiling of the fleet's bots: a
+	// table holding its ceiling takes no more, and one holding fewer than
+	// its floor is chosen before any other.
+	Fleet FleetLayout
+}
+
+// FleetLayout is how many of the fleet's bots each lobby table (a key,
+// however many rooms it runs) should hold, as [floor, ceiling] — 0 is none
+// for either.
+type FleetLayout struct {
+	// Default is every table's size but those ByTable names (config
+	// table.fleet_per_table).
+	Default [2]int
+	// ByTable is, per table key, that table's own size (config
+	// table.lobby_tables' fleet= option: "blind:200:fleet=50-80").
+	ByTable map[string][2]int
+}
+
+// For is lobby table key's floor and ceiling of the fleet's bots.
+func (l FleetLayout) For(key string) (floor, ceiling int) {
+	f, ok := l.ByTable[key]
+	if !ok {
+		f = l.Default
+	}
+	return f[0], f[1]
 }
 
 // The selector's weights. Every factor multiplies a table's weight; the bot
@@ -69,10 +90,12 @@ const (
 //
 // The fleet's own layout (owner, 27 Sep 2026: "seen table 200, 50000, blind
 // 200, blind 50000, variation 50000 — each of these tables should have 30-50
-// bots playing"): with Only set, only those lobby tables are candidates; a
-// lobby table already holding Ceiling of the fleet's bots is not one
-// (FullOfFleet tells that apart from a stack nothing admits); and while any
-// candidate holds fewer than Floor, the choice is among those alone.
+// bots playing"; 30 Sep 2026: more of them at Blind 200 and Blind 50,000):
+// with Only set, only those lobby tables are candidates; a lobby table
+// already holding its own ceiling of the fleet's bots (in.Fleet.For) is not
+// one (FullOfFleet tells that apart from a stack nothing admits); and while
+// any candidate holds fewer than its own floor, the choice is among those
+// alone.
 //
 // Each candidate's weight is the product of
 //   - stake fit: a Gaussian over the table's place on the ladder of stakes
@@ -95,18 +118,16 @@ func Select(m Menu, in SelectInput, r *rng.Rand) (c Choice, ok bool) {
 	if len(cands) == 0 {
 		return Choice{}, false
 	}
-	// A lobby table the fleet is thin on — under its floor — goes before
+	// A lobby table the fleet is thin on — under its own floor — goes before
 	// any other, so every table the fleet plays reaches its floor first.
-	if in.Floor > 0 {
-		var short []Choice
-		for _, t := range cands {
-			if in.Held[t.Key] < in.Floor {
-				short = append(short, t)
-			}
+	var short []Choice
+	for _, t := range cands {
+		if floor, _ := in.Fleet.For(t.Key); floor > 0 && in.Held[t.Key] < floor {
+			short = append(short, t)
 		}
-		if len(short) > 0 {
-			cands = short
-		}
+	}
+	if len(short) > 0 {
+		cands = short
 	}
 
 	levels := distinctBoots(cands)
@@ -181,8 +202,8 @@ func Select(m Menu, in SelectInput, r *rng.Rand) (c Choice, ok bool) {
 // candidates are the tables Select chooses among for in: the menu's Teen
 // Patti tables (config table.lobby_tables, when it names any) whose band
 // admits the stack, less Exclude and — capped — less those holding their
-// ceiling of the fleet; of those, the ones the stack covers BootsToSit times
-// over, or failing any, the cheapest.
+// own ceiling of the fleet; of those, the ones the stack covers BootsToSit
+// times over, or failing any, the cheapest.
 func candidates(m Menu, in SelectInput, capped bool) []Choice {
 	bootsToSit := in.BootsToSit
 	if bootsToSit <= 0 {
@@ -205,7 +226,7 @@ func candidates(m Menu, in SelectInput, capped bool) []Choice {
 		if len(only) > 0 && !only[t.Key] {
 			continue
 		}
-		if capped && in.Ceiling > 0 && in.Held[t.Key] >= in.Ceiling {
+		if _, ceiling := in.Fleet.For(t.Key); capped && ceiling > 0 && in.Held[t.Key] >= ceiling {
 			continue
 		}
 		fallback = append(fallback, t)
@@ -233,10 +254,11 @@ func candidates(m Menu, in SelectInput, capped bool) []Choice {
 }
 
 // FullOfFleet reports whether Select found nothing only because every table
-// that would take this stack already holds its ceiling of the fleet — the
-// bot is not broke, the fleet is simply big enough there, and it rests.
+// that would take this stack already holds its own ceiling of the fleet —
+// the bot is not broke, the fleet is simply big enough there, and it rests.
+// With no ceiling anywhere nothing is ever full.
 func FullOfFleet(m Menu, in SelectInput) bool {
-	return in.Ceiling > 0 && len(candidates(m, in, true)) == 0 && len(candidates(m, in, false)) > 0
+	return len(candidates(m, in, true)) == 0 && len(candidates(m, in, false)) > 0
 }
 
 // affords reports whether chips covers boot bootsToSit times over.

@@ -143,8 +143,8 @@ naming the variable.
 | `BOT_RECONNECT_MAX_DELAY_SECONDS` | `30` | `reconnect.max_delay` |
 | `BOT_DEV_REPLENISH` | `false` | `bankroll.dev_replenish`: refused outside simulation |
 | `BOT_BOOTS_TO_SIT` | `25` | `table.boots_to_sit` |
-| `BOT_LOBBY_TABLES` | *(every table)* | `table.lobby_tables`: the lobby tables the fleet plays, `category:boot` comma-separated |
-| `BOT_FLEET_PER_TABLE` | `0,0` | `table.fleet_per_table`: `floor,ceiling` of the fleet's bots per lobby table |
+| `BOT_LOBBY_TABLES` | *(every table)* | `table.lobby_tables`: the lobby tables the fleet plays, comma-separated entries `category:boot`, each optionally `:fleet=FLOOR-CEILING` (*The fleet's layout*, below) |
+| `BOT_FLEET_PER_TABLE` | `0,0` | `table.fleet_per_table`: `floor,ceiling` of the fleet's bots at every lobby table named without a `fleet=` of its own |
 
 Switches read `1/0`, `true/false`, `yes/no`, `on/off`; anything else is an error
 (a switch typed wrong must not read as off). An empty variable is unset.
@@ -163,8 +163,9 @@ The YAML sections, in `configs/bot.yaml`'s order:
 - **`table`** — `min_hands`, `max_hands`, `categories`, `category_weights`,
   `boots_to_sit` 25 (sit only with that many boots), `search_delay_ms`
   [2500, 8000], `max_bots_per_table` 0 (no limit), `no_human_patience_seconds`
-  0 (never move for want of a human), `lobby_tables` [] (every table) and
-  `fleet_per_table` [0, 0] (below).
+  0 (never move for want of a human), `lobby_tables` [] (every table; an
+  entry may carry its own `:fleet=FLOOR-CEILING`) and `fleet_per_table`
+  [0, 0] (*The fleet's layout*, below).
 - **`timing`** — `min_reaction_ms` 700, `max_reaction_ms` 5000,
   `safety_margin_ms` 3000, `ranges` (kind → [min_ms, max_ms]).
 - **`strategy`** — `enable_blind`, `enable_seen` (not both false), `tuning`
@@ -233,7 +234,9 @@ sudo bash ops/install.sh uninstall   # stop and remove
 
 The unit runs `bin/bot-play -config configs/bot.yaml` as `deploy` in
 `/var/www/gameplay/king-teenpatti/bot-play` with `BOT_MODE=server`,
-`SERVER_URL=http://127.0.0.1:3000`, `BOT_COUNT=60`, metrics on
+`SERVER_URL=http://127.0.0.1:3000`, `BOT_COUNT=450`, the fleet's five lobby
+tables and their sizes (`BOT_LOBBY_TABLES`, `BOT_FLEET_PER_TABLE`, *Production
+notes*), `BOT_BOOTS_TO_SIT=20`, metrics on
 `BOT_METRICS_ADDR=127.0.0.1:9101` and the debug view on `BOT_DEBUG_ADDR=127.0.0.1:9102`
 (9100 is node_exporter's in `go-server/ops/monitoring`); `Restart=always`, `KillSignal=SIGTERM`,
 `TimeoutStopSec=75` (the fleet's own grace is 60 s). It is ordered after
@@ -564,6 +567,7 @@ lines. The ones to know:
 | `msg` | Fields |
 |---|---|
 | `bot-play starting` | `version`, `mode`, `bots`, `prefix`, `server`, `seed`, `config` |
+| `fleet layout` | `tables`: each lobby table the fleet plays with the size it keeps there, as an entry would give it (`blind:200:fleet=50-80`); only when `table.lobby_tables` names any |
 | `table menu` | `version`, `tables` |
 | `state` | `from`, `to`, and `table`, `hand`, `reason`, `attempt`, `for` where they apply |
 | `session planned` | `length`, `personality` |
@@ -623,8 +627,10 @@ About 250 tests, their names written as sentences:
   chosen only from the server's options, the 5-Card pick, sideshow answers.
 - **table** — the menu from the catalogue and from a session, bands inclusive at
   both ends, never a poker table; selection by stake, comfort, occupancy and
-  recency; every switcher reason, min and max hands, a human never abandoned
-  heads-up.
+  recency; each lobby table's own floor and ceiling of the fleet (a table under
+  its own floor first, one at its own ceiling full while another under a higher
+  one is chosen); every switcher reason, min and max hands, a human never
+  abandoned heads-up.
 - **timing** — every window, the skew, pace and difficulty, no round figures,
   **no delay past the deadline's margin**, the short beat, distracted pauses.
 - **interaction** — every moment has lines and a chance, no line says "bot", the
@@ -638,9 +644,12 @@ About 250 tests, their names written as sentences:
   `actionId`, **a lost ack resent with the same `actionId`**, a stale decision
   dropped, stop after the hand and not during it, a retired table, a full table, a
   chip kick looking again, a server restart, a wiped account signing in
-  again, the scheduler, the registry, every family in a fleet of ten.
+  again, the scheduler, the registry, every family in a fleet of ten, a table's
+  own ceiling letting the fleet grow there.
 - **config**, **metrics**, **state** — strict YAML and environment reading, the
-  shipped file at the defaults, validation; labels never ids; the debug view
+  shipped file at the defaults, validation, a lobby table's `fleet=` option and
+  every refusal of it, the production unit's environment (`ops/bot-play.service`)
+  loading as the owner's layout; labels never ids; the debug view
   stripping cards; opponent reads.
 - **sim** — hands complete and chips are conserved at every kind of table, round
   and pot caps, refusal codes, idle kicks, the reconnect grace, sideshows,
@@ -720,22 +729,59 @@ hand-for-hand replay is proven on a fake clock in the tests
   `BOT_START_INDEX` fixed from then on, or every change is a new set of accounts.
 - **The fleet's layout** (owner, 27 Sep 2026: "seen table 200, 50000, blind 200,
   blind 50000, variation 50000 — each of these tables should have 30-50 bots
-  playing"). The unit names the five lobby tables (`BOT_LOBBY_TABLES`) and a band
-  of 30–50 of the fleet's bots for each (`BOT_FLEET_PER_TABLE=30,50`; a lobby table
-  is a category and a boot, however many rooms of five it runs). A table under its
-  floor is chosen before any other; a bot takes its place atomically before it asks
-  for the seat (`Fleet.ClaimTable`), so bots choosing at once never pass a ceiling;
-  a table holding 50 takes no more, and a bot with nowhere under its ceiling rests
-  ("every table holds its share of the fleet"). 320 bots (`BOT_COUNT`) put about 200
-  at the tables at once. Measured locally, 27 Sep 2026: 205 seated — 45, 40, 48, 33,
-  39. `BOT_BOOTS_TO_SIT=20` lets a fresh 10 Lakh account sit at 50,000. **The 50,000
-  tables thin over time**: a bot there that loses drops below 20 boots and plays 200
-  instead, and bots mint nothing — the only chips entering the fleet are
-  welcomes — so watch the three 50,000 tables' counts.
+  playing"; 30 Sep 2026: "add some bots which plays blind 50000, blind 200 also",
+  more of the fleet at Blind 200 and Blind 50,000 than at the other three). The unit
+  names the five lobby tables and the size each keeps — a lobby table is a category
+  and a boot, however many rooms of five it runs:
+
+  ```
+  BOT_LOBBY_TABLES=seen:200,seen:50000,blind:200:fleet=50-80,blind:50000:fleet=50-80,variation:50000
+  BOT_FLEET_PER_TABLE=30,50
+  ```
+
+  An entry is `category:boot`, optionally followed by `:fleet=FLOOR-CEILING`, that
+  table's own floor and ceiling of the fleet's bots — the game server's
+  `LOBBY_TABLES` option style (`blind:5000:max=…`). `fleet=` is the only option; a
+  table named without it keeps `BOT_FLEET_PER_TABLE`'s; a ceiling of 0 is none, as
+  there (`fleet=0-0` takes a table out of the default size). The key stays
+  `category:boot` everywhere — the tables played, the fleet's count per table, the
+  debug view and the logs (no metric is labelled by table). The same entries work in `configs/bot.yaml`'s
+  `lobby_tables` list (with no space after a colon: `blind:200: fleet=…` is a YAML
+  mapping). Refused at start, naming the entry: an unknown option (`max=`,
+  `pot=` …), an empty one (`blind:200:`), `fleet` with no range, a range that is not
+  two whole numbers (`fleet=50`, `fleet=a-b`, `fleet=-5-10`, `fleet=50-80-90`), a
+  floor above its ceiling (`fleet=80-50`), or `fleet=` twice; and, as before, a key
+  that is not `category:boot`, a category not played, or a table listed twice
+  (`blind:200` beside `blind:200:fleet=50-80`).
+
+  A table under its OWN floor is chosen before any other; a bot takes its place
+  atomically before it asks for the seat (`Fleet.ClaimTable`, against that table's
+  own ceiling), so bots choosing at once never pass a ceiling; a table holding its
+  own ceiling takes no more, and a bot with nowhere under a ceiling rests ("every
+  table holds its share of the fleet"). Past the floors (190 in all) the fleet
+  leans to the tables it is thinnest at (the occupancy weight), so the other three
+  climb towards their 50 before the blind tables climb far past theirs. **450 bots** (`BOT_COUNT`; 320 until 30
+  Sep 2026, when the ceilings were 5 × 50): a bot sits about 62% of the time
+  (sessions of 20–120 minutes, rests of 5–45 — 320 sat about 200 at once), so about
+  280 sit at once: the floors take 190, the other three tables fill towards their
+  50, and the blind tables hold some 65 each, mid-way up 50–80 as 200 of 320 sat
+  mid-way up 30–50. At 400 bots (~250 seated) every table would hold about 50 and
+  the blind tables no more than the rest; 500 would fill every ceiling (310) and
+  rest the spare. Measured locally, 27 Sep 2026, under the old layout: 205 seated —
+  45, 40, 48, 33, 39. `BOT_BOOTS_TO_SIT=20` lets a 10 Lakh account sit at 50,000.
+  **The 50,000 tables thin over time**: a bot there that loses drops below 20 boots
+  and plays 200 instead, and bots mint nothing — the only chips entering the fleet
+  are welcomes — so watch the three 50,000 tables' counts. A new bot's welcome is
+  the server's (the `welcome_rewards` chips row since 30 Sep 2026, seeded 5 Lakh):
+  under 20 boots of 50,000, so a fresh bot plays the 200 tables, and reaches a
+  50,000 table only once both 200 tables hold their ceilings (the selector then
+  falls back to the cheapest tables with room) or after winning its depth.
 - **The debug view is on `127.0.0.1:9102` in the unit** (metrics on 9101). Leave
   `BOT_DEBUG_SHOW_CARDS` off.
-- **Size** is `BOT_COUNT` in the unit (320); with sessions of 20–120 minutes and
-  rests of 5–45 not all of them are online at once. Bots and real players share
+- **Size** is `BOT_COUNT` in the unit (450); with sessions of 20–120 minutes and
+  rests of 5–45 not all of them are online at once. Bots 321–450 are new device
+  ids, so their first sign-ins create 130 new guest accounts, each credited the
+  server's welcome once. Bots and real players share
   the economy, and bots that bet on their cards win from careless play: watch the
   fleet's total chips over time.
 
@@ -768,3 +814,14 @@ On 27 Sep 2026, against a local server built from `master` on `:3001`:
   same restart re-seated all ten within 4–6 s.
 - **Graceful stop**: SIGTERM to 100 bots — every bot finished its hand and left; 30–50 s, `forced=0`, the
   server left with 0 players and 0 sockets.
+- **A table's own fleet size, simulated** (30 Sep 2026, `BOT_MODE=simulation`, `BOT_FLEET_PER_TABLE=30,50`,
+  `BOT_BOOTS_TO_SIT=20`, bots started 40–250 ms apart). The simulator's menu is `seen:200`, `blind:200`,
+  `blind:5000`, `variation:50000`, so the unit's own line plays three of its five tables there. **The unit's
+  line, 450 bots**: every ceiling was reached within 30 s and held through the first minute — 80 at
+  `blind:200`, 50 at `seen:200`, 50 at `variation:50000`, never more — and the bots with nowhere under a ceiling rested (301 `every table holds its share`
+  lines); as seated bots moved on and the rested ones stayed away, the counts drifted to 60 / 46 / 40 at four
+  minutes. **`seen:200,blind:200:fleet=50-80,blind:5000:fleet=50-80,variation:50000`, 220 bots** (between the
+  floors' 160 and the ceilings' 260): 59–63 at `blind:200` and 63–79 at `blind:5000` against 46–50 at
+  `seen:200` and 30–40 at `variation:50000` over minutes 1–4, every table at or above its own floor. Both
+  runs: no error, `forced=0` at the stop. (Every bot starts a session at once in a run of minutes, so
+  neither shows production's steady state of sessions and rests.)

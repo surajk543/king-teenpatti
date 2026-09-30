@@ -17,12 +17,21 @@ ExecStart=/var/www/gameplay/king-teenpatti/bot-play/bin/bot-play -config configs
 # the game it plays. See README.
 Environment=BOT_MODE=server
 Environment=SERVER_URL=http://127.0.0.1:3000
-# 320 bots: online about 70% of the time and seated a little less, so about
-# 200 sit at once — 30 to 50 at each of the five lobby tables below (owner,
-# 27 Sep 2026); a table holding 50 of the fleet takes no more.
-Environment=BOT_COUNT=320
-Environment=BOT_LOBBY_TABLES=seen:200,seen:50000,blind:200,blind:50000,variation:50000
+# The five lobby tables and how many of the fleet's bots each holds (owner,
+# 27 Sep 2026: 30 to 50 at each; 30 Sep 2026: more at Blind 200 and Blind
+# 50,000). BOT_FLEET_PER_TABLE is the size of every table named without one;
+# ":fleet=FLOOR-CEILING" after a table gives it its own — Blind 200 and Blind
+# 50,000 hold 50 to 80. A table at its ceiling takes no more.
+Environment=BOT_LOBBY_TABLES=seen:200,seen:50000,blind:200:fleet=50-80,blind:50000:fleet=50-80,variation:50000
 Environment=BOT_FLEET_PER_TABLE=30,50
+# 450 bots: a bot is seated about 62% of the time (sessions and rests: 320
+# sat ~200 at once), so about 280 sit at once. Past the floors (190) the
+# fleet leans to its thinner tables, so the other three fill towards their
+# 50 (150 in all) and the blind tables keep the rest, some 65 each — mid-way
+# up 50-80, as ~200 of 320 sat mid-way up 30-50 before. At ~250 seated (400
+# bots) every table would hold about 50 and the blind tables no more than
+# the rest; 500 would fill every ceiling (310) and rest the spare.
+Environment=BOT_COUNT=450
 # 20 boots, so a fresh 10 Lakh account can sit at the 50,000 tables.
 Environment=BOT_BOOTS_TO_SIT=20
 Environment=BOT_METRICS_ADDR=127.0.0.1:9101

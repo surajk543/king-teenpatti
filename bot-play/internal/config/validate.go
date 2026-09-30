@@ -189,10 +189,27 @@ func (c *Config) validateTable() error {
 			return fmt.Errorf("table.lobby_tables (BOT_LOBBY_TABLES) names %q twice", key)
 		}
 	}
-	if f := t.FleetPerTable; f[0] < 0 || f[1] < 0 || (f[1] > 0 && f[0] > f[1]) {
+	if f := t.FleetPerTable; !fleetSizeOK(f) {
 		return fmt.Errorf("table.fleet_per_table (BOT_FLEET_PER_TABLE) is [%d, %d]: want [floor, ceiling], 0 or more, the floor no higher than the ceiling (a ceiling of 0 is none)", f[0], f[1])
 	}
+	// A table's own fleet= size (ParseLobbyTable has refused a bad one
+	// already; this holds a Config built any other way to the same rule).
+	for _, key := range sortedKeys(t.FleetByTable) {
+		if !slices.Contains(t.LobbyTables, key) {
+			return fmt.Errorf("table.lobby_tables (BOT_LOBBY_TABLES) gives %q a fleet= size but does not list it", key)
+		}
+		if f := t.FleetByTable[key]; !fleetSizeOK(f) {
+			return fmt.Errorf("table.lobby_tables (BOT_LOBBY_TABLES) gives %s fleet=%d-%d: want FLOOR-CEILING, 0 or more, the floor no higher than the ceiling (a ceiling of 0 is none)", key, f[0], f[1])
+		}
+	}
 	return nil
+}
+
+// fleetSizeOK reports whether [floor, ceiling] is a size the fleet can keep:
+// both 0 or more, the floor no higher than the ceiling unless the ceiling is
+// 0 (none).
+func fleetSizeOK(f [2]int) bool {
+	return f[0] >= 0 && f[1] >= 0 && (f[1] == 0 || f[0] <= f[1])
 }
 
 func (c *Config) validateTiming() error {

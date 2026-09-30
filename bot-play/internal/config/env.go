@@ -32,7 +32,7 @@ var EnvKeys = []string{
 	"BOT_RECONNECT_MAX_DELAY_SECONDS", // reconnect.max_delay, whole seconds
 	"BOT_DEV_REPLENISH",               // bankroll.dev_replenish
 	"BOT_BOOTS_TO_SIT",                // table.boots_to_sit
-	"BOT_LOBBY_TABLES",                // table.lobby_tables, comma-separated keys (seen:200,blind:50000)
+	"BOT_LOBBY_TABLES",                // table.lobby_tables, comma-separated entries (seen:200,blind:50000:fleet=50-80)
 	"BOT_FLEET_PER_TABLE",             // table.fleet_per_table, "floor,ceiling" (30,50)
 }
 
@@ -175,6 +175,24 @@ func (r *envReader) list(key string, dst *[]string) {
 	*dst = out
 }
 
+// lobbyTables sets *keys and *fleet from table.lobby_tables' comma-separated
+// entries, each a key with an optional fleet= option (ParseLobbyTable). Set,
+// it replaces the file's list and the file's fleet sizes with it.
+func (r *envReader) lobbyTables(key string, keys *[]string, fleet *map[string][2]int) {
+	v, ok := r.raw(key)
+	if !ok {
+		return
+	}
+	var entries []string
+	r.list(key, &entries)
+	k, f, err := readLobbyTables(entries, func(_ int, err error) error { return err })
+	if err != nil {
+		r.fail(key, v, err.Error())
+		return
+	}
+	*keys, *fleet = k, f
+}
+
 // applyEnv lays the environment over c (every key in EnvKeys).
 func applyEnv(c *Config, getenv func(string) string) error {
 	r := &envReader{getenv: getenv}
@@ -199,7 +217,7 @@ func applyEnv(c *Config, getenv func(string) string) error {
 	r.count("BOT_RECONNECT_MAX_DELAY_SECONDS", &c.Reconnect.MaxDelay, time.Second, "seconds")
 	r.flag("BOT_DEV_REPLENISH", &c.Bankroll.DevReplenish)
 	r.number("BOT_BOOTS_TO_SIT", &c.Table.BootsToSit)
-	r.list("BOT_LOBBY_TABLES", &c.Table.LobbyTables)
+	r.lobbyTables("BOT_LOBBY_TABLES", &c.Table.LobbyTables, &c.Table.FleetByTable)
 	r.wholePair("BOT_FLEET_PER_TABLE", &c.Table.FleetPerTable)
 	return r.err
 }

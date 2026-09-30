@@ -127,6 +127,20 @@ func (f *fixture) exampleDays(code string) {
 	}
 }
 
+// seededChips is what the seed's WEEKLY_LOGIN gives on one of its chip days,
+// read from its reward_program_rewards row: the streak tests follow the
+// owner's figures rather than repeat them, and
+// TestTheSeededProgramsAreTheOwnersWeeklyLoginAndThreeWaiting pins them once.
+func (f *fixture) seededChips(day int) int64 {
+	f.t.Helper()
+	if kind := f.text(`SELECT r.reward_type FROM reward_program_rewards r JOIN reward_programs p ON p.id = r.program_id
+	                    WHERE p.code = $1 AND r.day_number = $2`, weeklyLogin, day); kind != db.RewardChips {
+		f.t.Fatalf("%s day %d gives %s, want chips", weeklyLogin, day, kind)
+	}
+	return f.scalar(`SELECT r.reward_value FROM reward_program_rewards r JOIN reward_programs p ON p.id = r.program_id
+	                  WHERE p.code = $1 AND r.day_number = $2`, weeklyLogin, day)
+}
+
 // catalogueID is a catalogue row's id as reward_ref_id names it.
 func (f *fixture) catalogueID(table, name string) *string {
 	f.t.Helper()
@@ -245,22 +259,23 @@ func TestAWeeklyLoginStreakCountsConsecutiveDaysAndResetsOnAMiss(t *testing.T) {
 	clock := &luckyClock{}
 	store := f.rewardStore(clock.Now)
 	chips, hammers := f.wallet(u.ID, "chips"), f.wallet(u.ID, "hammer")
+	day1, day2, day3 := f.seededChips(1), f.seededChips(2), f.seededChips(3)
 
 	// Monday 5 Oct 2026: the first login of the week is Day 1.
 	out := claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 5, 9))
 	g := grantOf(out, weeklyLogin)
-	wantGrant(t, g, weeklyLogin, 1, db.RewardChips, 10_000)
+	wantGrant(t, g, weeklyLogin, 1, db.RewardChips, day1)
 	if g.Mode != db.RewardModeLoginStreak || g.PeriodType != db.RewardPeriodWeekly || g.ProgramName != "Weekly Login Streak" {
 		t.Fatalf("the grant names its program: %+v", g)
 	}
-	if got := f.wallet(u.ID, "chips"); got != chips+10_000 {
-		t.Fatalf("chips %d, want %d", got, chips+10_000)
+	if got := f.wallet(u.ID, "chips"); got != chips+day1 {
+		t.Fatalf("chips %d, want %d", got, chips+day1)
 	}
 	key := db.RewardClaimActionID(u.ID, weeklyLogin, "2026-10-05")
 	if reason := f.text(`SELECT reason FROM chip_ledger WHERE action_id = $1`, key); reason != game.LedgerReasonRewardProgram {
 		t.Fatalf("the ledger row under the claim's key: reason %q", reason)
 	}
-	if delta := f.scalar(`SELECT delta FROM chip_ledger WHERE action_id = $1`, key); delta != 10_000 {
+	if delta := f.scalar(`SELECT delta FROM chip_ledger WHERE action_id = $1`, key); delta != day1 {
 		t.Fatalf("the ledger row's delta: %d", delta)
 	}
 	s := stateOf(t, out.Programs, weeklyLogin)
@@ -276,18 +291,18 @@ func TestAWeeklyLoginStreakCountsConsecutiveDaysAndResetsOnAMiss(t *testing.T) {
 
 	// The same day again, later: nothing more, and the state says so.
 	again := claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 5, 21))
-	if len(again.Granted) != 0 || !stateOf(t, again.Programs, weeklyLogin).ClaimedToday || f.wallet(u.ID, "chips") != chips+10_000 {
+	if len(again.Granted) != 0 || !stateOf(t, again.Programs, weeklyLogin).ClaimedToday || f.wallet(u.ID, "chips") != chips+day1 {
 		t.Fatalf("a second claim the same day: %+v", again.Granted)
 	}
 	if n := f.count(`SELECT count(*) FROM user_reward_claims WHERE user_id = $1`, u.ID); n != 1 {
 		t.Fatalf("%d claims after two calls on one day", n)
 	}
 
-	// Tuesday: Day 2, 20,000 chips. Wednesday: Day 3, 30,000.
-	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 6, 9)), weeklyLogin), weeklyLogin, 2, db.RewardChips, 20_000)
-	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 7, 9)), weeklyLogin), weeklyLogin, 3, db.RewardChips, 30_000)
-	if got := f.wallet(u.ID, "chips"); got != chips+60_000 {
-		t.Fatalf("chips %d, want %d after three days", got, chips+60_000)
+	// Tuesday: Day 2's chips. Wednesday: Day 3's.
+	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 6, 9)), weeklyLogin), weeklyLogin, 2, db.RewardChips, day2)
+	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 7, 9)), weeklyLogin), weeklyLogin, 3, db.RewardChips, day3)
+	if got := f.wallet(u.ID, "chips"); got != chips+day1+day2+day3 {
+		t.Fatalf("chips %d, want %d after three days", got, chips+day1+day2+day3)
 	}
 	if got := f.wallet(u.ID, "hammer"); got != hammers {
 		t.Fatalf("hammers %d, want %d: the hammer is Day 7's", got, hammers)
@@ -296,18 +311,18 @@ func TestAWeeklyLoginStreakCountsConsecutiveDaysAndResetsOnAMiss(t *testing.T) {
 	// Thursday missed. Friday: Day 1 again — the LATEST claim decides, never
 	// the highest day reached.
 	out = claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 9, 9))
-	wantGrant(t, grantOf(out, weeklyLogin), weeklyLogin, 1, db.RewardChips, 10_000)
+	wantGrant(t, grantOf(out, weeklyLogin), weeklyLogin, 1, db.RewardChips, day1)
 	s = stateOf(t, out.Programs, weeklyLogin)
 	if s.CurrentDay != 1 || s.ClaimedDays != 1 || !sameInts(claimedDays(s), []int{1}) {
 		t.Fatalf("after the missed Thursday: day %d run %d claimed %v", s.CurrentDay, s.ClaimedDays, claimedDays(s))
 	}
 	// Saturday Day 2, Sunday Day 3.
-	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 10, 9)), weeklyLogin), weeklyLogin, 2, db.RewardChips, 20_000)
-	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 11, 23)), weeklyLogin), weeklyLogin, 3, db.RewardChips, 30_000)
+	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 10, 9)), weeklyLogin), weeklyLogin, 2, db.RewardChips, day2)
+	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 11, 23)), weeklyLogin), weeklyLogin, 3, db.RewardChips, day3)
 
 	// Monday 12 Oct, an hour later: a new week, and Day 1 whatever Sunday was.
 	out = claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 12, 0))
-	wantGrant(t, grantOf(out, weeklyLogin), weeklyLogin, 1, db.RewardChips, 10_000)
+	wantGrant(t, grantOf(out, weeklyLogin), weeklyLogin, 1, db.RewardChips, day1)
 	s = stateOf(t, out.Programs, weeklyLogin)
 	if s.Program.PeriodStart != utcAt(2026, time.October, 12, 0).UnixMilli() || s.ClaimedDays != 1 || s.DayOfPeriod != 1 {
 		t.Fatalf("the new week: %+v", s)
@@ -607,7 +622,7 @@ func TestTwoRequestsAtOnceGrantADaysRewardOnce(t *testing.T) {
 		f.rewardStore(clock.Now),
 		db.NewRewardPrograms(other, db.NewUsers(other, welcome, nil), clock.Now, nil),
 	}
-	chips := f.wallet(u.ID, "chips")
+	chips, day1 := f.wallet(u.ID, "chips"), f.seededChips(1)
 
 	const callers = 8
 	var wg sync.WaitGroup
@@ -640,15 +655,15 @@ func TestTwoRequestsAtOnceGrantADaysRewardOnce(t *testing.T) {
 		granted += len(out.Granted)
 	}
 	// The one seeded program gave once, across every caller: Monday the 5th
-	// is Day 1 of the weekly streak (10,000 chips).
+	// is Day 1 of the weekly streak (its seeded chips).
 	if granted != 1 {
 		t.Fatalf("%d rewards granted across %d callers, want 1", granted, callers)
 	}
 	if n := f.count(`SELECT count(*) FROM user_reward_claims WHERE user_id = $1`, u.ID); n != 1 {
 		t.Fatalf("%d claims recorded, want 1", n)
 	}
-	if got := f.wallet(u.ID, "chips"); got != chips+10_000 {
-		t.Fatalf("chips %d, want %d", got, chips+10_000)
+	if got := f.wallet(u.ID, "chips"); got != chips+day1 {
+		t.Fatalf("chips %d, want %d", got, chips+day1)
 	}
 	f.reconcile()
 }
@@ -661,7 +676,8 @@ func TestAClaimKeepsWhatItGaveWhenTheDayIsRepointed(t *testing.T) {
 	u := f.user("snapshot")
 	clock := &luckyClock{}
 	store := f.rewardStore(clock.Now)
-	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 5, 9)), weeklyLogin), weeklyLogin, 1, db.RewardChips, 10_000)
+	day1 := f.seededChips(1)
+	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 5, 9)), weeklyLogin), weeklyLogin, 1, db.RewardChips, day1)
 
 	f.exec(`UPDATE reward_program_rewards
 	           SET reward_type = 'EMOJI', reward_value = NULL,
@@ -670,7 +686,7 @@ func TestAClaimKeepsWhatItGaveWhenTheDayIsRepointed(t *testing.T) {
 	if kind := f.text(`SELECT reward_type FROM user_reward_claims WHERE user_id = $1`, u.ID); kind != db.RewardChips {
 		t.Fatalf("the claim now says %s", kind)
 	}
-	if value := f.scalar(`SELECT reward_value FROM user_reward_claims WHERE user_id = $1`, u.ID); value != 10_000 {
+	if value := f.scalar(`SELECT reward_value FROM user_reward_claims WHERE user_id = $1`, u.ID); value != day1 {
 		t.Fatalf("the claim now says %d", value)
 	}
 	states, err := store.State(f.ctx, u.ID)

@@ -77,8 +77,13 @@ func TestAHammerPictureIsBoughtOverRESTInTheLobbyAndAtATable(t *testing.T) {
 		t.Fatalf("seeded hammer picture as listed: %+v", pic)
 	}
 
-	// In the lobby.
+	// In the lobby. The buyer holds 20 hammers and 9 diamonds, whatever a new
+	// account is given (the welcome is data: V1.0.1__seed.sql), so what the
+	// buy leaves shows.
 	token, id := login(t, ts.URL, "hammer-picture-buyer", "Hammer Buyer")
+	if _, err := database.Pool.Exec(ctx, `UPDATE users SET hammer = 20, diamond = 9 WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
 	res := postJSON(ts.URL, token, "/api/profile/picture/buy", map[string]any{"pictureId": pic.ID})
 	if res.err != nil || res.status != http.StatusOK || res.body["charged"] != true || res.body["spent"] != float64(pic.Cost) {
 		t.Fatalf("lobby hammer buy: %d %v %v", res.status, res.body, res.err)
@@ -126,8 +131,11 @@ func TestAHammerPictureIsBoughtOverRESTInTheLobbyAndAtATable(t *testing.T) {
 		t.Errorf("a refused hammer buy moved chips: wallet %d, ledger %d", wallet, ledger)
 	}
 
-	// At a table.
+	// At a table, with 20 hammers too.
 	seatedToken, seatedID := login(t, ts.URL, "hammer-picture-seated", "Hammer Seated")
+	if _, err := database.Pool.Exec(ctx, `UPDATE users SET hammer = 20 WHERE id = $1`, seatedID); err != nil {
+		t.Fatal(err)
+	}
 	c := dial(t, ts.URL, seatedToken)
 	mustOK(t, c, socket.EvRoomQuickJoin, map[string]any{"bootAmount": 200, "category": "seen"})
 	table := a.Rooms().GetTableForPlayer(seatedID)
