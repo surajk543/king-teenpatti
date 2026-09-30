@@ -18,6 +18,10 @@ type API interface {
 	Tables(ctx context.Context) (Catalogue, error)
 	// Me is GET /api/auth/me — the account as the server has it now.
 	Me(ctx context.Context, token string) (User, error)
+	// CollectBonus is POST /api/rewards/bonus (the 6-hour bonus every player
+	// may collect in the lobby). A refusal (409 seated, not ready) is an
+	// *APIError; the caller treats it as "no bonus now".
+	CollectBonus(ctx context.Context, token string) (User, error)
 	// FreePictureIDs lists the profile pictures anyone may wear for free
 	// (GET /api/profiles: FREE rows that are not RIVE).
 	FreePictureIDs(ctx context.Context) ([]int64, error)

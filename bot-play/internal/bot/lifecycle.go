@@ -151,7 +151,8 @@ func (b *Bot) playSession(ctx context.Context) outcome {
 var errFatal = errors.New("bot: this account cannot play")
 
 // signIn logs in as the bot's guest device (retrying with backoff while the
-// server is unreachable) and, in the lobby, puts on a free picture.
+// server is unreachable) and, in the lobby, puts on a free picture. The
+// 6-hour bonus is collected when the stack runs short ([Bot.collectBonus]).
 func (b *Bot) signIn(ctx context.Context) error {
 	for attempt := 1; ; attempt++ {
 		cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -209,6 +210,29 @@ func (b *Bot) wearPicture(ctx context.Context, u protocol.User) {
 	if err := b.d.API.WearPicture(cctx, b.token, pick); err != nil {
 		b.log.Debug("picture not worn", "err", err)
 	}
+}
+
+// collectBonus claims the lobby's 6-hour bonus (25,000 chips), as any player
+// may, when the bot's stack no longer admits it anywhere: kicked for chips,
+// refused a seat for them, or no table on the menu taking its stack. Without
+// it a broke bot would rest for ever, since the fleet never mints chips
+// against a real server; with it, it sits again at a 200 table within six
+// hours.
+func (b *Bot) collectBonus(ctx context.Context) {
+	if !b.d.Config.Bankroll.CollectBonus || b.seated {
+		return
+	}
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	u, err := b.d.API.CollectBonus(cctx, b.token)
+	if err != nil {
+		return
+	}
+	if u.Chips > b.chips {
+		b.log.Info("collected the timed bonus", "chips", u.Chips)
+	}
+	b.chips = u.Chips
+	b.session.Chips = b.chips
 }
 
 // dial opens the game connection.

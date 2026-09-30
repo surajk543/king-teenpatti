@@ -300,22 +300,37 @@ func TestTheRESTSideIsAStableGuestAccount(t *testing.T) {
 	if _, err := api.Me(ctx, "nope"); !isAPIError(err, protocol.CodeUnknownUser) {
 		t.Fatalf("an unknown token: %v", err)
 	}
+	u, err := api.CollectBonus(ctx, first.Token)
+	if err != nil || u.Chips != 1_025_000 || u.Rewards.BonusReadyAt != epoch.Add(6*time.Hour).UnixMilli() {
+		t.Fatalf("bonus: %+v %v", u, err)
+	}
+	if _, err := api.CollectBonus(ctx, first.Token); !isAPIError(err, "reward_not_ready") {
+		t.Fatalf("a second bonus: %v", err)
+	}
+	w.clk.Advance(6 * time.Hour)
+	if u, _ := api.CollectBonus(ctx, first.Token); u.Chips != 1_050_000 {
+		t.Fatalf("the bonus after six hours: %+v", u)
+	}
 	if ids, _ := api.FreePictureIDs(ctx); len(ids) != 2 {
 		t.Fatalf("pictures: %v", ids)
 	}
 	if err := api.WearPicture(ctx, first.Token, 2); err != nil {
 		t.Fatal(err)
 	}
-	if me, _ := api.Me(ctx, first.Token); me.ActivePictureID == nil || *me.ActivePictureID != 2 || me.Chips != 1_000_000 {
+	if me, _ := api.Me(ctx, first.Token); me.ActivePictureID == nil || *me.ActivePictureID != 2 {
 		t.Fatalf("me: %+v", me)
 	}
 
 	p := w.join("botplay-000001")
 	p.quickJoin(protocol.CategorySeen, 200)
+	w.clk.Advance(6 * time.Hour)
+	if _, err := api.CollectBonus(ctx, first.Token); !isAPIError(err, protocol.CodeSeated) {
+		t.Fatalf("a bonus at a table: %v", err)
+	}
 	if _, err := w.s.Dialer().Dial(ctx, "nope"); !isConnectError(err, protocol.CodeUnknownUser) {
 		t.Fatalf("an unknown token's handshake: %v", err)
 	}
-	if st := w.s.Stats(); st.Chips != st.Minted || st.Minted != 1_000_000 {
+	if st := w.s.Stats(); st.Chips != st.Minted || st.Minted != 1_050_000 {
 		t.Fatalf("stats: %+v", st)
 	}
 }
