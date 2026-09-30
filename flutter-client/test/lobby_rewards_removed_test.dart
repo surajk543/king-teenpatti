@@ -163,8 +163,8 @@ void main() {
   ]) {
     for (final brightness in Brightness.values) {
       testWidgets('at $screen x$scale (${brightness.name}) the lobby draws no '
-          'reward, and its foot is the Lucky Draw, the level key and Friends, '
-          'on the screen and clear of each other', (tester) async {
+          'reward, and its foot is the Lucky Draw, the level key, the record '
+          'and Friends, on the screen and clear of each other', (tester) async {
         final state = _state();
         await _pumpLobby(
           tester,
@@ -196,17 +196,20 @@ void main() {
           findsOneWidget,
         );
 
-        // The foot: the Lucky Draw bottom-left, the level key and Friends
-        // bottom-right, each whole on the screen and clear of the others.
+        // The foot: the Lucky Draw bottom-left, the level key, the record
+        // (down from the top bar, 30 Sep 2026) and Friends bottom-right,
+        // each whole on the screen and clear of the others.
         final lucky = tester.getRect(
           find.byKey(const ValueKey('lucky-draw-chip')),
         );
         final level = tester.getRect(find.byKey(const ValueKey('level-key')));
+        final record = tester.getRect(find.byKey(const ValueKey('stats-key')));
         final friends = tester.getRect(find.byTooltip(t.friends));
         final onScreen = Offset.zero & screen;
         for (final (name, r) in [
           ('the Lucky Draw', lucky),
           ('the level key', level),
+          ('the record', record),
           ('Friends', friends),
         ]) {
           expect(r.isEmpty, isFalse, reason: name);
@@ -219,25 +222,39 @@ void main() {
           expect(r.height, greaterThanOrEqualTo(Dim.minTouch), reason: name);
         }
         expect(lucky.overlaps(level), isFalse);
+        expect(lucky.overlaps(record), isFalse);
         expect(lucky.overlaps(friends), isFalse);
+        expect(level.overlaps(record), isFalse);
         expect(level.overlaps(friends), isFalse);
+        expect(record.overlaps(friends), isFalse);
         // In their corners: the chip from the left edge, the keys to the
-        // right one, Friends the last.
+        // right one — the level, then the record, Friends the last.
         expect(lucky.left, lessThanOrEqualTo(Space.md + 1));
         expect(lucky.center.dx, lessThan(screen.width / 2));
-        expect(level.right, lessThanOrEqualTo(friends.left));
+        expect(level.right, lessThanOrEqualTo(record.left));
+        expect(record.right, lessThanOrEqualTo(friends.left));
         expect(friends.right, greaterThan(screen.width - Space.md - Space.lg));
-        // Level with each other at the foot.
+        // Level with each other at the foot, and one size.
         expect((lucky.bottom - friends.bottom).abs(), lessThan(1));
         expect((level.bottom - friends.bottom).abs(), lessThan(1));
+        expect((record.bottom - friends.bottom).abs(), lessThan(1));
+        expect(record.size, level.size);
 
-        // A toast keeps off all three.
+        // A toast keeps off all four.
         final lobby = tester.element(find.byType(LobbyScreen));
         final toast = lobbyNoticeArea(lobby);
         expect(toast, isNotNull);
         expect(toast!.left, greaterThanOrEqualTo(lucky.right));
         expect(toast.right, lessThanOrEqualTo(level.left));
         expect(toast.width, greaterThanOrEqualTo(160));
+
+        // The top bar carries neither the record's key nor Sign out any more
+        // (30 Sep 2026): the record is the foot's, Sign out the Settings
+        // drawer's row alone.
+        final bar = tester.getRect(find.byTooltip(t.settings));
+        expect(record.top, greaterThan(bar.bottom));
+        expect(find.byTooltip(t.signOut), findsNothing);
+        expect(find.byIcon(Icons.logout_rounded), findsNothing);
 
         // The top bar opens with the picture, where the 4-hour bonus stood,
         // and the name has the room it took: whole.

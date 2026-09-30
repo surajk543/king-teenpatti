@@ -587,15 +587,18 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   children: const [_LuckyDrawChip(), _RewardsChip()],
                 ),
               ),
-              // The level key and Friends in the bottom-right corner, where
-              // the milestone chip stood until 30 Sep 2026. The rail of tables
-              // stops short of the foot (`band`), so no card's keys run under
-              // either corner.
+              // The level key, the record and Friends in the bottom-right
+              // corner, where the milestone chip stood until 30 Sep 2026. The
+              // rail of tables stops short of the foot (`band`), so no card's
+              // keys run under either corner.
               //
               // Friends (owner, 26 Sep 2026) is a round key, the requests
               // waiting counted on it. The brief put it among the top bar's
               // keys, but there a fourth key takes its width from the player's
               // name; the foot has room for a key and keeps the name whole.
+              // The record's key came down here the same way (owner, 30 Sep
+              // 2026: "move the player stats button from top left to bottom
+              // right of screen"), beside the level it belongs with.
               Positioned(
                 bottom: Space.md,
                 right: Space.md,
@@ -605,12 +608,13 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   key: _footKeys,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   mainAxisSize: MainAxisSize.min,
-                  children: const [
+                  children: [
                     // The level key (owner, 27 Sep 2026: "Add one icon in
                     // lobby so that user can see his level"): the player's
                     // level on it, and the level popup behind it.
-                    LevelKey(),
-                    FriendsKey(),
+                    const LevelKey(),
+                    _StatsKey(onOpen: _open),
+                    const FriendsKey(),
                   ],
                 ),
               ),
@@ -1892,10 +1896,11 @@ class _ProviderPill extends StatelessWidget {
 }
 
 /// Signing out drops the player on the login screen, so it asks first, the way
-/// quitting and leaving a table do. The top bar's key sits one tap from
-/// Settings and used to sign a player out with no question at all (QA 14 Sep
-/// 2026) — and a guest who then played on without typing a name came back
-/// under a fresh guest name.
+/// quitting and leaving a table do. The Settings drawer's row is the one way
+/// to it since 30 Sep 2026 (owner: "remove the sign out button from top
+/// left"); the top bar's key, one tap from Settings, used to sign a player out
+/// with no question at all (QA 14 Sep 2026) — and a guest who then played on
+/// without typing a name came back under a fresh guest name.
 Future<void> _confirmSignOut(BuildContext context, GameState state) async {
   final theme = Theme.of(context);
   final t = state.t;
@@ -1944,12 +1949,13 @@ Future<void> _confirmSignOut(BuildContext context, GameState state) async {
   if (yes == true) await state.signOut();
 }
 
-/// The three panels the top rail can open, as one segmented control.
-///
-/// Grouped because they are one class of thing — places to go — and separated
-/// from the balance beside them, which is the only gold in the bar. Sign out is
-/// dropped to the quietest ink in the group: it is destructive and it should
-/// not compete with the two informational buttons it sits next to.
+/// The Settings key at the bar's right end, in the pill that held the three
+/// panels the bar could open — the record, Settings and Sign out — until
+/// 30 Sep 2026 (owner: "remove the sign out button from top left", "move the
+/// player stats button from top left to bottom right of screen"): Sign out is
+/// the Settings drawer's row alone now (its ACCOUNT group, where it always
+/// also was), and the record is [_StatsKey] in the lobby's foot. Kept a pill,
+/// separated from the balance beside it, which is the only gold in the bar.
 class _BarActions extends StatelessWidget {
   const _BarActions({required this.onOpen});
 
@@ -1961,7 +1967,6 @@ class _BarActions extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final glass = GlassColors.of(context);
-    final dark = theme.brightness == Brightness.dark;
 
     Widget key(String tip, IconData icon, VoidCallback onTap, double alpha) =>
         Tooltip(
@@ -1990,12 +1995,6 @@ class _BarActions extends StatelessWidget {
             ),
           ),
         );
-
-    final divider = Container(
-      width: Dim.hairline,
-      height: Dim.minTouch * 0.44,
-      color: dark ? glass.borderTop : glass.borderBottom,
-    );
 
     // A pill of tinted glass: the fill, the 1px top-to-bottom hairline and no
     // blur — the chips drift under it.
@@ -2026,26 +2025,80 @@ class _BarActions extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   key(
-                    state.t.yourRecord,
-                    Icons.insights_outlined,
-                    () => onOpen(context, _EndPanel.stats),
-                    AppTheme.inkMed,
-                  ),
-                  divider,
-                  key(
                     state.t.settings,
                     Icons.tune_rounded,
                     () => onOpen(context, _EndPanel.settings),
                     AppTheme.inkMed,
                   ),
-                  divider,
-                  key(
-                    state.t.signOut,
-                    Icons.logout_rounded,
-                    () => _confirmSignOut(context, state),
-                    0.42,
-                  ),
                 ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The record's key in the lobby's foot (owner, 30 Sep 2026: "move the player
+/// stats button from top left to bottom right of screen"): a round key of the
+/// level key's and Friends' shape, between them, opening the Stats drawer as
+/// the top bar's key did — the same tooltip and glyph, so nothing that opens
+/// the record changed but where it is pressed. Nothing to show signed out.
+class _StatsKey extends StatelessWidget {
+  const _StatsKey({required this.onOpen});
+
+  final void Function(BuildContext, _EndPanel) onOpen;
+
+  /// The level key's side and disc, so the three keys stand as one row.
+  static const double side = LevelKey.side;
+  static const double disc = LevelKey.disc;
+
+  @override
+  Widget build(BuildContext context) {
+    final signedIn = context.select<GameState, bool>((s) => s.user != null);
+    final lang = context.select<GameState, AppLang>((s) => s.lang);
+    if (!signedIn) return const SizedBox.shrink();
+    final t = Strings(lang);
+    final glass = GlassColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(right: Space.sm),
+      child: Semantics(
+        button: true,
+        label: t.yourRecord,
+        onTap: () {
+          lobbyClick(context);
+          onOpen(context, _EndPanel.stats);
+        },
+        excludeSemantics: true,
+        child: Tooltip(
+          message: t.yourRecord,
+          child: PressScale(
+            child: SizedBox.square(
+              dimension: side,
+              child: GlassCapsule(
+                key: const ValueKey('stats-key'),
+                surface: GlassSurface.card,
+                minHeight: side,
+                // The lobby's click (owner, 27 Sep 2026).
+                click: true,
+                onTap: () => onOpen(context, _EndPanel.stats),
+                padding: const EdgeInsets.all((side - disc) / 2),
+                child: Container(
+                  width: disc,
+                  height: disc,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: glass.wellFill,
+                    border: Border.all(color: glass.cardBorder),
+                  ),
+                  child: Icon(
+                    Icons.insights_outlined,
+                    size: 21,
+                    color: glass.textBody,
+                  ),
+                ),
               ),
             ),
           ),
@@ -6223,9 +6276,9 @@ class _RewardsChipState extends State<_RewardsChip> {
 /// text in the player's language, which nothing outside it knows.
 final _luckyChip = GlobalKey(debugLabel: 'lucky draw chip');
 
-/// On the row of round keys in the bottom-right corner — the level key and
-/// Friends — for the same reason, and so [lobbyNoticeArea] can tell when a
-/// page covers the lobby.
+/// On the row of round keys in the bottom-right corner — the level key, the
+/// record and Friends — for the same reason, and so [lobbyNoticeArea] can tell
+/// when a page covers the lobby.
 final _footKeys = GlobalKey(debugLabel: 'foot keys');
 
 /// The narrowest a lobby toast is made to keep clear of the foot's round keys:
@@ -6237,8 +6290,9 @@ const double _toastFloor = 160;
 /// Where a notice may stand in the lobby, in screen coordinates, or null for
 /// the plain foot of the screen.
 ///
-/// The lobby's foot holds the Lucky Draw chip in its left-hand corner and the
-/// level and Friends keys in its right-hand one. The toast keeps its width and
+/// The lobby's foot holds the Lucky Draw and rewards chips in its left-hand
+/// corner and the level, record and Friends keys in its right-hand one. The
+/// toast keeps its width and
 /// its place at the foot and moves aside only as far as a corner needs,
 /// narrowing only if the whole space between them is smaller than it — and it
 /// keeps clear of the round keys only where that still leaves it [_toastFloor]

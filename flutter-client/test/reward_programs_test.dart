@@ -871,12 +871,16 @@ void main() {
                 final level = tester.getRect(
                   find.byKey(const ValueKey('level-key')),
                 );
+                final record = tester.getRect(
+                  find.byKey(const ValueKey('stats-key')),
+                );
                 final friends = tester.getRect(find.byTooltip(t.friends));
                 final onScreen = Offset.zero & screen;
                 for (final (name, r) in [
                   ('the rewards', rewards),
                   ('the Lucky Draw', lucky),
                   ('the level key', level),
+                  ('the record', record),
                   ('Friends', friends),
                 ]) {
                   expect(r.isEmpty, isFalse, reason: name);
@@ -897,6 +901,7 @@ void main() {
                 expect((rewards.bottom - lucky.bottom).abs(), lessThan(1));
                 expect(rewards.overlaps(lucky), isFalse);
                 expect(rewards.overlaps(level), isFalse);
+                expect(rewards.overlaps(record), isFalse);
                 expect(rewards.overlaps(friends), isFalse);
                 expect(rewards.right, lessThan(level.left));
                 // Its two lines whole.

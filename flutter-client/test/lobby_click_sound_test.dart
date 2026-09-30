@@ -189,16 +189,16 @@ void main() {
     final t = state.t;
 
     // One tap on each key, and exactly one click each: the picture, Shop,
-    // the record, Settings, Sign out (its question), the Lucky Draw, the
-    // level and Friends.
+    // Settings, the Lucky Draw, the level, the record and Friends (the
+    // bar's Sign out key went on 30 Sep 2026, and the record's key came
+    // down to the foot).
     final keys = <String, Finder>{
       'the picture': find.byTooltip(t.yourPicture),
       'Shop': find.byType(ShopButton),
-      'the record': find.byTooltip(t.yourRecord),
       'Settings': find.byTooltip(t.settings),
-      'Sign out': find.byTooltip(t.signOut),
       'the Lucky Draw': find.text(t.luckyDrawChip),
       'the level key': find.byKey(const ValueKey('level-key')),
+      'the record': find.byTooltip(t.yourRecord),
       'Friends': find.byType(FriendsKey),
     };
     for (final MapEntry(key: name, value: finder) in keys.entries) {
@@ -445,11 +445,10 @@ void main() {
       for (final MapEntry(key: name, value: finder) in {
         'the picture': find.byTooltip(t.yourPicture),
         'Shop': find.byType(ShopButton),
-        'the record': find.byTooltip(t.yourRecord),
         'Settings': find.byTooltip(t.settings),
-        'Sign out': find.byTooltip(t.signOut),
         'the Lucky Draw': find.text(t.luckyDrawChip),
         'the level key': find.byKey(const ValueKey('level-key')),
+        'the record': find.byTooltip(t.yourRecord),
         'Friends': find.byType(FriendsKey),
       }.entries) {
         await once(name, finder);

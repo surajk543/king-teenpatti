@@ -2735,7 +2735,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `lockedTitle` when they have not grown into it, both faded to 0.42 so the stake stays readable;
   `_TopBar` (owner, 13 Sep 2026, "more letters of the name"): the profile picture opens the bar — the 4-hour bonus chip
   stood before it until the three lobby rewards were removed (30 Sep 2026, §7.2), and its slot (`Dim.bonusSlotW`, now
-  `Dim.cornerChipW`, the Lucky Draw chip's cap) is the name's. **The picture is a fifth bigger than the bar's own measure** (owner,
+  `Dim.cornerChipW`, the Lucky Draw chip's cap) is the name's — and the Settings key closes it, alone in the pill (`_BarActions`) that
+  held the record, Settings and Sign out until 30 Sep 2026 ("The lobby's foot", below). **The picture is a fifth bigger than the bar's own measure** (owner,
   30 Sep 2026: "In Top Left increase Profile size but don't increase size of badge"): `Dim.avatarD` = `Dim.avatarMarkD` (the old 0.135h,
   44..64) + the pip's allowance + one pad (58.7dp at 360 tall, 66.5 at 411), drawn through an `OverflowBox` into half of the bar's pad
   above and below, while the bar (`Dim.topRailH`) is still sized from `avatarMarkD` — a bar grown with the picture took 10dp from the
@@ -2788,7 +2789,13 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `test/lobby_level_bar_shots.dart` (run like table_shots);
   **The lobby's foot** (since the three rewards went, 30 Sep 2026 — owner: "Remove 24-hour daily reward, 4-hour bonus, and
   milestone reward"): the Lucky Draw chip alone in the bottom-left corner (`_LuckyDrawChip`, keyed `_luckyChip`) and the
-  level key and Friends in the bottom-right (a Row keyed `_footKeys`), where the daily bonus (`_DailyBonusChip`, beside the
+  level key and Friends in the bottom-right (a Row keyed `_footKeys`) — **and between them, since the same evening, the record's key**
+  (`_StatsKey`, keyed `stats-key`; owner: "move the player stats button from top left to bottom right of screen"): the level key's shape,
+  56dp with a 36dp disc, the bar's own `Icons.insights_outlined` and `yourRecord` tooltip, opening the Stats drawer through the same
+  `_open(context, _EndPanel.stats)` — so every test that taps the record's icon or tooltip still finds it, at the foot. **The top bar's
+  Sign out key went with it** (owner: "remove the sign out button from top left" … "but keep the sign out button in seetings drawer"):
+  `_BarActions` is the Settings key alone in its pill, and Sign out is the Settings drawer's ACCOUNT row, which still asks first
+  (`_confirmSignOut`) — where the daily bonus (`_DailyBonusChip`, beside the
   Lucky Draw), the milestone chip (`_MilestoneChip`) and, in the top bar, the 4-hour `_BonusChip` stood, with their popup
   (`openBonusDetails`), their glyph line (`_rewardLine`, `_CornerChip.reward`) and `Dim.dailyBonusW` — all removed, with
   `bonus_chip_icons_test`, `bonus_details_test` and `daily_bonus_test`. The rail keeps a band clear at its foot the height of
@@ -2799,7 +2806,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   is coming), a `cardMuted` title and the figure in the card's ink (gold when ready), capped at `Dim.cornerChipW`. The top bar's
   `tight` is measured against the whole bar now, so no landscape phone is tight: the Shop key shows its word and "Guest0E00B" is
   whole at 640x360 ×1.25 (cut a little at 592x360 ×1.25). `test/lobby_rewards_removed_test.dart` (an account still carrying an old
-  `rewards` object draws none of it; the three foot keys on screen, in their corners and clear of each other; the toast area between them).
+  `rewards` object draws none of it; the four foot keys on screen, in their corners, one size and clear of each other; the record's key
+  under the bar and no Sign out key or glyph in it; the toast area between them).
 - **Friends V1 — a LOBBY feature** (owner's brief, 26 Sep 2026; server side §7.2/§7.3; `screens/friends_screen.dart`,
   `state/friends_state.dart`, `models/friends.dart`), with ONE table surface since the same evening (**Friends at the
   table**, owner: "in a gametable, if a player clicks other player pod then a drawer from right side will open, where he
@@ -3835,8 +3843,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   padlocked table card goes nowhere and stays quiet. `test/card_click_sound_test.dart`. **Every lobby key and Back**
   (owner, 27 Sep 2026: "This Card click.mp3 sound should be played when i click back button and any button in Lobby
   UI"): the same click, once per tap, through ONE helper, `lobbyClick(context)` (`widgets/glass_components.dart`, beside
-  `tapHaptic`; nothing without a `FeedbackSettings` in scope) — the top bar (the picture, Shop, the
-  record, Settings, Sign out), the foot (the Lucky Draw, the level key, Friends), the back
+  `tapHaptic`; nothing without a `FeedbackSettings` in scope) — the top bar (the picture, Shop, Settings; the
+  record and Sign out until 30 Sep 2026), the foot (the Lucky Draw, the level key, the record, Friends), the back
   tile, a table card's ⓘ and rules keys (their own click only: the key wins the tap over the card, which neither clicks
   nor opens), the private card's Create and Join, the reward celebration's close key, and the cards as before. The shared
   widgets take it as a flag — `GlassCapsule(click:)` (every `_CornerChip`, `LevelKey`, `FriendsKey`), `GlassButton(click:)`,
@@ -3873,7 +3881,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   pane: the number format as ONE row (the choice in gold, the player's own money under it, a chevron) that opens in place onto
   the same two `_NumberOption` tiles (now in the store's gold for a chosen thing) and closes on a choice, `_SystemName` keeping
   "Indian · Lakh, Crore" on one line where it fits and the units under the name where not, then `FeedbackToggles(grouped: true)`;
-  APPEARANCE; ACCOUNT — Privacy policy (an open-in-new mark), Sign out NEUTRAL (it was red beside Delete), and Delete my account
+  APPEARANCE; ACCOUNT — Privacy policy (an open-in-new mark), Sign out NEUTRAL (it was red beside Delete; since 30 Sep 2026 the one
+  Sign out in the lobby, the top bar's key having gone — owner: "keep the sign out button in seetings drawer"), and Delete my account
   apart as the one red row; then the version, centred and muted, with the environment quieter after it off production
   (`versionEnvironmentTag`). The switches are gold when on (`FeedbackSwitchStyle`: `AppTheme.goldFace`'s middle by night under a
   charcoal thumb, its foot by day under a white one; off keeps 3:1) — in the table's menu drawer too, whose row geometry is
