@@ -19,8 +19,8 @@ String formatSpinClock(Duration wait) {
 
 /// A key struck in gold (26 Sep 2026, the Lucky Draw polish: "premium
 /// gold/yellow CTA … soft glow, strong readable typography, slight elevation,
-/// good press animation"): the Shop key's and the table's Chaal face
-/// ([AppTheme.goldFace]) with the lit top edge of struck metal, lifted on the
+/// good press animation"): the table's Chaal face ([AppTheme.goldFace] —
+/// the Shop key's too until its ice face, 30 Sep 2026) with the lit top edge of struck metal, lifted on the
 /// app's control shadow with a gold bloom under it, charcoal words, and the
 /// press-down every key has ([PressScale]). The one gold key on its screen —
 /// the Lucky Draw's Spin, or the prize's own action.

@@ -1696,7 +1696,8 @@ class MachinedKey extends StatelessWidget {
                     )
                   : AppTheme.hairlineColour(brightness, live: true));
     final halo = identity ?? edge ?? AppTheme.gold;
-    // Struck gold, as the Shop key is, only while the primary key can be
+    // Struck gold (the Shop key's face too until 30 Sep 2026, when it took the
+    // ice its shop was drawn for), only while the primary key can be
     // pressed: a dead Chaal is the panel base like every other dead key.
     final gilded = isPrimary && !dead;
     final labelStyle =
@@ -1839,7 +1840,7 @@ class MachinedKey extends StatelessWidget {
             child: gilded
                 // On the button's own surface, under its splash and its
                 // hairline: gold lit at the top and deepening to the foot, and
-                // the lit top edge of struck metal — the Shop key's face.
+                // the lit top edge of struck metal.
                 ? Ink(
                     width: width,
                     height: height,

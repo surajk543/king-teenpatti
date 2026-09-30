@@ -73,20 +73,6 @@ Map<String, dynamic> meJson({String name = 'Guest0E00B'}) => {
   'diamond': 9,
   'hammer': 20,
   'missile': 1,
-  'rewards': {
-    'milestoneAvailable': false,
-    'milestoneReward': 25000,
-    'handsToNextMilestone': 25,
-    'bonusReward': 10000,
-    'bonusReadyAt': DateTime.now()
-        .add(const Duration(hours: 3, minutes: 12))
-        .millisecondsSinceEpoch,
-    'bonusAvailable': false,
-    'dailyReward': 100000,
-    'dailyHammers': 1,
-    'dailyReadyAt': 0,
-    'dailyAvailable': true,
-  },
 };
 
 /// A signed-in GameState on the lobby, talking to [friendsServer].

@@ -145,16 +145,6 @@ Future<void> _shoot(
     'missile': 1,
     'playerLevel': shot.level(),
     'badges': [regularBadge()],
-    // The 4-hour bonus counting down, as a player usually finds it.
-    'rewards': {
-      'bonusReward': 10000,
-      'bonusReadyAt': DateTime.now()
-          .add(const Duration(hours: 3, minutes: 12))
-          .millisecondsSinceEpoch,
-      'bonusAvailable': false,
-      'milestoneReward': 25000,
-      'handsToNextMilestone': 25,
-    },
   });
   final boundary = GlobalKey();
   await pumpLevelLobby(

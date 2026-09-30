@@ -1127,9 +1127,8 @@ class _PrizeBadge extends StatelessWidget {
 
 /// A small prize wheel — six wedges, alternately the ink and a wash of it,
 /// under a needle — for the Lucky Draw's lobby key and its title. While a spin
-/// is due it turns a third of a wheel now and then, as the bonus's hourglass
-/// breathes when its bonus is ready; the wedges repeat every third of a turn,
-/// so each turn ends looking exactly as it began.
+/// is due it turns a third of a wheel now and then; the wedges repeat every
+/// third of a turn, so each turn ends looking exactly as it began.
 class LuckyWheelGlyph extends StatefulWidget {
   const LuckyWheelGlyph({
     super.key,

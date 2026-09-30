@@ -94,10 +94,10 @@ func TestALobbyPictureAndAJoinCannotSeatAStaleWallet(t *testing.T) {
 		})
 	}
 
-	// No race: a seated player is refused a chip-priced picture and both
-	// rewards 409 seated by the same lock, a diamond picture still sells at the
-	// table, and back in the lobby the chip-priced picture sells as it always
-	// did.
+	// No race: a seated player is refused a chip-priced picture and a Lucky
+	// Draw spin 409 seated by the same lock, a diamond picture still sells at
+	// the table, and back in the lobby the chip-priced picture sells as it
+	// always did.
 	token, id := login(t, ts.URL, "lobby-wallet-sitter", "Sitter")
 	c := dial(t, ts.URL, token)
 	mustOK(t, c, socket.EvRoomQuickJoin, map[string]any{"bootAmount": 200, "category": "seen"})
@@ -109,10 +109,8 @@ func TestALobbyPictureAndAJoinCannotSeatAStaleWallet(t *testing.T) {
 	if res := postJSON(ts.URL, token, "/api/profile/picture/buy", map[string]any{"pictureId": mule}); res.err != nil || res.status != http.StatusConflict || res.body["error"] != auth.CodeSeated {
 		t.Errorf("seated coin buy: %d %v %v", res.status, res.body, res.err)
 	}
-	for _, path := range []string{"/api/rewards/milestone", "/api/rewards/bonus", "/api/rewards/daily"} {
-		if res := postJSON(ts.URL, token, path, map[string]any{}); res.err != nil || res.status != http.StatusConflict || res.body["error"] != auth.CodeSeated {
-			t.Errorf("seated %s: %d %v %v", path, res.status, res.body, res.err)
-		}
+	if res := postJSON(ts.URL, token, "/api/lucky-draw/spin", map[string]any{"actionId": "lobby-wallet-sitter-spin"}); res.err != nil || res.status != http.StatusConflict || res.body["error"] != auth.CodeSeated {
+		t.Errorf("seated spin: %d %v %v", res.status, res.body, res.err)
 	}
 	if res := postJSON(ts.URL, token, "/api/profile/picture/buy", map[string]any{"pictureId": gem}); res.err != nil || res.status != http.StatusOK || res.body["charged"] != true {
 		t.Errorf("seated diamond buy: %d %v %v", res.status, res.body, res.err)

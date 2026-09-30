@@ -42,7 +42,7 @@ func TestDefaultsMatchNode(t *testing.T) {
 		// turn it off, and the window is what decides how long a replayed
 		// action_id is still refused as the duplicate it is.
 		"DB.LedgerPurgeInterval": 5 * time.Minute, "DB.LedgerPurgeAfter": 10 * time.Minute,
-		"Game.WelcomeChips": int64(1000000), "Game.BootAmount": int64(200),
+		"Game.WelcomeChips": int64(500000), "Game.BootAmount": int64(200),
 		"Game.TableStakes": []int64{200, 5000, 50000, 2000000},
 		// Every Teen Patti table taxes its winners (owner, 26–27 Sep 2026:
 		// tax=1, "Apply this tax rule on all the tables, blind, seen,
@@ -246,8 +246,27 @@ func TestEveryKey(t *testing.T) {
 func TestEmptyIntegerKeepsDefault(t *testing.T) {
 	// Node: Number.parseInt('') is NaN → fallback. `PORT=` in a .env is harmless.
 	cfg := mustLoad(t, map[string]string{"PORT": "", "TURN_TIMEOUT_MS": "", "WELCOME_CHIPS": ""})
-	if cfg.Port != 3000 || cfg.Game.TurnTimeout != 25*time.Second || cfg.Game.WelcomeChips != 1000000 {
+	if cfg.Port != 3000 || cfg.Game.TurnTimeout != 25*time.Second || cfg.Game.WelcomeChips != 500000 {
 		t.Errorf("empty integers must keep defaults: %+v", cfg)
+	}
+}
+
+// WELCOME_CHIPS set in the environment is told apart from the default: the
+// boot compares a set figure with the welcome_rewards chips row, and says
+// nothing of a default one (owner, 30 Sep 2026: the rows decide what a new
+// account gets).
+func TestWelcomeChipsSetIsToldApartFromTheDefault(t *testing.T) {
+	if cfg := mustLoad(t, map[string]string{}); cfg.Game.WelcomeChipsSet || cfg.Game.WelcomeChips != 500000 {
+		t.Errorf("unset: %d set=%v", cfg.Game.WelcomeChips, cfg.Game.WelcomeChipsSet)
+	}
+	if cfg := mustLoad(t, map[string]string{"WELCOME_CHIPS": ""}); cfg.Game.WelcomeChipsSet {
+		t.Error("an empty WELCOME_CHIPS is the default, not a setting")
+	}
+	if cfg := mustLoad(t, map[string]string{"WELCOME_CHIPS": "300000"}); !cfg.Game.WelcomeChipsSet || cfg.Game.WelcomeChips != 300000 {
+		t.Errorf("set: %d set=%v", cfg.Game.WelcomeChips, cfg.Game.WelcomeChipsSet)
+	}
+	if cfg := mustLoad(t, map[string]string{"WELCOME_CHIPS": "0"}); !cfg.Game.WelcomeChipsSet || cfg.Game.WelcomeChips != 0 {
+		t.Errorf("zero: %d set=%v", cfg.Game.WelcomeChips, cfg.Game.WelcomeChipsSet)
 	}
 }
 
@@ -258,6 +277,9 @@ func TestMalformedIntegersFailStartup(t *testing.T) {
 		{"PORT": "abc"},
 		{"TURN_TIMEOUT_MS": "12abc"},
 		{"WELCOME_CHIPS": "1e3"},
+		// Since the welcome_rewards rows (30 Sep 2026) WELCOME_CHIPS writes the
+		// chips row, whose amount is never negative.
+		{"WELCOME_CHIPS": "-1"},
 		{"PG_POOL_MAX": "10.5"},
 		{"MAX_PLAYERS_PER_ROOM": "0x10"},
 		{"TABLE_STAKES": "200,abc"},
@@ -548,7 +570,7 @@ func TestAVariationPotCapThatOverflowsStopsTheBoot(t *testing.T) {
 func TestPublicGameConfigValues(t *testing.T) {
 	g := mustLoad(t, nil).Game
 	if g.MaxPlayers != 5 || g.MinPlayers != 2 || g.BootAmount != 200 || g.TurnTimeout.Milliseconds() != 25000 ||
-		g.WelcomeChips != 1000000 || g.MaxBetRounds != 20 || g.SideshowTimeout.Milliseconds() != 6000 || g.SideshowMinPlayers != 3 ||
+		g.WelcomeChips != 500000 || g.MaxBetRounds != 20 || g.SideshowTimeout.Milliseconds() != 6000 || g.SideshowMinPlayers != 3 ||
 		g.EntryCapBoot != 200 || g.EntryCapCategory != "blind" || g.EntryCapMaxChips != 2000000 || g.PrivateBoot != 200 || g.PrivateMaxPot != 500000 ||
 		g.MaxBlindMoves != 4 {
 		t.Errorf("public game config scalars drifted: %+v", g)
@@ -630,6 +652,8 @@ func TestEnvExampleIsTheDefaults(t *testing.T) {
 	// The example sets every table key (so it can document each default) and
 	// therefore names the source explicitly; Defaults() sets none of them.
 	want.TableEnvKeysSet = TableEnvKeys()
+	// It sets WELCOME_CHIPS too, to document it; Defaults() does not.
+	want.Game.WelcomeChipsSet = true
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf(".env.example drifted from Defaults():\n got %+v\nwant %+v", got, want)
 	}

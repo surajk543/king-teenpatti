@@ -118,9 +118,14 @@ export const YOU_KEYS = [
   'seatIndex', 'chips', 'status', 'isBlind', 'blindMovesLeft', 'contributed', 'missedTurns', 'maxMissedTurns',
   'canMissile', 'cards', 'options',
 ];
+/**
+ * A seated Teen Patti seat. `level` (29 Sep 2026) is the seat's player level
+ * and its art — `{level, assetUrl?, assetFormat?}`, absent only where the
+ * level is not known, which no account a parity run makes is.
+ */
 export const SEAT_KEYS = [
   'seatIndex', 'userId', 'displayName', 'avatarUrl', 'chips', 'status', 'isBlind', 'lastBet', 'lastAction',
-  'contributed', 'connected', 'cardCount',
+  'contributed', 'connected', 'cardCount', 'level',
 ];
 export const OPTIONS_KEYS = [
   'canSee', 'canSideshow', 'sideshowWith', 'canForceSideshow', 'canMissile', 'chaal', 'raise', 'raiseSteps', 'maxBet', 'show', 'canPack', 'isBlind',
@@ -169,7 +174,7 @@ export const http = async (method, path, { body, token, headers = {}, raw = fals
 
 export const login = (body) => http('POST', '/api/auth/login', { body });
 
-/** Logs a guest in and returns the response body ({token, user, isNew, welcomeChips}). */
+/** Logs a guest in and returns the response body ({token, user, isNew, welcomeChips} and, for a new account, welcome). */
 export const guestLogin = async (deviceId, displayName) => {
   const { status, body } = await login({ provider: 'guest', deviceId, displayName });
   assert.equal(status, 200, `guest login ${deviceId} failed: ${JSON.stringify(body)}`);

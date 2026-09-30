@@ -100,7 +100,9 @@ test('quick-join: ack shape, snapshot shape, and the joiner hears room:state bef
   });
   assert.equal(joined.seats.length, 5);
   assertKeys(joined.seats[0], SEAT_KEYS, 'seat');
-  assert.deepEqual(joined.seats[0], {
+  const { level, ...seat } = joined.seats[0];
+  assert.equal(level.level, 1, 'a new account sits at Level 1');
+  assert.deepEqual(seat, {
     seatIndex: 0, userId: account.user.id, displayName: 'QuickJoiner', avatarUrl: null, chips: profile.welcomeChips,
     status: 'waiting', isBlind: true, lastBet: 0, lastAction: null, contributed: 0, connected: true, cardCount: 0,
   });

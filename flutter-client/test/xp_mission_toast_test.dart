@@ -1126,8 +1126,8 @@ void main() {
       await unmount(tester, state);
     });
 
-    testWidgets('it lies over the middle of the top bar, clear of the bonus '
-        'chip and the drawer keys', (tester) async {
+    testWidgets('it lies over the middle of the top bar, clear of the '
+        'picture and the drawer keys', (tester) async {
       for (final screen in const [
         Size(592, 360),
         Size(640, 360),
@@ -1151,9 +1151,7 @@ void main() {
           final r = tester.getRect(bar);
           final t = state.t;
           final corners = [
-            find.byWidgetPredicate(
-              (w) => w.runtimeType.toString() == '_BonusChip',
-            ),
+            find.byTooltip(t.yourPicture),
             find.byTooltip(t.yourRecord),
             find.byTooltip(t.settings),
           ];

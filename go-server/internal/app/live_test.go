@@ -462,8 +462,9 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 	// Sideshow is charged against — receipts, not game state. missile_purchases
 	// and missile_spends (14 Sep 2026) are the same for missiles, and
 	// badge_purchases (27 Sep 2026) for a badge bought in the store.
-	// user_milestones (14 Sep 2026) is which rewards a player has collected,
-	// moved off users.
+	// user_milestones (14 Sep 2026) was which rewards a player had collected,
+	// moved off users; retired with the rewards (30 Sep 2026), nothing reads or
+	// writes it, and it stays so a rollback to go-server/v1.12.0 finds it.
 	//
 	// The four configuration tables (23 Sep 2026, owner: "all table related
 	// config store in database", then "Teen Patti engines / Poker engines") —
@@ -516,7 +517,11 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 	// row per app platform: open or in maintenance, the minimum and latest
 	// versions, the store link. Read by the REST and handshake gate, never by
 	// a table.
-	want := []string{"app_versions", "badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "player_levels", "player_reports", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims", "player_xp_missions", "profile_pictures", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_sessions", "user_table_choice", "user_table_pictures", "users", "xp_settings", "xp_sources"}
+	//
+	// welcome_rewards (30 Sep 2026) is what a new account is given —
+	// configuration, read by the login that creates the account, never by a
+	// table.
+	want := []string{"app_versions", "badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "player_levels", "player_reports", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims", "player_xp_missions", "profile_pictures", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_sessions", "user_table_choice", "user_table_pictures", "users", "welcome_rewards", "xp_settings", "xp_sources"}
 	if !slices.Equal(tables, want) {
 		t.Fatalf("schema tables = %v, want %v", tables, want)
 	}

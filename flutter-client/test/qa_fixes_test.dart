@@ -158,7 +158,6 @@ void main() {
         t.unitHourShort,
         t.unitMinuteShort,
         t.unitSecondShort,
-        t.handToGo,
         t.forceSideshowTooLate,
       ]) {
         expect(value.trim(), isNotEmpty, reason: lang.code);

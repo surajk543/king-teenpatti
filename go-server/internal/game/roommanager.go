@@ -1601,9 +1601,9 @@ func (rm *RoomManager) freshPlayer(user Player) (Player, error) {
 }
 
 // WhileUnseated runs fn — a change to the player's wallet that may only be
-// made in the lobby: a reward, a chip-priced picture — holding that player's
-// stripe, and reports whether it ran. It reports false, and fn does not run,
-// while the player has a seat — one the index names, or one a table destroy or
+// made in the lobby: a Lucky Draw spin, a chip-priced picture — holding that
+// player's stripe, and reports whether it ran. It reports false, and fn does
+// not run, while the player has a seat — one the index names, or one a table destroy or
 // suspend has taken off the index before its last write landed (departing) —
 // or while a write from a table they have left is still owed (owed: a
 // settlement being retried, or a live hand they walked out of whose end still
@@ -1676,7 +1676,7 @@ func (rm *RoomManager) WhileUnseated(userID string, fn func(ctx context.Context)
 //
 // The chip checks read the wallet under the stripe (freshPlayer), the same
 // wallet the seat starts from. Made on a read taken before the lock, as the
-// socket layer used to make them, a lobby purchase or reward committing in
+// socket layer used to make them, a lobby purchase or prize committing in
 // between could seat the creator below the boot, above the entry cap
 // (requirement 30) or outside the table's band. A refused create opens no
 // table; a seat refused once the table is open (a shutdown destroying it under

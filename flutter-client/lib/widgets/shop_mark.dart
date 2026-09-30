@@ -7,8 +7,9 @@ import 'fact_mark.dart';
 /// and window appear — and then catches a glint in its window. 1000 units
 /// square, 90 frames at 29 fps (3.1 s); no 3D, no expressions, no images — a
 /// phone plays it as the file has it (CLAUDE.md §12.3). Its own blues and
-/// whites, which read on the Shop key's struck gold: gold would vanish into
-/// it.
+/// whites, on the Shop key's ice face (`ShopFace` in buy_chips.dart, 30 Sep
+/// 2026 — the key was struck gold until then, the icon's blue set against its
+/// complement).
 ///
 /// The file starts EMPTY and is complete from frame 40 to its end, the glint
 /// drawing in between frames 54 and 60 and holding. So it is played through

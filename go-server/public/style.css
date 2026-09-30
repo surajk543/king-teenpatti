@@ -295,18 +295,8 @@ h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em; color: 
 .chatform .btn { width: auto; margin: 0; }
 .chatpanel .error { margin: 0 12px 10px; }
 
-/* ---- Rewards, avatars and stats (lobby) ---- */
+/* ---- Avatars and stats (lobby) ---- */
 .ok { color: var(--ok); font-size: 14px; margin-top: 10px; }
-
-.reward {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 11px 12px; border-radius: 10px;
-  background: var(--md-surface-3); margin-bottom: 8px;
-}
-.reward strong { display: block; font-size: 14.5px; }
-.reward .meta { color: var(--muted); font-size: 12.5px; }
-.reward .btn { flex: 0 0 auto; }
-.reward.ready { border: 1px solid var(--gold); background: rgba(232,196,106,0.10); }
 
 .avatar { border-radius: var(--md-shape-m); background: var(--md-surface-3); object-fit: cover; }
 .avatar.lg { width: 72px; height: 72px; }
@@ -614,10 +604,6 @@ input:focus, select:focus {
 .statgrid .v { color: var(--md-secondary); }
 .statgrid .k { color: var(--md-on-surface-variant); }
 
-.reward { background: var(--md-surface-3); border-radius: var(--md-shape-m); }
-.reward.ready { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
-.reward.ready .meta { color: var(--md-on-secondary-container); opacity: 0.85; }
-
 .showdown { background: var(--md-scrim); border-radius: var(--md-shape-xl); }
 .showdownresult { color: var(--md-secondary); }
 
@@ -859,81 +845,6 @@ input:focus, select:focus {
   #login .hint { margin-top: 8px; font-size: 11.5px; }
 }
 
-/* ===================== corner rewards (requirements 26, 27) ============== */
-
-/*
- * The two rewards sit in opposite corners so they are always reachable without
- * hunting through the lobby: the 4-hour bonus top-left beside the theme
- * switch, the milestone bottom-right.
- */
-.cornerreward {
-  position: fixed;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 8px 14px 8px 10px;
-  border: 1px solid var(--md-outline-variant);
-  border-radius: var(--md-shape-full);
-  background: var(--md-surface-3);
-  color: var(--md-on-surface);
-  font-family: inherit;
-  cursor: pointer;
-  box-shadow: var(--md-elev-2);
-  transition: box-shadow var(--md-motion-short) var(--md-easing),
-              background-color var(--md-motion-short) var(--md-easing),
-              transform var(--md-motion-short) var(--md-easing);
-}
-.cornerreward.top-left { top: 12px; left: 12px; }
-.cornerreward.bottom-right { bottom: 12px; right: 12px; }
-
-/* The top-left reward floats over the lobby header, so the header steps aside
-   rather than being covered by it. */
-body.at-lobby #lobby .topbar { padding-left: 168px; }
-
-.cornerreward .icon { font-size: 19px; line-height: 1; }
-.cornerreward .body { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; }
-.cornerreward .label {
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--md-on-surface-variant);
-}
-.cornerreward .value { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
-
-/* Ready to collect: the button lights up and lifts. */
-.cornerreward.ready {
-  background: var(--md-secondary-container);
-  color: var(--md-on-secondary-container);
-  border-color: var(--md-secondary);
-  box-shadow: var(--md-elev-3);
-  animation: reward-ready 1.6s ease-in-out infinite;
-}
-.cornerreward.ready .label { color: var(--md-on-secondary-container); opacity: 0.8; }
-.cornerreward:not(.ready) { cursor: default; }
-
-@keyframes reward-ready {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.04); }
-}
-
-/* Confirmation of a collected reward, shown briefly under the top bar. */
-.rewardtoast {
-  position: fixed;
-  z-index: 45;
-  top: 64px;
-  left: 50%;
-  transform: translateX(-50%);
-  margin: 0;
-  padding: 9px 18px;
-  border-radius: var(--md-shape-full);
-  background: var(--md-inverse-surface);
-  color: var(--md-inverse-on-surface);
-  font-size: 13.5px;
-  font-weight: 600;
-  box-shadow: var(--md-elev-3);
-}
-
 /* ======================= dialog (requirement 25) ========================= */
 
 .scrim {
@@ -1005,12 +916,8 @@ body.at-lobby #lobby .topbar { padding-left: 168px; }
 
 @media (prefers-reduced-motion: reduce) {
   .tablecard::before { animation: none; opacity: 0.35; }
-  .cornerreward.ready { animation: none; }
 }
 
 @media (orientation: landscape) and (max-height: 560px) {
-  .cornerreward { padding: 6px 12px 6px 9px; gap: 7px; }
-  .cornerreward .icon { font-size: 16px; }
-  .cornerreward .value { font-size: 12px; }
   .tablecard { max-height: min(180px, 100%); }
 }

@@ -241,7 +241,7 @@ type DBConfig struct {
 	LedgerPurgeInterval time.Duration
 	// LedgerPurgeAfter is LEDGER_PURGE_AFTER_MS (10 min): a purgeable
 	// chip_ledger row (see db.purgeableReasons — checkpoint rows only, never
-	// purchase or reward rows) is deleted once it is older than this.
+	// purchase or (retired) reward rows) is deleted once it is older than this.
 	//
 	// 10 min is exactly RESUME_OFFER_MS, which is the longest a reconnecting
 	// client can still legitimately retry a stale action against. The two
@@ -264,8 +264,7 @@ type StatsConfig struct {
 	// FlushInterval is STATS_FLUSH_MS (10 s): how often the flusher moves the
 	// players' pending statistics out of the live store into PostgreSQL — one
 	// transaction per batch, however many hands the batch's players finished.
-	// It is also how far the statistics a player reads (and the hands-played
-	// milestone) may trail their play. 0 turns the flusher off: nothing is
+	// It is also how far the statistics a player reads may trail their play. 0 turns the flusher off: nothing is
 	// flushed, not even at shutdown, and the counters wait in the live store
 	// for a process that flushes.
 	FlushInterval time.Duration
@@ -388,8 +387,21 @@ type LobbyTable struct {
 // with .Milliseconds() wherever the value goes on the wire (turnTimeoutMs,
 // sideshowTimeoutMs, …) — see PORT_PLAN.md §Time.
 type GameConfig struct {
-	WelcomeChips int64 // WELCOME_CHIPS 1000000 (requirement 5; owner, 27 Sep 2026: "every new user will get 1 missile 20 Hammers and 10Lakh coin" — 3 lakh from 14 Sep 2026, 2 lakh before)
-	BootAmount   int64 // BOOT_AMOUNT 200 — the default stake
+	// WelcomeChips is WELCOME_CHIPS 500000 (requirement 5; the seed's chips
+	// row, owner 30 Sep 2026: "Also add 5Lakh chips in welcome reward" — 10
+	// Lakh from 27 Sep 2026, 3 lakh from 14 Sep, 2 lakh before). Since 30 Sep
+	// 2026 (owner: "new account will get how much coins, hammers, diamonds,
+	// profile_picture, emoji — this data should come from database") it is
+	// NOT what a new account gets in production: the welcome_rewards rows
+	// decide that, and a boot whose WELCOME_CHIPS differs from the chips row
+	// says so in one WARN. Outside production it sets the chips row at boot
+	// (tests, parity, a local run; db.Users.SetWelcomeChipsWins). Never
+	// negative.
+	WelcomeChips int64
+	// WelcomeChipsSet is whether WELCOME_CHIPS was set (to a non-empty value)
+	// rather than defaulted: the boot compares it with the chips row only then.
+	WelcomeChipsSet bool
+	BootAmount      int64 // BOOT_AMOUNT 200 — the default stake
 
 	// TableStakes is TABLE_STAKES (200,5000): the stakes quick-join accepts.
 	// Empty = any stake (tests). Entries ≤ 0 are dropped as Node's filter
@@ -653,7 +665,7 @@ func Defaults() *Config {
 			LedgerPurgeAfter:    10 * time.Minute,
 		},
 		Game: GameConfig{
-			WelcomeChips: 1000000,
+			WelcomeChips: 500000,
 			BootAmount:   200,
 			TableStakes:  []int64{200, 5000, 50000, 2000000},
 			// The blind ladder is banded by stack as well as by stake, so a
@@ -915,6 +927,12 @@ func FromEnv(lookup Lookup) (*Config, error) {
 
 	g := &c.Game
 	g.WelcomeChips = r.int64("WELCOME_CHIPS", g.WelcomeChips)
+	if raw, ok := lookup("WELCOME_CHIPS"); ok && raw != "" {
+		g.WelcomeChipsSet = true
+		if g.WelcomeChips < 0 {
+			r.fail("WELCOME_CHIPS", raw, "must be 0 (no chips) or more")
+		}
+	}
 	g.BootAmount = r.int64("BOOT_AMOUNT", g.BootAmount)
 	if raw, ok := lookup("TABLE_STAKES"); ok {
 		stakes, err := parseTableStakes(raw)
@@ -1054,7 +1072,7 @@ func FromEnv(lookup Lookup) (*Config, error) {
 
 // RESTRateConfig is the per-client-IP limit on the REST doors that create
 // accounts or move a wallet: at most Login POST /api/auth/login, and at most
-// Wallet of the reward, purchase, store and account-deletion requests, per
+// Wallet of the purchase, store, Lucky Draw and account-deletion requests, per
 // Window, each counted per client IP. 0 turns that limit off. Generous by
 // design — a whole NAT'd office or a mobile carrier's CGNAT shares one IP —
 // it is there to stop a script minting guest accounts (each with the welcome

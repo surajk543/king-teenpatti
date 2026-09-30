@@ -174,7 +174,9 @@ The YAML sections, in `configs/bot.yaml`'s order:
   `table_gap_seconds` 6, `table_per_min` 6, `language` `mixed` | `english`.
 - **`reconnect`** — `base_delay_ms` 1000, `max_delay_seconds` 30,
   `max_attempts` 0 (for ever).
-- **`bankroll`** — `collect_bonus` true, `dev_replenish` false.
+- **`bankroll`** — `dev_replenish` false. (`collect_bonus` went with the lobby
+  rewards the game server removed on 30 Sep 2026; a file that still names it is
+  refused as an unknown key.)
 - **`debug`** — `addr`, `show_cards`. **`metrics`** — `addr`. **`log`** — `level`,
   `format`.
 
@@ -635,7 +637,7 @@ About 250 tests, their names written as sentences:
   table, a restored seat resumed without a join, a legal move with a fresh
   `actionId`, **a lost ack resent with the same `actionId`**, a stale decision
   dropped, stop after the hand and not during it, a retired table, a full table, a
-  chip kick collecting the bonus, a server restart, a wiped account signing in
+  chip kick looking again, a server restart, a wiped account signing in
   again, the scheduler, the registry, every family in a fleet of ten.
 - **config**, **metrics**, **state** — strict YAML and environment reading, the
   shipped file at the defaults, validation; labels never ids; the debug view
@@ -679,8 +681,8 @@ hand-for-hand replay is proven on a fake clock in the tests
   The table is retired until the next read (a session naming a new
   `tableConfigVersion`, or a restart of the fleet); the server's catalogue itself
   changes only at a server restart.
-- **`no table admits this stack; resting`** — even after its 4-hour bonus the
-  bot's stack fits no table's boot and band; it rests and tries again next session.
+- **`no table admits this stack; resting`** — the bot's stack fits no table's
+  boot and band; it rests and tries again next session.
 - **Bots alone at a table** deal no hands: after 70–130 s the bot moves on
   (`table idle, moving on`), and after a hand a table of two bots is left for a
   busier one of the same stake.
@@ -704,8 +706,9 @@ hand-for-hand replay is proven on a fake clock in the tests
   9 Sep 2026, to the load generator). Set `SERVER_URL` only for a fleet that
   genuinely runs off-host.
 - **Bankroll: the bots obey the wallet.** They sit only where their stack is
-  admitted, collect the 4-hour bonus in the lobby as any player may when their
-  stack no longer seats them (`bankroll.collect_bonus`), and otherwise rest.
+  admitted, and otherwise rest. There is no lobby reward to collect: the game
+  server removed the daily, 4-hour and milestone rewards on 30 Sep 2026, and the
+  fleet no longer calls `/api/rewards/*`.
   **They never mint chips against a real server**: `dev_replenish` is refused
   outside simulation (the Node fleet's `--on-broke rotate` did mint, one welcome
   per rotation). They buy nothing and spend no hammers, missiles or diamonds.
@@ -727,8 +730,8 @@ hand-for-hand replay is proven on a fake clock in the tests
   at the tables at once. Measured locally, 27 Sep 2026: 205 seated — 45, 40, 48, 33,
   39. `BOT_BOOTS_TO_SIT=20` lets a fresh 10 Lakh account sit at 50,000. **The 50,000
   tables thin over time**: a bot there that loses drops below 20 boots and plays 200
-  instead, and bots mint nothing — the only chips entering the fleet are welcomes
-  and the 4-hour bonus — so watch the three 50,000 tables' counts.
+  instead, and bots mint nothing — the only chips entering the fleet are
+  welcomes — so watch the three 50,000 tables' counts.
 - **The debug view is on `127.0.0.1:9102` in the unit** (metrics on 9101). Leave
   `BOT_DEBUG_SHOW_CARDS` off.
 - **Size** is `BOT_COUNT` in the unit (320); with sessions of 20–120 minutes and

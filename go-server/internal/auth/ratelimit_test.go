@@ -105,13 +105,15 @@ func TestLoginsPastTheLimitAreRefused429FromThatIPOnly(t *testing.T) {
 		t.Fatalf("another IP: %d %s", rec.Code, rec.Body.String())
 	}
 
-	// The wallet doors have their own count.
+	// The wallet doors have their own count. (No Lucky Draw is wired here, so
+	// a spin that gets past the limiter is 503 lucky_draw_unavailable.)
+	spin := map[string]any{"actionId": "spin-rate-limit-01"}
 	for i := 0; i < 2; i++ {
-		if res := h.do(http.MethodPost, "/api/rewards/bonus", map[string]any{}, bearer(token)...); res.status == http.StatusTooManyRequests {
+		if res := h.do(http.MethodPost, "/api/lucky-draw/spin", spin, bearer(token)...); res.status == http.StatusTooManyRequests {
 			t.Fatalf("wallet request %d limited under the limit", i+1)
 		}
 	}
-	res = h.do(http.MethodPost, "/api/rewards/bonus", map[string]any{}, bearer(token)...)
+	res = h.do(http.MethodPost, "/api/lucky-draw/spin", spin, bearer(token)...)
 	expectError(t, res, http.StatusTooManyRequests, CodeRateLimited)
 	// Reading one's own account is not a wallet door.
 	if res := h.do(http.MethodGet, "/api/auth/me", nil, bearer(token)...); res.status != http.StatusOK {

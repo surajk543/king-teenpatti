@@ -47,7 +47,7 @@ class XpMissionHost extends StatefulWidget {
   /// its Shop key on the left and its wallet on the right — on every phone
   /// from 592dp up. The lobby's top bar has no gap in its middle: there, for
   /// its five seconds, the bar lies over the player's name and wallet pill
-  /// (and, below about 700dp, the Shop key beside it), clear of the bonus chip
+  /// (and, below about 700dp, the Shop key beside it), clear of the picture
   /// on the left and the drawer keys on the right; a tap sends it away.
   /// A bar is only as wide as its words: this is the room a long one (a
   /// Bengali mission, "Supreme Overlord") may take before it wraps. The

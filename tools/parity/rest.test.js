@@ -1,8 +1,11 @@
 /**
- * REST parity: login providers, sessions, profile, rewards, health, error
- * envelopes — everything a client reaches over HTTP (integration.test.js #1–#9,
- * #36; statsAndRewards.test.js #4–#11 and #13 via the reward/avatar routes;
- * lobbyRules.test.js name rules via POST /api/profile/name).
+ * REST parity: login providers, sessions, profile, health, error envelopes —
+ * everything a client reaches over HTTP (integration.test.js #1–#9, #36;
+ * statsAndRewards.test.js #4–#11 and #13 via the avatar routes; lobbyRules.test.js
+ * name rules via POST /api/profile/name). The lobby rewards statsAndRewards.test.js
+ * also covered — the milestone, the 4-hour bonus and the daily bonus — were
+ * removed from the game server on 30 Sep 2026 (owner); their routes are checked
+ * to be gone.
  *
  * The few places where DECISIONS.md §5 records a deliberate Go difference (body
  * parse failures, unknown /api paths) branch on PARITY_TARGET and say so.
@@ -26,16 +29,13 @@ const uniqueStake = stakeCounter(100);
 
 const USER_KEYS = [
   'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'tablePicture', 'chips', 'diamond', 'hammer', 'missile',
-  'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'stats', 'rewards',
+  // No 'rewards': the lobby rewards were removed on 30 Sep 2026 (owner), and
+  // the account no longer carries their state.
+  'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'stats',
   'createdAt', 'lastLoginAt',
   // The player's own standing (owner, 26–27 Sep 2026; Go only): their level
   // and XP, the badges they hold, and the winning tax they pay.
   'playerLevel', 'badges', 'taxBps',
-];
-const REWARD_KEYS = [
-  'milestoneAvailable', 'milestoneAt', 'milestoneReward', 'milestoneEvery', 'handsToNextMilestone',
-  'bonusReadyAt', 'bonusAvailable', 'bonusReward', 'bonusIntervalMs',
-  'dailyReadyAt', 'dailyAvailable', 'dailyReward', 'dailyHammers', 'dailyIntervalMs',
 ];
 
 // ------------------------------------------------------------------ login
@@ -43,13 +43,20 @@ const REWARD_KEYS = [
 test('guest login creates an account with the welcome chip grant, in the exact public-user shape', async () => {
   const { status, body } = await login({ provider: 'guest', deviceId: 'device-guest-0001', displayName: 'Suraj' });
   assert.equal(status, 200);
-  assertKeys(body, ['token', 'user', 'isNew', 'welcomeChips'], 'login response');
+  // welcome (Go only, 30 Sep 2026): what a new account was given, from the
+  // welcome_rewards rows — on a fresh schema the chips row the boot wrote from
+  // WELCOME_CHIPS and the seed's diamonds, hammers and missile; no catalogue
+  // item is seeded, and every list is [] rather than null.
+  assertKeys(body, ['token', 'user', 'isNew', 'welcomeChips', 'welcome'], 'login response');
   assert.equal(body.isNew, true);
   assert.equal(body.welcomeChips, profile.welcomeChips);
+  assert.deepEqual(body.welcome, {
+    chips: profile.welcomeChips, diamonds: 9, hammers: 20, missiles: 1, pictures: [], tablePictures: [], emojis: [],
+  });
 
   const { user } = body;
   assertKeys(user, USER_KEYS, 'user');
-  assertKeys(user.rewards, REWARD_KEYS, 'user.rewards');
+  assert.equal('rewards' in user, false, 'the account carries no lobby rewards');
   assert.match(user.id, UUID);
   assert.equal(user.provider, 'guest');
   assert.equal(user.displayName, 'Suraj');
@@ -73,22 +80,6 @@ test('guest login creates an account with the welcome chip grant, in the exact p
     teenPatti: { ...zero, hands: noHands },
     variation: { ...zero, hands: noHands, variations: [] },
     poker: zero,
-  });
-  assert.deepEqual(user.rewards, {
-    milestoneAvailable: false,
-    milestoneAt: 0,
-    milestoneReward: 25000,
-    milestoneEvery: 25,
-    handsToNextMilestone: 25,
-    bonusReadyAt: 0,
-    bonusAvailable: true,
-    bonusReward: 10000,
-    bonusIntervalMs: 14400000,
-    dailyReadyAt: 0,
-    dailyAvailable: true,
-    dailyReward: 100000,
-    dailyHammers: 1,
-    dailyIntervalMs: 86400000,
   });
   assert.equal(typeof user.createdAt, 'number');
   assert.equal(typeof user.lastLoginAt, 'number');
@@ -127,6 +118,7 @@ test('logging in again from the same device returns the same saved account', asy
   const second = await guestLogin('device-returning-0002', 'Returning');
   assert.equal(second.isNew, false);
   assert.equal(second.welcomeChips, 0, 'the grant is only ever made once');
+  assertKeys(second, ['token', 'user', 'isNew', 'welcomeChips'], 'a returning player\'s login carries no welcome');
   assert.equal(second.user.id, first.user.id);
   assert.equal(second.user.chips, first.user.chips);
   assert.ok(second.user.lastLoginAt >= first.user.lastLoginAt);
@@ -636,164 +628,37 @@ test('a diamond picture is paid in diamonds, never chips, and a new account can 
 
 // ---------------------------------------------------------------- rewards
 
-// setHandsPlayed puts a career's worth of hands on the counter, so the
-// milestone test does not have to play 25. The counter is hands_played summed
-// over the player's player_stats rows, a row per bucket (Player stats v2,
-// 27 Sep 2026): this sets their Teen Patti row's.
-const setHandsPlayed = ([n, userId]) => query(
-  `INSERT INTO player_stats (user_id, category, hands_played) VALUES ($2, 'TEEN_PATTI', $1)
-     ON CONFLICT (user_id, category) DO UPDATE SET hands_played = EXCLUDED.hands_played`, [n, userId]);
+// The lobby rewards — the milestone (25,000 every 25 hands), the 4-hour bonus
+// and the 24-hour daily bonus — were removed on 30 Sep 2026 (owner: "Remove
+// 24-hour daily reward, 4-hour bonus, and milestone reward"). Their routes
+// answer the ordinary JSON 404 of an unknown /api path, signed in or not, and
+// pay nothing; no account read carries a `rewards` key any more.
+const REMOVED_REWARD_ROUTES = ['/api/rewards/milestone', '/api/rewards/bonus', '/api/rewards/daily'];
 
-test('the milestone reward is refused until 25 played hands, then paid exactly once through the ledger', async () => {
-  const { token, user } = await guestLogin('device-milestone-0001', 'Miles');
-
-  let r = await http('POST', '/api/rewards/milestone', { token, body: {} });
-  assert.equal(r.status, 409);
-  assertKeys(r.body, ['error', 'message', 'user']);
-  assert.equal(r.body.error, 'reward_not_available');
-  assert.equal(r.body.message, 'No milestone reward is waiting yet.');
-  assert.equal(r.body.user.id, user.id);
-
-  await setHandsPlayed([24, user.id]);
-  const nearly = await me(token);
-  assert.equal(nearly.rewards.milestoneAvailable, false);
-  assert.equal(nearly.rewards.handsToNextMilestone, 1);
-  assert.equal(nearly.rewards.milestoneAt, 0);
-
-  await setHandsPlayed([50, user.id]);
-  const ready = await me(token);
-  assert.equal(ready.rewards.milestoneAvailable, true);
-  assert.equal(ready.rewards.milestoneAt, 50);
-  assert.equal(ready.rewards.handsToNextMilestone, 25, 'says 25, not 0, at an exact multiple');
-  const before = ready.chips;
-
-  r = await http('POST', '/api/rewards/milestone', { token });
-  assert.equal(r.status, 200);
-  assertKeys(r.body, ['claimed', 'amount', 'milestone', 'user']);
-  assert.equal(r.body.claimed, true);
-  assert.equal(r.body.amount, 25000);
-  assert.equal(r.body.milestone, 50);
-  assert.equal(r.body.user.chips, before + 25000);
-  assert.equal(r.body.user.rewards.milestoneAvailable, false);
-
-  r = await http('POST', '/api/rewards/milestone', { token });
-  assert.equal(r.status, 409);
-  assert.equal(r.body.error, 'reward_not_available');
-  assert.equal(r.body.user.chips, before + 25000, 'nothing paid twice');
-
+test('the lobby reward routes are gone: each answers the JSON 404 and pays nothing', async () => {
+  const { token, user } = await guestLogin('device-rewards-gone-01', 'NoReward');
+  for (const path of REMOVED_REWARD_ROUTES) {
+    for (const auth of [{ token }, {}]) {
+      const r = await http('POST', path, { ...auth, body: {} });
+      const who = auth.token ? 'signed in' : 'no token';
+      assert.equal(r.status, 404, `${path} (${who})`);
+      assert.deepEqual(r.body, { error: 'not_found', message: `Cannot POST ${path}` }, `${path} (${who})`);
+    }
+  }
+  const after = await me(token);
+  assert.equal('rewards' in after, false, 'GET /api/auth/me carries no lobby rewards');
+  assert.equal(after.chips, user.chips, 'nothing was paid');
+  assert.equal(after.hammer, user.hammer, 'not even the daily hammer');
+  assert.equal(await wallet(user.id), user.chips);
   const { rows } = await query(
-    "SELECT delta, balance, action_id, hand_id FROM chip_ledger WHERE user_id = $1 AND reason = 'milestone_reward'",
+    "SELECT count(*)::int AS n FROM chip_ledger WHERE user_id = $1 AND reason IN ('milestone_reward', 'timed_bonus', 'daily_bonus')",
     [user.id],
   );
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].delta, 25000);
-  assert.equal(rows[0].balance, before + 25000);
-  assert.equal(rows[0].action_id, `${user.id}:milestone:50`);
-  assert.equal(rows[0].hand_id, null);
-  assert.equal(await wallet(user.id), before + 25000);
-
-  // The next multiple unlocks it again.
-  await setHandsPlayed([74, user.id]);
-  assert.equal((await me(token)).rewards.milestoneAvailable, false);
-  await setHandsPlayed([75, user.id]);
-  r = await http('POST', '/api/rewards/milestone', { token });
-  assert.equal(r.status, 200);
-  assert.equal(r.body.milestone, 75);
-
-  // One row per player per milestone, updated in place (owner, 14 Sep 2026).
-  const milestones = await query('SELECT milestone, claimed_up_to, times_claimed FROM user_milestones WHERE user_id = $1', [user.id]);
-  assert.deepEqual(milestones.rows, [{ milestone: 'HANDS_PLAYED', claimed_up_to: 75, times_claimed: 2 }]);
+  assert.equal(rows[0].n, 0, 'no reward row reached the ledger');
 });
 
-test('the timed bonus pays 10,000 at once, then recharges for four hours in the database', async () => {
-  const { token, user } = await guestLogin('device-bonus-0001', 'Bonus');
-  const before = user.chips;
-  const hammers = user.hammer;
-  assert.equal(user.rewards.bonusAvailable, true);
-
-  const started = Date.now();
-  let r = await http('POST', '/api/rewards/bonus', { token, body: {} });
-  assert.equal(r.status, 200);
-  assertKeys(r.body, ['claimed', 'amount', 'readyAt', 'user']);
-  assert.equal(r.body.claimed, true);
-  assert.equal(r.body.amount, 10000);
-  assert.ok(Math.abs(r.body.readyAt - (started + 4 * 3600 * 1000)) < 2000, `readyAt ${r.body.readyAt} is now + 4h`);
-  assert.equal(r.body.user.chips, before + 10000);
-  assert.equal(r.body.user.hammer, hammers, 'the four-hour bonus is chips alone');
-  assert.equal(r.body.user.rewards.bonusAvailable, false);
-  assert.equal(r.body.user.rewards.bonusReadyAt, r.body.readyAt);
-  assert.equal(r.body.user.rewards.dailyAvailable, true, 'and leaves the daily bonus waiting');
-  const { readyAt } = r.body;
-
-  r = await http('POST', '/api/rewards/bonus', { token });
-  assert.equal(r.status, 409);
-  assertKeys(r.body, ['error', 'message', 'readyAt', 'user']);
-  assert.equal(r.body.error, 'reward_not_ready');
-  assert.equal(r.body.message, 'The bonus is still recharging.');
-  assert.equal(r.body.readyAt, readyAt);
-  assert.equal(r.body.user.chips, before + 10000);
-
-  const { rows } = await query(
-    "SELECT next_claim_at, times_claimed FROM user_milestones WHERE user_id = $1 AND milestone = 'TIMED_BONUS'",
-    [user.id],
-  );
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].next_claim_at, readyAt, 'the countdown lives in the database');
-  assert.equal(rows[0].times_claimed, 1);
-
-  const ledger = await query("SELECT delta, action_id FROM chip_ledger WHERE user_id = $1 AND reason = 'timed_bonus'", [user.id]);
-  assert.equal(ledger.rows.length, 1);
-  assert.equal(ledger.rows[0].delta, 10000);
-  assert.equal(ledger.rows[0].action_id, null);
-
-  await query("UPDATE user_milestones SET next_claim_at = $1 WHERE user_id = $2 AND milestone = 'TIMED_BONUS'", [Date.now() - 1, user.id]);
-  assert.equal((await me(token)).rewards.bonusAvailable, true);
-  r = await http('POST', '/api/rewards/bonus', { token });
-  assert.equal(r.status, 200);
-  assert.equal(r.body.user.chips, before + 20000);
-  const again = await query('SELECT times_claimed FROM user_milestones WHERE user_id = $1', [user.id]);
-  assert.deepEqual(again.rows, [{ times_claimed: 2 }], 'the same row, updated');
-});
-
-test('the daily bonus pays 1 lakh chips and a hammer, then recharges for 24 hours beside the timed bonus', async () => {
-  const { token, user } = await guestLogin('device-daily-bonus-0001', 'Daily');
-  const before = user.chips;
-  const hammers = user.hammer;
-  assert.equal(user.rewards.dailyAvailable, true);
-
-  const started = Date.now();
-  let r = await http('POST', '/api/rewards/daily', { token, body: {} });
-  assert.equal(r.status, 200);
-  assertKeys(r.body, ['claimed', 'amount', 'readyAt', 'user']);
-  assert.equal(r.body.claimed, true);
-  assert.equal(r.body.amount, 100000);
-  assert.ok(Math.abs(r.body.readyAt - (started + 24 * 3600 * 1000)) < 2000, `readyAt ${r.body.readyAt} is now + 24h`);
-  assert.equal(r.body.user.chips, before + 100000);
-  assert.equal(r.body.user.hammer, hammers + 1, 'and one hammer');
-  assert.equal(r.body.user.rewards.dailyAvailable, false);
-  assert.equal(r.body.user.rewards.dailyReadyAt, r.body.readyAt);
-  assert.equal(r.body.user.rewards.bonusAvailable, true, 'the timed bonus keeps its own clock');
-
-  r = await http('POST', '/api/rewards/daily', { token });
-  assert.equal(r.status, 409);
-  assertKeys(r.body, ['error', 'message', 'readyAt', 'user']);
-  assert.equal(r.body.error, 'reward_not_ready');
-  assert.equal(r.body.user.hammer, hammers + 1);
-
-  const ledger = await query("SELECT delta, action_id FROM chip_ledger WHERE user_id = $1 AND reason = 'daily_bonus'", [user.id]);
-  assert.equal(ledger.rows.length, 1);
-  assert.equal(ledger.rows[0].delta, 100000);
-  assert.equal(ledger.rows[0].action_id, null);
-
-  r = await http('POST', '/api/rewards/bonus', { token });
-  assert.equal(r.status, 200, 'the timed bonus is still there to collect');
-  const { rows } = await query('SELECT milestone, times_claimed FROM user_milestones WHERE user_id = $1 ORDER BY milestone', [user.id]);
-  assert.deepEqual(rows, [{ milestone: 'DAILY_BONUS', times_claimed: 1 }, { milestone: 'TIMED_BONUS', times_claimed: 1 }]);
-  assert.equal(await wallet(user.id), before + 110000);
-});
-
-test('reward and profile routes need a session', async () => {
-  for (const path of ['/api/rewards/milestone', '/api/rewards/bonus', '/api/rewards/daily', '/api/profile/name', '/api/profile/avatar']) {
+test('profile routes need a session', async () => {
+  for (const path of ['/api/profile/name', '/api/profile/avatar']) {
     const r = await http('POST', path, { body: {} });
     assert.equal(r.status, 401, path);
     assert.equal(r.body.error, 'missing_token');

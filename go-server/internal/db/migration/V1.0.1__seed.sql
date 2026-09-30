@@ -56,6 +56,11 @@
 --                 level's and their badges' (V1.0.0's PLAYER LEVELS). XP
 --                 never grants a badge. A seat takes the new rate at its next
 --                 sit-down or hand end.
+--   THE APP VERSIONS  a row per app platform with no floor (owner, 28 Sep
+--                 2026; app_versions).
+--   THE WELCOME   what a new account is given (owner, 30 Sep 2026;
+--                 welcome_rewards): 5 Lakh chips, 9 diamonds, 20 hammers and
+--                 1 missile.
 --
 -- Data, not structure: V1.0.0__baseline.sql builds every table these rows go
 -- into, and it runs FIRST — before this file and before anything numbered
@@ -1245,3 +1250,59 @@ VALUES ('android', 'NORMAL', '0.0.0', '0.0.0',
         'https://play.google.com/store/apps/details?id=com.sungamestudio.kingteenpatti', NULL),
        ('ios',     'NORMAL', '0.0.0', '0.0.0', '', NULL)
     ON CONFLICT (platform) DO NOTHING;
+
+-- ================================================================ THE WELCOME
+--
+-- What a new account is given (owner, 30 Sep 2026: "new account will get how
+-- much coins, hammers, diamonds, profile_picture, emoji — this data should
+-- come from database, user might get some or all rewards"; the baseline's
+-- WELCOME REWARDS). A new account gets every ACTIVE row, inside the
+-- transaction that creates it; an existing account's login gets nothing.
+--
+-- 5 Lakh chips (owner, 30 Sep 2026: "Also add 5Lakh chips in welcome
+-- reward"), and the 9 diamonds, 20 hammers and 1 missile the users column
+-- DEFAULTs gave every account until today. In production the ROWS decide:
+-- WELCOME_CHIPS never writes over the chips row, and a boot whose
+-- WELCOME_CHIPS differs from it says so in one WARN. Outside production
+-- (NODE_ENV not `production`: tests, parity, a local run) the server sets the
+-- chips row from WELCOME_CHIPS at every boot (db.Welcome.EnsureChipsRow), so a
+-- test schema or a parity profile starts accounts where its env says.
+--
+-- ON CONFLICT (code) DO NOTHING: an owner's UPDATE survives every restart.
+-- Change a figure, or switch a grant off, with an UPDATE — it applies to the
+-- very next new account, no restart:
+--
+--   UPDATE welcome_rewards SET reward_value = 500000 WHERE code = 'chips';
+--   UPDATE welcome_rewards SET is_active = FALSE WHERE code = 'hammers';
+--
+-- never with a DELETE: a seeded row, and the chips row, come back at the next
+-- boot. A picture, a table picture or an emoji is added by its catalogue's
+-- natural key (ids differ between databases), and must be a PREMIUM, active
+-- row (a FREE one is everybody's already); the new account owns it for the
+-- term the shop rents it for, from its first moment, and is never put in it:
+--
+--   INSERT INTO welcome_rewards (code, reward_type, reward_ref_id, sort_order)
+--   VALUES ('welcome_picture', 'PROFILE_PICTURE',
+--           (SELECT id::text FROM profile_pictures WHERE name = 'Lovestruck Cat'), 50)
+--       ON CONFLICT (code) DO NOTHING;
+--
+--   INSERT INTO welcome_rewards (code, reward_type, reward_ref_id, sort_order)
+--   VALUES ('welcome_table_picture', 'TABLE_PICTURE',
+--           (SELECT id::text FROM table_pictures WHERE name = 'Lines Background'), 60)
+--       ON CONFLICT (code) DO NOTHING;
+--
+--   INSERT INTO welcome_rewards (code, reward_type, reward_ref_id, sort_order)
+--   VALUES ('welcome_emoji', 'EMOJI',
+--           (SELECT id::text FROM emojis WHERE name = 'Clapping Hands'), 70)
+--       ON CONFLICT (code) DO NOTHING;
+--
+-- A row the server cannot grant — a type it does not know, an amount missing
+-- or 0, a catalogue row missing, retired or free — is left out with a WARN
+-- `welcome reward left out` naming its code, and the account is created
+-- without it.
+INSERT INTO welcome_rewards (code, reward_type, reward_value, sort_order)
+VALUES ('chips',    'CHIPS',   500000, 10),
+       ('diamonds', 'DIAMOND', 9,  20),
+       ('hammers',  'HAMMER',  20, 30),
+       ('missiles', 'MISSILE', 1,  40)
+    ON CONFLICT (code) DO NOTHING;

@@ -151,8 +151,7 @@ func (b *Bot) playSession(ctx context.Context) outcome {
 var errFatal = errors.New("bot: this account cannot play")
 
 // signIn logs in as the bot's guest device (retrying with backoff while the
-// server is unreachable) and, in the lobby, puts on a free picture and
-// collects the 4-hour bonus when it is due.
+// server is unreachable) and, in the lobby, puts on a free picture.
 func (b *Bot) signIn(ctx context.Context) error {
 	for attempt := 1; ; attempt++ {
 		cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -210,24 +209,6 @@ func (b *Bot) wearPicture(ctx context.Context, u protocol.User) {
 	if err := b.d.API.WearPicture(cctx, b.token, pick); err != nil {
 		b.log.Debug("picture not worn", "err", err)
 	}
-}
-
-// collectBonus claims the 4-hour bonus, as any player may in the lobby.
-func (b *Bot) collectBonus(ctx context.Context) {
-	if !b.d.Config.Bankroll.CollectBonus || b.seated {
-		return
-	}
-	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	u, err := b.d.API.CollectBonus(cctx, b.token)
-	if err != nil {
-		return
-	}
-	if u.Chips > b.chips {
-		b.log.Info("collected the timed bonus", "chips", u.Chips)
-	}
-	b.chips = u.Chips
-	b.session.Chips = b.chips
 }
 
 // dial opens the game connection.

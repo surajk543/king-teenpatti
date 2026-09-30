@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -16,36 +18,6 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/util"
 )
 
-// Reward constants (db/users.js).
-const (
-	// MilestoneReward is granted when a "hands played" milestone is collected
-	// (requirement 17).
-	MilestoneReward int64 = 25000
-	// MilestoneEvery is the hands-played step between milestones.
-	MilestoneEvery = 25
-	// TimedBonusReward is the 4-hourly bonus (requirement 18), POST
-	// /api/rewards/bonus.
-	TimedBonusReward int64 = 10000
-	// TimedBonusInterval is how long the timed bonus takes to recharge.
-	TimedBonusInterval = 4 * time.Hour
-	// DailyBonusReward and DailyBonusHammers are the daily bonus beside it:
-	// 1,00,000 chips and a hammer every DailyBonusInterval, POST
-	// /api/rewards/daily. Go only (owner, 14 Sep 2026).
-	DailyBonusReward   int64 = 100000
-	DailyBonusHammers        = 1
-	DailyBonusInterval       = 24 * time.Hour
-)
-
-// The milestones of user_milestones (V1.0.0__baseline.sql, whose CHECK has
-// held TIMED_BONUS since V1.0.2__timed_bonus_milestone.sql was folded into it):
-// what each player has collected, one row per player per milestone, updated in
-// place.
-const (
-	MilestoneHandsPlayed = "HANDS_PLAYED"
-	MilestoneTimedBonus  = "TIMED_BONUS"
-	MilestoneDailyBonus  = "DAILY_BONUS"
-)
-
 // Provider values (users.provider CHECK).
 const (
 	ProviderGoogle   = "google"
@@ -53,39 +25,15 @@ const (
 	ProviderGuest    = "guest"
 )
 
-// Rewards is user.rewards on the wire (publicUser).
-type Rewards struct {
-	// MilestoneAvailable: milestoneFor(hands_played summed over the player's
-	// player_stats rows) > the player's HANDS_PLAYED claimed_up_to in
-	// user_milestones (0 with no row).
-	MilestoneAvailable bool `json:"milestoneAvailable"`
-	// MilestoneAt is floor(hands_played / 25) * 25.
-	MilestoneAt     int   `json:"milestoneAt"`
-	MilestoneReward int64 `json:"milestoneReward"`
-	MilestoneEvery  int   `json:"milestoneEvery"`
-	// HandsToNextMilestone is 25 - (hands_played % 25) — NOTE it says 25, not
-	// 0, at an exact multiple (CLAUDE.md §12.2); clients use MilestoneAvailable.
-	HandsToNextMilestone int `json:"handsToNextMilestone"`
-	// BonusReadyAt is the player's TIMED_BONUS next_claim_at in
-	// user_milestones (epoch ms); 0 = ready now, as with no row.
-	BonusReadyAt    int64 `json:"bonusReadyAt"`
-	BonusAvailable  bool  `json:"bonusAvailable"` // now >= BonusReadyAt
-	BonusReward     int64 `json:"bonusReward"`
-	BonusIntervalMs int64 `json:"bonusIntervalMs"`
-	// DailyReadyAt … DailyIntervalMs are the daily bonus as the Bonus* fields
-	// are the four-hour one — DAILY_BONUS's next_claim_at, 0 with no row — and
-	// DailyHammers the hammers it pays beside its chips. Go only (owner, 14 Sep
-	// 2026).
-	DailyReadyAt    int64 `json:"dailyReadyAt"`
-	DailyAvailable  bool  `json:"dailyAvailable"` // now >= DailyReadyAt
-	DailyReward     int64 `json:"dailyReward"`
-	DailyHammers    int   `json:"dailyHammers"`
-	DailyIntervalMs int64 `json:"dailyIntervalMs"`
-}
-
 // User is the account as every client sees it (users.js publicUser) — the
-// `user` of POST /api/auth/login, GET /api/auth/me, the reward and profile
+// `user` of POST /api/auth/login, GET /api/auth/me, the purchase and profile
 // responses and session:ready. Field order and names are the wire contract.
+//
+// There is no `rewards` key any more (owner, 30 Sep 2026: "Remove 24-hour
+// daily reward, 4-hour bonus, and milestone reward"). It is left out, not sent
+// empty: an installed app draws the three lobby reward chips only when
+// user.rewards is present, so its absence is what takes them off the lobby of
+// every build already in the store.
 type User struct {
 	ID          string  `json:"id"`
 	Provider    string  `json:"provider"`
@@ -136,7 +84,6 @@ type User struct {
 	// with the hands held and the variations played (Player stats v2, owner
 	// 27 Sep 2026). Zeros, and no variations, for a player with no row.
 	Stats       UserStats `json:"stats"`
-	Rewards     Rewards   `json:"rewards"`
 	CreatedAt   int64     `json:"createdAt"`   // epoch ms
 	LastLoginAt int64     `json:"lastLoginAt"` // epoch ms
 	// Standing is the player's level and XP, the badges they hold and the
@@ -224,25 +171,6 @@ type Profile struct {
 	IsBot bool
 }
 
-// RewardResult is what the two claim endpoints return. Claimed=false carries
-// Reason ("not_available" | "not_ready") and, for the timed bonus, ReadyAt;
-// Claimed=true carries Amount and Milestone (milestone) or ReadyAt (bonus).
-// The HTTP layer maps Claimed=false to 409 — see auth.Handler.
-type RewardResult struct {
-	Claimed   bool   `json:"claimed"`
-	Reason    string `json:"reason,omitempty"`
-	Amount    int64  `json:"amount,omitempty"`
-	Milestone int    `json:"milestone,omitempty"`
-	ReadyAt   int64  `json:"readyAt,omitempty"`
-	User      *User  `json:"user"`
-}
-
-// Reward refusal reasons (RewardResult.Reason).
-const (
-	RewardNotAvailable = "not_available" // milestone: nothing new to collect
-	RewardNotReady     = "not_ready"     // timed bonus: still recharging
-)
-
 // Display-name validation errors (users.js normalizeDisplayName throws
 // Error(code)); auth.Handler maps them to 400 {error: code, message}.
 var (
@@ -325,15 +253,80 @@ func utf16Length(s string) int {
 
 // Users is the account store (db/users.js).
 type Users struct {
-	db           *DB
+	db *DB
+	// welcomeChips is WELCOME_CHIPS: NOT what a new account gets — the
+	// welcome_rewards rows decide that (Welcome, owner 30 Sep 2026) — but the
+	// figure the chips row is written with when the table has none, and,
+	// while welcomeSets holds, set to when it says otherwise
+	// (EnsureWelcomeChips).
 	welcomeChips int64
-	clock        func() time.Time
+	// welcomeSets is whether welcomeChips is written over a chips row that
+	// is there: true for a store as built (a test, a tool — it starts accounts
+	// where it was told to), and what app.New says for the server — false in
+	// production, where the row decides.
+	welcomeSets bool
+	clock       func() time.Time
+	welcome     *Welcome
+	logger      *slog.Logger // may be nil: a welcome reward left out is then not reported
+
+	// chipsMu guards chipsReady: whether this store has made sure the chips
+	// row exists (EnsureWelcomeChips), which it does once, before the first
+	// account it creates.
+	chipsMu    sync.Mutex
+	chipsReady bool
 }
 
 // NewUsers builds the store. welcomeChips is config.Game.WelcomeChips
-// (requirement 5); clock nil → time.Now.
+// (requirement 5): what the welcome_rewards chips row is set to — app.New does
+// it at boot, and the store itself before the first account it creates, so a
+// store built without the app (a test, a tool) starts accounts where it was
+// told to. The server in production says otherwise (SetWelcomeChipsWins): the
+// row decides there. What a new account is given is the rows' (SignIn). clock
+// nil → time.Now.
 func NewUsers(d *DB, welcomeChips int64, clock func() time.Time) *Users {
-	return &Users{db: d, welcomeChips: welcomeChips, clock: clock}
+	return &Users{db: d, welcomeChips: welcomeChips, welcomeSets: true, clock: clock, welcome: NewWelcome(d, clock)}
+}
+
+// SetWelcomeChipsWins says whether WELCOME_CHIPS is written over a chips row
+// that is there (true, the store's own default: outside production) or only
+// fills an empty table (false: production, where the seeded row and an
+// owner's UPDATE decide). Call it before the store is used.
+func (u *Users) SetWelcomeChipsWins(wins bool) { u.welcomeSets = wins }
+
+// SetLogger names the logger a welcome reward left out is reported on (`welcome
+// reward left out`, WARN). Call it before the store is used.
+func (u *Users) SetLogger(logger *slog.Logger) { u.logger = logger }
+
+// Welcome is the welcome_rewards store this one grants from.
+func (u *Users) Welcome() *Welcome { return u.welcome }
+
+// EnsureWelcomeChips writes the welcome_rewards chips row from WELCOME_CHIPS
+// when the table has none, or (SetWelcomeChipsWins) when it says otherwise
+// (Welcome.EnsureChipsRow), and reports the row as it stands. app.New calls it at boot, after the migrations, and compares the
+// row with WELCOME_CHIPS; SignIn calls it before the store's first new
+// account (once per store; a failure is tried again next time).
+func (u *Users) EnsureWelcomeChips(ctx context.Context) (WelcomeChipsRow, error) {
+	u.chipsMu.Lock()
+	defer u.chipsMu.Unlock()
+	row, err := u.welcome.EnsureChipsRow(ctx, u.welcomeChips, u.welcomeSets)
+	if err == nil {
+		u.chipsReady = true
+	}
+	return row, err
+}
+
+// ensureWelcomeChipsOnce is EnsureWelcomeChips the first time only.
+func (u *Users) ensureWelcomeChipsOnce(ctx context.Context) error {
+	u.chipsMu.Lock()
+	defer u.chipsMu.Unlock()
+	if u.chipsReady {
+		return nil
+	}
+	if _, err := u.welcome.EnsureChipsRow(ctx, u.welcomeChips, u.welcomeSets); err != nil {
+		return err
+	}
+	u.chipsReady = true
+	return nil
 }
 
 // queryer is the slice of *pgxpool.Pool and pgx.Tx the store reads through,
@@ -350,9 +343,8 @@ type queryer interface {
 // userRow without depending on `SELECT *` column ordering, followed by the
 // asset_url of the catalogue picture the player is wearing and the table
 // picture they have laid (user_table_choice → table_pictures; owner, 15 Sep
-// 2026). The reward
-// milestones come from user_milestones, where milestone_claimed and
-// next_bonus_at sat until 14 Sep 2026, and read 0 for a player with no row.
+// 2026). Nothing is read from user_milestones since the three lobby rewards
+// were removed (owner, 30 Sep 2026); the table is kept for a rollback only.
 // The gameplay statistics come from player_stats and player_variation_stats
 // (Player stats v2, 27 Sep 2026: a row per bucket, and one per variation) as
 // statsColumns' two JSON arrays, '[]' for a player with none; the six counters
@@ -362,7 +354,6 @@ type queryer interface {
 // joins.
 const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.email, u.avatar_url, u.chips, u.diamond, u.hammer, u.missile,
        ` + statsColumns + `,
-       COALESCE(mh.claimed_up_to, 0), COALESCE(mt.next_claim_at, 0), COALESCE(mb.next_claim_at, 0),
        u.active_picture_id, u.created_at, u.updated_at, u.last_login_at, u.is_active,
        COALESCE(us.version, 0),
        ap.asset_url,
@@ -371,11 +362,10 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
 
 // userFromAt is the FROM clause of every account read: it joins the picture
 // the player is wearing so publicUser can resolve avatarUrl without a second
-// round trip, the table picture they have laid for the same reason, the
-// player's three rows of user_milestones for the rewards, and their
+// round trip, the table picture they have laid for the same reason, and their
 // user_sessions row, the sign-in a valid token must carry. LEFT, because most
-// players wear nothing and a new one has collected nothing, and every one of
-// them must still come back from these queries. (Their statistics are
+// players wear nothing and a new one has signed in no session yet, and every
+// one of them must still come back from these queries. (Their statistics are
 // statsColumns' subqueries, not a join: a player has a row per bucket.)
 //
 // The laid table picture joins only while it may still be laid — a FREE row,
@@ -401,10 +391,7 @@ const userFromAt = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.act
    AND (tp.type = 'FREE' OR EXISTS (
         SELECT 1 FROM user_table_pictures o
          WHERE o.user_id = u.id AND o.table_picture_id = tp.id
-           AND (o.expires_at = 0 OR o.expires_at > %[1]d)))
-  LEFT JOIN user_milestones mh ON mh.user_id = u.id AND mh.milestone = 'HANDS_PLAYED'
-  LEFT JOIN user_milestones mt ON mt.user_id = u.id AND mt.milestone = 'TIMED_BONUS'
-  LEFT JOIN user_milestones mb ON mb.user_id = u.id AND mb.milestone = 'DAILY_BONUS' ` + playerLevelJoins
+           AND (o.expires_at = 0 OR o.expires_at > %[1]d))) ` + playerLevelJoins
 
 // userFrom is userFromAt with this instant baked in.
 func (u *Users) userFrom() string {
@@ -433,15 +420,9 @@ type userRow struct {
 	missile                    int
 	// stats is the player's statistics (player_stats and
 	// player_variation_stats; zeros with no row), and handsPlayed their sum of
-	// hands_played — what the HANDS_PLAYED milestone is judged on.
-	stats       StatsSheet
-	handsPlayed int
-	// milestoneClaimed is the HANDS_PLAYED claimed_up_to, nextBonusAt the
-	// TIMED_BONUS next_claim_at and nextDailyAt the DAILY_BONUS one, from
-	// user_milestones; 0 with no row.
-	milestoneClaimed                  int
-	nextBonusAt                       int64
-	nextDailyAt                       int64
+	// hands_played.
+	stats                             StatsSheet
+	handsPlayed                       int
 	createdAt, updatedAt, lastLoginAt int64
 	// active is users.is_active: FALSE disables the account.
 	active bool
@@ -457,7 +438,7 @@ func scanUser(row pgx.Row) (*userRow, error) {
 	var buckets, variations string
 	targets := []any{&r.id, &r.provider, &r.providerUserID, &r.displayName, &r.email, &r.avatarURL, &r.chips, &r.diamond, &r.hammer, &r.missile,
 		&buckets, &variations,
-		&r.milestoneClaimed, &r.nextBonusAt, &r.nextDailyAt, &r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt, &r.active,
+		&r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt, &r.active,
 		&r.sessionVersion,
 		&r.pictureAssetURL,
 		&r.tablePictureID, &r.tableDayURL, &r.tableNightURL, &r.tableAssetFormat, &r.tableCurrency, &r.tableCost}
@@ -490,18 +471,16 @@ func selectUser(ctx context.Context, q queryer, from, id string) (*userRow, erro
 		`SELECT `+userColumns+from+` WHERE u.id = $1 AND u.deleted_at = 0`, id))
 }
 
-// publicUser is users.js publicUser(row): the wire object. bonusAvailable is
-// evaluated now, at serialisation time, so two reads of one row can differ.
+// publicUser is users.js publicUser(row): the wire object. The standing (a
+// badge's time left, the rate it sets) is evaluated now, at serialisation
+// time, so two reads of one row can differ.
 func (u *Users) publicUser(r *userRow) *User {
 	if r == nil {
 		return nil
 	}
-	// The HANDS_PLAYED milestone is judged on hands_played summed over every
-	// bucket. Those counters reach PostgreSQL by the stats flusher's group
-	// commit, so they trail play by up to one STATS_FLUSH_MS (10 s by
-	// default): a player who has just finished their 25th hand may see the
-	// milestone a few seconds later. Accepted (owner, 27 Sep 2026).
-	milestone := MilestoneFor(r.handsPlayed)
+	// The career totals are every bucket summed. Those counters reach
+	// PostgreSQL by the stats flusher's group commit, so they trail play by up
+	// to one STATS_FLUSH_MS (10 s by default). Accepted (owner, 27 Sep 2026).
 	totals := r.stats.Totals()
 	// A picture chosen in-game wins over the one the provider gave us. The
 	// choice is a catalogue id now, so what goes on the wire is that row's
@@ -546,26 +525,10 @@ func (u *Users) publicUser(r *userRow) *User {
 		TotalWinnings:     totals.TotalWinnings,
 		BiggestPot:        totals.BiggestPot,
 		Stats:             r.stats.Wire(),
-		Rewards: Rewards{
-			MilestoneAvailable:   milestone > r.milestoneClaimed,
-			MilestoneAt:          milestone,
-			MilestoneReward:      MilestoneReward,
-			MilestoneEvery:       MilestoneEvery,
-			HandsToNextMilestone: MilestoneEvery - (r.handsPlayed % MilestoneEvery),
-			BonusReadyAt:         r.nextBonusAt,
-			BonusAvailable:       now(u.clock) >= r.nextBonusAt,
-			BonusReward:          TimedBonusReward,
-			BonusIntervalMs:      TimedBonusInterval.Milliseconds(),
-			DailyReadyAt:         r.nextDailyAt,
-			DailyAvailable:       now(u.clock) >= r.nextDailyAt,
-			DailyReward:          DailyBonusReward,
-			DailyHammers:         DailyBonusHammers,
-			DailyIntervalMs:      DailyBonusInterval.Milliseconds(),
-		},
-		CreatedAt:   r.createdAt,
-		LastLoginAt: r.lastLoginAt,
-		Standing:    r.level.standing(now(u.clock)),
-		Disabled:    !r.active,
+		CreatedAt:         r.createdAt,
+		LastLoginAt:       r.lastLoginAt,
+		Standing:          r.level.standing(now(u.clock)),
+		Disabled:          !r.active,
 		// A User built anywhere but from a row carries 0, which is also what a
 		// token from before sessions were counted carries.
 		SessionVersion: r.sessionVersion,
@@ -599,21 +562,31 @@ func (u *Users) FindByProvider(ctx context.Context, provider, providerUserID str
 // identical concurrent first login (DECISIONS.md §5).
 const upsertAttempts = 5
 
-// UpsertFromProfile finds or creates the account behind a verified profile
+// SignIn finds or creates the account behind a verified profile
 // (requirements 1, 2, 5, 7). One transaction: SELECT … FOR UPDATE by
 // provider identity; if found UPDATE email = COALESCE($1, email), avatar_url
-// = COALESCE($2, avatar_url), updated_at =
-// last_login_at = now → isNew=false. Else INSERT users (id util.UUID(),
-// chips = welcomeChips, created/updated/last_login = now) and the welcome
-// ledger row (hand_id NULL, action_id NULL, delta = balance = welcomeChips,
-// reason welcome_bonus) → isNew=true.
+// = COALESCE($2, avatar_url), updated_at = last_login_at = now → IsNew false,
+// no Welcome. Else the account is created and WELCOMED (owner, 30 Sep 2026:
+// "new account will get how much coins, hammers, diamonds, profile_picture,
+// emoji — this data should come from database, user might get some or all
+// rewards"): every ACTIVE welcome_rewards row is read (planWelcome — no cache,
+// so an owner's UPDATE applies to this very account), the users row is
+// INSERTed with its chips, diamond, hammer and missile set EXPLICITLY to the
+// rows' totals (0 where no row gives any — the column DEFAULTs no longer
+// decide), the welcome ledger row follows (hand_id NULL, action_id NULL, delta
+// = balance = the chips, reason welcome_bonus, written even at 0), and the
+// catalogue items become the account's (the ownership rows a purchase writes,
+// never worn or laid) → IsNew true, Welcome what was given. A row that cannot
+// be granted is left out with one WARN `welcome reward left out` and never
+// refuses the login.
 //
 // Two simultaneous first logins for one identity both see no row (FOR UPDATE
 // locks nothing when there is nothing to lock) and both INSERT; the loser's
-// unique violation on (provider, provider_user_id) is caught here and the
-// whole transaction is retried, which now finds the winner's row and takes
-// the UPDATE path — so exactly one account and one welcome_bonus row ever
-// exist (DECISIONS.md §5; Node answered that request with HTTP 500).
+// unique violation on (provider, provider_user_id) rolls its whole
+// transaction back — its grant with it — and the transaction is retried,
+// which now finds the winner's row and takes the UPDATE path — so exactly one
+// account, one welcome_bonus row and one grant ever exist (DECISIONS.md §5;
+// Node answered that request with HTTP 500).
 //
 // The profile's display name is used ONLY for a new account (24 Sep 2026,
 // owner's "fix all bugs"; requirement 29). Node overwrote display_name with
@@ -626,24 +599,47 @@ const upsertAttempts = 5
 // Every login, new account or not, starts a new session (startSession): the
 // returned user's SessionVersion is the one its token must carry, and any
 // device signed in before it is signed out (owner, 28 Sep 2026).
-func (u *Users) UpsertFromProfile(ctx context.Context, p Profile) (user *User, isNew bool, err error) {
+func (u *Users) SignIn(ctx context.Context, p Profile) (*SignIn, error) {
 	// Captured before BEGIN, as Node does (`const timestamp = now()`).
 	timestamp := now(u.clock)
 
+	// The chips row, from WELCOME_CHIPS, before the first account this store
+	// creates (app.New has already done it at boot; this is a no-op there).
+	if err := u.ensureWelcomeChipsOnce(ctx); err != nil {
+		return nil, err
+	}
+
 	for attempt := 1; ; attempt++ {
-		user, isNew, err = u.upsertOnce(ctx, p, timestamp)
+		result, leftOut, err := u.upsertOnce(ctx, p, timestamp)
 		if err == nil {
-			return user, isNew, nil
+			if u.logger != nil {
+				for _, l := range leftOut {
+					u.logger.Warn("welcome reward left out",
+						"code", l.Code, "rewardType", l.Type, "reason", l.Reason, "userId", result.User.ID)
+				}
+			}
+			return result, nil
 		}
 		if attempt < upsertAttempts && isUniqueViolationOn(err, "provider_user_id") {
 			continue
 		}
-		return nil, false, err
+		return nil, err
 	}
 }
 
-// upsertOnce is one attempt at UpsertFromProfile's transaction.
-func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (user *User, isNew bool, err error) {
+// UpsertFromProfile is SignIn without the welcome: the account and whether
+// this login created it.
+func (u *Users) UpsertFromProfile(ctx context.Context, p Profile) (user *User, isNew bool, err error) {
+	result, err := u.SignIn(ctx, p)
+	if err != nil {
+		return nil, false, err
+	}
+	return result.User, result.IsNew, nil
+}
+
+// upsertOnce is one attempt at SignIn's transaction; it reports the welcome
+// rewards a new account was not given.
+func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (result *SignIn, leftOut []WelcomeLeftOut, err error) {
 	err = u.db.WithTx(ctx, func(tx pgx.Tx) error {
 		existing, err := scanUser(tx.QueryRow(ctx,
 			`SELECT `+userColumns+u.userFrom()+` WHERE u.provider = $1 AND u.provider_user_id = $2 FOR UPDATE OF u`,
@@ -682,24 +678,33 @@ func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (use
 			if err != nil {
 				return err
 			}
-			user, isNew = u.publicUser(row), false
+			result, leftOut = &SignIn{User: u.publicUser(row)}, nil
 			return nil
 		}
 
-		id := util.UUID()
-		chips := u.welcomeChips
+		// What this account is welcomed with, read now: no cache.
+		plan, err := planWelcome(ctx, tx, timestamp, true)
+		if err != nil {
+			return err
+		}
 
+		id := util.UUID()
 		if _, err := tx.Exec(ctx, `INSERT INTO users (id, provider, provider_user_id, display_name, email, avatar_url,
-                          chips, is_bot, created_at, updated_at, last_login_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $9)`,
-			id, p.Provider, p.ProviderUserID, p.DisplayName, p.Email, p.AvatarURL, chips, p.IsBot, timestamp); err != nil {
+                          chips, diamond, hammer, missile, is_bot, created_at, updated_at, last_login_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $12)`,
+			id, p.Provider, p.ProviderUserID, p.DisplayName, p.Email, p.AvatarURL,
+			plan.chips, plan.diamonds, plan.hammers, plan.missiles, p.IsBot, timestamp); err != nil {
 			return err
 		}
 
 		// The insert and the welcome-grant ledger row go in one transaction
 		// so a crash can never leave an account whose balance is not backed
-		// by the ledger. Written even when welcomeChips is 0.
-		if err := appendLedger(ctx, tx, id, "", "", chips, chips, game.LedgerReasonWelcomeBonus, timestamp); err != nil {
+		// by the ledger. Written even when the welcome holds no chips.
+		if err := appendLedger(ctx, tx, id, "", "", plan.chips, plan.chips, game.LedgerReasonWelcomeBonus, timestamp); err != nil {
+			return err
+		}
+		grant, err := plan.grant(ctx, tx, id, timestamp)
+		if err != nil {
 			return err
 		}
 		if err := startSession(ctx, tx, id, timestamp); err != nil {
@@ -710,13 +715,13 @@ func (u *Users) upsertOnce(ctx context.Context, p Profile, timestamp int64) (use
 		if err != nil {
 			return err
 		}
-		user, isNew = u.publicUser(row), true
+		result, leftOut = &SignIn{User: u.publicUser(row), IsNew: true, Welcome: grant}, plan.leftOut
 		return nil
 	})
 	if err != nil {
-		return nil, false, err
+		return nil, nil, err
 	}
-	return user, isNew, nil
+	return result, leftOut, nil
 }
 
 // startSession counts one more sign-in for the account (user_sessions; owner,
@@ -764,194 +769,6 @@ func (u *Users) ApplyChipDelta(ctx context.Context, userID string, delta int64, 
 		return 0, err
 	}
 	return balance, nil
-}
-
-// collectMilestone records one collection of a reward milestone in
-// user_milestones: the player's row for it is inserted the first time and
-// updated in place every time after (owner, 14 Sep 2026) — chip_ledger is the
-// record of each payment, so a row per claim would only repeat it. claimedUpTo
-// is the hands-played multiple for HANDS_PLAYED and nextClaimAt the recharge
-// for TIMED_BONUS and DAILY_BONUS; the other is 0. Run under the wallet lock, which serialises
-// one player's claims, so two first claims cannot race to insert.
-func collectMilestone(ctx context.Context, tx pgx.Tx, userID, milestone string, claimedUpTo int, nextClaimAt, timestamp int64) error {
-	_, err := tx.Exec(ctx,
-		`INSERT INTO user_milestones (user_id, milestone, claimed_up_to, next_claim_at, times_claimed, last_claimed_at, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, 1, $5, $5, $5)
-		 ON CONFLICT (user_id, milestone) DO UPDATE
-		    SET claimed_up_to   = EXCLUDED.claimed_up_to,
-		        next_claim_at   = EXCLUDED.next_claim_at,
-		        times_claimed   = user_milestones.times_claimed + 1,
-		        last_claimed_at = EXCLUDED.last_claimed_at,
-		        updated_at      = EXCLUDED.updated_at`,
-		userID, milestone, claimedUpTo, nextClaimAt, timestamp)
-	return err
-}
-
-// ClaimMilestoneReward (requirement 17): lock the row; milestone =
-// floor(hands_played/25)*25, hands_played being the sum of the player's
-// player_stats rows over every bucket; if milestone <= the HANDS_PLAYED
-// claimed_up_to →
-// {Claimed false, Reason "not_available", User}. Else chips +=
-// MilestoneReward, claimed_up_to = milestone (collectMilestone), ledger row
-// (action_id "<userId>:milestone:<milestone>", reason milestone_reward) →
-// {Claimed true, Amount, Milestone, User}. Unknown user → error.
-//
-// claimed_up_to jumps straight to the current milestone: claiming at 75 hands
-// after last claiming at 25 pays once — the skipped 50 is forfeited.
-func (u *Users) ClaimMilestoneReward(ctx context.Context, userID string) (*RewardResult, error) {
-	var result *RewardResult
-	err := u.db.WithTx(ctx, func(tx pgx.Tx) error {
-		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+u.userFrom()+` WHERE u.id = $1 FOR UPDATE OF u`, userID))
-		if err != nil {
-			return err
-		}
-		if row == nil {
-			return fmt.Errorf("unknown user %s", userID)
-		}
-
-		// hands_played summed over every bucket, as flushed so far: a hand
-		// finished in the last STATS_FLUSH_MS may not be in it yet (the
-		// statistics reach PostgreSQL by the flusher's group commit). The
-		// claim then waits for the next flush — accepted.
-		milestone := MilestoneFor(row.handsPlayed)
-		if milestone <= row.milestoneClaimed {
-			result = &RewardResult{Claimed: false, Reason: RewardNotAvailable, User: u.publicUser(row)}
-			return nil
-		}
-
-		timestamp := now(u.clock)
-		balance := row.chips + MilestoneReward
-
-		if _, err := tx.Exec(ctx, `UPDATE users SET chips = $1, updated_at = $2 WHERE id = $3`,
-			balance, timestamp, userID); err != nil {
-			return err
-		}
-		if err := collectMilestone(ctx, tx, userID, MilestoneHandsPlayed, milestone, 0, timestamp); err != nil {
-			return err
-		}
-		// The deterministic action id makes the same milestone unrepeatable at
-		// the database even if the claimed_up_to check were bypassed.
-		actionID := fmt.Sprintf("%s:milestone:%d", userID, milestone)
-		if err := appendLedger(ctx, tx, userID, "", actionID, MilestoneReward, balance, game.LedgerReasonMilestoneReward, timestamp); err != nil {
-			return err
-		}
-
-		fresh, err := selectUser(ctx, tx, u.userFrom(), userID)
-		if err != nil {
-			return err
-		}
-		result = &RewardResult{Claimed: true, Amount: MilestoneReward, Milestone: milestone, User: u.publicUser(fresh)}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-// ClaimTimedBonus (requirement 18): lock the row; if now < the TIMED_BONUS
-// next_claim_at → {Claimed false, Reason "not_ready", ReadyAt next_claim_at,
-// User}. Else chips += TimedBonusReward, next_claim_at = now + 4h
-// (collectMilestone), ledger row (action_id NULL, reason timed_bonus) →
-// {Claimed true, Amount, ReadyAt, User}.
-//
-// The next unlock time lives in the database, so the countdown survives a
-// restart and cannot be reset by reinstalling the client.
-func (u *Users) ClaimTimedBonus(ctx context.Context, userID string) (*RewardResult, error) {
-	var result *RewardResult
-	err := u.db.WithTx(ctx, func(tx pgx.Tx) error {
-		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+u.userFrom()+` WHERE u.id = $1 FOR UPDATE OF u`, userID))
-		if err != nil {
-			return err
-		}
-		if row == nil {
-			return fmt.Errorf("unknown user %s", userID)
-		}
-
-		timestamp := now(u.clock)
-		if timestamp < row.nextBonusAt {
-			result = &RewardResult{Claimed: false, Reason: RewardNotReady, ReadyAt: row.nextBonusAt, User: u.publicUser(row)}
-			return nil
-		}
-
-		balance := row.chips + TimedBonusReward
-		readyAt := timestamp + TimedBonusInterval.Milliseconds()
-
-		if _, err := tx.Exec(ctx, `UPDATE users SET chips = $1, updated_at = $2 WHERE id = $3`,
-			balance, timestamp, userID); err != nil {
-			return err
-		}
-		if err := collectMilestone(ctx, tx, userID, MilestoneTimedBonus, 0, readyAt, timestamp); err != nil {
-			return err
-		}
-		// No action_id: the next_claim_at check under the row lock is the guard.
-		if err := appendLedger(ctx, tx, userID, "", "", TimedBonusReward, balance, game.LedgerReasonTimedBonus, timestamp); err != nil {
-			return err
-		}
-
-		fresh, err := selectUser(ctx, tx, u.userFrom(), userID)
-		if err != nil {
-			return err
-		}
-		result = &RewardResult{Claimed: true, Amount: TimedBonusReward, ReadyAt: readyAt, User: u.publicUser(fresh)}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-// ClaimDailyBonus is the daily bonus beside the timed one (owner, 14 Sep 2026;
-// Go only): lock the row; if now < the DAILY_BONUS next_claim_at → {Claimed
-// false, Reason "not_ready", ReadyAt next_claim_at, User}. Else chips +=
-// DailyBonusReward and hammer += DailyBonusHammers, next_claim_at = now + 24h
-// (collectMilestone), ledger row for the chips (action_id NULL, reason
-// daily_bonus; hammers are never ledgered) → {Claimed true, Amount, ReadyAt,
-// User}. Amount is the chips; the hammer shows in User.
-func (u *Users) ClaimDailyBonus(ctx context.Context, userID string) (*RewardResult, error) {
-	var result *RewardResult
-	err := u.db.WithTx(ctx, func(tx pgx.Tx) error {
-		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+u.userFrom()+` WHERE u.id = $1 FOR UPDATE OF u`, userID))
-		if err != nil {
-			return err
-		}
-		if row == nil {
-			return fmt.Errorf("unknown user %s", userID)
-		}
-
-		timestamp := now(u.clock)
-		if timestamp < row.nextDailyAt {
-			result = &RewardResult{Claimed: false, Reason: RewardNotReady, ReadyAt: row.nextDailyAt, User: u.publicUser(row)}
-			return nil
-		}
-
-		balance := row.chips + DailyBonusReward
-		readyAt := timestamp + DailyBonusInterval.Milliseconds()
-
-		if _, err := tx.Exec(ctx, `UPDATE users SET chips = $1, hammer = hammer + $2, updated_at = $3 WHERE id = $4`,
-			balance, DailyBonusHammers, timestamp, userID); err != nil {
-			return err
-		}
-		if err := collectMilestone(ctx, tx, userID, MilestoneDailyBonus, 0, readyAt, timestamp); err != nil {
-			return err
-		}
-		// No action_id: the next_claim_at check under the row lock is the guard.
-		if err := appendLedger(ctx, tx, userID, "", "", DailyBonusReward, balance, game.LedgerReasonDailyBonus, timestamp); err != nil {
-			return err
-		}
-
-		fresh, err := selectUser(ctx, tx, u.userFrom(), userID)
-		if err != nil {
-			return err
-		}
-		result = &RewardResult{Claimed: true, Amount: DailyBonusReward, ReadyAt: readyAt, User: u.publicUser(fresh)}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
 }
 
 // SetDisplayName updates display_name (already normalised) and returns the
@@ -1078,9 +895,4 @@ func (u *Users) DeleteAccount(ctx context.Context, userID string) error {
 		// CANCELLED. The same cascade reason as above: it would never fire.
 		return forgetFriends(ctx, tx, userID, timestamp)
 	})
-}
-
-// MilestoneFor is floor(handsPlayed / MilestoneEvery) * MilestoneEvery.
-func MilestoneFor(handsPlayed int) int {
-	return handsPlayed / MilestoneEvery * MilestoneEvery
 }

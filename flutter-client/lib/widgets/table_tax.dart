@@ -554,7 +554,7 @@ class WinningTaxTag extends StatelessWidget {
     // The badge's art, where it has some, is the pill's emblem: at its left,
     // from its top edge to its bottom, with the words beside it. A Row, never
     // a WidgetSpan (a placeholder opening a paragraph is set on a line with
-    // no text metrics yet — CLAUDE.md, the bonus chips); scaled with the
+    // no text metrics yet, which stood the line 2dp taller); scaled with the
     // words as one where the slot is narrow, so it shrinks with them rather
     // than crowding them.
     final art = badgeArt;

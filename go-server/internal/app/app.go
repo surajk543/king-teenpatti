@@ -84,6 +84,10 @@ type App struct {
 	// GET /api/app-config, every signed-in REST route and the socket
 	// handshake ask it.
 	appGate *appversion.Gate
+	// welcomeChips is what session:ready's welcomeChips and the boot's
+	// listening line say: the chips the next new account would get, from the
+	// welcome_rewards rows behind a short cache (welcome.go).
+	welcomeChips *db.WelcomeChipsCache
 	// reconcileStop/Done drive the live-store reconciler (LIVE_RECONCILE_MS);
 	// Shutdown stops it.
 	reconcileStop chan struct{}
@@ -166,7 +170,10 @@ const (
 //     rows applies at the next start, to tables opened after it (a table
 //     restored from the live store keeps the rules in its snapshot, and one
 //     whose rules the rows no longer give is drained);
-//  4. users := db.NewUsers(DB, WelcomeChips); ledger := db.NewLedger(DB, m);
+//  4. users := db.NewUsers(DB, WelcomeChips) — and the welcome: the
+//     welcome_rewards chips row written from WELCOME_CHIPS when there is none
+//     (ensureWelcome), what a new account is given being the rows'; ledger :=
+//     db.NewLedger(DB, m);
 //     tokens := auth.NewTokens(JWT); verifier := auth.NewVerifier(cfg);
 //     sio.NewServer{PingInterval 20s, PingTimeout 25s, MaxPayload 1e5,
 //     CheckOrigin from cfg.CORSOrigin / AllowAnyOrigin};
@@ -266,6 +273,13 @@ func New(opts Options) (*App, error) {
 
 	// 4. stores, tokens, providers.
 	users := db.NewUsers(opts.DB, cfg.Game.WelcomeChips, clock.Now)
+	users.SetLogger(logger)
+	// What a new account is given comes from the welcome_rewards rows (owner,
+	// 30 Sep 2026; the seed's chips row 5 Lakh). In production the rows
+	// decide; outside it WELCOME_CHIPS sets the chips row at boot, so a test
+	// or parity schema starts accounts where its env says.
+	users.SetWelcomeChipsWins(cfg.Env != config.EnvProduction)
+	a.welcomeChips = ensureWelcome(cfg, opts.DB, users, clock.Now, logger)
 	pictures := db.NewPictures(opts.DB, users, clock.Now)
 	tablePictures := db.NewTablePictures(opts.DB, users, clock.Now)
 	emojis := db.NewEmojis(opts.DB, users, clock.Now)
@@ -306,6 +320,9 @@ func New(opts Options) (*App, error) {
 		// The handshake refuses an app build too old to play, or on a
 		// platform in maintenance (owner, 28 Sep 2026).
 		AppGate: a.appGate,
+		// session:ready's welcomeChips: what the next new account would
+		// get, from the welcome_rewards rows (owner, 30 Sep 2026).
+		WelcomeChips: a.welcomeChips,
 	})
 	// Player levels and XP (owner, 26 Sep 2026): a hand-end settlement awards
 	// the hand's XP in its own transaction; once it has committed, the
@@ -514,7 +531,7 @@ func New(opts Options) (*App, error) {
 		// ladder the table's tax pill shows when tapped.
 		Levels: db.NewXP(opts.DB, clock.Now),
 		// The Lucky Draw (owner, 24 Sep 2026): a spin runs under the seat lock
-		// below, as a reward does — its prize may be chips.
+		// below, as a chip-priced picture does — its prize may be chips.
 		LuckyDraws: luckyDraws,
 		// Friends V1 (owner, 26 Sep 2026): the social graph in PostgreSQL,
 		// and each friend's presence read from the live store — kt:online
@@ -523,8 +540,9 @@ func New(opts Options) (*App, error) {
 		Presence: a.live,
 		Logger:   logger,
 
-		// Rewards and chip-priced pictures run under the player's seat lock,
-		// the lock every lobby seat reads the wallet under (LoadPlayer above).
+		// The Lucky Draw and chip-priced pictures run under the player's seat
+		// lock, the lock every lobby seat reads the wallet under (LoadPlayer
+		// above).
 		WhileUnseated: a.rooms.WhileUnseated,
 		// A deleted account's sockets are ended at once (24 Sep 2026), and its
 		// statistics still waiting in the live store are dropped (Player stats
@@ -731,10 +749,11 @@ func (a *App) stopReconciler() {
 // startLedgerPurge runs db.PurgeLedger every LEDGER_PURGE_INTERVAL_MS,
 // removing chip_ledger checkpoint rows (hand_win/hand_loss/hand_packed/
 // hand_left only — see db.purgeableReasons) once they are older than
-// LEDGER_PURGE_AFTER_MS. purchase/milestone_reward/timed_bonus/welcome_bonus
-// rows are never touched by this job; their UNIQUE action_id is a standing
-// double-credit guard, not a short-lived retry guard, and PurgeLedger's WHERE
-// clause is hardcoded to exclude them regardless of what this loop does.
+// LEDGER_PURGE_AFTER_MS. purchase/welcome_bonus rows are never touched by
+// this job; their UNIQUE action_id is a standing double-credit guard, not a
+// short-lived retry guard, and PurgeLedger's WHERE clause is hardcoded to
+// exclude them regardless of what this loop does — as it does the retired
+// rewards' milestone_reward/timed_bonus/daily_bonus rows, which are history.
 //
 // A non-positive interval disables the job entirely. It is ON by default
 // (every 5 min, deleting checkpoint rows older than 10 min), so a deployment
@@ -810,7 +829,9 @@ func (a *App) FlushStats(ctx context.Context) (stats.PassReport, error) {
 }
 
 // Start listens on cfg.Host:cfg.Port and serves until Shutdown. It logs
-// `king-teenpatti server listening {url, env, welcomeChips, boot}` and
+// `king-teenpatti server listening {url, env, welcomeChips, boot}` —
+// welcomeChips the chips a new account gets now, from the welcome_rewards rows
+// — and
 // returns http.ErrServerClosed after a clean Shutdown. PORT=0 is allowed —
 // Addr() reports the port the kernel picked.
 func (a *App) Start(ctx context.Context) error {
@@ -844,7 +865,7 @@ func (a *App) Start(ctx context.Context) error {
 	a.log.Info("king-teenpatti server listening",
 		"url", "http://"+net.JoinHostPort(a.cfg.Host, port),
 		"env", a.cfg.Env,
-		"welcomeChips", a.cfg.Game.WelcomeChips,
+		"welcomeChips", a.welcomeChips.Current(ctx),
 		"boot", a.cfg.Game.BootAmount,
 	)
 	return a.http.Serve(ln)

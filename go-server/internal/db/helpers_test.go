@@ -66,7 +66,7 @@ func randomSuffix(t *testing.T) string {
 	return hex.EncodeToString(raw[:])
 }
 
-// user creates a guest account with a fresh provider identity (the
+// user creates a guest account with a fresh provider identity (Node's
 // statsAndRewards makeUser helper).
 func (f *fixture) user(name string) *db.User {
 	f.t.Helper()

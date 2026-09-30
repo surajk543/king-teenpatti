@@ -108,7 +108,9 @@
 -- even where their asset_url is already there. A database built by the scripts
 -- of go-server/v1.1.0 — production's, deployed fresh on 14 Sep 2026 — has
 -- user_milestones_milestone_check without TIMED_BONUS, so every four-hour bonus
--- claim there fails that CHECK and rolls back, paying nothing, until:
+-- claim there fails that CHECK and rolls back, paying nothing (moot for every
+-- build since the rewards were removed on 30 Sep 2026; it matters again only
+-- to a rollback to go-server/v1.12.0 or older), until:
 --
 --   ALTER TABLE user_milestones DROP CONSTRAINT user_milestones_milestone_check;
 --   ALTER TABLE user_milestones ADD CONSTRAINT user_milestones_milestone_check
@@ -267,29 +269,37 @@ CREATE TABLE IF NOT EXISTS users (
   -- The wallet. Every change goes through a transaction that locks this row,
   -- and the CHECK is the last line of defence against an overdraft.
   chips             BIGINT NOT NULL DEFAULT 0 CHECK (chips >= 0),
-  -- Premium soft currency. Starts at 9 (owner, 14 Sep 2026; it was 2, and 1
-  -- before that), which with the 20 hammers and 1 missile below and the
-  -- WELCOME_CHIPS grant is the whole welcome. NOT chip_ledger's business: the
-  -- ledger backs the chips invariant (SUM(delta) == chips), and diamonds are
-  -- not chips.
+  -- Premium soft currency. NOT chip_ledger's business: the ledger backs the
+  -- chips invariant (SUM(delta) == chips), and diamonds are not chips.
+  --
+  -- What a NEW account starts with — chips, diamonds, hammers, missiles and
+  -- anything else — is the welcome_rewards rows' (owner, 30 Sep 2026; WELCOME
+  -- REWARDS, at the end), and the account is inserted with all four wallets
+  -- set explicitly from them (0 where no row gives any). The DEFAULTs below
+  -- (9 diamonds, 20 hammers, 1 missile: the welcome from 14 Sep 2026 until the
+  -- rows took it over, which the seed's rows repeat) no longer decide anything;
+  -- they stay because changing a DEFAULT is not something a boot does.
   diamond           INTEGER NOT NULL DEFAULT 9 CHECK (diamond >= 0),
   -- The currency a Force Sideshow is paid in, one hammer each (owner, 13 Sep
   -- 2026), and since 14 Sep 2026 what the animated pictures are priced in.
-  -- Every account starts with 20, and more are sold on Google Play in packs
+  -- A new account's first are its welcome (welcome_rewards: 20 in the seed),
+  -- and more are sold on Google Play in packs
   -- (internal/purchase/catalogue.go). Like diamonds, never chip_ledger's
   -- business: hammer_purchases and hammer_spends below are its receipts, and a
   -- picture's is its user_profile_pictures row.
   hammer            INTEGER NOT NULL DEFAULT 20 CHECK (hammer >= 0),
-  -- What a missile costs, one each (owner, 14 Sep 2026): every account starts
-  -- with 1, and more are traded for diamonds in the missile store's packs (POST
+  -- What a missile costs, one each (owner, 14 Sep 2026): a new account's first
+  -- is its welcome (welcome_rewards: 1 in the seed), and more are traded for
+  -- diamonds in the missile store's packs (POST
   -- /api/store/missiles). Like diamonds, never chip_ledger's business:
   -- missile_purchases and missile_spends below are its receipts.
   missile           INTEGER NOT NULL DEFAULT 1 CHECK (missile >= 0),
   -- No gameplay counters: hands played, won, lost and left mid-hand, total
   -- winnings, the biggest pot and the rest live in player_stats (below),
   -- per bucket (Player stats v2, owner 27 Sep 2026).
-  -- The reward milestones a player has collected live in user_milestones
-  -- (below), not here (owner, 14 Sep 2026).
+  -- The reward milestones a player had collected lived in user_milestones
+  -- (below), not here (owner, 14 Sep 2026); retired with the rewards, 30 Sep
+  -- 2026.
   created_at        BIGINT NOT NULL,
   updated_at        BIGINT NOT NULL,
   last_login_at     BIGINT NOT NULL,
@@ -637,6 +647,12 @@ CREATE TABLE IF NOT EXISTS user_emojis (
   PRIMARY KEY (user_id, emoji_id)
 );
 
+-- RETIRED 30 Sep 2026 (owner: "Remove 24-hour daily reward, 4-hour bonus, and
+-- milestone reward"). The three lobby rewards were removed from the server,
+-- and nothing reads or writes this table any more. It is kept, rows and all,
+-- so that a rollback to go-server/v1.12.0 on a database this build made still
+-- finds it; never drop it on a hunch.
+--
 -- The reward milestones each player has collected (owner, 14 Sep 2026): one
 -- row per player per milestone, inserted the first time it is collected and
 -- UPDATED in place every time after — never a row per claim, because
@@ -2073,6 +2089,83 @@ BEGIN
     CREATE TRIGGER app_versions_touch
       BEFORE UPDATE ON app_versions
       FOR EACH ROW EXECUTE FUNCTION app_versions_touch();
+  END IF;
+END;
+$$;
+
+-- ------------------------------------------------------------ welcome rewards
+
+-- What a NEW account is given (owner, 30 Sep 2026: "new account will get how
+-- much coins, hammers, diamonds, profile_picture, emoji — this data should
+-- come from database, user might get some or all rewards"; db.Welcome). One row
+-- per reward; a new account gets every ACTIVE row, in sort_order, inside the
+-- transaction that creates it, and an existing account's login gets nothing:
+--
+--   code           the row's name, lower case (the seed's conflict key):
+--                  'chips', 'diamonds', 'hammers', 'missiles', or one of an
+--                  owner's own ('welcome_picture' …);
+--   reward_type    CHIPS, DIAMOND, HAMMER or MISSILE — reward_value of that
+--                  wallet, rows of one kind adding up — or PROFILE_PICTURE,
+--                  TABLE_PICTURE or EMOJI — reward_ref_id the catalogue row's
+--                  id as text, which must be PREMIUM and active (a FREE one is
+--                  everybody's already), owned from the account's first moment
+--                  for the term the shop rents it for, and never worn or laid:
+--                  that stays the player's choice.
+--
+-- reward_type is an OPEN set the server checks, never a CHECK or an ENUM, as
+-- lucky_draw_slots.reward_type is: a later kind of welcome is a row and a
+-- release, never a change to a constraint every database already carries. A
+-- row the server cannot grant — a type it does not know, an amount missing or
+-- 0, a picture or emoji that is missing, retired or free, a wallet it would
+-- overflow — is left out with a logged reason (`welcome reward left out`) and
+-- never refuses the login.
+--
+-- CONFIGURATION, read on every new account (no cache, no restart): an owner's
+-- UPDATE applies to the very next account. Nothing references it and it
+-- references nothing — reward_ref_id is text, as the Lucky Draw's is, so a
+-- picture deleted from its catalogue leaves the row to be left out rather than
+-- the DELETE refused.
+--
+-- The chips row is NOT in V1.0.1__seed.sql: the server writes it at boot from
+-- WELCOME_CHIPS when there is no row coded 'chips' (db.Welcome.EnsureChipsRow;
+-- app.New, never `gameplay -migrate`), so a deployment's first boot carries its
+-- .env's welcome into the table, and from then on the row decides. The seed
+-- holds the diamonds, hammers and missile the users column DEFAULTs gave until
+-- 30 Sep 2026 (9, 20 and 1), so the deploy changed nothing a player sees. A
+-- row is switched off with is_active = FALSE, never deleted: a seeded row —
+-- and the chips row — comes back at the next boot. updated_at follows every
+-- UPDATE by itself (the trigger below).
+CREATE TABLE IF NOT EXISTS welcome_rewards (
+  id            BIGSERIAL PRIMARY KEY,
+  code          TEXT    NOT NULL UNIQUE CHECK (code ~ '^[a-z0-9_]{1,64}$'),
+  reward_type   TEXT    NOT NULL,
+  reward_value  BIGINT  CHECK (reward_value IS NULL OR reward_value >= 0),
+  reward_ref_id TEXT,
+  is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order    INTEGER NOT NULL DEFAULT 0,
+  created_at    BIGINT  NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at    BIGINT  NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
+);
+
+-- Replaced on every boot (a function takes no table lock); the trigger is
+-- created only when missing, so a boot never queues behind a reader.
+CREATE OR REPLACE FUNCTION welcome_rewards_touch() RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at := (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgname = 'welcome_rewards_touch'
+       AND tgrelid = 'welcome_rewards'::regclass
+  ) THEN
+    CREATE TRIGGER welcome_rewards_touch
+      BEFORE UPDATE ON welcome_rewards
+      FOR EACH ROW EXECUTE FUNCTION welcome_rewards_touch();
   END IF;
 END;
 $$;

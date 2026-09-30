@@ -108,7 +108,6 @@ type Config struct {
 		MaxAttempts int           // 0 = forever
 	}
 	Bankroll struct {
-		CollectBonus bool // default true: the 4-hour bonus, as any player
 		DevReplenish bool // default false; refused unless Mode is "simulation" (no chip minting against a real server)
 	}
 	Debug struct {
@@ -176,7 +175,6 @@ func Default() Config {
 	c.Reconnect.MaxDelay = 30 * time.Second
 	c.Reconnect.MaxAttempts = 0
 
-	c.Bankroll.CollectBonus = true
 	c.Bankroll.DevReplenish = false
 
 	c.Debug.Addr = ""

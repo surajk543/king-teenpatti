@@ -48,18 +48,6 @@ func (f *fixture) settle(entries []game.SettleEntry, pot int64) {
 	f.counted(game.StatsTeenPatti, filled...)
 }
 
-// setHandsPlayed reaches past the API to put a career's worth of hands on the
-// counter, so the milestone tests do not have to settle 25 hands apiece. The
-// counter is hands_played summed over the player's player_stats rows (Player
-// stats v2): this sets their Teen Patti row's.
-func (f *fixture) setHandsPlayed(userID string, n int) {
-	f.t.Helper()
-	if err := f.d.Exec(f.ctx, `INSERT INTO player_stats (user_id, category, hands_played) VALUES ($2, 'TEEN_PATTI', $1)
-	     ON CONFLICT (user_id, category) DO UPDATE SET hands_played = EXCLUDED.hands_played`, n, userID); err != nil {
-		f.t.Fatal(err)
-	}
-}
-
 // -------------------------------------------------------------- statistics
 
 func TestAHandOnlyCountsAsPlayedOnceThePlayerBetsBeyondTheBoot(t *testing.T) {
@@ -116,352 +104,6 @@ func TestTotalWinningsAccumulateThePotsTaken(t *testing.T) {
 	if row.BiggestPot != 2500 || row.HandsWon != 2 {
 		t.Fatalf("row = %+v", row)
 	}
-}
-
-// ------------------------------------------------- milestone reward (req 17)
-
-func TestTheMilestoneRewardUnlocksEvery25PlayedHands(t *testing.T) {
-	f := newFixture(t)
-	player := f.user("Grinder")
-
-	fresh := f.find(player.ID)
-	if fresh.Rewards.MilestoneAvailable || fresh.Rewards.HandsToNextMilestone != 25 {
-		t.Fatalf("fresh rewards = %+v", fresh.Rewards)
-	}
-	f.setHandsPlayed(player.ID, 24)
-	nearly := f.find(player.ID)
-	if nearly.Rewards.MilestoneAvailable || nearly.Rewards.HandsToNextMilestone != 1 {
-		t.Fatalf("at 24: %+v", nearly.Rewards)
-	}
-	f.setHandsPlayed(player.ID, 25)
-	ready := f.find(player.ID)
-	if !ready.Rewards.MilestoneAvailable || ready.Rewards.MilestoneAt != 25 || ready.Rewards.MilestoneReward != 25000 {
-		t.Fatalf("at 25: %+v", ready.Rewards)
-	}
-	// The documented quirk: 25 (not 0) to the next milestone at an exact multiple.
-	if ready.Rewards.HandsToNextMilestone != 25 || ready.Rewards.MilestoneEvery != 25 {
-		t.Fatalf("at 25: %+v", ready.Rewards)
-	}
-}
-
-func TestCollectingTheMilestoneRewardGrants25000ChipsExactlyOnce(t *testing.T) {
-	f := newFixture(t)
-	player := f.user("Collector")
-	f.setHandsPlayed(player.ID, 50)
-	before := f.find(player.ID).Chips
-
-	first, err := f.users.ClaimMilestoneReward(f.ctx, player.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !first.Claimed || first.Amount != 25000 || first.Milestone != 50 || first.User.Chips != before+25000 {
-		t.Fatalf("first = %+v", first)
-	}
-	if first.User.Rewards.MilestoneAvailable {
-		t.Fatal("the same milestone is now spent")
-	}
-
-	second, err := f.users.ClaimMilestoneReward(f.ctx, player.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second.Claimed || second.Reason != db.RewardNotAvailable || second.User == nil {
-		t.Fatalf("second = %+v", second)
-	}
-	if f.find(player.ID).Chips != before+25000 {
-		t.Fatal("a second claim moved chips")
-	}
-	// The milestone action id makes the same grant unrepeatable at the DB too.
-	if n := f.count(`SELECT COUNT(*) FROM chip_ledger WHERE action_id = $1`, fmt.Sprintf("%s:milestone:50", player.ID)); n != 1 {
-		t.Fatalf("milestone rows = %d", n)
-	}
-	f.reconcile()
-}
-
-func TestReachingTheNextMilestoneUnlocksTheRewardAgain(t *testing.T) {
-	f := newFixture(t)
-	player := f.user("Repeater")
-	f.setHandsPlayed(player.ID, 25)
-	if r, _ := f.users.ClaimMilestoneReward(f.ctx, player.ID); !r.Claimed {
-		t.Fatal("claim at 25")
-	}
-	f.setHandsPlayed(player.ID, 49)
-	if f.find(player.ID).Rewards.MilestoneAvailable {
-		t.Fatal("still on the 25 milestone")
-	}
-	f.setHandsPlayed(player.ID, 50)
-	if !f.find(player.ID).Rewards.MilestoneAvailable {
-		t.Fatal("50 is a new milestone")
-	}
-	if r, _ := f.users.ClaimMilestoneReward(f.ctx, player.ID); !r.Claimed {
-		t.Fatal("claim at 50")
-	}
-	// One row for the milestone, updated in place — not a row per claim.
-	if n := f.count(`SELECT COUNT(*) FROM user_milestones WHERE user_id = $1`, player.ID); n != 1 {
-		t.Fatalf("user_milestones rows = %d, want the one HANDS_PLAYED row", n)
-	}
-	if upTo := f.scalar(`SELECT claimed_up_to FROM user_milestones WHERE user_id = $1 AND milestone = 'HANDS_PLAYED'`, player.ID); upTo != 50 {
-		t.Fatalf("claimed_up_to = %d, want 50", upTo)
-	}
-	if times := f.scalar(`SELECT times_claimed FROM user_milestones WHERE user_id = $1 AND milestone = 'HANDS_PLAYED'`, player.ID); times != 2 {
-		t.Fatalf("times_claimed = %d, want 2", times)
-	}
-}
-
-func TestSkippedMilestonesAreForfeited(t *testing.T) {
-	f := newFixture(t)
-	player := f.user("Skipper")
-	f.setHandsPlayed(player.ID, 25)
-	if r, _ := f.users.ClaimMilestoneReward(f.ctx, player.ID); !r.Claimed || r.Milestone != 25 {
-		t.Fatalf("first = %+v", r)
-	}
-	f.setHandsPlayed(player.ID, 77)
-	r, err := f.users.ClaimMilestoneReward(f.ctx, player.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !r.Claimed || r.Milestone != 75 || r.Amount != 25000 {
-		t.Fatalf("second = %+v", r)
-	}
-	if again, _ := f.users.ClaimMilestoneReward(f.ctx, player.ID); again.Claimed {
-		t.Fatal("claimed_up_to must jump to 75; the skipped 50 pays nothing")
-	}
-	if f.find(player.ID).Chips != welcome+50000 {
-		t.Fatalf("chips = %d", f.find(player.ID).Chips)
-	}
-}
-
-func TestTheMilestoneRewardIsWrittenToTheChipLedger(t *testing.T) {
-	f := newFixture(t)
-	player := f.user("Audited")
-	f.setHandsPlayed(player.ID, 25)
-	if _, err := f.users.ClaimMilestoneReward(f.ctx, player.ID); err != nil {
-		t.Fatal(err)
-	}
-	var found []ledgerRow
-	for _, r := range f.ledgerRows(player.ID) {
-		if r.Reason == "milestone_reward" {
-			found = append(found, r)
-		}
-	}
-	if len(found) != 1 || found[0].Delta != 25000 || found[0].Balance != welcome+25000 || found[0].HandID != nil ||
-		found[0].ActionID == nil || *found[0].ActionID != player.ID+":milestone:25" {
-		t.Fatalf("milestone rows = %+v", found)
-	}
-	f.reconcile()
-}
-
-func TestClaimingForAnUnknownUserIsAnError(t *testing.T) {
-	f := newFixture(t)
-	if _, err := f.users.ClaimMilestoneReward(f.ctx, "nobody"); err == nil || err.Error() != "unknown user nobody" {
-		t.Fatalf("milestone: %v", err)
-	}
-	if _, err := f.users.ClaimTimedBonus(f.ctx, "nobody"); err == nil || err.Error() != "unknown user nobody" {
-		t.Fatalf("bonus: %v", err)
-	}
-	if _, err := f.users.ClaimDailyBonus(f.ctx, "nobody"); err == nil || err.Error() != "unknown user nobody" {
-		t.Fatalf("daily: %v", err)
-	}
-}
-
-// ----------------------------------------------------- timed bonus (req 18)
-
-func TestANewAccountCanCollectTheTimedBonusStraightAway(t *testing.T) {
-	f := newFixture(t)
-	player := f.user("Fresh")
-	rewards := f.find(player.ID).Rewards
-	if !rewards.BonusAvailable {
-		t.Fatal("no waiting on a brand new account")
-	}
-	if rewards.BonusReward != 10000 || rewards.BonusIntervalMs != 4*60*60*1000 || rewards.BonusReadyAt != 0 {
-		t.Fatalf("rewards = %+v", rewards)
-	}
-	// Nothing collected, nothing written: a new account has no milestone rows.
-	if n := f.count(`SELECT COUNT(*) FROM user_milestones WHERE user_id = $1`, player.ID); n != 0 {
-		t.Fatalf("user_milestones rows = %d", n)
-	}
-}
-
-func TestCollectingTheBonusGrants10000ChipsAndStartsA4HourCountdown(t *testing.T) {
-	f := newFixture(t)
-	player := f.user("Bonus")
-	before := f.find(player.ID)
-
-	claimedAt := nowMs()
-	result, err := f.users.ClaimTimedBonus(f.ctx, player.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Claimed || result.Amount != 10000 || result.User.Chips != before.Chips+10000 || result.User.Hammer != before.Hammer {
-		t.Fatalf("result = %+v", result)
-	}
-	fourHours := int64(4 * 60 * 60 * 1000)
-	if result.ReadyAt < claimedAt+fourHours-1000 || result.ReadyAt > nowMs()+fourHours+1000 {
-		t.Fatalf("readyAt %d is not ~4h out from %d", result.ReadyAt, claimedAt)
-	}
-	if result.User.Rewards.BonusAvailable {
-		t.Fatal("and is not collectable now")
-	}
-	if result.User.Rewards.BonusReadyAt != result.ReadyAt {
-		t.Fatal("user.rewards.bonusReadyAt must be the persisted unlock time")
-	}
-	f.reconcile()
-}
-
-func TestTheBonusCannotBeCollectedTwiceInsideTheCountdown(t *testing.T) {
-	f := newFixture(t)
-	player := f.user("Greedy")
-	if _, err := f.users.ClaimTimedBonus(f.ctx, player.ID); err != nil {
-		t.Fatal(err)
-	}
-	before := f.find(player.ID)
-	second, err := f.users.ClaimTimedBonus(f.ctx, player.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if second.Claimed || second.Reason != db.RewardNotReady || second.ReadyAt <= nowMs() || second.User == nil {
-		t.Fatalf("second = %+v", second)
-	}
-	if after := f.find(player.ID); after.Chips != before.Chips || after.Hammer != before.Hammer {
-		t.Fatal("no chips or hammers moved")
-	}
-	// The bonus row has no action id (the row lock is its only guard).
-	rows := f.ledgerRows(player.ID)
-	last := rows[len(rows)-1]
-	if last.Reason != "timed_bonus" || last.Delta != 10000 || last.ActionID != nil || last.HandID != nil {
-		t.Fatalf("bonus row = %+v", last)
-	}
-}
-
-func TestTheCountdownLivesInTheDatabase(t *testing.T) {
-	f := newFixture(t)
-	player := f.user("Persistent")
-	result, err := f.users.ClaimTimedBonus(f.ctx, player.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const nextClaimAt = `SELECT next_claim_at FROM user_milestones WHERE user_id = $1 AND milestone = 'TIMED_BONUS'`
-	if stored := f.scalar(nextClaimAt, player.ID); stored != result.ReadyAt {
-		t.Fatalf("next_claim_at %d != readyAt %d — the unlock time is persisted, not held in memory", stored, result.ReadyAt)
-	}
-	// Once the stored time passes, it is collectable again.
-	if err := f.d.Exec(f.ctx, `UPDATE user_milestones SET next_claim_at = $1 WHERE user_id = $2 AND milestone = 'TIMED_BONUS'`, nowMs()-1, player.ID); err != nil {
-		t.Fatal(err)
-	}
-	if !f.find(player.ID).Rewards.BonusAvailable {
-		t.Fatal("bonusAvailable is evaluated against now")
-	}
-	r, _ := f.users.ClaimTimedBonus(f.ctx, player.ID)
-	if !r.Claimed {
-		t.Fatal("claim after the countdown")
-	}
-	// The second claim updated the one TIMED_BONUS row rather than adding one.
-	if n := f.count(`SELECT COUNT(*) FROM user_milestones WHERE user_id = $1`, player.ID); n != 1 {
-		t.Fatalf("user_milestones rows = %d, want the one TIMED_BONUS row", n)
-	}
-	if times := f.scalar(`SELECT times_claimed FROM user_milestones WHERE user_id = $1 AND milestone = 'TIMED_BONUS'`, player.ID); times != 2 {
-		t.Fatalf("times_claimed = %d, want 2", times)
-	}
-	if stored := f.scalar(nextClaimAt, player.ID); stored != r.ReadyAt {
-		t.Fatalf("next_claim_at %d != the second readyAt %d", stored, r.ReadyAt)
-	}
-}
-
-// A fixed clock proves every row of a claim shares one timestamp and that
-// readyAt = now + 4h exactly.
-func TestRewardsUseOneTimestampPerTransaction(t *testing.T) {
-	f := newFixture(t)
-	fixed := time.UnixMilli(1_800_000_000_000)
-	users := db.NewUsers(f.d, welcome, func() time.Time { return fixed })
-	player := f.user("Clocked")
-
-	r, err := users.ClaimTimedBonus(f.ctx, player.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.ReadyAt != fixed.UnixMilli()+db.TimedBonusInterval.Milliseconds() {
-		t.Fatalf("readyAt = %d", r.ReadyAt)
-	}
-	rows := f.ledgerRows(player.ID)
-	if rows[len(rows)-1].Created != fixed.UnixMilli() {
-		t.Fatalf("ledger created_at = %d", rows[len(rows)-1].Created)
-	}
-	if f.scalar(`SELECT updated_at FROM users WHERE id = $1`, player.ID) != fixed.UnixMilli() {
-		t.Fatal("users.updated_at differs from the ledger row")
-	}
-	if f.scalar(`SELECT last_claimed_at FROM user_milestones WHERE user_id = $1 AND milestone = 'TIMED_BONUS'`, player.ID) != fixed.UnixMilli() {
-		t.Fatal("user_milestones.last_claimed_at differs from the ledger row")
-	}
-	// With the clock frozen before readyAt the bonus reads as unavailable.
-	if r.User.Rewards.BonusAvailable {
-		t.Fatal("bonusAvailable must be false right after claiming")
-	}
-}
-
-// ------------------------------------------ daily bonus (owner, 14 Sep 2026)
-
-func TestTheDailyBonusPaysALakhChipsAndAHammerEvery24HoursBesideTheTimedBonus(t *testing.T) {
-	f := newFixture(t)
-	player := f.user("Daily")
-	fresh := f.find(player.ID)
-	if r := fresh.Rewards; !r.DailyAvailable || r.DailyReward != 100000 || r.DailyHammers != 1 || r.DailyIntervalMs != 24*60*60*1000 || r.DailyReadyAt != 0 {
-		t.Fatalf("fresh rewards = %+v", r)
-	}
-
-	claimedAt := nowMs()
-	daily, err := f.users.ClaimDailyBonus(f.ctx, player.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !daily.Claimed || daily.Amount != 100000 || daily.User.Chips != fresh.Chips+100000 || daily.User.Hammer != fresh.Hammer+1 {
-		t.Fatalf("daily = %+v", daily)
-	}
-	day := int64(24 * 60 * 60 * 1000)
-	if daily.ReadyAt < claimedAt+day-1000 || daily.ReadyAt > nowMs()+day+1000 ||
-		daily.User.Rewards.DailyReadyAt != daily.ReadyAt || daily.User.Rewards.DailyAvailable {
-		t.Fatalf("daily countdown = %+v", daily.User.Rewards)
-	}
-	// The chips go through the ledger under their own reason, with no action id.
-	rows := f.ledgerRows(player.ID)
-	if last := rows[len(rows)-1]; last.Reason != "daily_bonus" || last.Delta != 100000 || last.ActionID != nil || last.HandID != nil {
-		t.Fatalf("daily row = %+v", last)
-	}
-
-	// Its own countdown refuses a second claim and moves nothing …
-	again, err := f.users.ClaimDailyBonus(f.ctx, player.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if again.Claimed || again.Reason != db.RewardNotReady || again.ReadyAt != daily.ReadyAt {
-		t.Fatalf("again = %+v", again)
-	}
-	// … while the timed bonus keeps a clock of its own and is still ready.
-	if !daily.User.Rewards.BonusAvailable {
-		t.Fatal("collecting the daily bonus spent the four-hour one")
-	}
-	timed, err := f.users.ClaimTimedBonus(f.ctx, player.ID)
-	if err != nil || !timed.Claimed || timed.Amount != 10000 || timed.User.Hammer != fresh.Hammer+1 {
-		t.Fatalf("the timed bonus after the daily one: %+v %v", timed, err)
-	}
-
-	// One row per milestone, and a claim after the countdown updates its row.
-	const rowsOf = `SELECT COUNT(*) FROM user_milestones WHERE user_id = $1`
-	if n := f.count(rowsOf, player.ID); n != 2 {
-		t.Fatalf("user_milestones rows = %d, want the timed and the daily one", n)
-	}
-	if err := f.d.Exec(f.ctx, `UPDATE user_milestones SET next_claim_at = $1 WHERE user_id = $2 AND milestone = $3`, nowMs()-1, player.ID, db.MilestoneDailyBonus); err != nil {
-		t.Fatal(err)
-	}
-	if r, err := f.users.ClaimDailyBonus(f.ctx, player.ID); err != nil || !r.Claimed || r.User.Hammer != fresh.Hammer+2 {
-		t.Fatalf("daily after its countdown: %+v %v", r, err)
-	}
-	if n := f.count(rowsOf, player.ID); n != 2 {
-		t.Fatalf("user_milestones rows = %d after a second daily claim", n)
-	}
-	if times := f.scalar(`SELECT times_claimed FROM user_milestones WHERE user_id = $1 AND milestone = $2`, player.ID, db.MilestoneDailyBonus); times != 2 {
-		t.Fatalf("daily times_claimed = %d, want 2", times)
-	}
-	f.reconcile()
 }
 
 // ------------------------------------------------------ avatars (req 20/21)
@@ -1591,7 +1233,10 @@ func TestConcurrentFirstLoginsProduceOneAccountAndOneWelcomeRow(t *testing.T) {
 	f.reconcile()
 }
 
-func TestWelcomeChipsComeFromConfigAndAZeroGrantStillWritesARow(t *testing.T) {
+// WELCOME_CHIPS=0 on a database with no chips row writes the row switched
+// off (db.Welcome.EnsureChipsRow): a new account gets no chips, and its
+// welcome_bonus ledger row is written all the same.
+func TestAZeroWelcomeChipsRowGivesNoChipsAndStillWritesALedgerRow(t *testing.T) {
 	f := newFixture(t)
 	users := db.NewUsers(f.d, 0, nil)
 	u, isNew, err := users.UpsertFromProfile(f.ctx, db.Profile{Provider: db.ProviderGuest, ProviderUserID: "zero-" + randomSuffix(t), DisplayName: "Zero"})
@@ -1666,9 +1311,11 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 	// stats (Player stats v2, 27 Sep 2026) is the career per bucket, after the
 	// six totals it sums to; playerLevel, badges and taxBps (26–27 Sep 2026)
 	// are the player's own standing — level and XP, the badges they hold, and
-	// the winning tax they pay (db.Standing) — last.
+	// the winning tax they pay (db.Standing) — last. There is no `rewards`
+	// key (owner, 30 Sep 2026: the three lobby rewards were removed) — left
+	// out, never sent empty, so an installed app draws no reward chip.
 	wantKeys := []string{"id", "provider", "displayName", "email", "avatarUrl", "providerAvatarUrl", "activePictureId", "tablePicture", "chips", "diamond", "hammer", "missile",
-		"handsPlayed", "handsWon", "handsLost", "handsLeftMid", "totalWinnings", "biggestPot", "stats", "rewards", "createdAt", "lastLoginAt", "playerLevel",
+		"handsPlayed", "handsWon", "handsLost", "handsLeftMid", "totalWinnings", "biggestPot", "stats", "createdAt", "lastLoginAt", "playerLevel",
 		"badges", "taxBps"}
 	if len(m) != len(wantKeys) {
 		t.Fatalf("user has %d keys, want %d: %s", len(m), len(wantKeys), out)
@@ -1678,7 +1325,7 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 			t.Fatalf("missing key %q in %s", k, out)
 		}
 	}
-	for _, forbidden := range []string{"providerUserId", "updatedAt", "milestoneClaimed", "nextBonusAt"} {
+	for _, forbidden := range []string{"providerUserId", "updatedAt", "milestoneClaimed", "nextBonusAt", "rewards"} {
 		if _, ok := m[forbidden]; ok {
 			t.Fatalf("key %q must never be exposed", forbidden)
 		}
@@ -1697,19 +1344,6 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 	}
 	if string(m["chips"]) != "200000" || string(m["activePictureId"]) != "null" || string(m["avatarUrl"]) != `"https://pic"` {
 		t.Fatalf("values: chips=%s activePictureId=%s avatarUrl=%s", m["chips"], m["activePictureId"], m["avatarUrl"])
-	}
-	var rewards map[string]json.RawMessage
-	if err := json.Unmarshal(m["rewards"], &rewards); err != nil {
-		t.Fatal(err)
-	}
-	for k, want := range map[string]string{
-		"milestoneAvailable": "false", "milestoneAt": "0", "milestoneReward": "25000", "milestoneEvery": "25",
-		"handsToNextMilestone": "25", "bonusReadyAt": "0", "bonusAvailable": "true", "bonusReward": "10000", "bonusIntervalMs": "14400000",
-		"dailyReadyAt": "0", "dailyAvailable": "true", "dailyReward": "100000", "dailyHammers": "1", "dailyIntervalMs": "86400000",
-	} {
-		if string(rewards[k]) != want {
-			t.Fatalf("rewards.%s = %s, want %s", k, rewards[k], want)
-		}
 	}
 	// A guest's nullables are JSON null, not "" or absent.
 	g := f.user("Null")
@@ -1818,13 +1452,5 @@ func TestSetDisplayNameStoresTheNormalisedName(t *testing.T) {
 	}
 	if after.Chips != welcome {
 		t.Fatal("a rename must not touch the wallet")
-	}
-}
-
-func TestMilestoneFor(t *testing.T) {
-	for in, want := range map[int]int{0: 0, 24: 0, 25: 25, 49: 25, 50: 50, 63: 50, 77: 75} {
-		if got := db.MilestoneFor(in); got != want {
-			t.Errorf("MilestoneFor(%d) = %d, want %d", in, got, want)
-		}
 	}
 }

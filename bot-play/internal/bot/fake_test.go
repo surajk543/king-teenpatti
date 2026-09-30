@@ -20,7 +20,6 @@ type fakeServer struct {
 	mu sync.Mutex
 
 	chips      int64
-	bonusChips int64
 	logins     int
 	dials      int
 	refuseDial []error // popped per Dial
@@ -74,17 +73,6 @@ func (f *fakeServer) Me(ctx context.Context, token string) (protocol.User, error
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return protocol.User{ID: "u", Chips: f.chips}, nil
-}
-
-func (f *fakeServer) CollectBonus(ctx context.Context, token string) (protocol.User, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.bonusChips == 0 {
-		return protocol.User{}, &protocol.APIError{Status: 409, Code: "bonus_not_ready"}
-	}
-	f.chips += f.bonusChips
-	f.bonusChips = 0
-	return protocol.User{Chips: f.chips}, nil
 }
 
 func (f *fakeServer) FreePictureIDs(ctx context.Context) ([]int64, error) { return []int64{1, 2}, nil }

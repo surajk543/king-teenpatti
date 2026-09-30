@@ -662,7 +662,7 @@ func (l *LuckyDraws) replay(ctx context.Context, q queryer, userID, key, actionI
 //     spin's key), so SUM(chip_ledger.delta) == users.chips still holds — the
 //     invariant every chip movement keeps (CLAUDE.md §5.1).
 //   - DIAMOND, HAMMER, MISSILE: a delta on the users column, never ledgered, as
-//     the daily bonus's hammer and a missile trade are; the spin's own row is
+//     a hammer pack's hammers and a missile trade are; the spin's own row is
 //     the receipt.
 //   - NO_REWARD: nothing; the spin's row is all there is.
 //   - PROFILE_PICTURE, TABLE_PICTURE: the ownership row a purchase would write,

@@ -292,20 +292,16 @@ func TestAFullTableIsRetried(t *testing.T) {
 	again.reply <- roomAck("r3")
 }
 
-func TestAKickForChipsCollectsTheBonusAndLooksAgain(t *testing.T) {
+// A kick for chips sends the bot back to the lobby to look again for a table
+// its stack admits. There is no lobby reward to collect first: the game
+// server removed the daily, 4-hour and milestone rewards (30 Sep 2026).
+func TestAKickForChipsLooksAgain(t *testing.T) {
 	fs := newFakeServer(t)
 	h := start(t, fs, nil)
 	s := h.seat()
-	fs.mu.Lock()
-	fs.bonusChips = 10_000
-	fs.mu.Unlock()
 	s.push(protocol.EvRoomKicked, protocol.RoomKicked{RoomID: "r1", Reason: protocol.CodeInsufficientChips})
 	join := s.expect(t, protocol.EvRoomQuickJoin, 10*time.Second, h.advance)
 	join.reply <- roomAck("r4")
-	fs.mu.Lock()
-	collected := fs.bonusChips == 0
-	fs.mu.Unlock()
-	must(t, collected, "the bot collected the lobby bonus before looking again")
 }
 
 func TestAServerRestartIsReconnectedAndPlayResumes(t *testing.T) {

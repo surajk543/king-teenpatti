@@ -36,28 +36,22 @@ class _Heard extends FeedbackSettings {
 }
 
 /// The account as a player usually finds the lobby: a guest's generated name
-/// and the 4-hour bonus counting down, the bar's widest neighbour of the name.
-User _user(Map<String, Object?>? level, {String name = 'Guest0E00B'}) =>
-    User.fromJson({
-      'id': 'u0',
-      'provider': 'guest',
-      'displayName': name,
-      'chips': 324500,
-      'diamond': 9,
-      'hammer': 20,
-      'missile': 1,
-      'playerLevel': ?level,
-      'badges': [regularBadge()],
-      'rewards': {
-        'bonusReward': 10000,
-        'bonusReadyAt': DateTime.now()
-            .add(const Duration(hours: 3, minutes: 12))
-            .millisecondsSinceEpoch,
-        'bonusAvailable': false,
-        'milestoneReward': 25000,
-        'handsToNextMilestone': 25,
-      },
-    });
+/// beside a wallet of 3,24,500 chips.
+User _user(
+  Map<String, Object?>? level, {
+  String name = 'Guest0E00B',
+  int chips = 324500,
+}) => User.fromJson({
+  'id': 'u0',
+  'provider': 'guest',
+  'displayName': name,
+  'chips': chips,
+  'diamond': 9,
+  'hammer': 20,
+  'missile': 1,
+  'playerLevel': ?level,
+  'badges': [regularBadge()],
+});
 
 Future<_Heard> _pump(
   WidgetTester tester,
@@ -308,17 +302,21 @@ void main() {
       final state = _state();
       await _pump(tester, state);
       final before = LobbyLevelBar.builds;
-      // The ticks the reward clocks make, and a `me()` re-read.
+      // The lobby's one-second ticks, and a `me()` re-read that moved only
+      // the wallet.
       for (var i = 0; i < 5; i++) {
         _notify(state);
         await tester.pump(const Duration(seconds: 1));
       }
-      state.user = _user(levelAt(10, xp: 4180));
+      state.user = _user(levelAt(10, xp: 4180), chips: 400000);
       _notify(state);
+      // The frame the wallet starts counting in, then the count itself.
+      await tester.pump(const Duration(seconds: 1));
       await tester.pump(const Duration(seconds: 1));
       expect(LobbyLevelBar.builds, before);
-      // The top bar did rebuild meanwhile (its bonus counts down).
-      expect(find.textContaining('3h 1'), findsOneWidget);
+      // The top bar did rebuild meanwhile (its wallet counted to the new
+      // figure).
+      expect(find.text(formatChips(400000)), findsOneWidget);
 
       // XP moving does rebuild it.
       state.user = _user(levelAt(10, xp: 4200));

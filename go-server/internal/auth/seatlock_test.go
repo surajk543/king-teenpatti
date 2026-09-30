@@ -17,8 +17,8 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
 )
 
-// A lobby-only wallet change — a chip-priced picture, the milestone reward,
-// the timed bonus — must run under the player's seat lock (Deps.WhileUnseated),
+// A lobby-only wallet change — a chip-priced picture, a Lucky Draw spin — must
+// run under the player's seat lock (Deps.WhileUnseated),
 // not merely after a look at whether they are seated, and on the context that
 // lock hands out rather than the request's. The look and the commit are two
 // moments; a room:quickJoin that read the wallet between them used to seat
@@ -111,25 +111,34 @@ func (p *gatedPictures) BuyAtTable(ctx context.Context, userID string, id int64)
 	return p.fakePictures.BuyAtTable(ctx, userID, id)
 }
 
-// gatedUsers is fakeStore reporting its reward claims to the gate.
+// gatedUsers is fakeStore reporting its wallet changes to the gate (account
+// deletion, deleteaccount_lock_test.go).
 type gatedUsers struct {
 	*fakeStore
 	gate *seatGate
 }
 
-func (u *gatedUsers) ClaimMilestoneReward(ctx context.Context, userID string) (*db.RewardResult, error) {
-	u.gate.record(ctx, "milestone")
-	return u.fakeStore.ClaimMilestoneReward(ctx, userID)
+// gatedLuckyDraws is a Lucky Draw whose every spin pays the fake store's
+// wallet a CHIPS prize of luckyPrize, reporting the spin to the gate.
+type gatedLuckyDraws struct {
+	store *fakeStore
+	gate  *seatGate
 }
 
-func (u *gatedUsers) ClaimTimedBonus(ctx context.Context, userID string) (*db.RewardResult, error) {
-	u.gate.record(ctx, "bonus")
-	return u.fakeStore.ClaimTimedBonus(ctx, userID)
+// luckyPrize is what a gatedLuckyDraws spin pays.
+const luckyPrize int64 = 100000
+
+func (l *gatedLuckyDraws) State(_ context.Context, _, _ string) (*db.LuckyDrawState, error) {
+	return &db.LuckyDrawState{}, nil
 }
 
-func (u *gatedUsers) ClaimDailyBonus(ctx context.Context, userID string) (*db.RewardResult, error) {
-	u.gate.record(ctx, "daily")
-	return u.fakeStore.ClaimDailyBonus(ctx, userID)
+func (l *gatedLuckyDraws) Spin(ctx context.Context, userID, _, actionID string) (*db.LuckyDrawSpin, error) {
+	l.gate.record(ctx, "spin")
+	u := l.store.users[userID]
+	u.Chips += luckyPrize
+	value := luckyPrize
+	copied := *u
+	return &db.LuckyDrawSpin{ActionID: actionID, SlotNumber: 3, Reward: db.LuckyDrawReward{Type: "CHIPS", Value: &value}, User: &copied}, nil
 }
 
 // newGatedHarness is newHarness with the seat lock wired in. IsSeated always
@@ -148,6 +157,7 @@ func newGatedHarness(t *testing.T) (*harness, *seatGate, *gatedPictures) {
 		Config:        cfg,
 		Users:         &gatedUsers{fakeStore: h.store, gate: gate},
 		Pictures:      pictures,
+		LuckyDraws:    &gatedLuckyDraws{store: h.store, gate: gate},
 		Tokens:        h.tokens,
 		Verifier:      NewVerifier(cfg),
 		IsSeated:      func(string) bool { return false },
@@ -178,8 +188,6 @@ func TestLobbyOnlyWalletChangesRunUnderTheSeatLock(t *testing.T) {
 	token, user := h.login("device-seat-lock-0001", "Locked")
 	id := user["id"].(string)
 	h.store.users[id].Chips = 300000
-	h.store.milestOK[id] = true
-	h.store.bonusAt[id] = 0
 
 	// In the lobby each change goes through, inside the lock and on the
 	// context the lock handed out.
@@ -187,21 +195,18 @@ func TestLobbyOnlyWalletChangesRunUnderTheSeatLock(t *testing.T) {
 	if res.status != 200 || res.body["charged"] != true {
 		t.Fatalf("a lobby buy: %d %s", res.status, res.raw)
 	}
-	for _, path := range []string{"/api/rewards/milestone", "/api/rewards/bonus", "/api/rewards/daily"} {
-		if res := h.do(http.MethodPost, path, map[string]any{}, bearer(token)...); res.status != 200 || res.body["claimed"] != true {
-			t.Fatalf("%s from the lobby: %d %s", path, res.status, res.raw)
-		}
+	res = h.do(http.MethodPost, "/api/lucky-draw/spin", map[string]any{"actionId": "spin-lobby-1"}, bearer(token)...)
+	if res.status != 200 || res.body["slotNumber"] != float64(3) {
+		t.Fatalf("a lobby spin: %d %s", res.status, res.raw)
 	}
-	if got, want := gate.log(), []string{"buy:locked", "milestone:locked", "bonus:locked", "daily:locked"}; !reflect.DeepEqual(got, want) {
+	if got, want := gate.log(), []string{"buy:locked", "spin:locked"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("store calls = %v, want %v", got, want)
 	}
 
-	// Seated: the chip-priced picture and both rewards are refused 409 seated
-	// and no chips move; a diamond picture still sells, through BuyAtTable and
-	// with no lock to hold.
+	// Seated: the chip-priced picture and the spin are refused 409 seated and
+	// no chips move; a diamond picture still sells, through BuyAtTable and with
+	// no lock to hold.
 	gate.seat(id)
-	h.store.milestOK[id] = true
-	h.store.bonusAt[id] = 0
 	chips := h.store.users[id].Chips
 
 	res = h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 4}, bearer(token)...)
@@ -209,16 +214,10 @@ func TestLobbyOnlyWalletChangesRunUnderTheSeatLock(t *testing.T) {
 	if res.body["message"] != MsgSeatedPicture {
 		t.Errorf("seated coin buy message: %s", res.raw)
 	}
-	for _, tc := range []struct{ path, msg string }{
-		{"/api/rewards/milestone", MsgSeatedMilestone},
-		{"/api/rewards/bonus", MsgSeatedBonus},
-		{"/api/rewards/daily", MsgSeatedBonus},
-	} {
-		res := h.do(http.MethodPost, tc.path, map[string]any{}, bearer(token)...)
-		expectError(t, res, http.StatusConflict, CodeSeated)
-		if res.body["message"] != tc.msg {
-			t.Errorf("%s message: %s", tc.path, res.raw)
-		}
+	res = h.do(http.MethodPost, "/api/lucky-draw/spin", map[string]any{"actionId": "spin-seated-1"}, bearer(token)...)
+	expectError(t, res, http.StatusConflict, CodeSeated)
+	if res.body["message"] != MsgSeatedLuckyDraw {
+		t.Errorf("seated spin message: %s", res.raw)
 	}
 	res = h.do(http.MethodPost, "/api/profile/picture/buy", map[string]any{"pictureId": 5}, bearer(token)...)
 	if res.status != 200 || res.body["charged"] != true {
@@ -227,9 +226,9 @@ func TestLobbyOnlyWalletChangesRunUnderTheSeatLock(t *testing.T) {
 	if h.store.users[id].Chips != chips {
 		t.Errorf("chips moved while seated: %d → %d", chips, h.store.users[id].Chips)
 	}
-	want := []string{"buy:locked", "milestone:locked", "bonus:locked", "daily:locked", "atTable:unlocked", "atTable:unlocked"}
+	want := []string{"buy:locked", "spin:locked", "atTable:unlocked", "atTable:unlocked"}
 	if got := gate.log(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("store calls = %v, want %v (no claim may reach the store while seated)", got, want)
+		t.Fatalf("store calls = %v, want %v (no spin may reach the store while seated)", got, want)
 	}
 }
 

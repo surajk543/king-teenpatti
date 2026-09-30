@@ -88,7 +88,7 @@ func embeddedFiles() []string {
 }
 
 // TestMigrateBuildsAFreshSchemaExactlyAsABootWould: on a schema nobody has
-// created, -migrate creates it and leaves what a boot leaves — the thirty-nine
+// created, -migrate creates it and leaves what a boot leaves — the forty
 // tables and every seeded row, table for table and count for count the schema
 // db.Open built for dbtest — and its report names every embedded script, in
 // version order, and the schema, the count and the time.
@@ -118,8 +118,8 @@ func TestMigrateBuildsAFreshSchemaExactlyAsABootWould(t *testing.T) {
 	}
 
 	got, want := tablesOf(t, reference, fresh), tablesOf(t, reference, reference.Schema)
-	if len(got) != 39 {
-		t.Errorf("schema %s has %d tables, want the thirty-nine a boot creates", fresh, len(got))
+	if len(got) != 40 {
+		t.Errorf("schema %s has %d tables, want the forty a boot creates", fresh, len(got))
 	}
 	for name, rows := range want {
 		if _, ok := got[name]; !ok {
@@ -135,7 +135,7 @@ func TestMigrateBuildsAFreshSchemaExactlyAsABootWould(t *testing.T) {
 	}
 	// The seeds really ran: the catalogues a fresh database starts with.
 	for _, seeded := range []string{"profile_pictures", "table_engines", "table_categories", "table_settings", "table_configs",
-		"emojis", "lucky_draws", "lucky_draw_slots", "player_levels", "badges", "xp_sources", "app_versions"} {
+		"emojis", "lucky_draws", "lucky_draw_slots", "player_levels", "badges", "xp_sources", "app_versions", "welcome_rewards"} {
 		if got[seeded] == 0 {
 			t.Errorf("seeded table %s is empty", seeded)
 		}
@@ -368,7 +368,7 @@ func TestMigrateRunsFromMainOnTheDotEnvOfItsDirectory(t *testing.T) {
 	if !strings.Contains(errs.String(), "read ") || !strings.Contains(errs.String(), string(filepath.Separator)+".env") {
 		t.Errorf("stderr does not say the .env was read:\n%s", errs.String())
 	}
-	if got := tablesOf(t, reference, fresh); len(got) != 39 {
-		t.Errorf("schema %s has %d tables after the run, want thirty-nine", fresh, len(got))
+	if got := tablesOf(t, reference, fresh); len(got) != 40 {
+		t.Errorf("schema %s has %d tables after the run, want forty", fresh, len(got))
 	}
 }

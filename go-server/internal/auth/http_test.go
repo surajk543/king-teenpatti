@@ -25,16 +25,13 @@ import (
 type fakeStore struct {
 	users    map[string]*db.User // by id
 	byIdent  map[string]string   // provider|providerUserId → id
-	milestOK map[string]bool     // ClaimMilestoneReward succeeds
-	dailyAt  map[string]int64    // ClaimDailyBonus's next unlock (made on first use)
-	bonusAt  map[string]int64
-	failWith error // every call returns this when set
+	failWith error               // every call returns this when set
 	now      int64
 	lastLim  int
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{users: map[string]*db.User{}, byIdent: map[string]string{}, milestOK: map[string]bool{}, bonusAt: map[string]int64{}, now: 1_800_000_000_000}
+	return &fakeStore{users: map[string]*db.User{}, byIdent: map[string]string{}, now: 1_800_000_000_000}
 }
 
 func (s *fakeStore) FindByID(_ context.Context, id string) (*db.User, error) {
@@ -63,56 +60,27 @@ func (s *fakeStore) UpsertFromProfile(_ context.Context, p db.Profile) (*db.User
 	}
 	id := fmt.Sprintf("user-%d", len(s.users)+1)
 	u := &db.User{ID: id, Provider: p.Provider, DisplayName: p.DisplayName, Email: p.Email, AvatarURL: p.AvatarURL,
-		ProviderAvatarURL: p.AvatarURL, Chips: 200000, Diamond: 1, CreatedAt: s.now, LastLoginAt: s.now,
-		Rewards: db.Rewards{MilestoneReward: 25000, MilestoneEvery: 25, HandsToNextMilestone: 25, BonusAvailable: true, BonusReward: 10000, BonusIntervalMs: 14400000,
-			DailyAvailable: true, DailyReward: 100000, DailyHammers: 1, DailyIntervalMs: 86400000}}
+		ProviderAvatarURL: p.AvatarURL, Chips: 200000, Diamond: 1, CreatedAt: s.now, LastLoginAt: s.now}
 	s.users[id] = u
 	s.byIdent[key] = id
 	copied := *u
 	return &copied, true, nil
 }
 
-func (s *fakeStore) ClaimMilestoneReward(_ context.Context, userID string) (*db.RewardResult, error) {
-	if s.failWith != nil {
-		return nil, s.failWith
+// SignIn is UpsertFromProfile with the welcome db.Users.SignIn reports for a
+// new account: the fake's own wallet — 200000 chips and a diamond — and no
+// catalogue item.
+func (s *fakeStore) SignIn(ctx context.Context, p db.Profile) (*db.SignIn, error) {
+	u, isNew, err := s.UpsertFromProfile(ctx, p)
+	if err != nil {
+		return nil, err
 	}
-	u := s.users[userID]
-	if !s.milestOK[userID] {
-		return &db.RewardResult{Claimed: false, Reason: "not_available", User: u}, nil
+	out := &db.SignIn{User: u, IsNew: isNew}
+	if isNew {
+		out.Welcome = db.NewWelcomeGrant()
+		out.Welcome.Chips, out.Welcome.Diamonds = u.Chips, int64(u.Diamond)
 	}
-	s.milestOK[userID] = false
-	u.Chips += 25000
-	return &db.RewardResult{Claimed: true, Amount: 25000, Milestone: 50, User: u}, nil
-}
-
-func (s *fakeStore) ClaimTimedBonus(_ context.Context, userID string) (*db.RewardResult, error) {
-	if s.failWith != nil {
-		return nil, s.failWith
-	}
-	u := s.users[userID]
-	if s.now < s.bonusAt[userID] {
-		return &db.RewardResult{Claimed: false, Reason: "not_ready", ReadyAt: s.bonusAt[userID], User: u}, nil
-	}
-	s.bonusAt[userID] = s.now + 14400000
-	u.Chips += 10000
-	return &db.RewardResult{Claimed: true, Amount: 10000, ReadyAt: s.bonusAt[userID], User: u}, nil
-}
-
-func (s *fakeStore) ClaimDailyBonus(_ context.Context, userID string) (*db.RewardResult, error) {
-	if s.failWith != nil {
-		return nil, s.failWith
-	}
-	if s.dailyAt == nil {
-		s.dailyAt = map[string]int64{}
-	}
-	u := s.users[userID]
-	if s.now < s.dailyAt[userID] {
-		return &db.RewardResult{Claimed: false, Reason: "not_ready", ReadyAt: s.dailyAt[userID], User: u}, nil
-	}
-	s.dailyAt[userID] = s.now + 86400000
-	u.Chips += 100000
-	u.Hammer++
-	return &db.RewardResult{Claimed: true, Amount: 100000, ReadyAt: s.dailyAt[userID], User: u}, nil
+	return out, nil
 }
 
 func (s *fakeStore) SetDisplayName(_ context.Context, userID, displayName string) (*db.User, error) {
@@ -304,7 +272,7 @@ type wornPicture struct {
 	url    *string
 }
 
-// harness is a mux with the 8 routes plus the app-side /api/ 404, a fake
+// harness is a mux with the REST routes plus the app-side /api/ 404, a fake
 // store and a profiles directory holding the bundled picture names.
 type harness struct {
 	t        *testing.T
@@ -428,7 +396,9 @@ func TestGuestLoginCreatesAnAccountWithTheWelcomeGrant(t *testing.T) {
 	if res.status != 200 {
 		t.Fatalf("%d %s", res.status, res.raw)
 	}
-	if res.body["token"] == "" || res.body["isNew"] != true || res.body["welcomeChips"] != float64(1000000) {
+	// welcomeChips is what the account was GIVEN (the welcome_rewards rows,
+	// 30 Sep 2026) — the store's 200000 here, not config.Game.WelcomeChips.
+	if res.body["token"] == "" || res.body["isNew"] != true || res.body["welcomeChips"] != float64(200000) {
 		t.Errorf("%s", res.raw)
 	}
 	user := res.body["user"].(map[string]any)
@@ -438,14 +408,24 @@ func TestGuestLoginCreatesAnAccountWithTheWelcomeGrant(t *testing.T) {
 	if ct := res.header.Get("Content-Type"); ct != "application/json; charset=utf-8" {
 		t.Errorf("content-type %q", ct)
 	}
-	// Key set of the login response.
-	for _, key := range []string{"token", "user", "isNew", "welcomeChips"} {
+	// Key set of the login response: a new account's carries what it was
+	// welcomed with.
+	for _, key := range []string{"token", "user", "isNew", "welcomeChips", "welcome"} {
 		if _, ok := res.body[key]; !ok {
 			t.Errorf("missing %s", key)
 		}
 	}
-	if len(res.body) != 4 {
+	if len(res.body) != 5 {
 		t.Errorf("extra keys: %v", res.body)
+	}
+	welcome, _ := res.body["welcome"].(map[string]any)
+	if welcome["chips"] != float64(200000) || welcome["diamonds"] != float64(1) || welcome["hammers"] != float64(0) || welcome["missiles"] != float64(0) {
+		t.Errorf("welcome %v", welcome)
+	}
+	for _, list := range []string{"pictures", "tablePictures", "emojis"} {
+		if items, ok := welcome[list].([]any); !ok || len(items) != 0 {
+			t.Errorf("welcome.%s = %#v, want []", list, welcome[list])
+		}
 	}
 	if !strings.Contains(h.logs.String(), `"msg":"account created"`) || !strings.Contains(h.logs.String(), `"provider":"guest"`) {
 		t.Errorf("log: %s", h.logs.String())
@@ -463,6 +443,9 @@ func TestLoggingInAgainReturnsTheSameAccount(t *testing.T) {
 	res := h.do(http.MethodPost, "/api/auth/login", map[string]any{"provider": "guest", "deviceId": "device-again-0002", "displayName": "Suraj"})
 	if res.body["isNew"] != false || res.body["welcomeChips"] != float64(0) {
 		t.Errorf("%s", res.raw)
+	}
+	if _, ok := res.body["welcome"]; ok || len(res.body) != 4 {
+		t.Errorf("a returning player's login carries no welcome: %s", res.raw)
 	}
 	second := res.body["user"].(map[string]any)
 	if second["id"] != first["id"] || second["chips"] != first["chips"] {
@@ -711,94 +694,44 @@ func TestTheHandHistoryEndpointIsGone(t *testing.T) {
 	}
 }
 
-func TestMilestoneReward(t *testing.T) {
+// The three lobby rewards are gone (owner, 30 Sep 2026: "Remove 24-hour daily
+// reward, 4-hour bonus, and milestone reward"). Their paths answer the JSON
+// 404 any unknown /api path does — signed in or not, whatever the method —
+// and the account carries no `rewards` key at all: an installed app draws the
+// three reward chips only when user.rewards is present, so leaving the key out
+// (rather than sending it empty) is what takes them off every lobby.
+func TestTheLobbyRewardsAreGone(t *testing.T) {
 	h := newHarness(t)
 	token, user := h.login("device-guest-0001", "Suraj")
-	id := user["id"].(string)
-	// Not available → 409 with the user attached, no writes.
-	res := h.do(http.MethodPost, "/api/rewards/milestone", map[string]any{}, bearer(token)...)
-	expectError(t, res, 409, CodeRewardNotAvailable)
-	if res.body["message"] != MsgRewardNotAvailable || res.body["user"].(map[string]any)["id"] != id || len(res.body) != 3 {
-		t.Errorf("%s", res.raw)
+	if _, ok := user["rewards"]; ok {
+		t.Fatalf("the login's user still carries rewards: %v", user)
 	}
-	if _, ok := res.body["reason"]; ok {
-		t.Error("the internal reason must not be sent")
+	res := h.do(http.MethodGet, "/api/auth/me", nil, bearer(token)...)
+	if res.status != 200 {
+		t.Fatalf("me: %d %s", res.status, res.raw)
 	}
-	// Available → 200 {claimed, amount, milestone, user}.
-	h.store.milestOK[id] = true
-	res = h.do(http.MethodPost, "/api/rewards/milestone", nil, bearer(token)...) // browser: no body, no content-type
-	if res.status != 200 || res.body["claimed"] != true || res.body["amount"] != float64(25000) || res.body["milestone"] != float64(50) {
-		t.Errorf("%d %s", res.status, res.raw)
+	if _, ok := res.body["user"].(map[string]any)["rewards"]; ok || bytes.Contains(res.raw, []byte(`"rewards"`)) {
+		t.Fatalf("GET /api/auth/me still carries rewards: %s", res.raw)
 	}
-	if res.body["user"].(map[string]any)["chips"] != float64(225000) {
-		t.Errorf("%s", res.raw)
-	}
-	for _, absent := range []string{"reason", "readyAt"} {
-		if _, ok := res.body[absent]; ok {
-			t.Errorf("%s must be absent on a milestone claim: %s", absent, res.raw)
+	chips := h.store.users[user["id"].(string)].Chips
+	for _, path := range []string{"/api/rewards/milestone", "/api/rewards/bonus", "/api/rewards/daily"} {
+		for _, tc := range []struct {
+			method  string
+			headers []string
+		}{
+			{http.MethodPost, bearer(token)},
+			{http.MethodPost, nil},
+			{http.MethodGet, bearer(token)},
+		} {
+			res := h.do(tc.method, path, map[string]any{}, tc.headers...)
+			expectError(t, res, 404, CodeNotFound)
+			if res.body["message"] != "Cannot "+tc.method+" "+path || len(res.body) != 2 {
+				t.Errorf("%s %s: %s", tc.method, path, res.raw)
+			}
 		}
 	}
-	if !strings.Contains(h.logs.String(), `"msg":"milestone reward claimed"`) || !strings.Contains(h.logs.String(), `"milestone":50`) {
-		t.Errorf("log %s", h.logs.String())
-	}
-	expectError(t, h.do(http.MethodPost, "/api/rewards/milestone", nil), 401, CodeMissingToken)
-	h.store.failWith = errors.New("boom")
-	expectError(t, h.do(http.MethodPost, "/api/rewards/milestone", nil, bearer(token)...), 500, CodeInternalError)
-}
-
-func TestTimedBonus(t *testing.T) {
-	h := newHarness(t)
-	token, user := h.login("device-guest-0001", "Suraj")
-	id := user["id"].(string)
-	res := h.do(http.MethodPost, "/api/rewards/bonus", nil, bearer(token)...)
-	if res.status != 200 || res.body["claimed"] != true || res.body["amount"] != float64(10000) {
-		t.Fatalf("%d %s", res.status, res.raw)
-	}
-	readyAt := res.body["readyAt"].(float64)
-	if int64(readyAt) != h.store.now+14400000 || res.body["user"].(map[string]any)["chips"] != float64(210000) {
-		t.Errorf("%s", res.raw)
-	}
-	if _, ok := res.body["milestone"]; ok {
-		t.Errorf("milestone must be absent on a bonus claim: %s", res.raw)
-	}
-	if !strings.Contains(h.logs.String(), `"msg":"timed bonus claimed"`) {
-		t.Errorf("log %s", h.logs.String())
-	}
-	// Inside the countdown → 409 {error, message, readyAt, user}.
-	res = h.do(http.MethodPost, "/api/rewards/bonus", map[string]any{}, bearer(token)...)
-	expectError(t, res, 409, CodeRewardNotReady)
-	if res.body["message"] != MsgRewardNotReady || res.body["readyAt"] != readyAt || res.body["user"].(map[string]any)["id"] != id || len(res.body) != 4 {
-		t.Errorf("%s", res.raw)
-	}
-}
-
-// POST /api/rewards/daily is the daily bonus beside the four-hour one (owner,
-// 14 Sep 2026; Go only): the Bonus handler's answers, its own store call and
-// log line, and a countdown of its own.
-func TestDailyBonus(t *testing.T) {
-	h := newHarness(t)
-	token, user := h.login("device-guest-0001", "Suraj")
-	id := user["id"].(string)
-	res := h.do(http.MethodPost, "/api/rewards/daily", nil, bearer(token)...)
-	if res.status != 200 || res.body["claimed"] != true || res.body["amount"] != float64(100000) {
-		t.Fatalf("%d %s", res.status, res.raw)
-	}
-	readyAt := res.body["readyAt"].(float64)
-	if int64(readyAt) != h.store.now+86400000 || res.body["user"].(map[string]any)["hammer"] != float64(h.store.users[id].Hammer) {
-		t.Errorf("%s", res.raw)
-	}
-	if !strings.Contains(h.logs.String(), `"msg":"daily bonus claimed"`) {
-		t.Errorf("log %s", h.logs.String())
-	}
-	// The four-hour bonus runs its own clock: still collectable.
-	if res := h.do(http.MethodPost, "/api/rewards/bonus", nil, bearer(token)...); res.status != 200 || res.body["amount"] != float64(10000) {
-		t.Errorf("the four-hour bonus after the daily one: %d %s", res.status, res.raw)
-	}
-	// Inside its own countdown → 409 {error, message, readyAt, user}.
-	res = h.do(http.MethodPost, "/api/rewards/daily", map[string]any{}, bearer(token)...)
-	expectError(t, res, 409, CodeRewardNotReady)
-	if res.body["message"] != MsgRewardNotReady || res.body["readyAt"] != readyAt || res.body["user"].(map[string]any)["id"] != id || len(res.body) != 4 {
-		t.Errorf("%s", res.raw)
+	if got := h.store.users[user["id"].(string)].Chips; got != chips {
+		t.Fatalf("a removed reward path moved chips: %d → %d", chips, got)
 	}
 }
 
@@ -1413,54 +1346,5 @@ func TestReadJSONBodyMirrorsBodyParser(t *testing.T) {
 	}
 	if _, err := read(str(exact), "application/json", 0); err != nil {
 		t.Errorf("exactly 32 KiB must parse: %v", err)
-	}
-}
-
-// A reward may only be collected FROM THE LOBBY (owner's decision of 9 Sep
-// 2026). That gate is what makes the money model's invariant true: a seated
-// player's wallet in PostgreSQL cannot change except at the three checkpoints
-// (pack, leave/switch, hand end). It is checked before any database work, in
-// the same place as the name and avatar gates.
-func TestRewardsAreRefusedWhileSeated(t *testing.T) {
-	h := newHarness(t)
-	token, user := h.login("device-guest-0001", "Suraj")
-	id := user["id"].(string)
-	h.store.milestOK[id] = true
-	h.store.bonusAt[id] = 0
-	chipsBefore := h.store.users[id].Chips
-
-	h.seated[id] = true
-	for _, tc := range []struct {
-		path string
-		msg  string
-	}{
-		{"/api/rewards/milestone", MsgSeatedMilestone},
-		{"/api/rewards/bonus", MsgSeatedBonus},
-		{"/api/rewards/daily", MsgSeatedBonus},
-	} {
-		res := h.do(http.MethodPost, tc.path, map[string]any{}, bearer(token)...)
-		expectError(t, res, 409, CodeSeated)
-		if res.body["message"] != tc.msg {
-			t.Errorf("%s message = %v", tc.path, res.body["message"])
-		}
-		// Refused before any database work: nothing was claimed.
-		if h.store.users[id].Chips != chipsBefore {
-			t.Fatalf("%s credited a seated player: %d → %d", tc.path, chipsBefore, h.store.users[id].Chips)
-		}
-	}
-
-	// From the lobby both go through.
-	h.seated[id] = false
-	res := h.do(http.MethodPost, "/api/rewards/milestone", map[string]any{}, bearer(token)...)
-	if res.status != 200 || res.body["claimed"] != true {
-		t.Fatalf("milestone from the lobby: %d %s", res.status, res.raw)
-	}
-	res = h.do(http.MethodPost, "/api/rewards/bonus", map[string]any{}, bearer(token)...)
-	if res.status != 200 || res.body["claimed"] != true {
-		t.Fatalf("bonus from the lobby: %d %s", res.status, res.raw)
-	}
-	res = h.do(http.MethodPost, "/api/rewards/daily", map[string]any{}, bearer(token)...)
-	if res.status != 200 || res.body["claimed"] != true {
-		t.Fatalf("daily bonus from the lobby: %d %s", res.status, res.raw)
 	}
 }
