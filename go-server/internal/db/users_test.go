@@ -1454,3 +1454,140 @@ func TestSetDisplayNameStoresTheNormalisedName(t *testing.T) {
 		t.Fatal("a rename must not touch the wallet")
 	}
 }
+
+// ------------------------------------------------ the 6-hour bonus (30 Sep 2026)
+
+func TestANewAccountCanCollectTheSixHourBonusStraightAway(t *testing.T) {
+	f := newFixture(t)
+	player := f.user("Fresh")
+	rewards := f.find(player.ID).Rewards
+	if !rewards.BonusAvailable {
+		t.Fatal("no waiting on a brand new account")
+	}
+	if rewards.BonusReward != 25000 || rewards.BonusIntervalMs != 6*60*60*1000 || rewards.BonusReadyAt != 0 {
+		t.Fatalf("rewards = %+v", rewards)
+	}
+	// Nothing collected, nothing written: a new account has no milestone row.
+	if n := f.count(`SELECT COUNT(*) FROM user_milestones WHERE user_id = $1`, player.ID); n != 0 {
+		t.Fatalf("user_milestones rows = %d", n)
+	}
+}
+
+func TestCollectingTheBonusGrants25000ChipsAndStartsA6HourCountdown(t *testing.T) {
+	f := newFixture(t)
+	player := f.user("Bonus")
+	before := f.find(player.ID)
+
+	claimedAt := nowMs()
+	result, err := f.users.ClaimTimedBonus(f.ctx, player.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Claimed || result.Amount != 25000 || result.User.Chips != before.Chips+25000 || result.User.Hammer != before.Hammer {
+		t.Fatalf("result = %+v", result)
+	}
+	sixHours := int64(6 * 60 * 60 * 1000)
+	if result.ReadyAt < claimedAt+sixHours-1000 || result.ReadyAt > nowMs()+sixHours+1000 {
+		t.Fatalf("readyAt %d is not ~6h out from %d", result.ReadyAt, claimedAt)
+	}
+	if result.User.Rewards.BonusAvailable {
+		t.Fatal("and is not collectable now")
+	}
+	if result.User.Rewards.BonusReadyAt != result.ReadyAt {
+		t.Fatal("user.rewards.bonusReadyAt must be the persisted unlock time")
+	}
+	// The bonus row has no action id (the row lock is its only guard).
+	rows := f.ledgerRows(player.ID)
+	last := rows[len(rows)-1]
+	if last.Reason != "timed_bonus" || last.Delta != 25000 || last.ActionID != nil || last.HandID != nil {
+		t.Fatalf("bonus row = %+v", last)
+	}
+	f.reconcile()
+}
+
+func TestTheBonusCannotBeCollectedTwiceInsideTheCountdown(t *testing.T) {
+	f := newFixture(t)
+	player := f.user("Greedy")
+	if _, err := f.users.ClaimTimedBonus(f.ctx, player.ID); err != nil {
+		t.Fatal(err)
+	}
+	before := f.find(player.ID)
+	second, err := f.users.ClaimTimedBonus(f.ctx, player.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Claimed || second.Reason != db.RewardNotReady || second.ReadyAt <= nowMs() || second.User == nil {
+		t.Fatalf("second = %+v", second)
+	}
+	if after := f.find(player.ID); after.Chips != before.Chips || after.Hammer != before.Hammer {
+		t.Fatal("no chips or hammers moved")
+	}
+	if _, err := f.users.ClaimTimedBonus(f.ctx, "nobody"); err == nil || err.Error() != "unknown user nobody" {
+		t.Fatalf("an unknown player: %v", err)
+	}
+}
+
+func TestTheBonusCountdownLivesInTheDatabase(t *testing.T) {
+	f := newFixture(t)
+	player := f.user("Persistent")
+	result, err := f.users.ClaimTimedBonus(f.ctx, player.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const nextClaimAt = `SELECT next_claim_at FROM user_milestones WHERE user_id = $1 AND milestone = 'TIMED_BONUS'`
+	if stored := f.scalar(nextClaimAt, player.ID); stored != result.ReadyAt {
+		t.Fatalf("next_claim_at %d != readyAt %d — the unlock time is persisted, not held in memory", stored, result.ReadyAt)
+	}
+	// Once the stored time passes, it is collectable again.
+	if err := f.d.Exec(f.ctx, `UPDATE user_milestones SET next_claim_at = $1 WHERE user_id = $2 AND milestone = 'TIMED_BONUS'`, nowMs()-1, player.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !f.find(player.ID).Rewards.BonusAvailable {
+		t.Fatal("bonusAvailable is evaluated against now")
+	}
+	r, _ := f.users.ClaimTimedBonus(f.ctx, player.ID)
+	if !r.Claimed {
+		t.Fatal("claim after the countdown")
+	}
+	// The second claim updated the one TIMED_BONUS row rather than adding one.
+	if n := f.count(`SELECT COUNT(*) FROM user_milestones WHERE user_id = $1`, player.ID); n != 1 {
+		t.Fatalf("user_milestones rows = %d, want the one TIMED_BONUS row", n)
+	}
+	if times := f.scalar(`SELECT times_claimed FROM user_milestones WHERE user_id = $1 AND milestone = 'TIMED_BONUS'`, player.ID); times != 2 {
+		t.Fatalf("times_claimed = %d, want 2", times)
+	}
+	if stored := f.scalar(nextClaimAt, player.ID); stored != r.ReadyAt {
+		t.Fatalf("next_claim_at %d != the second readyAt %d", stored, r.ReadyAt)
+	}
+}
+
+// A fixed clock proves every row of a claim shares one timestamp and that
+// readyAt = now + 6h exactly.
+func TestTheBonusUsesOneTimestampPerTransaction(t *testing.T) {
+	f := newFixture(t)
+	fixed := time.UnixMilli(1_800_000_000_000)
+	users := db.NewUsers(f.d, welcome, func() time.Time { return fixed })
+	player := f.user("Clocked")
+
+	r, err := users.ClaimTimedBonus(f.ctx, player.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ReadyAt != fixed.UnixMilli()+db.TimedBonusInterval.Milliseconds() {
+		t.Fatalf("readyAt = %d", r.ReadyAt)
+	}
+	rows := f.ledgerRows(player.ID)
+	if rows[len(rows)-1].Created != fixed.UnixMilli() {
+		t.Fatalf("ledger created_at = %d", rows[len(rows)-1].Created)
+	}
+	if f.scalar(`SELECT updated_at FROM users WHERE id = $1`, player.ID) != fixed.UnixMilli() {
+		t.Fatal("users.updated_at differs from the ledger row")
+	}
+	if f.scalar(`SELECT last_claimed_at FROM user_milestones WHERE user_id = $1 AND milestone = 'TIMED_BONUS'`, player.ID) != fixed.UnixMilli() {
+		t.Fatal("user_milestones.last_claimed_at differs from the ledger row")
+	}
+	// With the clock frozen before readyAt the bonus reads as unavailable.
+	if r.User.Rewards.BonusAvailable {
+		t.Fatal("bonusAvailable must be false right after claiming")
+	}
+}

@@ -18,6 +18,51 @@ import (
 	"github.com/surajk543/king-teenpatti/go-server/internal/util"
 )
 
+// The 6-hour bonus (owner, 30 Sep 2026: "IN Top left Add Again Every 6
+// hours bonus 25000 Coins" — the four-hour bonus of requirement 18, taken
+// away that morning with the other two lobby rewards, back as six hours and
+// 25,000 chips), POST /api/rewards/bonus. Constants, never configurable, as
+// the rewards always were.
+const (
+	// TimedBonusReward is what one collection pays.
+	TimedBonusReward int64 = 25000
+	// TimedBonusInterval is how long the bonus takes to recharge.
+	TimedBonusInterval = 6 * time.Hour
+)
+
+// MilestoneTimedBonus is the bonus's row of user_milestones (V1.0.0), the
+// one milestone still collected there: what the player has collected, one
+// row per player, updated in place (owner, 14 Sep 2026).
+const MilestoneTimedBonus = "TIMED_BONUS"
+
+// Rewards is user.rewards on the wire (publicUser): the 6-hour bonus as it
+// stands for this player. Absent from the account until 30 Sep 2026's
+// evening, when the bonus came back; an app from before reads the same keys
+// the four-hour bonus sent.
+type Rewards struct {
+	// BonusReadyAt is the player's TIMED_BONUS next_claim_at in
+	// user_milestones (epoch ms); 0 = ready now, as with no row.
+	BonusReadyAt    int64 `json:"bonusReadyAt"`
+	BonusAvailable  bool  `json:"bonusAvailable"` // now >= BonusReadyAt
+	BonusReward     int64 `json:"bonusReward"`
+	BonusIntervalMs int64 `json:"bonusIntervalMs"`
+}
+
+// RewardResult is what the bonus claim returns. Claimed=false carries Reason
+// ("not_ready") and ReadyAt; Claimed=true carries Amount and ReadyAt. The
+// HTTP layer maps Claimed=false to 409 — see auth.Handler.Bonus.
+type RewardResult struct {
+	Claimed bool   `json:"claimed"`
+	Reason  string `json:"reason,omitempty"`
+	Amount  int64  `json:"amount,omitempty"`
+	ReadyAt int64  `json:"readyAt,omitempty"`
+	User    *User  `json:"user"`
+}
+
+// RewardNotReady is the one refusal reason (RewardResult.Reason): the bonus
+// is still recharging.
+const RewardNotReady = "not_ready"
+
 // Provider values (users.provider CHECK).
 const (
 	ProviderGoogle   = "google"
@@ -83,9 +128,12 @@ type User struct {
 	// Stats is the same career per bucket — Teen Patti, Variation, Poker —
 	// with the hands held and the variations played (Player stats v2, owner
 	// 27 Sep 2026). Zeros, and no variations, for a player with no row.
-	Stats       UserStats `json:"stats"`
-	CreatedAt   int64     `json:"createdAt"`   // epoch ms
-	LastLoginAt int64     `json:"lastLoginAt"` // epoch ms
+	Stats UserStats `json:"stats"`
+	// Rewards is the 6-hour bonus as it stands for this player (30 Sep
+	// 2026, evening): the lobby's top-left chip is drawn from it.
+	Rewards     Rewards `json:"rewards"`
+	CreatedAt   int64   `json:"createdAt"`   // epoch ms
+	LastLoginAt int64   `json:"lastLoginAt"` // epoch ms
 	// Standing is the player's level and XP, the badges they hold and the
 	// winning tax they pay (owner, 26–27 Sep 2026; levels.go) — on the wire
 	// as user.playerLevel, user.badges and user.taxBps — resolved with every
@@ -356,6 +404,7 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
        ` + statsColumns + `,
        u.active_picture_id, u.created_at, u.updated_at, u.last_login_at, u.is_active,
        COALESCE(us.version, 0),
+       COALESCE(mt.next_claim_at, 0),
        ap.asset_url,
        tp.id, tp.day_asset_url, tp.night_asset_url, tp.asset_format, tp.currency, tp.cost,
        ` + playerLevelColumns
@@ -365,7 +414,9 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
 // round trip, the table picture they have laid for the same reason, and their
 // user_sessions row, the sign-in a valid token must carry. LEFT, because most
 // players wear nothing and a new one has signed in no session yet, and every
-// one of them must still come back from these queries. (Their statistics are
+// one of them must still come back from these queries — and their
+// TIMED_BONUS row of user_milestones, the 6-hour bonus's recharge, which a
+// player who has never collected it has not got. (Their statistics are
 // statsColumns' subqueries, not a join: a player has a row per bucket.)
 //
 // The laid table picture joins only while it may still be laid — a FREE row,
@@ -386,6 +437,7 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
 // 26–27 Sep 2026), at the same instant (%[1]d) as the table picture's join.
 const userFromAt = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.active_picture_id
   LEFT JOIN user_sessions us ON us.user_id = u.id
+  LEFT JOIN user_milestones mt ON mt.user_id = u.id AND mt.milestone = 'TIMED_BONUS'
   LEFT JOIN user_table_choice tc ON tc.user_id = u.id
   LEFT JOIN table_pictures tp ON tp.id = tc.table_picture_id
    AND (tp.type = 'FREE' OR EXISTS (
@@ -428,6 +480,9 @@ type userRow struct {
 	active bool
 	// sessionVersion is user_sessions.version, 0 with no row.
 	sessionVersion int64
+	// nextBonusAt is the TIMED_BONUS next_claim_at from user_milestones, the
+	// 6-hour bonus's recharge; 0 with no row.
+	nextBonusAt int64
 	// level is the player's level, XP, window and badges (playerLevelJoins).
 	level levelRow
 }
@@ -440,6 +495,7 @@ func scanUser(row pgx.Row) (*userRow, error) {
 		&buckets, &variations,
 		&r.activePictureID, &r.createdAt, &r.updatedAt, &r.lastLoginAt, &r.active,
 		&r.sessionVersion,
+		&r.nextBonusAt,
 		&r.pictureAssetURL,
 		&r.tablePictureID, &r.tableDayURL, &r.tableNightURL, &r.tableAssetFormat, &r.tableCurrency, &r.tableCost}
 	err := row.Scan(append(targets, r.level.targets()...)...)
@@ -525,10 +581,16 @@ func (u *Users) publicUser(r *userRow) *User {
 		TotalWinnings:     totals.TotalWinnings,
 		BiggestPot:        totals.BiggestPot,
 		Stats:             r.stats.Wire(),
-		CreatedAt:         r.createdAt,
-		LastLoginAt:       r.lastLoginAt,
-		Standing:          r.level.standing(now(u.clock)),
-		Disabled:          !r.active,
+		Rewards: Rewards{
+			BonusReadyAt:    r.nextBonusAt,
+			BonusAvailable:  now(u.clock) >= r.nextBonusAt,
+			BonusReward:     TimedBonusReward,
+			BonusIntervalMs: TimedBonusInterval.Milliseconds(),
+		},
+		CreatedAt:   r.createdAt,
+		LastLoginAt: r.lastLoginAt,
+		Standing:    r.level.standing(now(u.clock)),
+		Disabled:    !r.active,
 		// A User built anywhere but from a row carries 0, which is also what a
 		// token from before sessions were counted carries.
 		SessionVersion: r.sessionVersion,
@@ -802,6 +864,82 @@ func (u *Users) SetActivePicture(ctx context.Context, userID string, pictureID *
 // Ledger rows keep pointing at the row, so it needs to read as gone rather
 // than as blank.
 const DeletedDisplayName = "Deleted player"
+
+// collectMilestone records one collection of the 6-hour bonus in
+// user_milestones: the player's row for it is inserted the first time and
+// updated in place every time after (owner, 14 Sep 2026) — chip_ledger is the
+// record of each payment, so a row per claim would only repeat it. Run under
+// the wallet lock, which serialises one player's claims, so two first claims
+// cannot race to insert.
+func collectMilestone(ctx context.Context, tx pgx.Tx, userID, milestone string, nextClaimAt, timestamp int64) error {
+	_, err := tx.Exec(ctx,
+		`INSERT INTO user_milestones (user_id, milestone, claimed_up_to, next_claim_at, times_claimed, last_claimed_at, created_at, updated_at)
+		 VALUES ($1, $2, 0, $3, 1, $4, $4, $4)
+		 ON CONFLICT (user_id, milestone) DO UPDATE
+		    SET next_claim_at   = EXCLUDED.next_claim_at,
+		        times_claimed   = user_milestones.times_claimed + 1,
+		        last_claimed_at = EXCLUDED.last_claimed_at,
+		        updated_at      = EXCLUDED.updated_at`,
+		userID, milestone, nextClaimAt, timestamp)
+	return err
+}
+
+// ClaimTimedBonus is the 6-hour bonus (owner, 30 Sep 2026; requirement 18's
+// four-hour one until that morning): lock the row; if now < the TIMED_BONUS
+// next_claim_at → {Claimed false, Reason "not_ready", ReadyAt next_claim_at,
+// User}. Else chips += TimedBonusReward, next_claim_at = now + 6h
+// (collectMilestone), ledger row (action_id NULL, reason timed_bonus) →
+// {Claimed true, Amount, ReadyAt, User}. Unknown user → error.
+//
+// The next unlock time lives in the database, so the countdown survives a
+// restart and cannot be reset by reinstalling the client. The caller holds
+// the player's seat lock (auth.Handler.whileUnseated): a seated wallet only
+// moves at the three checkpoints (CLAUDE.md §5.1), so the lobby is the one
+// place this credit may land.
+func (u *Users) ClaimTimedBonus(ctx context.Context, userID string) (*RewardResult, error) {
+	var result *RewardResult
+	err := u.db.WithTx(ctx, func(tx pgx.Tx) error {
+		row, err := scanUser(tx.QueryRow(ctx, `SELECT `+userColumns+u.userFrom()+` WHERE u.id = $1 AND u.deleted_at = 0 FOR UPDATE OF u`, userID))
+		if err != nil {
+			return err
+		}
+		if row == nil {
+			return fmt.Errorf("unknown user %s", userID)
+		}
+
+		timestamp := now(u.clock)
+		if timestamp < row.nextBonusAt {
+			result = &RewardResult{Claimed: false, Reason: RewardNotReady, ReadyAt: row.nextBonusAt, User: u.publicUser(row)}
+			return nil
+		}
+
+		balance := row.chips + TimedBonusReward
+		readyAt := timestamp + TimedBonusInterval.Milliseconds()
+
+		if _, err := tx.Exec(ctx, `UPDATE users SET chips = $1, updated_at = $2 WHERE id = $3`,
+			balance, timestamp, userID); err != nil {
+			return err
+		}
+		if err := collectMilestone(ctx, tx, userID, MilestoneTimedBonus, readyAt, timestamp); err != nil {
+			return err
+		}
+		// No action_id: the next_claim_at check under the row lock is the guard.
+		if err := appendLedger(ctx, tx, userID, "", "", TimedBonusReward, balance, game.LedgerReasonTimedBonus, timestamp); err != nil {
+			return err
+		}
+
+		fresh, err := selectUser(ctx, tx, u.userFrom(), userID)
+		if err != nil {
+			return err
+		}
+		result = &RewardResult{Claimed: true, Amount: TimedBonusReward, ReadyAt: readyAt, User: u.publicUser(fresh)}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
 
 // DeleteAccount erases the person behind an account at their own request
 // (Google Play requires apps that create accounts to offer this).

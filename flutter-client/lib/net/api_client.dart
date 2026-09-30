@@ -1049,4 +1049,30 @@ class ApiClient {
       },
     );
   }
+
+  /// Collects the 6-hour bonus (owner, 30 Sep 2026): POST /api/rewards/bonus,
+  /// whose body is ignored. 200 `{claimed:true, amount, readyAt, user}`; a
+  /// refusal is a 409 — `reward_not_ready` with `readyAt` and `user`, or
+  /// `seated` at a table — which [_decode] raises as an [ApiException].
+  ///
+  /// Read `claimed`, and the amount from `amount` — the server's own words,
+  /// never a figure the app assumes.
+  Future<({User? user, bool claimed, int amount, int readyAt, String message})>
+  claimBonus(String token) async {
+    final r = await http.post(
+      _uri('/api/rewards/bonus'),
+      headers: _headers(token),
+      body: jsonEncode(const {}),
+    );
+    final j = _decode(r);
+    return (
+      user: j['user'] is Map
+          ? User.fromJson(Map<String, dynamic>.from(j['user'] as Map))
+          : null,
+      claimed: j['claimed'] == true,
+      amount: (j['amount'] as num?)?.toInt() ?? 0,
+      readyAt: (j['readyAt'] as num?)?.toInt() ?? 0,
+      message: '${j['message'] ?? ''}',
+    );
+  }
 }

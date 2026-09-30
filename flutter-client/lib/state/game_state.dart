@@ -3059,6 +3059,48 @@ class GameState extends ChangeNotifier {
     }
   }
 
+  /// The 6-hour bonus's refusal code for a bonus still recharging.
+  static const bonusNotReadyCode = 'reward_not_ready';
+
+  /// Whether a bonus claim is out, so the chip is pressed once.
+  bool claimingBonus = false;
+
+  /// Collects the 6-hour bonus (owner, 30 Sep 2026: "IN Top left Add Again
+  /// Every 6 hours bonus 25000 Coins"): the lobby's top-left chip, tapped
+  /// while the server says it is ready. Success is `claimed`; the account in
+  /// the answer carries the new clock, and the lobby's celebration shows the
+  /// chips. A refusal keeps the server's own wording — "The bonus is still
+  /// recharging", "Collect your reward from the lobby" — and a clock the
+  /// phone had wrong is put right by reading the account again. Nothing is
+  /// sent from a table: the chip is the lobby's, and the server would refuse
+  /// a seated player anyway (a seated wallet only moves at the three
+  /// checkpoints).
+  Future<void> claimBonus() async {
+    final token = _token;
+    if (token == null || claimingBonus || room != null) return;
+    claimingBonus = true;
+    notifyListeners();
+    try {
+      final r = await _api.claimBonus(token);
+      if (r.user != null) user = r.user;
+      if (r.claimed) {
+        rewardWon = (kind: 'bonus', amount: r.amount, missiles: 0, hammers: 0);
+      } else {
+        notice = r.message.isEmpty ? t.bonusRefused : r.message;
+      }
+    } on ApiException catch (e) {
+      notice = e.message.isEmpty ? t.bonusRefused : e.message;
+      // The server's clock, not the phone's guess, decides when the bonus is
+      // ready: told it is not, take the account's clock afresh.
+      if (e.code == bonusNotReadyCode) unawaited(refreshUser());
+    } catch (_) {
+      notice = t.bonusRefused;
+    } finally {
+      claimingBonus = false;
+    }
+    notifyListeners();
+  }
+
   /// Loads the picture catalogue.
   ///
   /// Called once at startup and again after signing in, because ownership is

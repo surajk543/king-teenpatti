@@ -1257,12 +1257,24 @@ route's shape with `owned:true`; `welcomeChips` is its chips (0 for a returning 
 `VerifyFacebook` and its `case` are commented out, so `provider:"facebook"` with an `accessToken` answers 400
 `unknown_provider`, fake path included; the app draws no Facebook button; `docs/social-login-setup.md` §2 says what to
 uncomment); `GET /api/auth/me` (takes off a worn rental that has run out, as
-login and `GET /api/profiles` do — a saved session comes back through here, never through login); **the three lobby rewards
-are gone** (owner, 30 Sep 2026: "Remove 24-hour daily reward, 4-hour bonus, and milestone reward") — the milestone (25,000
-chips every 25 hands), the 4-hour bonus (10,000) and the daily bonus (1,00,000 chips + 1 hammer): `POST
-/api/rewards/milestone|bonus|daily` answer the JSON 404 of any unknown `/api/*` route, and the account object carries no
-`rewards` key, which is what hides all three chips in an installed app from before (1.7.0 draws them only when `user.rewards`
-is there); **`GET /api/profiles`** — the picture catalogue from `profile_pictures`, active rows only, in
+login and `GET /api/profiles` do — a saved session comes back through here, never through login); **two of the three lobby
+rewards are gone** (owner, 30 Sep 2026: "Remove 24-hour daily reward, 4-hour bonus, and milestone reward") — the milestone (25,000
+chips every 25 hands) and the daily bonus (1,00,000 chips + 1 hammer): `POST /api/rewards/milestone|daily` answer the JSON 404
+of any unknown `/api/*` route — **and the third is back the same evening as the 6-hour bonus** (owner: "IN Top left Add Again
+Every 6 hours bonus 25000 Coins"): **`POST /api/rewards/bonus`** (`auth/handlers.go` `Bonus`, `db.Users.ClaimTimedBonus`;
+`TimedBonusReward` 25,000, `TimedBonusInterval` 6 h — constants, never configurable, as the rewards always were): the body ignored,
+under `Deps.WhileUnseated` (409 `seated` "Collect your reward from the lobby, not while you are at a table." — a lobby-only credit,
+§5.1) and the wallet limiter; 200 `{claimed:true, amount, readyAt, user}`, a `timed_bonus` ledger row (no action_id: the
+`next_claim_at` check under the row lock is the guard), the `TIMED_BONUS` row of `user_milestones` inserted or updated in place
+(`collectMilestone`); still recharging → 409 `{error:"reward_not_ready", message, readyAt, user}` (`ErrorResponse.ReadyAt`/`User`).
+The account carries **`rewards {bonusReadyAt, bonusAvailable, bonusReward, bonusIntervalMs}`** again (`db.Rewards`, joined from
+`user_milestones` in every account read: 0/true on an account that has never collected), which the lobby's top-left chip is drawn
+from; the four-hour bonus's keys, so an installed app from before draws its chip and collects through the same route (the milestone
+and daily keys it also read are absent, so it draws neither). `internal/db/users_test.go` (the bonus tests: a new account ready,
+25,000 and six hours, not twice inside the countdown, the clock in the database, one timestamp a transaction),
+`internal/auth/http_test.go` (`TestTheSixHourBonusIsBackAndTheOtherRewardsStayGone`), `internal/app/timedbonus_test.go` (the real
+wiring: 404 for the two gone, the bonus paid once through the ledger, 409 `reward_not_ready` with `readyAt` and the account,
+`session:ready` carrying the clock, 409 `seated` at a table and the claim back in the lobby); **`GET /api/profiles`** — the picture catalogue from `profile_pictures`, active rows only, in
 `sort_order` then `id`: `{profiles:[{id, name, url, assetFormat, currency, type, cost, durationDays, durationHours, sortOrder, owned, expiresAt}]}` — a rental lasts `durationDays` days plus `durationHours` hours (both 0: for ever; the hours since 14 Sep 2026, owner) — `assetFormat` is IMAGE (jpg/jpeg/png, one loader), SVG, LOTTIE (Lottie JSON/.lottie at the url) or RIVE (.riv binary), how the client renders what `url` serves; `currency` is COIN (chips), DIAMOND (`users.diamond`) or HAMMER (`users.hammer`, owner 14 Sep 2026), the wallet `cost` is paid from. The token is
 **optional**: without one every FREE row reads `owned:true` and every PREMIUM one `owned:false`;
 with one, `owned` also covers the premium pictures that player has bought. A bad token is ignored,
@@ -1669,8 +1681,8 @@ Draw** — `lucky_draws`, `lucky_draw_slots`, `user_lucky_draws` (the paragraph 
 CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 9 CHECK ≥ 0`** — the premium currency, nine per new account (owner, 14 Sep 2026; two, and one before that, earlier the same day), never
 ledgered —, **`hammer INTEGER NOT NULL DEFAULT 20 CHECK ≥ 0`** — what a Force Sideshow costs, 20 per account, never ledgered —, **`missile INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — what a missile costs, one per new account, never ledgered —,
 counters, `active_picture_id`, `deleted_at`, and since 22 Sep 2026 **`is_bot BOOLEAN NOT NULL DEFAULT FALSE`** (in the baseline's `CREATE TABLE users` and its guarded block since 23 Sep 2026) — true for every bot the project runs (owner, 27 Sep 2026: "any bot who plays that should be marked is_bot true"; the `bot-play/` fleet alone until then), set at login from the guest DEVICE ID's namespace (`config.BotDevicePrefixes`, env `BOT_DEVICE_PREFIX`, a comma-separated list, default `botplay-,practice-bot-,ramp-bot-`: the Go fleet's `botplay-<6 digits>` (and the Node fleet's before it, `botplay-v1-<n>`, `botplay-v1-<n>-g<gen>` when rotated), `tools/bot.js`'s practice bots `practice-bot-<slot>-<name>` and the ramp test's `ramp-bot-<n>-device-id`; each entry trimmed, an empty one dropped). A **label, never a permission**: nothing in the game reads it, it is absent from every wire struct (`TestMarkingABotDoesNotLeakToTheClient` — a seat that announced itself as a bot would tell a player exactly what the fleet exists not to tell them), and the login **ORs** rather than assigns so a mark is never cleared. Empty prefix marks nobody, never everybody), and since 26 Sep 2026 **`is_active BOOLEAN NOT NULL DEFAULT TRUE`** (column and guarded block, as `is_bot`; §7.2 "A disabled account"),
-**`user_milestones`** (**retired 30 Sep 2026** with the three rewards, §7.2: nothing reads or writes it, and it stays in the
-baseline so a rollback to go-server/v1.12.0 on a database this build made still finds it; owner, 14 Sep 2026: the rewards each player had collected, moved off `users`, where they were `milestone_claimed` and `next_bonus_at` — `user_id`, `milestone` HANDS_PLAYED|TIMED_BONUS|DAILY_BONUS (TIMED_BONUS in the baseline's CHECK since `V1.0.2__timed_bonus_milestone.sql` was folded into it; production's table, built by go-server/v1.1.0, keeps the two-value CHECK — and refuses every four-hour bonus claim — until a fresh start or the hand ALTER in the baseline's header), PK on the pair, `claimed_up_to`, `next_claim_at`, `times_claimed`, `last_claimed_at`; one row per player per milestone, inserted on the first claim and updated in place after (`db.collectMilestone`), read through two LEFT JOINs in `userFrom`, so no row reads as nothing collected and both bonuses ready),
+**`user_milestones`** (retired on 30 Sep 2026 with the three rewards and **back in use the same evening for the 6-hour bonus's
+`TIMED_BONUS` row alone** (§7.2 — `HANDS_PLAYED` and `DAILY_BONUS` rows are history nothing reads); owner, 14 Sep 2026: the rewards each player had collected, moved off `users`, where they were `milestone_claimed` and `next_bonus_at` — `user_id`, `milestone` HANDS_PLAYED|TIMED_BONUS|DAILY_BONUS (TIMED_BONUS in the baseline's CHECK since `V1.0.2__timed_bonus_milestone.sql` was folded into it; production's table, built by go-server/v1.1.0, keeps the two-value CHECK — and refuses every four-hour bonus claim — until a fresh start or the hand ALTER in the baseline's header), PK on the pair, `claimed_up_to`, `next_claim_at`, `times_claimed`, `last_claimed_at`; one row per player per milestone, inserted on the first claim and updated in place after (`db.collectMilestone`), read through two LEFT JOINs in `userFrom`, so no row reads as nothing collected and both bonuses ready),
 **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`, and since 19 Sep 2026 `game`/`variant` — `'poker'` + the poker category on a poker row, NULL on every Teen Patti row, §6.5; append-only trigger),
 and the picture catalogue added 12 Sep 2026 (owner): **`profile_pictures`** (`name`, `asset_url`
 UNIQUE, `asset_format` IMAGE|SVG|LOTTIE|RIVE, `currency` COIN|DIAMOND|HAMMER, `type` FREE|PREMIUM, `cost` with a CHECK that free is 0 and premium is > 0, `is_active`,
@@ -2023,7 +2035,8 @@ purchase would, the race, a repointed day, a zone and its week, a campaign's win
 `rewardprograms_internal_test.go` (the period math, `streakAt`, `calendarAt`, the key), `internal/app/rewardprograms_test.go` (the
 routes on the real wiring: 401, a forged body ignored, four grants, wallet == ledger, nothing twice, 409 `seated` at a table).
 Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss, table_tax (§6.6: the winner's winning tax, action `<handId>:tax:<userId>`, always negative),
-milestone_reward, timed_bonus, daily_bonus (the three retired 30 Sep 2026 — history rows only, never purged), purchase, picture_purchase, table_picture_purchase, emoji_purchase, lucky_draw, reward_program (30 Sep 2026: a reward program's CHIPS reward, always positive, action_id `reward:<userId>:<programCode>:<claimDate>` — never purged), account_deleted, legacy_reconciliation,
+milestone_reward, daily_bonus (the two retired 30 Sep 2026 — history rows only, never purged), timed_bonus (the 6-hour bonus's
+25,000, back the same evening; never purged), purchase, picture_purchase, table_picture_purchase, emoji_purchase, lucky_draw, reward_program (30 Sep 2026: a reward program's CHIPS reward, always positive, action_id `reward:<userId>:<programCode>:<claimDate>` — never purged), account_deleted, legacy_reconciliation,
 test_fixture`. (`lucky_draw` is a Lucky Draw CHIPS prize — a chip source, always positive, action_id
 `lucky:<userId>:<actionId>`.) (`picture_purchase` is a premium profile picture bought with chips — a chip **sink**,
 always a negative delta, action_id `picture:<userId>:<pictureId>`; `table_picture_purchase` is the same for a table picture,
@@ -2788,6 +2801,26 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   icon and level icon which is in bottom right"; 44dp keys with 28dp discs before — `LevelKey.side`/`disc`, `FriendsKey.side`,
   `_Mark.size`, their glyphs 21dp; `lobbyNoticeArea` still measures the foot keys, so a toast keeps clear of them). Pictures by hand:
   `test/lobby_level_bar_shots.dart` (run like table_shots);
+  **The 6-hour bonus's chip** (owner, 30 Sep 2026, evening: "IN Top left Add Again Every 6 hours bonus 25000 Coins"; server §7.2)
+  stands in the top bar's left-hand corner again, before the picture — requirement 26's corner, where the 4-hour bonus stood until
+  that morning: `_BonusChip` (a `_CornerChip` capped at `Dim.cornerChipW` less a step, drawn only while `user.rewards` is on the
+  account — a server offering no bonus draws nothing and the name has the whole bar; the bar's `tight` is measured without the slot
+  again, so a 640dp phone is tight, its Shop key icon-only), an `_Hourglass` turning while the bonus recharges over the time left
+  (`formatCountdown`, set down rather than cut in a narrow slot — "5घं 59मि 58से" at ×1.25 on 640dp), and ready (`Rewards.bonusReady`:
+  the server's `bonusAvailable`, or its `bonusReadyAt` passed) the wallet's coin and what it pays (`_CornerChip.reward`, the
+  `_rewardLine`; owner, 24 Sep 2026: a coin, never the word Collect), gold-lit, a tap collecting it (`GameState.claimBonus` →
+  `ApiClient.claimBonus`, one POST at a time — `claimingBonus` — the account taken from the answer, the celebration's line "Come again
+  after 6 hours."; a refusal keeps the server's words and, told `reward_not_ready`, reads the account again for its clock; nothing is
+  sent from a table). Tapped while it counts down it opens `_BonusDetails` (`openBonusDetails`: the hourglass, "You will get" and the
+  25,000, "Next reward in" and the wait or "Ready to collect now", "A new bonus every 6 hours." from `bonusIntervalMs`, Close, and
+  Collect when ready). `Rewards` in `dtos.dart` reads the four keys (`bonusEveryHours` 6 where the server does not say) and rides every
+  copy of the account; eight strings in all five languages (`sixHourBonus`, `collect`, `bonusYouGet`, `bonusNextIn`, `bonusReadyNow`,
+  `bonusEveryHours`, `bonusComeBack`, `bonusRefused`). `test/six_hour_bonus_test.dart` (the DTO and its copies; the strings; the chip
+  at the top left before the picture and none without a bonus; ready in every language at 640x360 ×1.25 paying in a coin and the
+  figure whole, the coin the wallet's gold by day; counting down; one size ready or not; a tap's one POST, the answer taken, the
+  celebration, a second tap sending nothing; a refusal's words and the account read again; the popup's words, Close and Collect; every
+  screen and language at ×1.25 with nothing cut). `lobby_rewards_removed_test` holds the other two rewards gone and the bonus chip
+  first in the bar; `lobby_click_sound_test` hears its click.
   **The lobby's foot** (since the three rewards went, 30 Sep 2026 — owner: "Remove 24-hour daily reward, 4-hour bonus, and
   milestone reward"): the Lucky Draw chip alone in the bottom-left corner (`_LuckyDrawChip`, keyed `_luckyChip`) and the
   level key and Friends in the bottom-right (a Row keyed `_footKeys`) — **and between them, since the same evening, the record's key**
@@ -4365,10 +4398,10 @@ Joker, Hukam, Lowest Joker or Highest Joker for the hand in a server-timed 10 s,
 shows the three categories first and a category's tables inside it, §8.4 — and since 23 Sep 2026 the two engines,
 Teen Patti and Poker, in front of them) ·
 14 Show reveal · 15 pot to last leaver · 16 stats (played = made a chaal) · 17 25k/25 hands ·
-18 4h 10k bonus (and beside it, since 14 Sep 2026, a daily bonus of 1 lakh + 1 hammer every 24h; both removed 30 Sep 2026, with 17's milestone, owner) · 19 Seen: one double, forced showdown (brief 10 moves / code 7 rounds) ·
+18 4h 10k bonus (and beside it, since 14 Sep 2026, a daily bonus of 1 lakh + 1 hammer every 24h; both removed 30 Sep 2026, with 17's milestone, owner — and the bonus back that evening as **25,000 chips every 6 hours**, §7.2/§8.4) · 19 Seen: one double, forced showdown (brief 10 moves / code 7 rounds) ·
 20 provider avatar · 21 avatar picker (a DB catalogue since 12 Sep 2026: free
 pictures plus premium ones bought with chips, diamonds or (since 14 Sep 2026) hammers; not locked when seated since 13 Sep 2026 — worn at the table, and a diamond or hammer one bought there) · 22 private table · 23 landscape/M3 ·
-24 merge lone rooms · 25 leave confirm · 26 4h bonus top-left (the daily bonus bottom-left) · 27 milestone bottom-right (26 and 27 gone with the rewards, 30 Sep 2026) ·
+24 merge lone rooms · 25 leave confirm · 26 4h bonus top-left (the daily bonus bottom-left; the 6-hour bonus's chip is top-left again since the evening of 30 Sep 2026) · 27 milestone bottom-right (27 gone with the rewards, 30 Sep 2026) ·
 28 square cards + sweep · 29 display name · 30 entry cap (not on switch; generalised 12 Sep 2026 to a per-table
 **stack band** — `config.LobbyTable.MinChips/MaxChips`, in db mode a row's `min_chips`/`max_chips`, enforced by `assertWithinTableBand` on every LOBBY door into a
 seat (quick-join, join by code, create), shown on every lobby card; a switch or a consolidation move within the pair is exempt, as from the cap —

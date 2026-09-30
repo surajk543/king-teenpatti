@@ -341,6 +341,24 @@ class Strings {
   String countEmojis(int n) =>
       _(n == 1 ? 'countEmojiOne' : 'countEmojis').replaceAll('{n}', '$n');
 
+  // --- the 6-hour bonus (owner, 30 Sep 2026: "IN Top left Add Again Every 6
+  // hours bonus 25000 Coins"): the lobby's top-left chip, its popup while it
+  // counts down, and the celebration's line once it is collected.
+  String get sixHourBonus => _('sixHourBonus');
+  String get collect => _('collect');
+  String get bonusYouGet => _('bonusYouGet');
+  String get bonusNextIn => _('bonusNextIn');
+  String get bonusReadyNow => _('bonusReadyNow');
+
+  /// "A new bonus every 6 hours." — [hours] the server's recharge.
+  String bonusEveryHours(int hours) =>
+      _('bonusEveryHours').replaceAll('{n}', '$hours');
+
+  /// The celebration's line under the chips collected.
+  String bonusComeBack(int hours) =>
+      _('bonusComeBack').replaceAll('{n}', '$hours');
+  String get bonusRefused => _('bonusRefused');
+
   // --- the welcome rewards popup (owner, 30 Sep 2026): after the no-winnings
   // panel and before the weekly login popup, a new account confirms what it
   // was given — the one way on. The rows are the rewards' own words.
@@ -2023,6 +2041,15 @@ class Strings {
       'welcomeAdded': 'Welcome! Added to your account: {items}',
       'welcomePlain': 'Welcome to King Teen Patti!',
       'welcomeRewardsTitle': 'Welcome rewards',
+      'sixHourBonus': '6-HOUR BONUS',
+      'collect': 'Collect',
+      'bonusYouGet': 'You will get',
+      'bonusNextIn': 'Next reward in',
+      'bonusReadyNow': 'Ready to collect now',
+      'bonusEveryHours': 'A new bonus every {n} hours.',
+      'bonusComeBack': 'Come again after {n} hours.',
+      'bonusRefused':
+          'The bonus could not be collected. Try again in a moment.',
       'welcomeRewardsLead': 'Added to your account:',
       'welcomeConfirm': 'Confirm',
       'countPictureOne': '1 picture',
@@ -2981,6 +3008,14 @@ class Strings {
       'welcomeAdded': 'स्वागत है! आपके खाते में जोड़ा गया: {items}',
       'welcomePlain': 'King Teen Patti में आपका स्वागत है!',
       'welcomeRewardsTitle': 'स्वागत इनाम',
+      'sixHourBonus': '6-घंटे का बोनस',
+      'collect': 'लें',
+      'bonusYouGet': 'आपको मिलेगा',
+      'bonusNextIn': 'अगला इनाम मिलेगा',
+      'bonusReadyNow': 'अभी लेने के लिए तैयार',
+      'bonusEveryHours': 'हर {n} घंटे में नया बोनस।',
+      'bonusComeBack': '{n} घंटे बाद फिर आइए।',
+      'bonusRefused': 'बोनस नहीं लिया जा सका। थोड़ी देर में फिर कोशिश करें।',
       'welcomeRewardsLead': 'आपके खाते में जोड़ा गया:',
       'welcomeConfirm': 'पुष्टि करें',
       'countPictureOne': '1 तस्वीर',
@@ -3921,6 +3956,14 @@ class Strings {
       'welcomeAdded': 'স্বাগতম! আপনার অ্যাকাউন্টে যোগ হয়েছে: {items}',
       'welcomePlain': 'King Teen Patti-তে আপনাকে স্বাগতম!',
       'welcomeRewardsTitle': 'স্বাগত পুরস্কার',
+      'sixHourBonus': '6-ঘণ্টার বোনাস',
+      'collect': 'নিন',
+      'bonusYouGet': 'আপনি পাবেন',
+      'bonusNextIn': 'পরের পুরস্কার পাবেন',
+      'bonusReadyNow': 'এখনই নেওয়া যাবে',
+      'bonusEveryHours': 'প্রতি {n} ঘণ্টায় নতুন বোনাস।',
+      'bonusComeBack': '{n} ঘণ্টা পরে আবার আসুন।',
+      'bonusRefused': 'বোনাস নেওয়া যায়নি। একটু পরে আবার চেষ্টা করুন।',
       'welcomeRewardsLead': 'আপনার অ্যাকাউন্টে যোগ হয়েছে:',
       'welcomeConfirm': 'নিশ্চিত করুন',
       'countPictureOne': '1টি ছবি',
@@ -4861,6 +4904,14 @@ class Strings {
       'welcomeAdded': 'સ્વાગત છે! તમારા ખાતામાં ઉમેરાયું: {items}',
       'welcomePlain': 'King Teen Patti માં આપનું સ્વાગત છે!',
       'welcomeRewardsTitle': 'સ્વાગત ઇનામ',
+      'sixHourBonus': '6-કલાકનું બોનસ',
+      'collect': 'લો',
+      'bonusYouGet': 'તમને મળશે',
+      'bonusNextIn': 'આગલું ઇનામ મળશે',
+      'bonusReadyNow': 'હવે લઈ શકો છો',
+      'bonusEveryHours': 'દર {n} કલાકે નવું બોનસ.',
+      'bonusComeBack': '{n} કલાક પછી ફરી આવો.',
+      'bonusRefused': 'બોનસ લઈ શકાયું નહીં. થોડી વારમાં ફરી પ્રયત્ન કરો.',
       'welcomeRewardsLead': 'તમારા ખાતામાં ઉમેરાયું:',
       'welcomeConfirm': 'પુષ્ટિ કરો',
       'countPictureOne': '1 ફોટો',
@@ -5798,6 +5849,14 @@ class Strings {
       'welcomeAdded': 'ਜੀ ਆਇਆਂ ਨੂੰ! ਤੁਹਾਡੇ ਖਾਤੇ ਵਿੱਚ ਜੋੜਿਆ ਗਿਆ: {items}',
       'welcomePlain': 'King Teen Patti ਵਿੱਚ ਜੀ ਆਇਆਂ ਨੂੰ!',
       'welcomeRewardsTitle': 'ਸੁਆਗਤ ਇਨਾਮ',
+      'sixHourBonus': '6-ਘੰਟੇ ਦਾ ਬੋਨਸ',
+      'collect': 'ਲਓ',
+      'bonusYouGet': 'ਤੁਹਾਨੂੰ ਮਿਲੇਗਾ',
+      'bonusNextIn': 'ਅਗਲਾ ਇਨਾਮ ਮਿਲੇਗਾ',
+      'bonusReadyNow': 'ਹੁਣੇ ਲੈਣ ਲਈ ਤਿਆਰ',
+      'bonusEveryHours': 'ਹਰ {n} ਘੰਟੇ ਵਿੱਚ ਨਵਾਂ ਬੋਨਸ।',
+      'bonusComeBack': '{n} ਘੰਟੇ ਬਾਅਦ ਫਿਰ ਆਓ।',
+      'bonusRefused': 'ਬੋਨਸ ਨਹੀਂ ਲਿਆ ਜਾ ਸਕਿਆ। ਥੋੜ੍ਹੀ ਦੇਰ ਵਿੱਚ ਫਿਰ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
       'welcomeRewardsLead': 'ਤੁਹਾਡੇ ਖਾਤੇ ਵਿੱਚ ਜੋੜਿਆ ਗਿਆ:',
       'welcomeConfirm': 'ਪੁਸ਼ਟੀ ਕਰੋ',
       'countPictureOne': '1 ਤਸਵੀਰ',

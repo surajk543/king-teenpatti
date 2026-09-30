@@ -244,6 +244,55 @@ const forceSideshowCost = 1;
 /// How many missiles firing one spends. The server charges it.
 const missileCost = 1;
 
+/// The 6-hour bonus as the account carries it — `user.rewards` (owner, 30 Sep
+/// 2026: "IN Top left Add Again Every 6 hours bonus 25000 Coins": requirement
+/// 18's four-hour bonus, taken away that morning with the other two lobby
+/// rewards, back as six hours and 25,000 chips). The server says what it pays
+/// and when it unlocks; the lobby's top-left chip counts down to it and
+/// collects it (`POST /api/rewards/bonus`). Null from a server without it.
+class Rewards {
+  const Rewards({
+    required this.bonusReward,
+    required this.bonusReadyAt,
+    required this.bonusAvailable,
+    this.bonusIntervalMs = 0,
+  });
+
+  /// What one collection pays, in chips.
+  final int bonusReward;
+
+  /// Epoch ms the bonus unlocks; 0 means it is ready now. The server calls
+  /// this `bonusReadyAt`.
+  final int bonusReadyAt;
+
+  /// The server's own verdict, which is what actually gates the claim.
+  final bool bonusAvailable;
+
+  /// How long the bonus takes to recharge, in ms (six hours); 0 from a server
+  /// that does not say.
+  final int bonusIntervalMs;
+
+  bool get bonusReady =>
+      bonusAvailable || bonusReadyAt <= DateTime.now().millisecondsSinceEpoch;
+
+  Duration get untilBonus {
+    final ms = bonusReadyAt - DateTime.now().millisecondsSinceEpoch;
+    return Duration(milliseconds: ms < 0 ? 0 : ms);
+  }
+
+  /// The recharge as hours, for the words ("A new bonus every 6 hours."); 6
+  /// where the server did not say.
+  int get bonusEveryHours =>
+      bonusIntervalMs > 0 ? (bonusIntervalMs / 3600000).round() : 6;
+
+  factory Rewards.fromJson(Map<String, dynamic> j) => Rewards(
+    bonusReward: _int(j['bonusReward']),
+    bonusReadyAt: _int(j['bonusReadyAt']),
+    bonusAvailable: j['bonusAvailable'] == true,
+    bonusIntervalMs: _int(j['bonusIntervalMs']),
+  );
+}
+
 class User {
   const User({
     required this.id,
@@ -267,12 +316,17 @@ class User {
     this.playerLevel,
     this.badges = const [],
     this.taxBps,
+    this.rewards,
   });
 
   final String id;
   final String provider;
   final String displayName;
   final int chips;
+
+  /// The 6-hour bonus as it stands for this player ([Rewards]); null from a
+  /// server that offers none, and then the lobby draws no bonus chip.
+  final Rewards? rewards;
 
   /// The player's level, their XP and the winning tax the level sets (owner,
   /// 26 Sep 2026) — this viewer's own and nobody else's: the server never
@@ -416,6 +470,7 @@ class User {
     playerLevel: playerLevel,
     badges: badges,
     taxBps: taxBps,
+    rewards: rewards,
   );
 
   /// The same account at a new standing — what `player:level` reports after
@@ -443,6 +498,7 @@ class User {
     playerLevel: standing.playerLevel,
     badges: standing.badges,
     taxBps: standing.taxBps,
+    rewards: rewards,
   );
 
   /// The same account with a new missile count — what firing one reports in
@@ -469,6 +525,7 @@ class User {
     playerLevel: playerLevel,
     badges: badges,
     taxBps: taxBps,
+    rewards: rewards,
   );
 
   factory User.fromJson(Map<String, dynamic> j) => User(
@@ -499,6 +556,9 @@ class User {
     playerLevel: PlayerLevel.maybe(j['playerLevel']),
     badges: PlayerBadge.listOf(j['badges']),
     taxBps: _bpsOrNull(j['taxBps']),
+    rewards: j['rewards'] is Map
+        ? Rewards.fromJson(Map<String, dynamic>.from(j['rewards'] as Map))
+        : null,
   );
 }
 

@@ -72,7 +72,9 @@ func TestTablePicturesAreServedBoughtAndLaidOverREST(t *testing.T) {
 	seeded := len(tableCatalogue(t, ts.URL))
 	insertTablePicture(t, database, "Classic", db.PictureCurrencyCoin, db.PictureFree, 0, 0)
 	insertTablePicture(t, database, "Sapphire", db.PictureCurrencyCoin, db.PicturePremium, 50000, 7)
-	insertTablePicture(t, database, "Lattice", db.PictureCurrencyHammer, db.PicturePremium, 20, 20)
+	// Ten hammers: what the seeded welcome grants since the owner halved it
+	// (30 Sep 2026); a dearer picture would leave the seated buy refused.
+	insertTablePicture(t, database, "Lattice", db.PictureCurrencyHammer, db.PicturePremium, 10, 20)
 	catalogue := tableCatalogue(t, ts.URL)
 	if len(catalogue) != seeded+3 {
 		t.Fatalf("the catalogue lists %d table pictures, want the %d seeded rows and 3 of this test's", len(catalogue), seeded)
@@ -154,6 +156,8 @@ func TestTablePicturesAreServedBoughtAndLaidOverREST(t *testing.T) {
 	// At a table: chips refused, hammers sold and laid; the seat's chips and
 	// the wallet do not move.
 	seatedToken, seatedID := login(t, ts.URL, "table-picture-seated", "Table Seated")
+	// What the welcome granted in hammers (the seed's rows decide, §7.3).
+	startHammers, _, _ := hammerBooks(t, database, seatedID)
 	c := dial(t, ts.URL, seatedToken)
 	joinAck := mustOK(t, c, socket.EvRoomQuickJoin, map[string]any{"bootAmount": 200, "category": "seen"})
 	// A Teen Patti table (the picture shows on that felt alone, §6.5).
@@ -214,7 +218,7 @@ func TestTablePicturesAreServedBoughtAndLaidOverREST(t *testing.T) {
 	}, 3*time.Second); err != nil {
 		t.Fatalf("the other player never got room:state with the picture: %v", err)
 	}
-	if hammers, spends, _ := hammerBooks(t, database, seatedID); hammers != 20-hammer.Cost || spends != 0 {
+	if hammers, spends, _ := hammerBooks(t, database, seatedID); hammers != startHammers-hammer.Cost || spends != 0 {
 		t.Errorf("a seated hammer table buy: hammers %d, hammer_spends %d", hammers, spends)
 	}
 	if wallet, ledger := walletAndLedger(t, database, seatedID); seatOf(t, a, seatedID) != welcome || wallet != welcome || ledger != welcome {

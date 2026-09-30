@@ -89,6 +89,13 @@ GameState _state() {
       'hammer': 20,
       'missile': 1,
       'playerLevel': _level(),
+      // The 6-hour bonus ready, so its chip is a key (30 Sep 2026).
+      'rewards': {
+        'bonusReward': 25000,
+        'bonusReadyAt': 0,
+        'bonusAvailable': true,
+        'bonusIntervalMs': 21600000,
+      },
     })
     ..luckyDraw = LuckyDrawState.fromJson({
       'draw': {
@@ -193,6 +200,7 @@ void main() {
     // bar's Sign out key went on 30 Sep 2026, and the record's key came
     // down to the foot).
     final keys = <String, Finder>{
+      'the bonus': find.text(t.sixHourBonus),
       'the picture': find.byTooltip(t.yourPicture),
       'Shop': find.byType(ShopButton),
       'Settings': find.byTooltip(t.settings),
@@ -443,6 +451,7 @@ void main() {
       // The top bar and the foot (the celebration's close key has a test of
       // its own).
       for (final MapEntry(key: name, value: finder) in {
+        'the bonus': find.text(t.sixHourBonus),
         'the picture': find.byTooltip(t.yourPicture),
         'Shop': find.byType(ShopButton),
         'Settings': find.byTooltip(t.settings),

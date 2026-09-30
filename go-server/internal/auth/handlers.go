@@ -1194,6 +1194,38 @@ func (h *Handler) isSeated(userID string) bool {
 // request's: a client giving up while its COMMIT was on the wire would
 // otherwise end the call — and release the lock — before the outcome was
 // known.
+// Bonus is POST /api/rewards/bonus, the 6-hour bonus (owner, 30 Sep 2026:
+// "IN Top left Add Again Every 6 hours bonus 25000 Coins"; requirement 18's
+// four-hour bonus until that morning). Order: seated → 409 {error:"seated"};
+// claimed → 200 {claimed:true, amount, readyAt, user} and log `timed bonus
+// claimed` {userId}; not ready → 409 {error:"reward_not_ready", message,
+// readyAt, user}. The body is ignored. The seated check, and the seat lock it
+// is taken under (whileUnseated), are the rule every lobby-only credit
+// follows: a seated wallet is banked at the three checkpoints alone
+// (CLAUDE.md §5.1), so a credit landing under a seat would be lost or
+// doubled at the next one.
+func (h *Handler) Bonus(w http.ResponseWriter, r *http.Request, user *db.User) {
+	var result *db.RewardResult
+	var err error
+	if !h.whileUnseated(r.Context(), user.ID, func(ctx context.Context) { result, err = h.deps.Users.ClaimTimedBonus(ctx, user.ID) }) {
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedBonus})
+		return
+	}
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	if !result.Claimed {
+		readyAt := result.ReadyAt
+		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeRewardNotReady, Message: MsgRewardNotReady, ReadyAt: &readyAt, User: result.User})
+		return
+	}
+	if h.deps.Logger != nil {
+		h.deps.Logger.Info("timed bonus claimed", "userId", user.ID)
+	}
+	WriteJSON(w, http.StatusOK, result)
+}
+
 func (h *Handler) whileUnseated(ctx context.Context, userID string, fn func(ctx context.Context)) bool {
 	if h.deps.WhileUnseated != nil {
 		return h.deps.WhileUnseated(userID, fn)
