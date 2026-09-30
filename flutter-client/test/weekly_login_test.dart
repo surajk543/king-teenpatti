@@ -31,6 +31,9 @@ import 'package:teenpatti/screens/lobby_screen.dart';
 import 'package:teenpatti/screens/reward_programs_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
+import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/widgets/level_accent.dart';
+import 'package:teenpatti/widgets/premium_surface.dart';
 import 'package:teenpatti/widgets/weekly_login.dart';
 
 import 'reward_fixtures.dart';
@@ -80,6 +83,49 @@ Map<String, dynamic> _layer(Map<String, dynamic> file, String name) =>
     (file['layers'] as List).cast<Map<String, dynamic>>().firstWhere(
       (l) => l['nm'] == name,
     );
+
+double _hue(Color c) => HSLColor.fromColor(c).hue;
+
+/// How far apart two hues are round the wheel.
+double _hueGap(double a, double b) {
+  final d = (a - b).abs() % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+ColorScheme _scheme(Brightness b) =>
+    (b == Brightness.dark
+            ? AppTheme.dark(sound: false)
+            : AppTheme.light(sound: false))
+        .colorScheme;
+
+/// The lobby's menu with a Seen, a Blind and a Variation table, so a level
+/// can be opened under the popup.
+GameConfig _threeTables() => GameConfig.fromJson({
+  'maxPlayers': 5,
+  'minPlayers': 2,
+  'bootAmount': 200,
+  'turnTimeoutMs': 25000,
+  'categories': ['seen', 'blind', 'variation'],
+  'tables': [
+    {'category': 'seen', 'bootAmount': 200, 'maxPot': 2000000},
+    {'category': 'blind', 'bootAmount': 200, 'maxChips': 2000000},
+    {'category': 'variation', 'bootAmount': 50000},
+  ],
+});
+
+/// The popup's glass panel, its solid base by day, and its ambient light.
+PremiumGlassPanel _glass(WidgetTester tester) => tester.widget(
+  find.ancestor(of: _panel, matching: find.byType(PremiumGlassPanel)).first,
+);
+
+Color? _base(WidgetTester tester) =>
+    (tester
+                .widget<DecoratedBox>(
+                  find.byKey(const ValueKey('weekly-login-base')),
+                )
+                .decoration
+            as BoxDecoration)
+        .color;
 
 void main() {
   setUpAll(() async {
@@ -175,21 +221,150 @@ void main() {
       }
     });
 
-    test('the delegates hide the solid, paint every box the one blue, and '
-        'by night the ground in charcoal', () {
+    test('the delegates hide the solid, the sparkles and the ground, restyle '
+        'the card, and paint every box in its day\'s colour', () {
+      final program = RewardProgramState.fromJson(
+        streakJson(claimedToday: false),
+      );
       for (final b in Brightness.values) {
-        final values = WeeklyCalendar.delegates(b).values!;
-        expect(values.length, b == Brightness.dark ? 9 : 8, reason: b.name);
-        expect(values.first.keyPath, [WeeklyCalendarGeometry.solidLayer]);
-        for (var day = 1; day <= 7; day++) {
+        final values = WeeklyCalendar.delegates(b, program).values!;
+        final paths = values.map((v) => v.keyPath.join('/')).toList();
+        for (final hidden in const [
+          WeeklyCalendarGeometry.solidLayer,
+          WeeklyCalendarGeometry.sparklesLayer,
+          WeeklyCalendarGeometry.groundLayer,
+        ]) {
+          expect(paths, contains(hidden), reason: '${b.name} $hidden');
+        }
+        // The card: its outline and rings (a colour and a width each), its
+        // holes, its header band and its body.
+        const card = WeeklyCalendarGeometry.cardLayer;
+        for (final group in [
+          ...WeeklyCalendarGeometry.outlineGroups,
+          ...WeeklyCalendarGeometry.ringGroups,
+        ]) {
           expect(
-            values[day].keyPath.first,
-            WeeklyCalendarGeometry.boxLayers[day - 1],
+            paths.where((p) => p == '$card/$group/**').length,
+            2,
+            reason: '${b.name} $group',
           );
         }
-        if (b == Brightness.dark) {
-          expect(values.last.keyPath.first, WeeklyCalendarGeometry.groundLayer);
+        for (final group in [
+          ...WeeklyCalendarGeometry.holeGroups,
+          WeeklyCalendarGeometry.headerGroup,
+          WeeklyCalendarGeometry.bodyGroup,
+        ]) {
+          expect(
+            paths,
+            contains('$card/$group/**'),
+            reason: '${b.name} $group',
+          );
         }
+        // Every box, in its day's colour: Days 1 and 2 collected (gold),
+        // Day 3 today's (gold), Day 4 next (cyan glass), Day 5 beyond
+        // (dark glass), Day 7 the week's own.
+        final colours = WeeklyCardColours.of(b);
+        Color boxOf(int day) =>
+            values
+                    .firstWhere(
+                      (v) =>
+                          v.keyPath.first ==
+                          WeeklyCalendarGeometry.boxLayers[day - 1],
+                    )
+                    .value!
+                as Color;
+        expect(boxOf(1), AppTheme.gold, reason: b.name);
+        expect(boxOf(2), AppTheme.gold, reason: b.name);
+        expect(boxOf(3), AppTheme.gold, reason: b.name);
+        expect(boxOf(4), colours.upcoming, reason: b.name);
+        expect(boxOf(5), colours.lockedBox, reason: b.name);
+        expect(boxOf(6), colours.lockedBox, reason: b.name);
+        expect(boxOf(7), colours.finalBox, reason: b.name);
+      }
+      // The states themselves.
+      expect(weeklyDayStateOf(program, 1), WeeklyDayState.claimed);
+      expect(weeklyDayStateOf(program, 3), WeeklyDayState.current);
+      expect(weeklyDayStateOf(program, 4), WeeklyDayState.next);
+      expect(weeklyDayStateOf(program, 6), WeeklyDayState.locked);
+      expect(weeklyDayStateOf(program, 7), WeeklyDayState.finalDay);
+      expect(
+        weeklyDayStateOf(program, 3, collected: 3),
+        WeeklyDayState.claimed,
+      );
+      final week = RewardProgramState.fromJson(
+        streakJson(day: 7, claimedToday: true),
+      );
+      expect(weeklyDayStateOf(week, 7), WeeklyDayState.claimed);
+    });
+
+    test('inside a Blind or Variation level the card\'s glass takes the '
+        'level\'s hue at its own lightness, and the boxes keep their days\' '
+        'colours', () {
+      final program = RewardProgramState.fromJson(
+        streakJson(claimedToday: false),
+      );
+      for (final b in Brightness.values) {
+        final house = WeeklyCardColours.of(b);
+        for (final category in const ['blind', 'variation']) {
+          final palette = AppTheme.paletteFor(
+            _scheme(b),
+            category: category,
+            bootAmount: 200,
+          );
+          final level = LevelColours(palette, b);
+          final colours = WeeklyCardColours.of(b, level);
+          for (final (mine, theirs) in [
+            (colours.body, house.body),
+            (colours.header, house.header),
+            (colours.outline, house.outline),
+            (colours.ring, house.ring),
+          ]) {
+            expect(
+              _hueGap(_hue(mine), _hue(palette.accent)),
+              lessThan(8),
+              reason: '${b.name} $category $mine',
+            );
+            expect(
+              HSLColor.fromColor(mine).lightness,
+              closeTo(HSLColor.fromColor(theirs).lightness, 0.02),
+              reason: '${b.name} $category $mine',
+            );
+          }
+          expect(colours.upcoming, house.upcoming);
+          expect(colours.lockedBox, house.lockedBox);
+          expect(colours.finalBox, house.finalBox);
+          // The delegates carry the same: the body in the hue, the boxes as
+          // at the front.
+          final values = WeeklyCalendar.delegates(
+            b,
+            program,
+            level: level,
+          ).values!;
+          Color valueOf(bool Function(ValueDelegate) where) =>
+              values.firstWhere(where).value! as Color;
+          expect(
+            valueOf(
+              (v) =>
+                  v.keyPath.length > 1 &&
+                  v.keyPath[1] == WeeklyCalendarGeometry.bodyGroup,
+            ),
+            colours.body,
+          );
+          expect(
+            valueOf(
+              (v) => v.keyPath.first == WeeklyCalendarGeometry.boxLayers[0],
+            ),
+            AppTheme.gold,
+          );
+          expect(
+            valueOf(
+              (v) => v.keyPath.first == WeeklyCalendarGeometry.boxLayers[4],
+            ),
+            house.lockedBox,
+          );
+        }
+        // No level: the house set, untouched.
+        expect(WeeklyCardColours.of(b, null).body, house.body);
       }
     });
   });
@@ -233,9 +408,20 @@ void main() {
           )
           .transform
           .entry(0, 0);
+      expect(scaleOf(1), lessThan(0.01));
+      expect(scaleOf(7), lessThan(0.01));
+      // The boxes are in by two seconds; no prize has landed yet.
+      await tester.pump(const Duration(milliseconds: 2100));
+      expect(scaleOf(1), lessThan(0.01));
+      expect(scaleOf(7), lessThan(0.01));
+      // Then the prizes, one after another: Day 1's before Day 7's. (The
+      // prizes' clock starts on the frame after the boxes' clock is done.)
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pump(WeeklyCalendar.revealStagger * 2);
+      expect(scaleOf(1), greaterThan(0.3));
       expect(scaleOf(7), lessThan(0.01));
       await tester.pump(const Duration(seconds: 2));
-      await tester.pump(const Duration(seconds: 1));
       for (var day = 1; day <= 7; day++) {
         final overlay = tester.getRect(_box(day));
         final box = WeeklyCalendar.boxRectIn(size, day).shift(origin);
@@ -250,7 +436,7 @@ void main() {
           lessThan(0.5),
           reason: '$day',
         );
-        expect(overlay.top, lessThan(box.top), reason: '$day');
+        expect((overlay.top - box.top).abs(), lessThan(0.5), reason: '$day');
         expect((scaleOf(day) - 1).abs(), lessThan(0.01), reason: '$day');
       }
       // What a screen reader hears: Day 1 collected, Day 3 today's, Day 4
@@ -263,7 +449,12 @@ void main() {
       expect(heard(3), contains('20,000'));
       expect(heard(4), contains(t.rewardTileLocked));
       // The file's clock, held where every box is in and still.
-      final lottie = tester.widget<Lottie>(find.byType(Lottie));
+      final lottie = tester.widget<Lottie>(
+        find.descendant(
+          of: find.byType(WeeklyCalendar),
+          matching: find.byType(Lottie),
+        ),
+      );
       expect(
         lottie.controller!.value,
         closeTo(
@@ -277,6 +468,41 @@ void main() {
   });
 
   group('the popup', () {
+    testWidgets('waits behind "Before you play" and pops, from the start of '
+        'its animation, when the player confirms', (tester) async {
+      await setRewardView(tester);
+      final sent = <http.Request>[];
+      await http.runWithClient(() async {
+        final state = rewardState(consented: false);
+        await _pumpDue(tester, state);
+        // Read, due, and yet not up: the panel covers the lobby.
+        expect(state.weeklyLoginDue, isNotNull);
+        expect(state.weeklyLoginOffer, isNull);
+        expect(_overlay, findsNothing);
+        await state.acceptConsent();
+        await tester.pump();
+        expect(_overlay, findsOneWidget);
+        // From the start: no box has popped, no prize has landed.
+        final lottie = tester.widget<Lottie>(
+          find.descendant(
+            of: find.byType(WeeklyCalendar),
+            matching: find.byType(Lottie),
+          ),
+        );
+        expect(lottie.controller!.value, lessThan(0.05));
+        await tester.pump(WeeklyCalendar.sequenceLength);
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(
+          lottie.controller!.value,
+          closeTo(
+            WeeklyCalendarGeometry.holdFrame / WeeklyCalendarGeometry.frames,
+            0.001,
+          ),
+        );
+        await unmountReward(tester, state);
+      }, () => fakeRewards(sent: sent, programs: _due()));
+    });
+
     testWidgets('pops after sign-in while today is still to collect, with '
         'the week\'s prizes in its boxes, and not when it is collected', (
       tester,
@@ -294,7 +520,7 @@ void main() {
           tester
               .widget<Text>(find.byKey(const ValueKey('weekly-login-headline')))
               .data,
-          t.streakDays(2),
+          t.streakDays(2).toUpperCase(),
         );
         final prize = rewardPrizeLabel(
           t,
@@ -304,7 +530,7 @@ void main() {
           tester
               .widget<Text>(find.byKey(const ValueKey('weekly-login-today')))
               .data,
-          t.todaysReward(prize),
+          prize.toUpperCase(),
         );
         for (var day = 1; day <= 7; day++) {
           expect(_box(day), findsOneWidget, reason: 'day $day');
@@ -324,6 +550,158 @@ void main() {
         await unmountReward(tester, state);
       }, () => fakeRewards(sent: quiet, programs: _collected()));
     });
+
+    testWidgets('the prize\'s figure is the largest type on a day card, '
+        'sized from the box, and drawn whole', (tester) async {
+      await setRewardView(tester);
+      final sent = <http.Request>[];
+      await http.runWithClient(() async {
+        final state = rewardState();
+        await _pumpDue(tester, state);
+        // Every prize landed.
+        await tester.pump(const Duration(seconds: 2));
+        for (final day in const [1, 3, 5, 7]) {
+          final box = tester.getRect(_box(day));
+          final figure = find.byKey(ValueKey('weekly-figure-$day'));
+          final style = tester.widget<Text>(figure).style!;
+          expect(
+            style.fontSize,
+            closeTo((box.width * 0.235).clamp(11.0, 19.0), 0.01),
+            reason: 'day $day',
+          );
+          // Larger than the day's label and than the 9.5 it was.
+          final label = tester
+              .widgetList<Text>(
+                find.descendant(of: _box(day), matching: find.byType(Text)),
+              )
+              .first
+              .style!
+              .fontSize!;
+          expect(style.fontSize, greaterThan(label), reason: 'day $day');
+          expect(style.fontSize, greaterThan(9.5), reason: 'day $day');
+          // Set down whole at the phone's own text size: the column fits
+          // the box, so the figure is drawn at its size, not scaled away.
+          final drawn = tester.getRect(figure);
+          expect(
+            drawn.height,
+            greaterThanOrEqualTo(style.fontSize! * 1.15 * 0.85),
+            reason: 'day $day $drawn',
+          );
+          expect(box.contains(drawn.topLeft), isTrue, reason: 'day $day');
+          expect(
+            box.contains(drawn.bottomRight - const Offset(1, 1)),
+            isTrue,
+            reason: 'day $day $drawn in $box',
+          );
+        }
+        await unmountReward(tester, state);
+      }, () => fakeRewards(sent: sent, programs: _due()));
+    });
+
+    for (final b in Brightness.values) {
+      testWidgets('inside Blind and Variation the popup takes the level\'s '
+          'colour, and the house gold at the front and inside Seen '
+          '(${b.name})', (tester) async {
+        await setRewardView(tester);
+        final sent = <http.Request>[];
+        await http.runWithClient(() async {
+          final state = rewardState()..config = _threeTables();
+          final feedback = FeedbackSettings();
+          addTearDown(feedback.dispose);
+          await tester.pumpWidget(
+            rewardApp(state, feedback, const LobbyScreen(), brightness: b),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(seconds: 1));
+          await tester.pump(const Duration(seconds: 3));
+          expect(_overlay, findsOneWidget);
+          final dark = b == Brightness.dark;
+          final scheme = _scheme(b);
+
+          void expectHouse(String where) {
+            final glass = _glass(tester);
+            expect(glass.tint, dark ? isNull : AppTheme.gold, reason: where);
+            expect(
+              glass.edge,
+              AppTheme.gold.withValues(alpha: dark ? 0.3 : 0.42),
+              reason: where,
+            );
+            expect(
+              _base(tester),
+              dark ? isNull : AppTheme.panelBase(b),
+              reason: where,
+            );
+          }
+
+          Future<void> expectLevel(String category) async {
+            state.openLobbyCategory(category);
+            await tester.pump();
+            await tester.pump(const Duration(seconds: 1));
+            expect(state.lobbyCategory, category);
+            final palette = AppTheme.paletteFor(
+              scheme,
+              category: category,
+              bootAmount: 200,
+            );
+            final level = LevelColours(palette, b);
+            final glass = _glass(tester);
+            expect(glass.tint, palette.accent, reason: category);
+            expect(
+              glass.edge,
+              palette.accent.withValues(alpha: dark ? 0.3 : 0.42),
+              reason: category,
+            );
+            // By day a solid ground in the level's hue under the glass.
+            expect(
+              _base(tester),
+              dark ? isNull : level.pearl,
+              reason: category,
+            );
+            if (!dark) {
+              expect(
+                _hueGap(_hue(_base(tester)!), _hue(palette.accent)),
+                lessThan(8),
+                reason: category,
+              );
+            }
+            // The calendar's glass in the hue too.
+            final lottie = tester.widget<Lottie>(
+              find.descendant(
+                of: find.byType(WeeklyCalendar),
+                matching: find.byType(Lottie),
+              ),
+            );
+            final body =
+                lottie.delegates!.values!
+                        .firstWhere(
+                          (v) =>
+                              v.keyPath.length > 1 &&
+                              v.keyPath[1] == WeeklyCalendarGeometry.bodyGroup,
+                        )
+                        .value!
+                    as Color;
+            expect(body, WeeklyCardColours.of(b, level).body, reason: category);
+          }
+
+          expectHouse('the front');
+          await expectLevel('blind');
+          await expectLevel('variation');
+          // Seen is the gold's own; the front again is too.
+          state.openLobbyCategory('seen');
+          await tester.pump();
+          await tester.pump(const Duration(seconds: 1));
+          expectHouse('seen');
+          while (state.closeLobbyLevel()) {
+            await tester.pump();
+          }
+          await tester.pump(const Duration(seconds: 1));
+          expect(state.lobbyCategory, isNull);
+          expectHouse('the front again');
+          expect(tester.takeException(), isNull);
+          await unmountReward(tester, state);
+        }, () => fakeRewards(sent: sent, programs: _due()));
+      });
+    }
 
     testWidgets('Collect claims, shows what was given — the other programs\' '
         'too — and Close puts it away; nothing is celebrated twice', (
@@ -357,7 +735,7 @@ void main() {
           tester
               .widget<Text>(find.byKey(const ValueKey('weekly-login-headline')))
               .data,
-          t.streakDays(3),
+          t.streakDays(3).toUpperCase(),
         );
         expect(state.user?.chips, 1020000);
         expect(state.rewardsGranted, isNull);

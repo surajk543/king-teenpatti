@@ -183,7 +183,9 @@ king-teenpatti/
     │   │                         fireworks, avatar, avatar_badge (the badge on the player's picture, §6.6), buy_chips, chip_store, picture_shelf,
     │   │                         rules_sheet, own_record (the lobby's Stats drawer, §8.4), level_art (a level's Lottie, §6.6),
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
-    │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4)
+    │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4),
+    │   │                         weekly_login (the weekly login popup: the owner's calendar, its day cards and the reward panel — §8.4),
+    │   │                         pot_coins (the pot's coins on the felt, the owner's Lottie drawn by a painter in the table's colour — §8.4)
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
     │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4); CasinoTableColors (the casino table's, §8.4)
     │   ├── theme/depth.dart      the depth ladder (28 Sep 2026, §8.4): Elevation, Depth/DepthScheme (every shadow and edge light), SurfaceLight, OuterShadow
@@ -199,6 +201,7 @@ king-teenpatti/
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
     │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
+    │          reward_programs and weekly_login on reward_fixtures.dart (§8.4), pot_coins (§8.4 "The pot's coins"),
     │          casino_table, seat_ring, premium_cards (§8.4); by hand, not `_test`: table_shots and card_shots (pictures)
     ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext in DEBUG builds only (src/debug manifest),
     │                             no Android backup (allowBackup=false + res/xml/data_extraction_rules.xml), USE_BIOMETRIC/USE_FINGERPRINT removed
@@ -1957,7 +1960,9 @@ no longer decide a new account's wallets), the `welcome_bonus` ledger row as bef
 ownership row a purchase or a Lucky Draw prize writes (the shop's term from now, `purchases` 1), never worn or laid. "Some or all" is
 which rows are active. A row that cannot be granted (unknown type, zero value, a bad, retired or FREE item, an overflow, the same item
 twice) is left out with one WARN `welcome reward left out` and never fails a login. Seeded (`V1.0.1`, THE WELCOME): **`chips`
-500000** (owner, 30 Sep 2026: "Also add 5Lakh chips in welcome reward"), `diamonds` 9, `hammers` 20, `missiles` 1 — the old defaults.
+500000** (owner, 30 Sep 2026: "Also add 5Lakh chips in welcome reward"), `diamonds` **5** and `hammers` **10** (the owner's own edit of
+the seed the same evening — 9 and 20, the old `users` DEFAULTs, until then; a database that ran the earlier seed keeps 9 and 20 until
+an UPDATE, `ON CONFLICT DO NOTHING`), `missiles` 1.
 **In production (`NODE_ENV=production`) the rows decide**: `WELCOME_CHIPS` writes the chips row only into a table with none, and a boot
 whose `WELCOME_CHIPS` was set and differs logs one WARN and leaves the row alone — production's `.env` says 300000, so a deploy of this
 build moves a new account from 3 Lakh to 5 Lakh and logs that WARN. **Outside production** (tests, parity, a local run)
@@ -2001,14 +2006,16 @@ extended) → INSERT the claim; a 23505 on the action_id or the period index is 
 retry and a second process all grant a day once (`TestTwoRequestsAtOnceGrantADaysRewardOnce`: eight goroutines over two pools, one
 grant). Independent programs: each claims on its own, a refusal of one never touches another. A program outside its window, or in a
 zone the server cannot load, is left out with one WARN (`reward program left out`); a day whose catalogue item is retired, gone or FREE is
-left out too (`reward program day left out`) and neither shown nor granted. **Seeded**: `WEEKLY_LOGIN` (the owner's own list, verbatim:
-Day 1 10,000 chips · 2 1 hammer · 3 20,000 · 4 1 diamond · 5 30,000 · 6 2 hammers · 7 1 diamond), `MONTHLY_LOGIN` (31 days of chips,
-hammers and diamonds rising to 2,50,000 chips; the 15th the Clapping Hands emoji, the 25th Lovestruck Cat, the 31st the Royal King
-badge), `WEEKLY_CALENDAR` (10,000 · 1 hammer · 1 hammer · 1 diamond · Clapping Hands · 30,000 · 50,000) and `MONTHLY_CALENDAR` (the 10th
-Clapping Hands, the 25th Lines Background, the 31st Royal Ace, chips, hammers and diamonds between) — all UTC, Monday weeks, the streaks
-resetting on a miss, sort_order 10–40; every item by natural key (`SELECT id::text FROM emojis WHERE name = …`, `SELECT code FROM badges
-…`) and a day whose item the catalogue lacks NOT inserted; `ON CONFLICT (code)` / `(program_id, day_number) DO NOTHING`, so an owner's
-UPDATE survives every boot (the seed's header shows the UPDATE and a campaign INSERT with a window). A reward changed by hand applies
+left out too (`reward program day left out`) and neither shown nor granted. **Seeded**: `WEEKLY_LOGIN` (the owner's own list, edited into
+the seed by the owner on 30 Sep 2026: Day 1 10,000 chips · 2 20,000 · 3 30,000 · 4 40,000 · 5 50,000 · 6 60,000 · 7 1 hammer — until that
+evening chips, hammers and diamonds alternating), and `MONTHLY_LOGIN`, `WEEKLY_CALENDAR` and `MONTHLY_CALENDAR` as programs WITHOUT
+days and INACTIVE (`is_active = FALSE`: the owner commented their day lists out of the seed the same day; a program with no days would be
+left out of the wire and grant nothing, so each waits for its `reward_program_rewards` rows and an `UPDATE … SET is_active = TRUE` — the
+seed's header shows the shape; the Go tests build the example day lists they need themselves, `exampleDays` in
+`internal/db/rewardprograms_test.go`) — all UTC, Monday weeks, the streaks resetting on a miss, sort_order 10–40; every item by natural
+key (`SELECT id::text FROM emojis WHERE name = …`, `SELECT code FROM badges …`) and a day whose item the catalogue lacks NOT inserted;
+`ON CONFLICT (code)` / `(program_id, day_number) DO NOTHING`, so an owner's UPDATE survives every boot (the seed's header shows the UPDATE
+and a campaign INSERT with a window). A reward changed by hand applies
 to claims from then on. Tests: `internal/db/rewardprograms_test.go` (the brief's matrix: the first login, consecutive days, a missed day
 with and without reset, a duplicate, the week's and the month's end, February and a leap year, every reward type landing where its
 purchase would, the race, a repointed day, a zone and its week, a campaign's window, an empty day, an unloadable zone, the seed),
@@ -2755,7 +2762,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   five languages). The GUEST provider tag keeps its line only where name, tag and level line fit the bar's content height
   (measured with a `TextPainter`, §12.3) — 891x411 ×1.0 and 1280x800 keep it, 891x411 ×1.25 drops it; the tight bar never had it.
   The foot's `LevelKey` stays (the owner did not ask to remove it; it is the level screen's key where the name block is cut
-  short). Pictures by hand: `test/lobby_level_bar_shots.dart` (run like table_shots);
+  short); **it and the Friends key are 56dp round keys with 36dp discs since 30 Sep 2026** (owner: "increase the size of friend
+  icon and level icon which is in bottom right"; 44dp keys with 28dp discs before — `LevelKey.side`/`disc`, `FriendsKey.side`,
+  `_Mark.size`, their glyphs 21dp; `lobbyNoticeArea` still measures the foot keys, so a toast keeps clear of them). Pictures by hand:
+  `test/lobby_level_bar_shots.dart` (run like table_shots);
   **The lobby's foot** (since the three rewards went, 30 Sep 2026 — owner: "Remove 24-hour daily reward, 4-hour bonus, and
   milestone reward"): the Lucky Draw chip alone in the bottom-left corner (`_LuckyDrawChip`, keyed `_luckyChip`) and the
   level key and Friends in the bottom-right (a Row keyed `_footKeys`), where the daily bonus (`_DailyBonusChip`, beside the
@@ -3013,46 +3023,69 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   the Lucky Draw's is); none from a server with no programs; a tap opens the weekly login popup while its day waits, else the screen.
   **The weekly login popup** (owner, the same day: "Use this animation which shows up everyday in case of weekly login and put the
   prize in blue boxes, it should pop after login and if user has claimed it should not show when user start the app, otherwise show
-  it"; `widgets/weekly_login.dart`): the owner's `assets/animations/WeekLy.json` — a desk calendar, 600×250, 30 fps, 3 s, no 3D,
-  expressions or images, whose seven blue boxes (four on the top row, three on the bottom) pop in one after another over 1.5 s and
-  pop out again by its end — drawn through a window on the card (`WeeklyCalendarGeometry.window`, the outer sparkles let go), played
-  ONCE to `holdFrame` 66 (every box in, before the first leaves) and held there, its white solid hidden, its one darker box drawn the
-  same blue as the other six, and by night its grey skyline ground in charcoal (`WeeklyCalendar.delegates(brightness)`). The seven
-  boxes are Day 1 to Day 7 in reading order and **each day's prize is drawn over its box by Flutter** (`_PrizeInBox`, keyed
-  `weekly-box-<day>`: "Day n" above the box, the prize's mark and figure inside it in white, a green tick when collected, a gold ring
-  — `BlurStyle.outer`, a shadow under a clear box tinted the blue — and a gold label for today, faded with a small lock when not
-  reached), placed from the file's own geometry (`boxCentres`, `boxSide`, read off its layers and held to the file by
-  `test/weekly_login_test.dart`) and popping with its box on the box's own frames (`boxPops`, an `Interval` with `Motion.settle`), so
-  the prize and the box cannot drift apart. `WeeklyLoginOverlay` (a `Positioned.fill` in the lobby's Stack under the celebration,
-  while `weeklyLoginOffer` stands and the resume veil is down): a scrim (a tap outside, the × key and Back — `_BackGuard` — close it),
-  the panel (the Lucky Draw page's glass), the program's name and "2 day streak" / "Start your streak today", the calendar sized to
-  the room left (`WeeklyCalendar.sizeFor`/`widthFor`), then "Today's reward: 20,000 chips" (`todaysReward`) beside the gold **Collect
-  now** key — which claims (`claimRewardPrograms(celebrate: false)`) and turns the foot into what was given: "+ 20,000 chips", the
-  other programs' grants after it ("Also: Clapping Hands emoji", `rewardsAlso`), fireworks, the third box ticked, "3 day streak" and
-  Tap to close; a claim that fails says so in the foot and keeps the key. Offered once a day a session; the next start offers it
-  again while it is still to collect. Two strings in all five languages. `test/weekly_login_test.dart` (58: the file's geometry,
-  layers, pops and traps; the delegates; the prizes over their boxes and popping with them, the file held at its frame; the popup
-  after sign-in, not when collected, Collect and Close, nothing celebrated twice, once a day, the chip, a new day, a tap outside and
-  Back, a failed claim, and 640x360 / 592x360 ×1.25 in all five languages and both themes); pictures by hand,
-  `test/weekly_login_shots.dart`. **The screen** (`showRewardPrograms`, a page risen from the foot like the
+  it"; then "Calender size should be big and it should play animation where all box one by one come up and then rewards on them
+  boxes"; then the polish brief the same evening — "Premium King Teen Patti Reward Vault", not "generic calendar popup";
+  `widgets/weekly_login.dart`): the owner's `assets/animations/WeekLy.json` — a desk calendar, 600×250, 30 fps, 3 s, no 3D,
+  expressions or images, whose seven boxes (four on the top row, three on the bottom) pop in one after another over two seconds and
+  pop out again by its end — CROPPED to the card (`WeeklyCalendarGeometry.window` 188,58–412,236; the white solid, the sparkles and
+  the skyline ground hidden), taking the panel's whole height on the left, played ONCE to `holdFrame` 66 (every box in and still,
+  before the first leaves) and held there. **Restyled as it plays, never edited** (`WeeklyCalendar.delegates(brightness, state,
+  {collected, level})`): the card's body, header band and ring holes in the theme's glass tones — charcoal by night, warm off-white by
+  day (`WeeklyCardColours`) — its outline and rings thinner and softer, and each box in its DAY's colour (`weeklyDayStateOf`:
+  `claimed` and `current` gold, `next` the blind table's cyan, `locked` dark glass, `finalDay` the seventh's purple). **Then the prizes
+  land on the boxes one by one** — the boxes first, the owner's order — (`_DayCard`, keyed `weekly-box-<day>`, `revealStagger` 110 ms
+  apart with the boxes' own overshoot, placed from the file's geometry — `boxCentres`, `boxSide`, `boxPops`, read off its layers and
+  held to the file by `test/weekly_login_test.dart` — so the prize and the box cannot drift apart): "DAY n" (FINAL on an unclaimed
+  Day 7), the prize's mark and its figure — **the figure the largest thing on the card, every size a share of the box's side**
+  (`figureSize` 0.235 of it, `markSize` 0.27, `labelSize` 0.135, set down whole where the phone's text size would overflow; owner,
+  30 Sep 2026: "Make Text size bigger of reward money which u show in calender"; 9.5 fixed before) — a collected day struck gold with a
+  ✓ badge straddling its corner, today's ringed in gold, a touch larger, with a breathing glow, the next day in cyan glass, the days
+  beyond dark with a small lock, the seventh gold over purple; a `_ProgressThread` between the days of a row, gold as far as the run
+  has come. **The panel** (`WeeklyLoginOverlay`, a `Positioned.fill` in the lobby's Stack under the celebration, while
+  `weeklyLoginOffer` stands and the resume veil is down; a tap outside, the × `LevelCloseKey` and Back — `_BackGuard` — close it):
+  the lobby's glass (`PremiumGlassPanel`, `Elevation.overlay`) with a gold edge and a soft light behind it, the calendar 60% of its
+  width (55% under 600dp inner), and on the right the reward hierarchy — the program's name in capitals, 🔥 "2 DAY STREAK" / "START
+  YOUR STREAK TODAY", what the mode means (the one line that gives way), TODAY'S REWARD over the prize in large gold, NEXT REWARD, and
+  the gold `LuckyGoldKey` **Collect now** — which claims (`claimRewardPrograms(celebrate: false)`) and turns the hero into "✓ + 20,000
+  CHIPS" (the other programs' grants under it, `rewardsAlso`), fireworks, the day's card struck gold, and the key **Continue**; a
+  claim that fails says so in the hero's place and keeps the key. **Inside a Blind or Variation level the popup takes the level's
+  colour** as the two drawers do (owner, the same day: "In day mode, when i click "Rewards" button after going into blind catalogue,
+  then daily Streak background color should be changed acc to card color, same with when i go in variation catalogue"): the lobby lays
+  `LevelAccent(palette: drawerPalette)` over the overlay, and the panel's wash (`tint`), its edge, the light behind it and the
+  calendar card's glass (`WeeklyCardColours.of(b, level)`, `LevelColours.inHue`) take the level's hue — ice and sapphire, lavender and
+  violet, by day and by night — the house gold at the front and inside Seen, and the day cards' own colours everywhere. **It waits
+  behind "Before you play"** (owner: "The weekly pop should not come in background of the text "Before you Play" it should come after,
+  when i click "I confirm""): `offerWeeklyLogin` answers false until `loadConsent` has settled the account (`_consentKnownFor`) and
+  while `consentPending`; `loadConsent` offers once it finds the account clear and `acceptConsent` offers on the tap. Offered once a
+  day a session; the next start offers it again while it is still to collect. Strings `todaysReward`, `rewardsAlso`,
+  `todaysRewardTitle`, `continueKey`, `weeklyFinal` in all five languages. `test/weekly_login_test.dart` (26: the file's geometry,
+  layers, pops and traps; the delegates, the day states, the level's hue on the card and not on the boxes; the boxes then the prizes,
+  the file held at its frame; the popup behind consent, after sign-in, not when collected; the figure's size; the level's colour inside
+  Blind and Variation and the house gold at the front and inside Seen; Collect and Continue, nothing celebrated twice, once a day, the
+  chip, a new day, a tap outside and Back, a failed claim, and 640x360 / 592x360 ×1.25 in all five languages and both themes) on
+  `test/reward_fixtures.dart` (the fake server, `rewardState(consented:)`, the fonts); pictures by hand, `test/weekly_login_shots.dart`.
+  **The screen** (`showRewardPrograms`, a page risen from the foot like the
   Lucky Draw's; it reads again as it opens, the day may have turned; a gold **Collect now** key in its header while any program's
   today waits, `reward-programs-collect`, which claims and closes the screen over the lobby's celebration): one `_ProgramPanel` a program — a LOGIN STREAK / CALENDAR tag
   (gold / the blind table's sapphire), the program's name (the four seeded ones in the player's language, `rewardProgramName`; any other
   by the server's `name`), the headline — **"3 day streak"** (`streakDays`; "Start your streak today" at 0) for a streak, **"Day 10
   reward"** (`calendarDayReward`) for a calendar, the brief's §27 difference kept on the screen — on a second line where the three cannot
   share one (a `Wrap`: 640dp at ×1.25 cut "Monthly Calendar Rewards" in a Row), what the mode means under it, then the days: a week's
-  seven in one row (`_WeekRow`: a streak's "Day 3" over its weekday, a calendar's weekday over its date), a month's 28–31 seven to a row
+  seven in one row (`_WeekRow`: a streak's "Day 3" over its weekday, a calendar's weekday over its date; **96dp tall since 30 Sep 2026**
+  — owner: "Increase the size of each box of Day along with text"; 68 before), a month's 28–31 seven to a row
   (`_MonthGrid`, the date; the page scrolls, the grid does not) — each `_DayTile` its reward's mark in its wallet's ink and its figure
-  ("10,000", "×2", an item's name — `rewardPrizeShort`, `rewardPrizeIcon`, `rewardPrizeInk`), a green tick when collected, a gold ring
-  for today, faded and padlocked when not reached, faded when missed (a calendar's past day nobody claimed), everything inside set down
-  to fit (`FittedBox`) and never cut, and a `Semantics` label saying its day, its reward and its standing — and "Next reward: 1 diamond"
+  ("10,000", "×2", an item's name — `rewardPrizeShort`, `rewardPrizeIcon`, `rewardPrizeInk`; the type `_DayTile.labelSize` 13,
+  `subSize` 12, `markSize` 22, `figureSize` 15.5, the figure the largest — the label ramp's 11 for all of it before), a green tick when
+  collected, a gold ring for today, faded and padlocked when not reached, faded when missed (a calendar's past day nobody claimed),
+  everything inside set down to fit (`FittedBox`) and never cut, and a `Semantics` label saying its day, its reward and its standing — and "Next reward: 1 diamond"
   (`nextReward`: today's while it waits, tomorrow's once collected, none past the period). The dates on the tiles are the server's
   `today` counted along the run or the period (`dateOfDay`) — labels only; every decision is the server's. **The celebration**
   (`_RewardCelebration` → `_GrantsSummary`, keyed `rewards-celebration`): the lobby's reward overlay with a gift for its hero, "Daily
   rewards collected!", one line per grant ("+ 20,000 chips", "Clapping Hands emoji", "(already yours)" after an item the player had;
   `rewardPrizeLabel`) and the programs and days they came from, closed by its key or a tap; shown ONLY from a claim's answer with
   something in `granted` — reopening the app never shows a reward twice. 42 strings in all five languages (the weekdays' short names
-  among them). `test/reward_programs_test.dart` (38: the wire, the words in every language, GameState's every path, the chip's words and
+  among them). `test/reward_programs_test.dart` (40: the wire, the words in every language, GameState's every path — a read on the
+  lobby's appearance and every `session:ready`, the claim only on the player's tap —, the screen's Collect key, the chip's words and
   its place beside the Lucky Draw and clear of the foot's keys at 592x360–1280x800 ×1.0/×1.25 in both themes, the screen's headlines,
   tiles, next reward and what a screen reader hears, no line cut at 640x360 ×1.25 in all five languages and both themes, the
   celebration's lines and close, and nothing raised by a claim that gave nothing).
@@ -3495,7 +3528,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   presentation only — the geometry, the card faces and every rule untouched). **Hierarchy**, Chaal over the pot over the
   contributions: the pot's plinth (`_Pot`) hugs its pile and figure inside the fifth of the felt it used to fill whatever it
   held (169dp round "6,800" on a 891dp phone, wider and darker than the Chaal key; about 95 now — only a figure past the fifth
-  shrinks); the viewer's own bet badge is scaled `_Felt.myBetScale` 1.1 of their pod (1.22, whose figure was 14dp at 891, the
+  shrinks; since the pot's coins (30 Sep 2026, below) the pile takes what the figure leaves of the fifth, `_Pot.pileWidth`, so a figure
+  the plinth can hold is still never set down for it); the viewer's own bet badge is scaled `_Felt.myBetScale` 1.1 of their pod (1.22, whose figure was 14dp at 891, the
   Chaal key's name size) and stands over their cards on a rim seat's terms (`myBetShown`: in the hand, or beaten while the
   showdown is on show — a packed hand wore a live-looking "BLIND 400" over its PACKED plate); `KeyPulse.still` 0.12 (0.18)
   against a primary breath of `breathLow`..`breathHigh` 0.22..0.40 (0.16..0.40), so Chaal's faintest glow outshines every other
@@ -3539,6 +3573,34 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   of 30 frames (59 of 60 before). `test/winner_flow_test.dart`; pictures by hand, `test/winner_shots.dart` (the sequence frame by
   frame, `<run>_t<ms>.png`, 640x360 and 891x411 both themes, key frames at 592x360, 915x412, ×1.25 and Hindi; fixture
   `test/winner_scenes.dart`); `table_final_polish_test` now waits for the flare fired at the landing.
+- **The pot's coins** (owner, 30 Sep 2026: "Use this animation on game Table for pot coins, change color of coin acc to blind, seen
+  and variation table"; `widgets/pot_coins.dart`): the owner's `assets/animations/PotCoin.json` — fourteen gold coins falling one after
+  another into three stacks (three, four and seven high) with a coin standing on edge on each, a rupee mark on its face; 1920×1080,
+  24 fps, 120 frames, every coin at rest by frame 75, no 3D, expressions or images — stands on the pot's plinth where the painted
+  `ChipStack` of four was (`_PotChips` → `PotCoins`), cropped to the pile at rest (`PotCoinsArt.window` 315,102–1641,960; the coins
+  fall in from above it and the plate's `ClipRRect` clips them), in the TABLE's colour: `AppTheme.paletteFor` of the room's category —
+  gold at a seen table, sapphire at a blind one, violet at a variation one (a private table its game's) — laid on the file's four golds
+  at their own luminances (`tintAt`, the lobby marks' rule; `potCoinsDelegates(tint)`, made once per colour), the white rupee marks
+  untouched. **Drawn by a painter, never the Lottie widget**: the file is parsed once as the table opens (`PotCoinsArt.load()` beside
+  `FireworksArt.load()`, or on the pile's first build) and `PotCoinsPainter`, on the pile's own `RepaintBoundary`, draws the frame a
+  `ValueNotifier` holds — the clock rounded to the file's 24 fps, so it repaints 24 times a second and not on every tick (§12.3: the
+  Lottie widget's per-frame `setState` under the felt's `LayoutBuilder` laid the felt out and re-recorded it on every frame; lottie
+  3.5.1's `LottieDrawable` takes its delegates AFTER construction, its constructor resolving them against a layer it has not built).
+  **It plays once** — from the first frame to `builtFrame` 75 as the table opens (3.1 s, the pile forming) — and holds; every time
+  chips land on the pot (`BetFlights.landsAt`, the moment the pile lifts) `_PotChips` counts a landing and the last eight coins and the
+  three standing ones fall in again from `topUpFrame` 35 (1.7 s, six coins staying at rest); the pot resetting to nought drops nothing;
+  looped whole it would empty the pot every five seconds. If the file cannot be read the painted stack stands in, in the table's
+  colour. **Its width is what the figure leaves** (`_Pot.pileWidth`): `_PotChips.pileShare` 1.9 chip sizes at most (about the painted
+  stack's width plus its lift, so the plinth is no taller than it was), less what the figure — measured with a `TextPainter` at the
+  phone's text size — needs of the plinth's fifth of the felt, never under `pileMin` 1.0 chip sizes (the old stack's width): at
+  592x360 ×1.25 the pile is 15dp and "6,800" is whole, at 891x411 the pile 36dp. Poker rooms keep their own pot bar.
+  `test/pot_coins_test.dart` (9: the file — canvas, rate, length, twenty layers of golds and white, no traps; every coin inside the
+  window at rest and filling it, the coins above it at the top-up frame, ten landing after it and six resting; the widget's box, its
+  painter and no Lottie widget, its clock through the built frame, the hold and the top-up at the file's rate; the delegates per colour
+  and the tint's hue and luminance; a seen, a blind and a variation table's pile in its own colour, left of a whole figure, both
+  themes; a landing topping the pile up once and a reset dropping nothing); `winner_flow_test`'s repaint checks hold the felt still
+  under it; `table_final_polish_test` the figure whole beside it. `seenTurnRoom(category:, boot:)` in `table_scenes.dart` builds the
+  same table as a blind or a variation one.
 - **Variation tables** (owner, 18 Sep 2026; server side §6.1/§6.4). Everything is drawn from `room:state.variation`
   (`VariationState` in `dtos.dart`; `GameState.variation`, `variationSelecting`, `variationIsMine`, `shownVariation`,
   `shownTurnUp`) — the two `game:variation*` events only say the same thing a moment sooner, so a reconnect mid-window
@@ -4265,7 +4327,7 @@ HTML comment and its handler commented out while Facebook is switched off (23 Se
 ## 10. Requirements index (`Requirements.txt`)
 1 login providers (Google and guest; Facebook switched off for now, 23 Sep 2026) · 2 DB per identity (brief says SQLite; **now Postgres by owner's decision**) ·
 3 ≤5/room · 4 ≥2 to start · 5 3 lakh welcome (2 lakh until 14 Sep 2026; with 9 diamonds, 20 hammers and 1 missile; 10 Lakh since 27 Sep 2026; since 30 Sep 2026 whatever the
-`welcome_rewards` rows say — chips, diamonds, hammers, missiles, pictures, emojis, some or all, §7.3 — seeded 5 Lakh, 9, 20 and 1) · 6a–g core play · 7 persistence · 8 room chat ·
+`welcome_rewards` rows say — chips, diamonds, hammers, missiles, pictures, emojis, some or all, §7.3 — seeded 5 Lakh, 5, 10 and 1 since the owner's seed edit that evening; 9 and 20 for its first hours) · 6a–g core play · 7 persistence · 8 room chat ·
 9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 (and, since 18 Sep 2026, a third
 category **Variation** × 50,000 / 10 Lakh (20 Lakh since 27 Sep 2026), hidden stacks, no pot limit, and since 28 Sep 2026 blind's
 betting — raise as far as the chips go, no round cap — §6.4: the first player to act picks Muflis, AK47,
@@ -4471,8 +4533,13 @@ its own; a translucent surface casts round itself (`DepthShadow`), never through
 - `GameConfig.fromJson` ints fall to 0 → `config.maxPlayers == 0 ? 5 : …` guards. The same tolerant reader parses the
   cached and fetched table catalogue; its per-table figures are NULL, never 0, when the server did not send them, so a
   missing figure is never mistaken for a real zero (the screens then fall back as before).
-- `_PotChips` animates only on increase. `PlayingCard`
-  flips only face-down↔up. The poker felt has only 5 `seatPlaces`; the Teen Patti felt's `SeatRing` lays 2..5.
+- `_PotChips` animates only on increase (the lift, and since 30 Sep 2026 the pot coins' top-up — §8.4 "The pot's coins"). `PlayingCard`
+  flips only face-down↔up.
+- **The Lottie widget under the felt's `LayoutBuilder` lays the felt out on every frame** (30 Sep 2026): `Lottie`'s state calls
+  `setState` at the file's frame rate, and a rebuild inside a `LayoutBuilder`'s subtree schedules the builder's layout, which re-runs
+  the felt's callback and re-records its picture 24 times a second (`winner_flow_test` "the pot breathing between hands repaints its
+  glow, not the felt or the screen" catches it). Anything animated on the felt is drawn by a painter from a parsed
+  `LottieComposition` (`FireworksArt`, `PotCoinsArt` + `PotCoinsPainter`, `repaint:` a listenable) — never the widget. The poker felt has only 5 `seatPlaces`; the Teen Patti felt's `SeatRing` lays 2..5.
 - Google sign-in works (`google_sign_in` 7.x, `net/social_sign_in.dart`); the **Web** client id is the
   `serverClientId` and arrives as `--dart-define=GOOGLE_SERVER_CLIENT_ID`, without which sign-in
   succeeds and returns no `idToken`. Facebook was removed on 10 Sep 2026, restored on 22 Sep (`5b43510`) and

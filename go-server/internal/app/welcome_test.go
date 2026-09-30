@@ -53,7 +53,7 @@ func TestTheLoginAnswersANewAccountWithWhatItWasWelcomedWith(t *testing.T) {
 	if keys := sortedKeys(welcome); strings.Join(keys, ",") != "chips,diamonds,emojis,hammers,missiles,pictures,tablePictures" {
 		t.Fatalf("welcome keys %v", keys)
 	}
-	for key, want := range map[string]string{"chips": "350000", "diamonds": "9", "hammers": "20", "missiles": "1"} {
+	for key, want := range map[string]string{"chips": "350000", "diamonds": "5", "hammers": "10", "missiles": "1"} {
 		if string(welcome[key]) != want {
 			t.Errorf("welcome.%s = %s, want %s", key, welcome[key], want)
 		}
@@ -68,7 +68,7 @@ func TestTheLoginAnswersANewAccountWithWhatItWasWelcomedWith(t *testing.T) {
 		Missile int64  `json:"missile"`
 	}
 	_ = json.Unmarshal(body["user"], &user)
-	if user.Chips != 350000 || user.Diamond != 9 || user.Hammer != 20 || user.Missile != 1 {
+	if user.Chips != 350000 || user.Diamond != 5 || user.Hammer != 10 || user.Missile != 1 {
 		t.Fatalf("the account as answered: %+v", user)
 	}
 
@@ -148,7 +148,7 @@ func TestTheLoginAnswersANewAccountWithWhatItWasWelcomedWith(t *testing.T) {
 	if err := json.Unmarshal(raw, &later); err != nil || status != http.StatusOK {
 		t.Fatalf("login after the UPDATE: %d %s", status, raw)
 	}
-	if w := later.Welcome; later.WelcomeChips != 125000 || w.Chips != 125000 || w.Diamonds != 9 || w.Hammers != 0 || w.Missiles != 1 ||
+	if w := later.Welcome; later.WelcomeChips != 125000 || w.Chips != 125000 || w.Diamonds != 5 || w.Hammers != 0 || w.Missiles != 1 ||
 		w.Pictures == nil || len(w.Pictures) != 0 || len(w.TablePictures) != 0 || len(w.Emojis) != 0 {
 		t.Fatalf("after the UPDATE: %s", raw)
 	}

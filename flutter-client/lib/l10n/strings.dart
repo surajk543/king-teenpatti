@@ -282,6 +282,13 @@ class Strings {
   /// emoji".
   String rewardsAlso(String list) =>
       _('rewardsAlso').replaceAll('{list}', list);
+
+  /// The weekly login popup's headings and key (the owner's polish brief,
+  /// 30 Sep 2026): "Today's reward" over the prize, "Continue" once it is
+  /// collected, and "FINAL" on the seventh day's card.
+  String get todaysRewardTitle => _('todaysRewardTitle');
+  String get continueKey => _('continueKey');
+  String get weeklyFinal => _('weeklyFinal');
   String get luckyPrizes => _('luckyPrizes');
   String get luckyNoPrize => _('luckyNoPrize');
   String get luckyCongrats => _('luckyCongrats');
@@ -1977,6 +1984,9 @@ class Strings {
       'rewardProgramMonthlyCalendar': 'Monthly Calendar Rewards',
       'todaysReward': 'Today\'s reward: {prize}',
       'rewardsAlso': 'Also: {list}',
+      'todaysRewardTitle': 'Today\'s reward',
+      'continueKey': 'Continue',
+      'weeklyFinal': 'FINAL',
       'weekday1': 'Mon',
       'weekday2': 'Tue',
       'weekday3': 'Wed',
@@ -2928,6 +2938,9 @@ class Strings {
       'rewardProgramMonthlyCalendar': 'मासिक कैलेंडर रिवॉर्ड',
       'todaysReward': 'आज का रिवॉर्ड: {prize}',
       'rewardsAlso': 'साथ में: {list}',
+      'todaysRewardTitle': 'आज का रिवॉर्ड',
+      'continueKey': 'जारी रखें',
+      'weeklyFinal': 'अंतिम',
       'weekday1': 'सोम',
       'weekday2': 'मंगल',
       'weekday3': 'बुध',
@@ -3863,6 +3876,9 @@ class Strings {
       'rewardProgramMonthlyCalendar': 'মাসিক ক্যালেন্ডার রিওয়ার্ড',
       'todaysReward': 'আজকের রিওয়ার্ড: {prize}',
       'rewardsAlso': 'সাথে: {list}',
+      'todaysRewardTitle': 'আজকের রিওয়ার্ড',
+      'continueKey': 'চালিয়ে যান',
+      'weeklyFinal': 'শেষ',
       'weekday1': 'সোম',
       'weekday2': 'মঙ্গল',
       'weekday3': 'বুধ',
@@ -4797,6 +4813,9 @@ class Strings {
       'rewardProgramMonthlyCalendar': 'માસિક કૅલેન્ડર રિવોર્ડ',
       'todaysReward': 'આજનું રિવોર્ડ: {prize}',
       'rewardsAlso': 'સાથે: {list}',
+      'todaysRewardTitle': 'આજનું રિવોર્ડ',
+      'continueKey': 'ચાલુ રાખો',
+      'weeklyFinal': 'અંતિમ',
       'weekday1': 'સોમ',
       'weekday2': 'મંગળ',
       'weekday3': 'બુધ',
@@ -5727,6 +5746,9 @@ class Strings {
       'rewardProgramMonthlyCalendar': 'ਮਾਸਿਕ ਕੈਲੰਡਰ ਰਿਵਾਰਡ',
       'todaysReward': 'ਅੱਜ ਦਾ ਰਿਵਾਰਡ: {prize}',
       'rewardsAlso': 'ਨਾਲ ਹੀ: {list}',
+      'todaysRewardTitle': 'ਅੱਜ ਦਾ ਰਿਵਾਰਡ',
+      'continueKey': 'ਜਾਰੀ ਰੱਖੋ',
+      'weeklyFinal': 'ਅੰਤਿਮ',
       'weekday1': 'ਸੋਮ',
       'weekday2': 'ਮੰਗਲ',
       'weekday3': 'ਬੁੱਧ',

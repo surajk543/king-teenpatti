@@ -1302,8 +1302,8 @@ VALUES ('android', 'NORMAL', '0.0.0', '0.0.0',
 -- without it.
 INSERT INTO welcome_rewards (code, reward_type, reward_value, sort_order)
 VALUES ('chips',    'CHIPS',   500000, 10),
-       ('diamonds', 'DIAMOND', 9,  20),
-       ('hammers',  'HAMMER',  20, 30),
+       ('diamonds', 'DIAMOND', 5,  20),
+       ('hammers',  'HAMMER',  10, 30),
        ('missiles', 'MISSILE', 1,  40)
     ON CONFLICT (code) DO NOTHING;
 
@@ -1317,19 +1317,23 @@ VALUES ('chips',    'CHIPS',   500000, 10),
 --   WEEKLY_CALENDAR   CALENDAR, WEEKLY
 --   MONTHLY_CALENDAR  CALENDAR, MONTHLY
 --
--- and a reward for every day of each. WEEKLY_LOGIN is the owner's own list,
--- verbatim (30 Sep 2026): chips, hammers and diamonds only. The other three
--- follow the brief's examples where it gave them (MONTHLY_LOGIN Day 10 a
--- diamond; WEEKLY_CALENDAR Day 3 a hammer; MONTHLY_CALENDAR Day 10 an emoji,
--- Day 25 a table picture, Day 31 a badge) with a rising ladder of chips,
--- hammers and diamonds between. A catalogue reward names its row by NATURAL
--- KEY, as the Lucky Draw's and the welcome's do (BIGSERIAL ids differ between
--- databases): the emoji Clapping Hands, the table picture Lines Background,
--- the profile picture Lovestruck Cat, and the badges ROYAL_ACE (7 days; the
--- monthly calendar's last day) and ROYAL_KING (15 days; a whole month's
--- streak). A row whose catalogue item is missing on this database is NOT
--- inserted — the WHERE below drops it — rather than inserted broken: that day
--- gives nothing until an owner points it at something.
+-- WEEKLY_LOGIN carries the owner's own days, verbatim (30 Sep 2026, edited
+-- by the owner the same evening): 10,000 to 60,000 chips over six days and a
+-- hammer on the seventh. It is the one program seeded ACTIVE. The other three
+-- are seeded with NO days — the owner commented their lists out (below, kept
+-- as the brief's examples: MONTHLY_LOGIN Day 10 a diamond, Day 15 an emoji,
+-- Day 25 a picture, Day 31 Royal King; MONTHLY_CALENDAR Day 10 an emoji, Day
+-- 25 a table picture, Day 31 Royal Ace) — and so are seeded INACTIVE, since a
+-- program with nothing to give would still put an empty panel in front of a
+-- player and record empty claims. Seed its days and switch it on with an
+-- UPDATE (`UPDATE reward_programs SET is_active = TRUE WHERE code =
+-- 'MONTHLY_LOGIN'`). A catalogue reward names its row by NATURAL KEY, as the
+-- Lucky Draw's and the welcome's do (BIGSERIAL ids differ between databases):
+-- the emoji Clapping Hands, the table picture Lines Background, the profile
+-- picture Lovestruck Cat, and the badges ROYAL_ACE and ROYAL_KING. A row
+-- whose catalogue item is missing on this database is NOT inserted — the
+-- WHERE in those lists drops it — rather than inserted broken: that day gives
+-- nothing until an owner points it at something.
 --
 -- ON CONFLICT (code) for a program and (program_id, day_number) for a day,
 -- so an owner's UPDATE survives every restart and a change here reaches only
@@ -1358,10 +1362,12 @@ VALUES ('chips',    'CHIPS',   500000, 10),
 -- Never DELETE a program or a day: the claims point at them, and a seeded
 -- row comes back at the next boot.
 INSERT INTO reward_programs (code, name, mode, period_type, timezone, week_start_day, reset_on_missed_day, is_active, sort_order)
-VALUES ('WEEKLY_LOGIN',     'Weekly Login Streak',      'LOGIN_STREAK', 'WEEKLY',  'UTC', 1, TRUE,  TRUE, 10),
-       ('MONTHLY_LOGIN',    'Monthly Login Streak',     'LOGIN_STREAK', 'MONTHLY', 'UTC', 1, TRUE,  TRUE, 20),
-       ('WEEKLY_CALENDAR',  'Weekly Calendar Rewards',  'CALENDAR',     'WEEKLY',  'UTC', 1, FALSE, TRUE, 30),
-       ('MONTHLY_CALENDAR', 'Monthly Calendar Rewards', 'CALENDAR',     'MONTHLY', 'UTC', 1, FALSE, TRUE, 40)
+VALUES ('WEEKLY_LOGIN',     'Weekly Login Streak',      'LOGIN_STREAK', 'WEEKLY',  'UTC', 1, TRUE,  TRUE,  10),
+       -- No days seeded (the owner's lists are commented out below): inactive
+       -- until they are, and switched on with an UPDATE.
+       ('MONTHLY_LOGIN',    'Monthly Login Streak',     'LOGIN_STREAK', 'MONTHLY', 'UTC', 1, TRUE,  FALSE, 20),
+       ('WEEKLY_CALENDAR',  'Weekly Calendar Rewards',  'CALENDAR',     'WEEKLY',  'UTC', 1, FALSE, FALSE, 30),
+       ('MONTHLY_CALENDAR', 'Monthly Calendar Rewards', 'CALENDAR',     'MONTHLY', 'UTC', 1, FALSE, FALSE, 40)
     ON CONFLICT (code) DO NOTHING;
 
 -- WEEKLY_LOGIN: the owner's seven, day for day (30 Sep 2026).
@@ -1390,114 +1396,96 @@ FROM reward_programs rp
 CROSS JOIN (
     VALUES
         (1, 'CHIPS',   10000::BIGINT, NULL::TEXT),
-        (2, 'HAMMER',      1::BIGINT, NULL::TEXT),
-        (3, 'CHIPS',   20000::BIGINT, NULL::TEXT),
-        (4, 'DIAMOND',     1::BIGINT, NULL::TEXT),
-        (5, 'CHIPS',   30000::BIGINT, NULL::TEXT),
-        (6, 'HAMMER',      2::BIGINT, NULL::TEXT),
-        (7, 'DIAMOND',     1::BIGINT, NULL::TEXT)
+        (2, 'CHIPS',   20000::BIGINT, NULL::TEXT),
+        (3, 'CHIPS',   30000::BIGINT, NULL::TEXT),
+        (4, 'CHIPS',   40000::BIGINT, NULL::TEXT),
+        (5, 'CHIPS',   50000::BIGINT, NULL::TEXT),
+        (6, 'CHIPS',   60000::BIGINT, NULL::TEXT),
+        (7, 'HAMMER',     1::BIGINT, NULL::TEXT)
 ) AS v(day_number, reward_type, reward_value, reward_ref_id)
 WHERE rp.code = 'WEEKLY_LOGIN'
 ON CONFLICT (program_id, day_number) DO NOTHING;
 
 -- MONTHLY_LOGIN: a month of consecutive logins, a diamond on Day 10, an emoji
 -- on Day 15, a picture on Day 25 and Royal King on Day 31.
-INSERT INTO reward_program_rewards (program_id, day_number, reward_type, reward_value, reward_ref_id, is_active, sort_order)
-SELECT p.id, v.day_number, v.reward_type, v.reward_value, v.reward_ref_id, TRUE, v.day_number
-  FROM reward_programs p
- CROSS JOIN (VALUES
-   ( 1, 'CHIPS',           10000::BIGINT,  NULL::TEXT),
-   ( 2, 'HAMMER',          1::BIGINT,      NULL::TEXT),
-   ( 3, 'CHIPS',           20000::BIGINT,  NULL::TEXT),
-   ( 4, 'DIAMOND',         1::BIGINT,      NULL::TEXT),
-   ( 5, 'CHIPS',           25000::BIGINT,  NULL::TEXT),
-   ( 6, 'HAMMER',          1::BIGINT,      NULL::TEXT),
-   ( 7, 'CHIPS',           50000::BIGINT,  NULL::TEXT),
-   ( 8, 'CHIPS',           30000::BIGINT,  NULL::TEXT),
-   ( 9, 'HAMMER',          2::BIGINT,      NULL::TEXT),
-   (10, 'DIAMOND',         1::BIGINT,      NULL::TEXT),
-   (11, 'CHIPS',           40000::BIGINT,  NULL::TEXT),
-   (12, 'HAMMER',          2::BIGINT,      NULL::TEXT),
-   (13, 'CHIPS',           50000::BIGINT,  NULL::TEXT),
-   (14, 'DIAMOND',         1::BIGINT,      NULL::TEXT),
-   (15, 'EMOJI',           NULL::BIGINT,   (SELECT id::text FROM emojis WHERE name = 'Clapping Hands')),
-   (16, 'CHIPS',           60000::BIGINT,  NULL::TEXT),
-   (17, 'HAMMER',          2::BIGINT,      NULL::TEXT),
-   (18, 'CHIPS',           75000::BIGINT,  NULL::TEXT),
-   (19, 'DIAMOND',         1::BIGINT,      NULL::TEXT),
-   (20, 'CHIPS',           100000::BIGINT, NULL::TEXT),
-   (21, 'HAMMER',          3::BIGINT,      NULL::TEXT),
-   (22, 'DIAMOND',         1::BIGINT,      NULL::TEXT),
-   (23, 'CHIPS',           125000::BIGINT, NULL::TEXT),
-   (24, 'HAMMER',          3::BIGINT,      NULL::TEXT),
-   (25, 'PROFILE_PICTURE', NULL::BIGINT,   (SELECT id::text FROM profile_pictures WHERE name = 'Lovestruck Cat')),
-   (26, 'CHIPS',           150000::BIGINT, NULL::TEXT),
-   (27, 'DIAMOND',         2::BIGINT,      NULL::TEXT),
-   (28, 'CHIPS',           200000::BIGINT, NULL::TEXT),
-   (29, 'HAMMER',          5::BIGINT,      NULL::TEXT),
-   (30, 'CHIPS',           250000::BIGINT, NULL::TEXT),
-   (31, 'BADGE',           NULL::BIGINT,   (SELECT code FROM badges WHERE code = 'ROYAL_KING'))
- ) AS v(day_number, reward_type, reward_value, reward_ref_id)
- WHERE p.code = 'MONTHLY_LOGIN'
-   AND (v.reward_value IS NOT NULL OR v.reward_ref_id IS NOT NULL)
-    ON CONFLICT (program_id, day_number) DO NOTHING;
-
--- WEEKLY_CALENDAR: one reward for each day of the week, whichever days the
--- player comes; the brief's hammer on Day 3.
-INSERT INTO reward_program_rewards (program_id, day_number, reward_type, reward_value, reward_ref_id, is_active, sort_order)
-SELECT p.id, v.day_number, v.reward_type, v.reward_value, v.reward_ref_id, TRUE, v.day_number
-  FROM reward_programs p
- CROSS JOIN (VALUES
-   (1, 'CHIPS',   10000::BIGINT, NULL::TEXT),
-   (2, 'HAMMER',  1::BIGINT,     NULL::TEXT),
-   (3, 'HAMMER',  1::BIGINT,     NULL::TEXT),
-   (4, 'DIAMOND', 1::BIGINT,     NULL::TEXT),
-   (5, 'EMOJI',   NULL::BIGINT,  (SELECT id::text FROM emojis WHERE name = 'Clapping Hands')),
-   (6, 'CHIPS',   30000::BIGINT, NULL::TEXT),
-   (7, 'CHIPS',   50000::BIGINT, NULL::TEXT)
- ) AS v(day_number, reward_type, reward_value, reward_ref_id)
- WHERE p.code = 'WEEKLY_CALENDAR'
-   AND (v.reward_value IS NOT NULL OR v.reward_ref_id IS NOT NULL)
-    ON CONFLICT (program_id, day_number) DO NOTHING;
+-- INSERT INTO reward_program_rewards (program_id, day_number, reward_type, reward_value, reward_ref_id, is_active, sort_order)
+-- SELECT p.id, v.day_number, v.reward_type, v.reward_value, v.reward_ref_id, TRUE, v.day_number
+--   FROM reward_programs p
+--  CROSS JOIN (VALUES
+--    ( 1, 'CHIPS',           10000::BIGINT,  NULL::TEXT),
+--    ( 2, 'HAMMER',          1::BIGINT,      NULL::TEXT),
+--    ( 3, 'CHIPS',           20000::BIGINT,  NULL::TEXT),
+--    ( 4, 'DIAMOND',         1::BIGINT,      NULL::TEXT),
+--    ( 5, 'CHIPS',           25000::BIGINT,  NULL::TEXT),
+--    ( 6, 'HAMMER',          1::BIGINT,      NULL::TEXT),
+--    ( 7, 'CHIPS',           50000::BIGINT,  NULL::TEXT),
+--    ( 8, 'CHIPS',           30000::BIGINT,  NULL::TEXT),
+--    ( 9, 'HAMMER',          2::BIGINT,      NULL::TEXT),
+--    (10, 'DIAMOND',         1::BIGINT,      NULL::TEXT),
+--    (11, 'CHIPS',           40000::BIGINT,  NULL::TEXT),
+--    (12, 'HAMMER',          2::BIGINT,      NULL::TEXT),
+--    (13, 'CHIPS',           50000::BIGINT,  NULL::TEXT),
+--    (14, 'DIAMOND',         1::BIGINT,      NULL::TEXT),
+--    (15, 'EMOJI',           NULL::BIGINT,   (SELECT id::text FROM emojis WHERE name = 'Clapping Hands')),
+--    (16, 'CHIPS',           60000::BIGINT,  NULL::TEXT),
+--    (17, 'HAMMER',          2::BIGINT,      NULL::TEXT),
+--    (18, 'CHIPS',           75000::BIGINT,  NULL::TEXT),
+--    (19, 'DIAMOND',         1::BIGINT,      NULL::TEXT),
+--    (20, 'CHIPS',           100000::BIGINT, NULL::TEXT),
+--    (21, 'HAMMER',          3::BIGINT,      NULL::TEXT),
+--    (22, 'DIAMOND',         1::BIGINT,      NULL::TEXT),
+--    (23, 'CHIPS',           125000::BIGINT, NULL::TEXT),
+--    (24, 'HAMMER',          3::BIGINT,      NULL::TEXT),
+--    (25, 'PROFILE_PICTURE', NULL::BIGINT,   (SELECT id::text FROM profile_pictures WHERE name = 'Lovestruck Cat')),
+--    (26, 'CHIPS',           150000::BIGINT, NULL::TEXT),
+--    (27, 'DIAMOND',         2::BIGINT,      NULL::TEXT),
+--    (28, 'CHIPS',           200000::BIGINT, NULL::TEXT),
+--    (29, 'HAMMER',          5::BIGINT,      NULL::TEXT),
+--    (30, 'CHIPS',           250000::BIGINT, NULL::TEXT),
+--    (31, 'BADGE',           NULL::BIGINT,   (SELECT code FROM badges WHERE code = 'ROYAL_KING'))
+--  ) AS v(day_number, reward_type, reward_value, reward_ref_id)
+--  WHERE p.code = 'MONTHLY_LOGIN'
+--    AND (v.reward_value IS NOT NULL OR v.reward_ref_id IS NOT NULL)
+--     ON CONFLICT (program_id, day_number) DO NOTHING;
 
 -- MONTHLY_CALENDAR: one reward for each date of the month; the brief's emoji
 -- on Day 10, table picture on Day 25 and badge on Day 31.
-INSERT INTO reward_program_rewards (program_id, day_number, reward_type, reward_value, reward_ref_id, is_active, sort_order)
-SELECT p.id, v.day_number, v.reward_type, v.reward_value, v.reward_ref_id, TRUE, v.day_number
-  FROM reward_programs p
- CROSS JOIN (VALUES
-   ( 1, 'CHIPS',         10000::BIGINT,  NULL::TEXT),
-   ( 2, 'HAMMER',        1::BIGINT,      NULL::TEXT),
-   ( 3, 'CHIPS',         15000::BIGINT,  NULL::TEXT),
-   ( 4, 'DIAMOND',       1::BIGINT,      NULL::TEXT),
-   ( 5, 'CHIPS',         20000::BIGINT,  NULL::TEXT),
-   ( 6, 'HAMMER',        1::BIGINT,      NULL::TEXT),
-   ( 7, 'CHIPS',         25000::BIGINT,  NULL::TEXT),
-   ( 8, 'CHIPS',         30000::BIGINT,  NULL::TEXT),
-   ( 9, 'HAMMER',        2::BIGINT,      NULL::TEXT),
-   (10, 'EMOJI',         NULL::BIGINT,   (SELECT id::text FROM emojis WHERE name = 'Clapping Hands')),
-   (11, 'CHIPS',         35000::BIGINT,  NULL::TEXT),
-   (12, 'DIAMOND',       1::BIGINT,      NULL::TEXT),
-   (13, 'CHIPS',         40000::BIGINT,  NULL::TEXT),
-   (14, 'HAMMER',        2::BIGINT,      NULL::TEXT),
-   (15, 'CHIPS',         50000::BIGINT,  NULL::TEXT),
-   (16, 'DIAMOND',       1::BIGINT,      NULL::TEXT),
-   (17, 'CHIPS',         60000::BIGINT,  NULL::TEXT),
-   (18, 'HAMMER',        2::BIGINT,      NULL::TEXT),
-   (19, 'CHIPS',         75000::BIGINT,  NULL::TEXT),
-   (20, 'DIAMOND',       1::BIGINT,      NULL::TEXT),
-   (21, 'CHIPS',         100000::BIGINT, NULL::TEXT),
-   (22, 'HAMMER',        3::BIGINT,      NULL::TEXT),
-   (23, 'CHIPS',         125000::BIGINT, NULL::TEXT),
-   (24, 'DIAMOND',       2::BIGINT,      NULL::TEXT),
-   (25, 'TABLE_PICTURE', NULL::BIGINT,   (SELECT id::text FROM table_pictures WHERE name = 'Lines Background')),
-   (26, 'CHIPS',         150000::BIGINT, NULL::TEXT),
-   (27, 'HAMMER',        3::BIGINT,      NULL::TEXT),
-   (28, 'CHIPS',         200000::BIGINT, NULL::TEXT),
-   (29, 'DIAMOND',       2::BIGINT,      NULL::TEXT),
-   (30, 'CHIPS',         250000::BIGINT, NULL::TEXT),
-   (31, 'BADGE',         NULL::BIGINT,   (SELECT code FROM badges WHERE code = 'ROYAL_ACE'))
- ) AS v(day_number, reward_type, reward_value, reward_ref_id)
- WHERE p.code = 'MONTHLY_CALENDAR'
-   AND (v.reward_value IS NOT NULL OR v.reward_ref_id IS NOT NULL)
-    ON CONFLICT (program_id, day_number) DO NOTHING;
+-- INSERT INTO reward_program_rewards (program_id, day_number, reward_type, reward_value, reward_ref_id, is_active, sort_order)
+-- SELECT p.id, v.day_number, v.reward_type, v.reward_value, v.reward_ref_id, TRUE, v.day_number
+--   FROM reward_programs p
+--  CROSS JOIN (VALUES
+--    ( 1, 'CHIPS',         10000::BIGINT,  NULL::TEXT),
+--    ( 2, 'HAMMER',        1::BIGINT,      NULL::TEXT),
+--    ( 3, 'CHIPS',         15000::BIGINT,  NULL::TEXT),
+--    ( 4, 'DIAMOND',       1::BIGINT,      NULL::TEXT),
+--    ( 5, 'CHIPS',         20000::BIGINT,  NULL::TEXT),
+--    ( 6, 'HAMMER',        1::BIGINT,      NULL::TEXT),
+--    ( 7, 'CHIPS',         25000::BIGINT,  NULL::TEXT),
+--    ( 8, 'CHIPS',         30000::BIGINT,  NULL::TEXT),
+--    ( 9, 'HAMMER',        2::BIGINT,      NULL::TEXT),
+--    (10, 'EMOJI',         NULL::BIGINT,   (SELECT id::text FROM emojis WHERE name = 'Clapping Hands')),
+--    (11, 'CHIPS',         35000::BIGINT,  NULL::TEXT),
+--    (12, 'DIAMOND',       1::BIGINT,      NULL::TEXT),
+--    (13, 'CHIPS',         40000::BIGINT,  NULL::TEXT),
+--    (14, 'HAMMER',        2::BIGINT,      NULL::TEXT),
+--    (15, 'CHIPS',         50000::BIGINT,  NULL::TEXT),
+--    (16, 'DIAMOND',       1::BIGINT,      NULL::TEXT),
+--    (17, 'CHIPS',         60000::BIGINT,  NULL::TEXT),
+--    (18, 'HAMMER',        2::BIGINT,      NULL::TEXT),
+--    (19, 'CHIPS',         75000::BIGINT,  NULL::TEXT),
+--    (20, 'DIAMOND',       1::BIGINT,      NULL::TEXT),
+--    (21, 'CHIPS',         100000::BIGINT, NULL::TEXT),
+--    (22, 'HAMMER',        3::BIGINT,      NULL::TEXT),
+--    (23, 'CHIPS',         125000::BIGINT, NULL::TEXT),
+--    (24, 'DIAMOND',       2::BIGINT,      NULL::TEXT),
+--    (25, 'TABLE_PICTURE', NULL::BIGINT,   (SELECT id::text FROM table_pictures WHERE name = 'Lines Background')),
+--    (26, 'CHIPS',         150000::BIGINT, NULL::TEXT),
+--    (27, 'HAMMER',        3::BIGINT,      NULL::TEXT),
+--    (28, 'CHIPS',         200000::BIGINT, NULL::TEXT),
+--    (29, 'DIAMOND',       2::BIGINT,      NULL::TEXT),
+--    (30, 'CHIPS',         250000::BIGINT, NULL::TEXT),
+--    (31, 'BADGE',         NULL::BIGINT,   (SELECT code FROM badges WHERE code = 'ROYAL_ACE'))
+--  ) AS v(day_number, reward_type, reward_value, reward_ref_id)
+--  WHERE p.code = 'MONTHLY_CALENDAR'
+--    AND (v.reward_value IS NOT NULL OR v.reward_ref_id IS NOT NULL)
+--     ON CONFLICT (program_id, day_number) DO NOTHING;

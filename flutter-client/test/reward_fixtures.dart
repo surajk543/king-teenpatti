@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/screens/lobby_screen.dart';
@@ -327,8 +328,18 @@ MockClient fakeRewards({
   return rewardJson({'error': 'not_found'}, 404);
 });
 
-/// A GameState at the lobby, signed in (unless not), with an account.
-GameState rewardState({AppLang lang = AppLang.english, bool signedIn = true}) {
+/// A GameState at the lobby, signed in (unless not), with an account whose
+/// no-winnings confirmation is recorded on this phone (unless not
+/// [consented]) — and read, as a sign-in reads it, since the weekly login
+/// popup waits for that answer.
+GameState rewardState({
+  AppLang lang = AppLang.english,
+  bool signedIn = true,
+  bool consented = true,
+}) {
+  SharedPreferences.setMockInitialValues({
+    if (consented) 'noWinningsAck:u0': true,
+  });
   // Play is never started; the override only keeps the purchase plugin from
   // registering an Android billing client in a unit test.
   debugDefaultTargetPlatformOverride = TargetPlatform.linux;
@@ -347,7 +358,10 @@ GameState rewardState({AppLang lang = AppLang.english, bool signedIn = true}) {
       ],
     })
     ..user = User.fromJson(userJson());
-  if (signedIn) state.debugToken = 'tok';
+  if (signedIn) {
+    state.debugToken = 'tok';
+    unawaited(state.loadConsent());
+  }
   return state;
 }
 

@@ -71,6 +71,62 @@ func (f *fixture) day(programID int64, day int, kind string, value *int64, ref *
 
 func ref(s string) *string { return &s }
 
+// exampleDays gives a seeded program the brief's example days — the lists
+// the seed keeps commented out (owner, 30 Sep 2026: WEEKLY_LOGIN alone is
+// seeded with days) — so a test of that mode has rewards to claim.
+func (f *fixture) exampleDays(code string) {
+	f.t.Helper()
+	id := f.scalar(`SELECT id FROM reward_programs WHERE code = $1`, code)
+	n := func(v int64) *int64 { return &v }
+	clap := f.catalogueID("emojis", "Clapping Hands")
+	type row struct {
+		day   int
+		kind  string
+		value *int64
+		ref   *string
+	}
+	var rows []row
+	switch code {
+	case weeklyCalendar:
+		rows = []row{
+			{1, db.RewardChips, n(10_000), nil}, {2, db.RewardHammer, n(1), nil}, {3, db.RewardHammer, n(1), nil},
+			{4, db.RewardDiamond, n(1), nil}, {5, db.RewardEmoji, nil, clap}, {6, db.RewardChips, n(30_000), nil},
+			{7, db.RewardChips, n(50_000), nil},
+		}
+	case monthlyLogin:
+		rows = []row{
+			{1, db.RewardChips, n(10_000), nil}, {2, db.RewardHammer, n(1), nil}, {3, db.RewardChips, n(20_000), nil},
+			{4, db.RewardDiamond, n(1), nil}, {5, db.RewardChips, n(25_000), nil}, {6, db.RewardHammer, n(1), nil},
+			{7, db.RewardChips, n(50_000), nil}, {8, db.RewardChips, n(30_000), nil}, {9, db.RewardHammer, n(2), nil},
+			{10, db.RewardDiamond, n(1), nil}, {11, db.RewardChips, n(40_000), nil}, {12, db.RewardHammer, n(2), nil},
+			{13, db.RewardChips, n(50_000), nil}, {14, db.RewardDiamond, n(1), nil}, {15, db.RewardEmoji, nil, clap},
+			{16, db.RewardChips, n(60_000), nil}, {17, db.RewardHammer, n(2), nil}, {18, db.RewardChips, n(75_000), nil},
+			{19, db.RewardDiamond, n(1), nil}, {20, db.RewardChips, n(100_000), nil}, {21, db.RewardHammer, n(3), nil},
+			{22, db.RewardDiamond, n(1), nil}, {23, db.RewardChips, n(125_000), nil}, {24, db.RewardHammer, n(3), nil},
+			{25, db.RewardProfilePicture, nil, f.catalogueID("profile_pictures", "Lovestruck Cat")},
+			{26, db.RewardChips, n(150_000), nil}, {27, db.RewardDiamond, n(2), nil}, {28, db.RewardChips, n(200_000), nil},
+			{29, db.RewardHammer, n(5), nil}, {30, db.RewardChips, n(250_000), nil}, {31, db.RewardBadge, nil, ref("ROYAL_KING")},
+		}
+	case monthlyCalendar:
+		rows = []row{
+			{1, db.RewardChips, n(10_000), nil}, {2, db.RewardHammer, n(1), nil}, {3, db.RewardChips, n(15_000), nil},
+			{4, db.RewardDiamond, n(1), nil}, {5, db.RewardChips, n(20_000), nil}, {6, db.RewardHammer, n(1), nil},
+			{7, db.RewardChips, n(25_000), nil}, {8, db.RewardChips, n(30_000), nil}, {9, db.RewardHammer, n(2), nil},
+			{10, db.RewardEmoji, nil, clap}, {11, db.RewardChips, n(35_000), nil}, {12, db.RewardDiamond, n(1), nil},
+			{13, db.RewardChips, n(40_000), nil}, {14, db.RewardHammer, n(2), nil}, {15, db.RewardChips, n(50_000), nil},
+			{16, db.RewardDiamond, n(1), nil}, {17, db.RewardChips, n(60_000), nil}, {18, db.RewardHammer, n(2), nil},
+			{19, db.RewardChips, n(75_000), nil}, {20, db.RewardDiamond, n(1), nil}, {21, db.RewardChips, n(100_000), nil},
+			{22, db.RewardHammer, n(3), nil}, {23, db.RewardChips, n(125_000), nil}, {24, db.RewardDiamond, n(2), nil},
+			{25, db.RewardTablePicture, nil, f.catalogueID("table_pictures", "Lines Background")},
+			{26, db.RewardChips, n(150_000), nil}, {27, db.RewardHammer, n(3), nil}, {28, db.RewardChips, n(200_000), nil},
+			{29, db.RewardDiamond, n(2), nil}, {30, db.RewardChips, n(250_000), nil}, {31, db.RewardBadge, nil, ref("ROYAL_ACE")},
+		}
+	}
+	for _, r := range rows {
+		f.day(id, r.day, r.kind, r.value, r.ref)
+	}
+}
+
 // catalogueID is a catalogue row's id as reward_ref_id names it.
 func (f *fixture) catalogueID(table, name string) *string {
 	f.t.Helper()
@@ -227,12 +283,15 @@ func TestAWeeklyLoginStreakCountsConsecutiveDaysAndResetsOnAMiss(t *testing.T) {
 		t.Fatalf("%d claims after two calls on one day", n)
 	}
 
-	// Tuesday: Day 2, a hammer. Wednesday: Day 3, 20,000 chips.
-	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 6, 9)), weeklyLogin), weeklyLogin, 2, db.RewardHammer, 1)
-	if got := f.wallet(u.ID, "hammer"); got != hammers+1 {
-		t.Fatalf("hammers %d, want %d", got, hammers+1)
+	// Tuesday: Day 2, 20,000 chips. Wednesday: Day 3, 30,000.
+	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 6, 9)), weeklyLogin), weeklyLogin, 2, db.RewardChips, 20_000)
+	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 7, 9)), weeklyLogin), weeklyLogin, 3, db.RewardChips, 30_000)
+	if got := f.wallet(u.ID, "chips"); got != chips+60_000 {
+		t.Fatalf("chips %d, want %d after three days", got, chips+60_000)
 	}
-	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 7, 9)), weeklyLogin), weeklyLogin, 3, db.RewardChips, 20_000)
+	if got := f.wallet(u.ID, "hammer"); got != hammers {
+		t.Fatalf("hammers %d, want %d: the hammer is Day 7's", got, hammers)
+	}
 
 	// Thursday missed. Friday: Day 1 again — the LATEST claim decides, never
 	// the highest day reached.
@@ -243,8 +302,8 @@ func TestAWeeklyLoginStreakCountsConsecutiveDaysAndResetsOnAMiss(t *testing.T) {
 		t.Fatalf("after the missed Thursday: day %d run %d claimed %v", s.CurrentDay, s.ClaimedDays, claimedDays(s))
 	}
 	// Saturday Day 2, Sunday Day 3.
-	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 10, 9)), weeklyLogin), weeklyLogin, 2, db.RewardHammer, 1)
-	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 11, 23)), weeklyLogin), weeklyLogin, 3, db.RewardChips, 20_000)
+	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 10, 9)), weeklyLogin), weeklyLogin, 2, db.RewardChips, 20_000)
+	wantGrant(t, grantOf(claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 11, 23)), weeklyLogin), weeklyLogin, 3, db.RewardChips, 30_000)
 
 	// Monday 12 Oct, an hour later: a new week, and Day 1 whatever Sunday was.
 	out = claimAt(t, store, clock, u.ID, utcAt(2026, time.October, 12, 0))
@@ -265,6 +324,7 @@ func TestAWeeklyLoginStreakCountsConsecutiveDaysAndResetsOnAMiss(t *testing.T) {
 func TestAMonthlyLoginStreakResetsOnAMissAndAtTheMonthsEnd(t *testing.T) {
 	f := newFixture(t)
 	f.onlyPrograms(monthlyLogin)
+	f.exampleDays(monthlyLogin)
 	u := f.user("monthly")
 	clock := &luckyClock{}
 	store := f.rewardStore(clock.Now)
@@ -325,6 +385,7 @@ func TestAMonthlyLoginStreakResetsOnAMissAndAtTheMonthsEnd(t *testing.T) {
 func TestAWeeklyCalendarGivesEachDaysRewardAndAMissedDayIsMissed(t *testing.T) {
 	f := newFixture(t)
 	f.onlyPrograms(weeklyCalendar)
+	f.exampleDays(weeklyCalendar)
 	u := f.user("calendar")
 	clock := &luckyClock{}
 	store := f.rewardStore(clock.Now)
@@ -380,6 +441,7 @@ func TestAWeeklyCalendarGivesEachDaysRewardAndAMissedDayIsMissed(t *testing.T) {
 func TestAMonthlyCalendarIsDatedAndKeepsItsFebruaries(t *testing.T) {
 	f := newFixture(t)
 	f.onlyPrograms(monthlyCalendar)
+	f.exampleDays(monthlyCalendar)
 	u := f.user("december")
 	clock := &luckyClock{}
 	store := f.rewardStore(clock.Now)
@@ -577,17 +639,16 @@ func TestTwoRequestsAtOnceGrantADaysRewardOnce(t *testing.T) {
 	for out := range results {
 		granted += len(out.Granted)
 	}
-	// The four seeded programs each gave once, across every caller: Monday the
-	// 5th is Day 1 of both weekly programs and of the monthly streak (10,000
-	// chips each) and Day 5 of the monthly calendar (20,000 chips).
-	if granted != 4 {
-		t.Fatalf("%d rewards granted across %d callers, want 4", granted, callers)
+	// The one seeded program gave once, across every caller: Monday the 5th
+	// is Day 1 of the weekly streak (10,000 chips).
+	if granted != 1 {
+		t.Fatalf("%d rewards granted across %d callers, want 1", granted, callers)
 	}
-	if n := f.count(`SELECT count(*) FROM user_reward_claims WHERE user_id = $1`, u.ID); n != 4 {
-		t.Fatalf("%d claims recorded, want 4", n)
+	if n := f.count(`SELECT count(*) FROM user_reward_claims WHERE user_id = $1`, u.ID); n != 1 {
+		t.Fatalf("%d claims recorded, want 1", n)
 	}
-	if got := f.wallet(u.ID, "chips"); got != chips+50_000 {
-		t.Fatalf("chips %d, want %d", got, chips+50_000)
+	if got := f.wallet(u.ID, "chips"); got != chips+10_000 {
+		t.Fatalf("chips %d, want %d", got, chips+10_000)
 	}
 	f.reconcile()
 }
@@ -766,13 +827,13 @@ func TestAProgramInAZoneTheServerCannotLoadIsLeftOut(t *testing.T) {
 			t.Fatal("a program in an unknown zone was served")
 		}
 	}
-	if len(states) != 4 {
-		t.Fatalf("%d programs, want the seeded four", len(states))
+	if len(states) != 1 {
+		t.Fatalf("%d programs, want the seeded one", len(states))
 	}
 }
 
 // The seed: the owner's four programs, in order, with the brief's rewards.
-func TestTheSeededProgramsAreTheOwnersFour(t *testing.T) {
+func TestTheSeededProgramsAreTheOwnersWeeklyLoginAndThreeWaiting(t *testing.T) {
 	f := newFixture(t)
 	u := f.user("reader")
 	clock := &luckyClock{}
@@ -781,27 +842,18 @@ func TestTheSeededProgramsAreTheOwnersFour(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []struct {
-		code, mode, period string
-		reset              bool
-	}{
-		{weeklyLogin, db.RewardModeLoginStreak, db.RewardPeriodWeekly, true},
-		{monthlyLogin, db.RewardModeLoginStreak, db.RewardPeriodMonthly, true},
-		{weeklyCalendar, db.RewardModeCalendar, db.RewardPeriodWeekly, false},
-		{monthlyCalendar, db.RewardModeCalendar, db.RewardPeriodMonthly, false},
+	// One program runs: the owner's weekly login streak.
+	if len(states) != 1 {
+		t.Fatalf("%d programs run, want the weekly login alone: %+v", len(states), states)
 	}
-	if len(states) != len(want) {
-		t.Fatalf("%d programs: %+v", len(states), states)
+	weekly := states[0]
+	p := weekly.Program
+	if p.Code != weeklyLogin || p.Mode != db.RewardModeLoginStreak || p.PeriodType != db.RewardPeriodWeekly || !p.ResetOnMissedDay ||
+		p.Timezone != "UTC" || p.WeekStartDay != 1 || p.StartsAt != nil || p.EndsAt != nil {
+		t.Fatalf("WEEKLY_LOGIN: %+v", p)
 	}
-	for i, w := range want {
-		p := states[i].Program
-		if p.Code != w.code || p.Mode != w.mode || p.PeriodType != w.period || p.ResetOnMissedDay != w.reset ||
-			p.Timezone != "UTC" || p.WeekStartDay != 1 || p.StartsAt != nil || p.EndsAt != nil {
-			t.Fatalf("program %d: %+v, want %+v", i, p, w)
-		}
-		if states[i].ClaimedToday || states[i].ClaimedDays != 0 {
-			t.Fatalf("a fresh account has claimed nothing: %+v", states[i])
-		}
+	if weekly.ClaimedToday || weekly.ClaimedDays != 0 {
+		t.Fatalf("a fresh account has claimed nothing: %+v", weekly)
 	}
 	kinds := func(s db.RewardProgramState) string {
 		var parts []string
@@ -814,35 +866,26 @@ func TestTheSeededProgramsAreTheOwnersFour(t *testing.T) {
 		}
 		return strings.Join(parts, " ")
 	}
-	// WEEKLY_LOGIN is the owner's own list (30 Sep 2026): wallets only.
-	weekly := stateOf(t, states, weeklyLogin)
-	if got := kinds(weekly); got != "1:CHIPS=10000 2:HAMMER=1 3:CHIPS=20000 4:DIAMOND=1 5:CHIPS=30000 6:HAMMER=2 7:DIAMOND=1" {
+	// The owner's own days (30 Sep 2026): chips rising to the sixth day, a
+	// hammer on the seventh.
+	if got := kinds(weekly); got != "1:CHIPS=10000 2:CHIPS=20000 3:CHIPS=30000 4:CHIPS=40000 5:CHIPS=50000 6:CHIPS=60000 7:HAMMER=1" {
 		t.Fatalf("WEEKLY_LOGIN's days: %s", got)
 	}
 	if weekly.CurrentDay != 1 || weekly.DayOfPeriod != 1 || weekly.PeriodDays != 7 {
 		t.Fatalf("Monday's weekly streak: %+v", weekly)
 	}
-	monthly := stateOf(t, states, monthlyLogin)
-	if len(monthly.Rewards) != 31 || monthly.Rewards[9].RewardType != db.RewardDiamond || monthly.Rewards[30].Badge == nil || monthly.Rewards[30].Badge.Code != "ROYAL_KING" {
-		t.Fatalf("MONTHLY_LOGIN's days: %s", kinds(monthly))
-	}
-	if em := monthly.Rewards[14].Emoji; em == nil || em.Name != "Clapping Hands" || em.Owned {
-		t.Fatalf("MONTHLY_LOGIN Day 15's emoji: %+v", em)
-	}
-	calendar := stateOf(t, states, weeklyCalendar)
-	if calendar.Rewards[2].RewardType != db.RewardHammer || calendar.Rewards[4].Emoji == nil || calendar.CurrentDay != 1 {
-		t.Fatalf("WEEKLY_CALENDAR: %s (day %d)", kinds(calendar), calendar.CurrentDay)
-	}
-	calendar = stateOf(t, states, monthlyCalendar)
-	if len(calendar.Rewards) != 31 || calendar.Rewards[9].Emoji == nil || calendar.Rewards[24].TablePicture == nil ||
-		calendar.Rewards[24].TablePicture.Name != "Lines Background" || calendar.CurrentDay != 5 {
-		t.Fatalf("MONTHLY_CALENDAR: %s (day %d)", kinds(calendar), calendar.CurrentDay)
-	}
-	if b := calendar.Rewards[30].Badge; b == nil || b.Code != "ROYAL_ACE" || b.ValidityDays != 7 || b.Held || b.AssetURL == "" {
-		t.Fatalf("MONTHLY_CALENDAR Day 31's badge: %+v", b)
+	// The other three are seeded, inactive, with no days: switched on with an
+	// UPDATE once their days are.
+	for _, code := range []string{monthlyLogin, weeklyCalendar, monthlyCalendar} {
+		if active := f.text(`SELECT is_active::text FROM reward_programs WHERE code = $1`, code); active != "false" {
+			t.Fatalf("%s is_active %q, want false", code, active)
+		}
+		if n := f.count(`SELECT count(*) FROM reward_program_rewards r JOIN reward_programs p ON p.id = r.program_id WHERE p.code = $1`, code); n != 0 {
+			t.Fatalf("%s has %d days seeded", code, n)
+		}
 	}
 	// The wire, as the brief's §25 names it.
-	body, err := json.Marshal(states[0])
+	body, err := json.Marshal(weekly)
 	if err != nil {
 		t.Fatal(err)
 	}

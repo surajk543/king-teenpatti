@@ -225,9 +225,14 @@ void chatHistory(GameState state) {
 RoomState seenTurnRoom({
   List<String> cards = const ['As', 'Kd', 'Qh'],
   int pot = 6800,
+  // The same table as a blind or a variation one (the pot's coins take the
+  // table's colour): only the category and the boot change.
+  String category = 'seen',
+  int boot = 200,
 }) => _room(
-  category: 'seen',
-  maxPot: 2000000,
+  category: category,
+  boot: boot,
+  maxPot: category == 'seen' ? 2000000 : 0,
   pot: pot,
   stake: 400,
   turnSeat: 0,

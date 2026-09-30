@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
@@ -7,42 +8,74 @@ import 'package:provider/provider.dart';
 import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../screens/reward_programs_screen.dart'
-    show rewardPrizeIcon, rewardPrizeLabel, rewardPrizeShort;
+    show rewardPrizeIcon, rewardPrizeInk, rewardPrizeLabel, rewardPrizeShort;
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/depth.dart';
 import '../widgets/fireworks.dart';
 import '../widgets/game_loader.dart';
-import '../widgets/glass_components.dart';
+import '../widgets/level_accent.dart';
+import '../widgets/lucky_spin_key.dart' show LuckyGoldKey;
 import '../widgets/premium_surface.dart';
+import '../widgets/table_tax.dart' show LevelCloseKey;
 
 // The weekly login popup (owner, 30 Sep 2026: "Use this animation which
 // shows up everyday in case of weekly login and put the prize in blue boxes,
 // it should pop after login and if user has claimed it should not show when
-// user start the app, otherwise show it").
+// user start the app, otherwise show it"; then "Calender size should be big
+// and it should play animation where all box one by one come up and then
+// rewards on them boxes"; then the polish brief the same evening — "Premium
+// King Teen Patti Reward Vault", not "generic calendar popup": the lobby's
+// glass, its gold, its depth ladder, the card restyled out of its white, the
+// day cards claimed / current / upcoming / locked / final, the right panel
+// a reward hierarchy).
 //
-// The owner's `assets/animations/WeekLy.json` is a desk calendar: a
-// light-grey card with six binder rings, and seven blue boxes — four on the
-// top row, three on the bottom — that pop in one after another over the
-// first 1.5 s (each from nothing to 110% and down to size), hold, and pop out
-// again by the end (the file is a 3 s loop), with five sparkles fading in and
-// out round it. 600 x 250 units, 30 fps, 90 frames; no 3D, no expressions,
-// no images (the §12.3 traps), so the phones play exactly what the preview
-// shows. It has no text and no numbers: the seven boxes are the seven days
-// of the WEEKLY login streak, Day 1 to Day 7 in reading order, and the
-// prize of each day is DRAWN OVER ITS BOX by Flutter — its mark and its
-// figure — from the geometry the file lays the boxes out by
-// ([WeeklyCalendarGeometry]), so the prize and the box cannot drift apart.
+// The owner's `assets/animations/WeekLy.json` is a desk calendar: a card
+// with six binder rings, and seven boxes — four on the top row, three on the
+// bottom — that pop in one after another over the first two seconds (each
+// from nothing to 110% and down to size), hold, and pop out again by the end
+// (the file is a 3 s loop), with a grey skyline behind the card and five
+// sparkles round it. 600 x 250 units, 30 fps, 90 frames; no 3D, no
+// expressions, no images (the §12.3 traps), so the phones play exactly what
+// the preview shows. It has no text and no numbers: the seven boxes are the
+// seven days of the WEEKLY login streak, Day 1 to Day 7 in reading order,
+// and the prize of each day is DRAWN OVER ITS BOX by Flutter — a card of the
+// lobby's glass with its mark and its figure — from the geometry the file
+// lays the boxes out by ([WeeklyCalendarGeometry]), so the prize and the box
+// cannot drift apart.
 //
-// It plays ONCE, to the frame where every box is in and still
-// ([WeeklyCalendarGeometry.holdFrame]), and holds there: the file's pop-out
-// would take the prizes' boxes away every three seconds. Each prize pops in
-// with its own box, on the box's own frame. The file's white solid (the whole
-// canvas) is hidden — the popup lays the card on its own glass — and its one
-// darker box (the third, the designer's "today") is drawn the same blue as
-// the other six, since today is whichever box the server says; today's box
-// wears a gold ring and its prize gold, a collected day a green tick, a day
-// not reached its box faded.
+// The file is restyled as it plays, never edited (ValueDelegates): its white
+// solid, its sparkles and its skyline hidden; its card's white body, grey
+// header band and ring holes in the theme's own glass tones — charcoal by
+// night, warm off-white by day; its outline and its rings thinner and
+// softer; and each box in its day's colour — gold for a day collected or
+// today's, the blind table's cyan for the next day, dark glass for the days
+// beyond, gold over purple for the seventh — so the pop-in already reads as
+// the card that then lands on it.
+//
+// The sequence is the owner's: the boxes come up one by one (the file's own
+// pop-ins, played ONCE to the frame every box is in and still,
+// [WeeklyCalendarGeometry.holdFrame], and held there — the file's pop-out
+// would take the boxes away every three seconds), and only THEN the prizes
+// land on them, one after another ([WeeklyCalendar.revealStagger] apart,
+// each with the boxes' own overshoot). The popup shows the card as large as
+// the screen allows: the file cropped to the card, taking the panel's whole
+// height on the left, the words and the key on the right. The prize's
+// figure is the largest thing on its card (owner, 30 Sep 2026: "Make Text
+// size bigger of reward money which u show in calender"), every size on a
+// card a share of the box's side.
+//
+// Opened inside a Blind or Variation level the popup takes that level's
+// colour as the lobby's two drawers do (owner, 30 Sep 2026: "In day mode,
+// when i click "Rewards" button after going into blind catalogue, then daily
+// Streak background color should be changed acc to card color, same with
+// when i go in variation catalogue"; [LevelAccent], which the lobby lays over
+// the overlay with the level on screen): the panel's wash, its edge, the
+// light behind it and the calendar card's glass in the level's hue — ice
+// and sapphire inside Blind, lavender and violet inside Variation — and the
+// house gold at the front and inside Seen, where [LevelAccent.of] is null
+// and nothing changes. The day cards keep their own colours everywhere: gold
+// is what a collected day and today's mean, whatever the room.
 
 /// Where the file lays its calendar out, in the file's own units — read off
 /// the layers (`test/weekly_login_test.dart` holds them to the file).
@@ -59,11 +92,10 @@ class WeeklyCalendarGeometry {
   static const double frameRate = 30;
   static const int frames = 90;
 
-  /// The window of the canvas the popup shows: the calendar card, the
-  /// light-grey ground behind it and the two inner sparkles, centred on the
-  /// card; the outer sparkles, at the corners of the canvas, are let go so
-  /// the boxes are half again as large on a phone.
-  static const Rect window = Rect.fromLTRB(80, 55, 520, 236);
+  /// The window of the canvas the popup shows: the calendar card (its rings
+  /// from 63 down to its foot at 232, its sides at 195.6 and 404.4) and a
+  /// hair of the ground round it, so the card is as large as the popup is.
+  static const Rect window = Rect.fromLTRB(188, 58, 412, 236);
 
   /// The frame the animation is held at: every box in and at rest (the last
   /// lands at frame 59), before the first begins to leave (frame 73).
@@ -108,17 +140,53 @@ class WeeklyCalendarGeometry {
     (34, 47),
   ];
 
+  /// The frame the last box is at rest: the prizes follow it.
+  static int get boxesIn =>
+      boxPops.map((p) => p.$2).reduce((a, b) => a > b ? a : b);
+
   /// The file's white solid, hidden: the popup has a ground of its own.
   static const String solidLayer = 'Sólido Blanco 4';
 
-  /// The file's ground behind the card — a light-grey skyline on the white
-  /// solid — which on the dark theme is drawn in a charcoal a step lighter
-  /// than the panel, so it stays the faint shape it was meant to be.
-  static const String groundLayer = 'fondo/calendario contornos';
-  static const Color groundDark = Color(0xFF23262B);
+  /// The file's sparkles, hidden: cut by the window they would be stray
+  /// strokes at its edges.
+  static const String sparklesLayer = 'estrellas';
 
-  /// The blue every box is drawn in (the file's own, on six of them).
-  static const Color boxBlue = Color(0xFF2786F5);
+  /// The file's ground behind the card — a light-grey skyline on the white
+  /// solid — hidden: what the window keeps of it is a stray block at the
+  /// card's sides.
+  static const String groundLayer = 'fondo/calendario contornos';
+
+  /// The card itself: its outline in seven stroked groups, six rings (a
+  /// stroke each) over six holes (a white fill each), the header band and
+  /// the body — every one restyled by name.
+  static const String cardLayer = 'calendario/calendario contornos';
+  static const List<String> outlineGroups = [
+    'Grupo 1',
+    'Grupo 2',
+    'Grupo 3',
+    'Grupo 4',
+    'Grupo 5',
+    'Grupo 6',
+    'Grupo 7',
+  ];
+  static const List<String> ringGroups = [
+    'Grupo 8',
+    'Grupo 10',
+    'Grupo 12',
+    'Grupo 14',
+    'Grupo 16',
+    'Grupo 18',
+  ];
+  static const List<String> holeGroups = [
+    'Grupo 9',
+    'Grupo 11',
+    'Grupo 13',
+    'Grupo 15',
+    'Grupo 17',
+    'Grupo 19',
+  ];
+  static const String headerGroup = 'Grupo 20';
+  static const String bodyGroup = 'Grupo 21';
 
   /// Day [day]'s box, in canvas units.
   static Rect boxOf(int day) => Rect.fromCenter(
@@ -126,19 +194,101 @@ class WeeklyCalendarGeometry {
     width: boxSide,
     height: boxSide,
   );
+}
 
-  /// The moment day [day]'s box begins to pop, as a fraction of the file.
-  static double popStartOf(int day) => boxPops[day - 1].$1 / frames;
+/// Where a day stands on the calendar: collected in this run; today's, still
+/// to collect; the next day, which the player can earn tomorrow; a day
+/// beyond that; or the seventh, the week's own reward, while it is neither
+/// collected nor today's.
+enum WeeklyDayState { claimed, current, next, locked, finalDay }
 
-  /// How long day [day]'s pop takes.
-  static Duration popLengthOf(int day) {
-    final (start, rest) = boxPops[day - 1];
-    return Duration(milliseconds: ((rest - start) * 1000 / frameRate).round());
+/// Which state day [day] is in for the program [s] ([collected] the day just
+/// collected, which the state may not say yet).
+WeeklyDayState weeklyDayStateOf(
+  RewardProgramState s,
+  int day, {
+  int? collected,
+}) {
+  if (collected == day || day <= s.claimedDays) return WeeklyDayState.claimed;
+  if (day == s.currentDay && !s.claimedToday) return WeeklyDayState.current;
+  if (day == 7) return WeeklyDayState.finalDay;
+  if (day == s.currentDay + 1) return WeeklyDayState.next;
+  return WeeklyDayState.locked;
+}
+
+/// The colours the calendar is drawn in, one set a theme: the card's glass
+/// tones the file is restyled to, and each day state's box.
+class WeeklyCardColours {
+  const WeeklyCardColours({
+    required this.body,
+    required this.header,
+    required this.outline,
+    required this.ring,
+    required this.upcoming,
+    required this.lockedBox,
+    required this.finalBox,
+  });
+
+  /// By night: charcoal glass, a step above the panel.
+  static const dark = WeeklyCardColours(
+    body: Color(0xFF1B1E24),
+    header: Color(0xFF24282F),
+    outline: Color(0xFF3B4048),
+    ring: Color(0xFF6F7580),
+    upcoming: Color(0xFF1F4653),
+    lockedBox: Color(0xFF262A31),
+    finalBox: Color(0xFF4A3A6E),
+  );
+
+  /// By day: warm off-white glass, never the file's flat white.
+  static const light = WeeklyCardColours(
+    body: Color(0xFFF7F3EB),
+    header: Color(0xFFECE5D8),
+    outline: Color(0xFFC9C1B2),
+    ring: Color(0xFFA39B8C),
+    upcoming: Color(0xFFCDE6EC),
+    lockedBox: Color(0xFFE3DDD2),
+    finalBox: Color(0xFFD9CCEF),
+  );
+
+  /// The theme's set — and inside a Blind or Variation level ([level]) the
+  /// card's glass turned to the level's hue at its own lightness, as the
+  /// drawers' pearl and charcoal are ([LevelColours.inHue]); the boxes'
+  /// colours are the days' own and stay.
+  static WeeklyCardColours of(Brightness b, [LevelColours? level]) {
+    final house = b == Brightness.dark ? dark : light;
+    if (level == null) return house;
+    return WeeklyCardColours(
+      body: level.inHue(house.body),
+      header: level.inHue(house.header),
+      outline: level.inHue(house.outline),
+      ring: level.inHue(house.ring),
+      upcoming: house.upcoming,
+      lockedBox: house.lockedBox,
+      finalBox: house.finalBox,
+    );
   }
+
+  final Color body;
+  final Color header;
+  final Color outline;
+  final Color ring;
+  final Color upcoming;
+  final Color lockedBox;
+  final Color finalBox;
+
+  /// The box the file pops in for a day in [state]: the tone the card that
+  /// lands on it is built on.
+  Color boxOf(WeeklyDayState state) => switch (state) {
+    WeeklyDayState.claimed || WeeklyDayState.current => AppTheme.gold,
+    WeeklyDayState.next => upcoming,
+    WeeklyDayState.locked => lockedBox,
+    WeeklyDayState.finalDay => finalBox,
+  };
 }
 
 /// The calendar with the seven prizes in its boxes, sized to [size] (the
-/// window's aspect, 510:181), for the program [state] — a WEEKLY login
+/// window's aspect, 224:178), for the program [state] — a WEEKLY login
 /// streak. [collected] marks the day the player has just collected, which
 /// the state may not say yet.
 class WeeklyCalendar extends StatefulWidget {
@@ -152,6 +302,29 @@ class WeeklyCalendar extends StatefulWidget {
   final RewardProgramState state;
   final Size size;
   final int? collected;
+
+  /// How long the file's pop-ins take: from its first frame to [holdFrame].
+  static Duration get boxesLength => Duration(
+    milliseconds:
+        (WeeklyCalendarGeometry.holdFrame *
+                1000 /
+                WeeklyCalendarGeometry.frameRate)
+            .round(),
+  );
+
+  /// The prizes land one after another, this far apart, each taking
+  /// [revealPop], once the boxes are in.
+  static const Duration revealStagger = Duration(milliseconds: 110);
+  static const Duration revealPop = Duration(milliseconds: 340);
+
+  /// How long the prizes take, all seven.
+  static Duration get revealLength => revealStagger * 6 + revealPop;
+
+  /// The whole sequence: the boxes, then the prizes.
+  static Duration get sequenceLength => boxesLength + revealLength;
+
+  /// Today's card breathes its glow this slowly.
+  static const Duration pulse = Duration(milliseconds: 1700);
 
   /// The size the window takes at [width].
   static Size sizeFor(double width) => Size(
@@ -180,41 +353,78 @@ class WeeklyCalendar extends StatefulWidget {
     );
   }
 
-  /// The delegates the file is drawn with: the white solid hidden, every box
-  /// the same blue (the file's third box is darker, the designer's "today"),
-  /// and by night the ground behind the card in charcoal.
-  static LottieDelegates delegates(Brightness brightness) => LottieDelegates(
-    values: [
-      ValueDelegate.transformOpacity(const [
-        WeeklyCalendarGeometry.solidLayer,
-      ], value: 0),
-      for (final layer in WeeklyCalendarGeometry.boxLayers)
-        ValueDelegate.color([
-          layer,
-          '**',
-        ], value: WeeklyCalendarGeometry.boxBlue),
-      if (brightness == Brightness.dark)
-        ValueDelegate.color(const [
+  /// The delegates the file is drawn with for [state] on a [brightness]:
+  /// the white solid, the sparkles and the ground hidden; the card in the
+  /// theme's glass tones — in the open level's hue where one stands
+  /// ([level]) — its outline and rings thinner and softer; every box in its
+  /// day's colour.
+  static LottieDelegates delegates(
+    Brightness brightness,
+    RewardProgramState state, {
+    int? collected,
+    LevelColours? level,
+  }) {
+    final c = WeeklyCardColours.of(brightness, level);
+    const card = WeeklyCalendarGeometry.cardLayer;
+    return LottieDelegates(
+      values: [
+        for (final layer in const [
+          WeeklyCalendarGeometry.solidLayer,
+          WeeklyCalendarGeometry.sparklesLayer,
           WeeklyCalendarGeometry.groundLayer,
+        ])
+          ValueDelegate.transformOpacity([layer], value: 0),
+        for (final group in WeeklyCalendarGeometry.outlineGroups) ...[
+          ValueDelegate.strokeColor([card, group, '**'], value: c.outline),
+          ValueDelegate.strokeWidth([card, group, '**'], value: 1.2),
+        ],
+        for (final group in WeeklyCalendarGeometry.ringGroups) ...[
+          ValueDelegate.strokeColor([card, group, '**'], value: c.ring),
+          ValueDelegate.strokeWidth([card, group, '**'], value: 2),
+        ],
+        for (final group in WeeklyCalendarGeometry.holeGroups)
+          ValueDelegate.color([card, group, '**'], value: c.header),
+        ValueDelegate.color([
+          card,
+          WeeklyCalendarGeometry.headerGroup,
           '**',
-        ], value: WeeklyCalendarGeometry.groundDark),
-    ],
-  );
+        ], value: c.header),
+        ValueDelegate.color([
+          card,
+          WeeklyCalendarGeometry.bodyGroup,
+          '**',
+        ], value: c.body),
+        for (var day = 1; day <= 7; day++)
+          ValueDelegate.color(
+            [WeeklyCalendarGeometry.boxLayers[day - 1], '**'],
+            value: c.boxOf(weeklyDayStateOf(state, day, collected: collected)),
+          ),
+      ],
+    );
+  }
 
   @override
   State<WeeklyCalendar> createState() => _WeeklyCalendarState();
 }
 
 class _WeeklyCalendarState extends State<WeeklyCalendar>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   /// The file's clock: 0 is its first frame, 1 its last. Run once from the
   /// start to [WeeklyCalendarGeometry.holdFrame] and left there.
   late final AnimationController _clock;
 
-  /// Built once per theme: a new [LottieDelegates] never compares equal to
-  /// the last, and would have every key path resolved again on each build.
+  /// The prizes' clock, run once after the boxes are in: 0 is none shown, 1
+  /// every prize on its box.
+  late final AnimationController _reveal;
+
+  /// Today's glow, breathing.
+  late final AnimationController _pulse;
+
+  /// Built once per theme, level and standing: a new [LottieDelegates] never
+  /// compares equal to the last, and would have every key path resolved
+  /// again on each build.
   LottieDelegates? _delegates;
-  Brightness? _delegatesFor;
+  (Brightness, Color?, int, int, bool, int?)? _delegatesFor;
 
   @override
   void initState() {
@@ -229,34 +439,65 @@ class _WeeklyCalendarState extends State<WeeklyCalendar>
                 .round(),
       ),
     );
+    _reveal = AnimationController(
+      vsync: this,
+      duration: WeeklyCalendar.revealLength,
+    );
+    _pulse = AnimationController(vsync: this, duration: WeeklyCalendar.pulse)
+      ..repeat(reverse: true);
+    // The boxes first, one by one, then the prizes.
     unawaited(
-      _clock.animateTo(
-        WeeklyCalendarGeometry.holdFrame / WeeklyCalendarGeometry.frames,
-        duration: Duration(
-          milliseconds:
-              (WeeklyCalendarGeometry.holdFrame *
-                      1000 /
-                      WeeklyCalendarGeometry.frameRate)
-                  .round(),
-        ),
-        curve: Curves.linear,
-      ),
+      _clock
+          .animateTo(
+            WeeklyCalendarGeometry.holdFrame / WeeklyCalendarGeometry.frames,
+            duration: WeeklyCalendar.boxesLength,
+            curve: Curves.linear,
+          )
+          .then((_) {
+            if (mounted) _reveal.forward();
+          }),
     );
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final brightness = Theme.of(context).brightness;
-    if (_delegatesFor != brightness) {
-      _delegatesFor = brightness;
-      _delegates = WeeklyCalendar.delegates(brightness);
-    }
+    _refreshDelegates();
+  }
+
+  @override
+  void didUpdateWidget(WeeklyCalendar old) {
+    super.didUpdateWidget(old);
+    _refreshDelegates();
+  }
+
+  void _refreshDelegates() {
+    final s = widget.state;
+    // The open level's colour, where the lobby has laid one over the popup.
+    final level = LevelAccent.of(context);
+    final key = (
+      Theme.of(context).brightness,
+      level?.fill,
+      s.claimedDays,
+      s.currentDay,
+      s.claimedToday,
+      widget.collected,
+    );
+    if (_delegatesFor == key) return;
+    _delegatesFor = key;
+    _delegates = WeeklyCalendar.delegates(
+      key.$1,
+      s,
+      collected: widget.collected,
+      level: level,
+    );
   }
 
   @override
   void dispose() {
     _clock.dispose();
+    _reveal.dispose();
+    _pulse.dispose();
     super.dispose();
   }
 
@@ -266,6 +507,9 @@ class _WeeklyCalendarState extends State<WeeklyCalendar>
     final scale = size.width / WeeklyCalendarGeometry.window.width;
     final window = WeeklyCalendarGeometry.window;
     final canvas = WeeklyCalendarGeometry.canvas;
+    final rects = [
+      for (var day = 1; day <= 7; day++) WeeklyCalendar.boxRectIn(size, day),
+    ];
     return SizedBox.fromSize(
       size: size,
       child: ClipRect(
@@ -288,13 +532,32 @@ class _WeeklyCalendarState extends State<WeeklyCalendar>
                 ),
               ),
             ),
+            // The thread from day to day, under the cards: gold as far as
+            // the run has come, faint beyond.
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedBuilder(
+                  animation: _reveal,
+                  builder: (context, _) => CustomPaint(
+                    painter: _ProgressThread(
+                      rects: rects,
+                      state: widget.state,
+                      collected: widget.collected,
+                      shown: Curves.easeOut.transform(_reveal.value),
+                      brightness: Theme.of(context).brightness,
+                    ),
+                  ),
+                ),
+              ),
+            ),
             for (var day = 1; day <= 7; day++)
-              _PrizeInBox(
+              _DayCard(
                 day: day,
-                rect: WeeklyCalendar.boxRectIn(size, day),
+                rect: rects[day - 1],
                 state: widget.state,
                 collected: widget.collected == day,
-                clock: _clock,
+                reveal: _reveal,
+                pulse: _pulse,
               ),
           ],
         ),
@@ -303,226 +566,381 @@ class _WeeklyCalendarState extends State<WeeklyCalendar>
   }
 }
 
-/// Where a day stands: collected (this run), today's — still to collect —,
-/// or not reached.
-enum _BoxState { collected, today, locked }
+/// The thread between the days of each row.
+class _ProgressThread extends CustomPainter {
+  const _ProgressThread({
+    required this.rects,
+    required this.state,
+    required this.collected,
+    required this.shown,
+    required this.brightness,
+  });
 
-/// One day's prize laid over its box, popping in with the box: the day's
-/// number above the box, the prize's mark and figure inside it, a tick when
-/// collected, a gold ring for today, faded when not reached.
-class _PrizeInBox extends StatelessWidget {
-  const _PrizeInBox({
+  final List<Rect> rects;
+  final RewardProgramState state;
+  final int? collected;
+  final double shown;
+  final Brightness brightness;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (shown <= 0) return;
+    final dark = brightness == Brightness.dark;
+    final faint = (dark ? Colors.white : Colors.black).withValues(
+      alpha: (dark ? 0.12 : 0.10) * shown,
+    );
+    final gold = AppTheme.gold.withValues(alpha: 0.7 * shown);
+    final width = (rects.first.width * 0.045).clamp(1.5, 3.0);
+    for (final (a, b) in const [(1, 2), (2, 3), (3, 4), (5, 6), (6, 7)]) {
+      final from = rects[a - 1];
+      final to = rects[b - 1];
+      // Both days in the run: gold.
+      final done =
+          weeklyDayStateOf(state, b, collected: collected) ==
+          WeeklyDayState.claimed;
+      final paint = Paint()
+        ..color = done ? gold : faint
+        ..strokeWidth = width
+        ..strokeCap = StrokeCap.round;
+      canvas.drawLine(
+        Offset(from.right + width, from.center.dy),
+        Offset(to.left - width, to.center.dy),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ProgressThread old) =>
+      old.shown != shown ||
+      old.brightness != brightness ||
+      old.collected != collected ||
+      old.state != state ||
+      old.rects != rects;
+}
+
+/// One day's card, laid over its box and landing on it in its turn once the
+/// boxes are in: the day's number, the prize's mark and figure; struck gold
+/// with a small success badge when collected, today's ringed in gold with a
+/// breathing glow and a touch larger, the next day in cyan glass with its
+/// prize in plain view, the days beyond in dark glass with a small lock, the
+/// seventh gold over purple and named FINAL.
+class _DayCard extends StatelessWidget {
+  const _DayCard({
     required this.day,
     required this.rect,
     required this.state,
     required this.collected,
-    required this.clock,
+    required this.reveal,
+    required this.pulse,
   });
 
   final int day;
   final Rect rect;
   final RewardProgramState state;
   final bool collected;
-  final Animation<double> clock;
-
-  _BoxState get standing {
-    if (collected || day <= state.claimedDays) return _BoxState.collected;
-    if (day == state.currentDay && !state.claimedToday) return _BoxState.today;
-    return _BoxState.locked;
-  }
+  final Animation<double> reveal;
+  final Animation<double> pulse;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final b = theme.brightness;
+    final dark = b == Brightness.dark;
     final t = context.read<GameState>().t;
     final prize = state.rewardFor(day)?.prize;
-    final standing = this.standing;
-    final gold = AppTheme.goldInk(b);
-    // The prize pops with its box: from the box's first frame to the frame
-    // it rests, with the box's own overshoot.
-    final popStart = WeeklyCalendarGeometry.popStartOf(day);
-    final popEnd =
-        popStart +
-        WeeklyCalendarGeometry.popLengthOf(day).inMilliseconds /
-            (WeeklyCalendarGeometry.frames *
-                1000 /
-                WeeklyCalendarGeometry.frameRate);
-    final pop = Interval(
-      popStart,
-      popEnd.clamp(popStart + 0.01, 1.0),
-      curve: Motion.settle,
+    final standing = weeklyDayStateOf(
+      state,
+      day,
+      collected: collected ? day : null,
     );
-    // The day's number stands above the box, in the row between the rings
-    // (or the row above) and the box; the tick and the lock in the box's
-    // top-right corner. The prize is white on the blue.
-    final labelH = rect.height * 0.38;
+    // Its turn on the prizes' clock: in day order, with the boxes' own
+    // overshoot.
+    final total = WeeklyCalendar.revealLength.inMilliseconds;
+    final start =
+        WeeklyCalendar.revealStagger.inMilliseconds * (day - 1) / total;
+    final end = start + WeeklyCalendar.revealPop.inMilliseconds / total;
+    final pop = Interval(start, math.min(end, 1.0), curve: Motion.settle);
+
     final side = rect.width;
-    const ink = Colors.white;
-    final figure = prize == null ? '' : rewardPrizeShort(prize);
+    final radius = (side * 0.16).clamp(6.0, 12.0);
+    // Every size on the card a share of its side, the prize's figure the
+    // largest (owner: "Make Text size bigger of reward money"): the day's
+    // label small, the mark under it, the figure under that — a column that
+    // fits the box at every screen here, and is set down whole where the
+    // phone's text size would have it overflow.
+    final labelSize = (side * 0.135).clamp(7.0, 11.0);
+    final markSize = (side * 0.27).clamp(13.0, 22.0);
+    final figureSize = (side * 0.235).clamp(11.0, 19.0);
     final words = [
       t.rewardDay(day),
       prize == null ? t.rewardNothing : rewardPrizeLabel(t, prize),
       switch (standing) {
-        _BoxState.collected => t.rewardTileClaimed,
-        _BoxState.today => t.rewardToday,
-        _BoxState.locked => t.rewardTileLocked,
+        WeeklyDayState.claimed => t.rewardTileClaimed,
+        WeeklyDayState.current => t.rewardToday,
+        WeeklyDayState.next ||
+        WeeklyDayState.locked ||
+        WeeklyDayState.finalDay => t.rewardTileLocked,
       },
     ].join(', ');
 
-    return Positioned(
-      left: rect.left,
-      top: rect.top - labelH,
-      width: side,
-      height: rect.height + labelH,
+    // The card's face: a gradient, a thin edge, the ladder's shadow where it
+    // stands proud; the dark days flat.
+    final cyan = theme.colorScheme.tertiary;
+    final (
+      List<Color> fill,
+      Color edge,
+      double edgeW,
+      List<BoxShadow> shadow,
+    ) = switch (standing) {
+      WeeklyDayState.claimed => (
+        const [Color(0xFFE6C264), Color(0xFFC49A1A), Color(0xFFA37A0C)],
+        AppTheme.goldBright.withValues(alpha: 0.75),
+        1.0,
+        Depth.shadows(b, Elevation.raised),
+      ),
+      WeeklyDayState.current => (
+        dark
+            ? const [Color(0xFF34302A), Color(0xFF221F1A)]
+            : const [Color(0xFFFFF6DE), Color(0xFFF3E4B8)],
+        AppTheme.gold,
+        (side * 0.045).clamp(1.5, 2.5),
+        Depth.shadows(b, Elevation.raised),
+      ),
+      WeeklyDayState.next => (
+        dark
+            ? [cyan.withValues(alpha: 0.42), cyan.withValues(alpha: 0.2)]
+            : [cyan.withValues(alpha: 0.28), cyan.withValues(alpha: 0.14)],
+        cyan.withValues(alpha: dark ? 0.7 : 0.55),
+        1.0,
+        const <BoxShadow>[],
+      ),
+      WeeklyDayState.locked => (
+        dark
+            ? [
+                Colors.white.withValues(alpha: 0.08),
+                Colors.white.withValues(alpha: 0.03),
+              ]
+            : [
+                Colors.black.withValues(alpha: 0.06),
+                Colors.black.withValues(alpha: 0.03),
+              ],
+        (dark ? Colors.white : Colors.black).withValues(
+          alpha: dark ? 0.12 : 0.10,
+        ),
+        1.0,
+        const <BoxShadow>[],
+      ),
+      WeeklyDayState.finalDay => (
+        dark
+            ? const [Color(0xFF5B3FA0), Color(0xFF3E2C6E), Color(0xFF6B5A16)]
+            : const [Color(0xFFE6DAF8), Color(0xFFD8C6F2), Color(0xFFF1E1A6)],
+        AppTheme.gold.withValues(alpha: 0.8),
+        1.2,
+        Depth.shadows(b, Elevation.raised),
+      ),
+    };
+    final onGold = standing == WeeklyDayState.claimed;
+    final ink = onGold
+        ? AppTheme.ink900
+        : standing == WeeklyDayState.finalDay && !dark
+        ? const Color(0xFF3A2A5E)
+        : dark
+        ? Colors.white
+        : const Color(0xFF1D1B18);
+    final muted = standing == WeeklyDayState.locked ? 0.55 : 1.0;
+    final label =
+        standing == WeeklyDayState.finalDay ||
+            (day == 7 && standing != WeeklyDayState.claimed)
+        ? t.weeklyFinal
+        : t.rewardDay(day).toUpperCase();
+    final labelInk = standing == WeeklyDayState.current
+        ? AppTheme.goldInk(b)
+        : day == 7 && standing != WeeklyDayState.claimed
+        ? (dark ? AppTheme.goldBright : AppTheme.goldDeep)
+        : ink.withValues(alpha: onGold ? 0.75 : 0.62);
+
+    Widget face = DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: fill,
+        ),
+        border: Border.all(color: edge, width: edgeW),
+        boxShadow: shadow,
+      ),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // A thin light along the top edge: the ladder's lift.
+          Positioned(
+            left: side * 0.12,
+            right: side * 0.12,
+            top: edgeW,
+            height: 1,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(
+                  alpha: standing == WeeklyDayState.locked ? 0.06 : 0.28,
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                side * 0.07,
+                side * 0.09,
+                side * 0.07,
+                side * 0.07,
+              ),
+              child: Opacity(
+                opacity: muted,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        label,
+                        maxLines: 1,
+                        style: AppTheme.label(
+                          theme.textTheme.labelSmall!,
+                          colour: labelInk,
+                          weight: FontWeight.w700,
+                        ).copyWith(fontSize: labelSize, letterSpacing: 0.9),
+                      ),
+                      SizedBox(height: side * 0.03),
+                      Icon(
+                        prize == null
+                            ? Icons.remove_rounded
+                            : rewardPrizeIcon(prize),
+                        size: markSize,
+                        color: onGold
+                            ? ink
+                            : rewardPrizeInk(
+                                prize ??
+                                    const RewardPrize(kind: RewardKind.none),
+                                b,
+                              ),
+                      ),
+                      Text(
+                        prize == null ? '' : rewardPrizeShort(prize),
+                        key: ValueKey('weekly-figure-$day'),
+                        maxLines: 1,
+                        style: AppTheme.money(
+                          theme.textTheme.labelSmall!,
+                          colour: ink,
+                          weight: FontWeight.w700,
+                        ).copyWith(fontSize: figureSize, height: 1.15),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (standing == WeeklyDayState.claimed)
+            Positioned(
+              top: -side * 0.08,
+              right: -side * 0.08,
+              child: _SuccessBadge(size: (side * 0.26).clamp(12.0, 17.0)),
+            ),
+          if (standing == WeeklyDayState.locked)
+            Positioned(
+              top: -side * 0.05,
+              right: -side * 0.05,
+              child: Icon(
+                Icons.lock_rounded,
+                size: (side * 0.2).clamp(9.0, 13.0),
+                color: ink.withValues(alpha: 0.45),
+              ),
+            ),
+        ],
+      ),
+    );
+
+    if (standing == WeeklyDayState.current) {
+      // Today: a touch larger, and a gold glow breathing round it — a band
+      // outside the card, never a shadow under a clear one.
+      face = AnimatedBuilder(
+        animation: pulse,
+        builder: (context, child) {
+          final glow = 0.18 + 0.2 * Curves.easeInOut.transform(pulse.value);
+          return Transform.scale(
+            scale: 1.04,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned(
+                  left: -side * 0.12,
+                  top: -side * 0.12,
+                  right: -side * 0.12,
+                  bottom: -side * 0.12,
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(
+                          radius + side * 0.1,
+                        ),
+                        border: Border.all(
+                          color: AppTheme.gold.withValues(alpha: glow),
+                          width: side * 0.12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned.fill(child: child!),
+              ],
+            ),
+          );
+        },
+        child: face,
+      );
+    } else if (standing == WeeklyDayState.finalDay) {
+      // The seventh day: a still, soft gold light round it.
+      face = Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: -side * 0.1,
+            top: -side * 0.1,
+            right: -side * 0.1,
+            bottom: -side * 0.1,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(radius + side * 0.08),
+                  border: Border.all(
+                    color: AppTheme.gold.withValues(alpha: 0.16),
+                    width: side * 0.1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(child: face),
+        ],
+      );
+    }
+
+    return Positioned.fromRect(
+      rect: rect,
       child: Semantics(
         key: ValueKey('weekly-box-$day'),
         label: words,
         child: ExcludeSemantics(
           child: AnimatedBuilder(
-            animation: clock,
+            animation: reveal,
             builder: (context, child) => Transform.scale(
-              scale: pop.transform(clock.value),
-              alignment: Alignment.bottomCenter,
+              scale: pop.transform(reveal.value),
+              alignment: Alignment.center,
               child: child,
             ),
-            child: Opacity(
-              opacity: standing == _BoxState.locked ? 0.62 : 1,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    height: labelH,
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        t.rewardDay(day),
-                        maxLines: 1,
-                        style: AppTheme.label(
-                          theme.textTheme.labelSmall!,
-                          colour: standing == _BoxState.today
-                              ? gold
-                              : const Color(0xFF484848),
-                          weight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: side,
-                    height: rect.height,
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        // Today's ring on the box's edge, and a soft gold
-                        // band round the outside of it — a band, not a
-                        // shadow: a shadow under a clear box tints the blue.
-                        if (standing == _BoxState.today) ...[
-                          Positioned(
-                            left: -side * 0.14,
-                            top: -side * 0.14,
-                            right: -side * 0.14,
-                            bottom: -side * 0.14,
-                            child: IgnorePointer(
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(
-                                    side * 0.22,
-                                  ),
-                                  border: Border.all(
-                                    color: AppTheme.gold.withValues(
-                                      alpha: 0.32,
-                                    ),
-                                    width: side * 0.14,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          Positioned.fill(
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(
-                                  WeeklyCalendarGeometry.boxRadius *
-                                      side /
-                                      WeeklyCalendarGeometry.boxSide *
-                                      1.6,
-                                ),
-                                border: Border.all(
-                                  color: AppTheme.gold,
-                                  width: (side * 0.06).clamp(1.5, 3),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                        Positioned.fill(
-                          child: Padding(
-                            padding: EdgeInsets.all(side * 0.08),
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    prize == null
-                                        ? Icons.remove_rounded
-                                        : rewardPrizeIcon(prize),
-                                    size: 16,
-                                    color: ink,
-                                  ),
-                                  if (figure.isNotEmpty)
-                                    Text(
-                                      figure,
-                                      maxLines: 1,
-                                      style: AppTheme.money(
-                                        theme.textTheme.labelSmall!,
-                                        colour: ink,
-                                      ).copyWith(fontSize: 9.5),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (standing == _BoxState.collected)
-                          Positioned(
-                            top: -side * 0.14,
-                            right: -side * 0.14,
-                            child: Container(
-                              width: side * 0.4,
-                              height: side * 0.4,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF2E7D32),
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.white,
-                                  width: 1.2,
-                                ),
-                              ),
-                              child: Icon(
-                                Icons.check_rounded,
-                                size: side * 0.28,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        if (standing == _BoxState.locked)
-                          Positioned(
-                            top: side * 0.04,
-                            right: side * 0.04,
-                            child: Icon(
-                              Icons.lock_rounded,
-                              size: side * 0.2,
-                              color: Colors.white.withValues(alpha: 0.85),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            child: face,
           ),
         ),
       ),
@@ -530,9 +948,41 @@ class _PrizeInBox extends StatelessWidget {
   }
 }
 
-/// The popup over the lobby: the calendar and its prizes, today's reward
-/// named, and the key that collects it — then what was collected, and
-/// Close. Shown by the lobby while [GameState.weeklyLoginOffer] stands.
+/// The compact success badge on a collected day: a check in a small gold
+/// disc, popping in when the day is collected under the player's eyes.
+class _SuccessBadge extends StatelessWidget {
+  const _SuccessBadge({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    tween: Tween(begin: 0, end: 1),
+    duration: Motion.base,
+    curve: Motion.settle,
+    builder: (context, v, child) => Transform.scale(scale: v, child: child),
+    child: Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: AppTheme.goldBright,
+        shape: BoxShape.circle,
+        border: Border.all(color: AppTheme.ink900.withValues(alpha: 0.35)),
+      ),
+      child: Icon(
+        Icons.check_rounded,
+        size: size * 0.72,
+        color: AppTheme.ink900,
+      ),
+    ),
+  );
+}
+
+/// The popup over the lobby: the calendar, as large as the screen allows,
+/// on the left; on the right the program's name, the streak, what the mode
+/// means, today's reward, the next one and the key that collects — then
+/// what was collected, and Continue. Shown by the lobby while
+/// [GameState.weeklyLoginOffer] stands.
 class WeeklyLoginOverlay extends StatelessWidget {
   const WeeklyLoginOverlay({super.key});
 
@@ -555,6 +1005,13 @@ class _WeeklyLoginScrim extends StatefulWidget {
 
   final RewardProgramState offer;
 
+  /// The most of the panel's width the calendar takes: the words need the
+  /// rest.
+  static const double calendarShare = 0.6;
+
+  /// The panel at its widest.
+  static const double widest = 840;
+
   @override
   State<_WeeklyLoginScrim> createState() => _WeeklyLoginScrimState();
 }
@@ -564,7 +1021,7 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
   late final AnimationController _in;
 
   /// What the claim gave, once it has: the popup then shows it and offers
-  /// Close. Null until then; an empty list is a claim that gave nothing
+  /// Continue. Null until then; an empty list is a claim that gave nothing
   /// (the day was collected elsewhere meanwhile).
   List<RewardGrant>? _granted;
   bool _claiming = false;
@@ -609,6 +1066,10 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
     final dark = b == Brightness.dark;
     final state = context.read<GameState>();
     final t = state.t;
+    // The open level's colour where the lobby has laid one over the popup
+    // (Blind, Variation); the house gold elsewhere.
+    final level = LevelAccent.of(context);
+    final accent = level?.fill ?? AppTheme.gold;
     // The programs as they stand now — the claim's answer replaces them —
     // so the calendar shows the day collected the moment it is.
     final program = context.select<GameState, RewardProgramState?>(
@@ -626,145 +1087,147 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
     final others = granted
         ?.where((g) => g.programCode != shown.program.code)
         .toList();
+    final collectedDay = claimedNow && (mine?.isNotEmpty ?? false)
+        ? mine!.first.day
+        : null;
     final todayPrize = shown.rewardFor(shown.currentDay)?.prize;
+    // Tomorrow's, for the anticipation; none past the week.
+    final nextDay = shown.currentDay + 1;
+    final nextPrize = nextDay <= shown.periodDays
+        ? shown.rewardFor(nextDay)?.prize
+        : null;
+    final gold = AppTheme.goldInk(b);
     final quiet = theme.colorScheme.onSurface.withValues(
       alpha: AppTheme.inkLowOn(b),
     );
     final size = MediaQuery.sizeOf(context);
     final short = Breaks.isShort(size.height);
     final done = claimedNow || shown.claimedToday;
+    final headingStyle = AppTheme.label(
+      text.labelSmall!,
+      colour: quiet,
+      weight: FontWeight.w600,
+    ).copyWith(letterSpacing: 1.2);
 
-    final header = Row(
+    // The words. Each line gives way (fewer lines) before the column could
+    // overflow the calendar's height.
+    final head = Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(
-          Icons.calendar_month_rounded,
-          size: 22,
-          color: AppTheme.goldInk(b),
-        ),
-        const SizedBox(width: Space.sm),
         Expanded(
-          child: Text(
-            t.rewardProgramName(shown.program.code, shown.program.name),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTheme.label(
-              (short ? text.titleSmall : text.titleMedium)!,
-              weight: FontWeight.w700,
+          child: Padding(
+            padding: const EdgeInsets.only(top: Space.sm),
+            child: Text(
+              t
+                  .rewardProgramName(shown.program.code, shown.program.name)
+                  .toUpperCase(),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: AppTheme.label(
+                (short ? text.titleSmall : text.titleMedium)!,
+                weight: FontWeight.w600,
+              ).copyWith(letterSpacing: 1.1),
             ),
           ),
         ),
-        const SizedBox(width: Space.sm),
-        Text(
-          shown.claimedDays > 0
-              ? t.streakDays(shown.claimedDays)
-              : t.streakStart,
-          key: const ValueKey('weekly-login-headline'),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: AppTheme.money(text.titleSmall!, colour: AppTheme.goldInk(b)),
-        ),
         const SizedBox(width: Space.xs),
-        IconButton(
+        KeyedSubtree(
           key: const ValueKey('weekly-login-close'),
-          tooltip: t.close,
-          onPressed: state.dismissWeeklyLogin,
-          icon: const Icon(Icons.close_rounded, size: 20),
-          style: IconButton.styleFrom(
-            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            minimumSize: const Size.square(Dim.minTouch),
+          child: LevelCloseKey(
+            tooltip: t.close,
+            onTap: state.dismissWeeklyLogin,
           ),
         ),
       ],
     );
+    final streak = Row(
+      children: [
+        Icon(Icons.local_fire_department_rounded, size: 20, color: gold),
+        const SizedBox(width: Space.xs),
+        Flexible(
+          child: Text(
+            (shown.claimedDays > 0
+                    ? t.streakDays(shown.claimedDays)
+                    : t.streakStart)
+                .toUpperCase(),
+            key: const ValueKey('weekly-login-headline'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.money(
+              (short ? text.titleMedium : text.titleLarge)!,
+              colour: gold,
+            ).copyWith(letterSpacing: 0.6),
+          ),
+        ),
+      ],
+    );
+    final hint = Text(
+      shown.program.resetOnMissedDay
+          ? t.rewardStreakHint
+          : t.rewardStreakHintNoReset,
+      maxLines: 3,
+      overflow: TextOverflow.ellipsis,
+      style: text.bodySmall?.copyWith(color: quiet),
+    );
 
-    // The foot: today's prize and Collect; once collected, what was given
-    // and Close.
-    final Widget foot;
+    // Today's reward: the strongest thing on the right. Before the tap,
+    // what it is; after, what was given, with a check.
+    final Widget hero;
     if (!done) {
-      foot = Row(
-        children: [
-          // Today's prize — or, after a claim that could not be made, what
-          // went wrong, in the same line so the panel keeps its height.
-          Expanded(
-            child: _note != null
-                ? Text(
-                    _note!,
-                    key: const ValueKey('weekly-login-note'),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.bodySmall?.copyWith(
-                      color: theme.colorScheme.error,
-                    ),
-                  )
-                : Text(
-                    todayPrize == null
-                        ? t.rewardStreakHint
-                        : t.todaysReward(rewardPrizeLabel(t, todayPrize)),
-                    key: const ValueKey('weekly-login-today'),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: text.bodySmall?.copyWith(color: quiet),
-                  ),
-          ),
-          const SizedBox(width: Space.md),
-          GlassButton(
-            key: const ValueKey('weekly-login-collect'),
-            style: GlassButtonStyle.primary,
-            click: true,
-            onPressed: _claiming ? null : _collect,
-            child: _claiming
-                ? const GameLoaderRing(size: 18)
-                : Text(t.rewardsCollect),
-          ),
-        ],
+      hero = _RewardLine(
+        keyed: const ValueKey('weekly-login-today'),
+        prize: todayPrize,
+        text: todayPrize == null
+            ? t.rewardNothing
+            : rewardPrizeLabel(t, todayPrize).toUpperCase(),
+        note: _note,
+        large: true,
       );
     } else {
       final lines = <String>[
         if (mine != null && mine.isNotEmpty)
-          mine.map((g) => _line(t, g)).join(' · ')
+          mine.map((g) => '+ ${_line(t, g)}'.toUpperCase()).join(' · ')
         else
-          t.rewardsCollected,
+          t.rewardsCollected.toUpperCase(),
         if (others != null && others.isNotEmpty)
           t.rewardsAlso(others.map((g) => _line(t, g)).join(' · ')),
       ];
-      foot = Row(
-        children: [
-          Icon(
-            Icons.check_circle_rounded,
-            size: 18,
-            color: theme.colorScheme.primary,
-          ),
-          const SizedBox(width: Space.sm),
-          Expanded(
-            child: Text(
-              lines.join('\n'),
-              key: const ValueKey('weekly-login-collected'),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: AppTheme.money(
-                text.bodySmall!,
-                colour: AppTheme.goldInk(b),
-              ),
-            ),
-          ),
-          const SizedBox(width: Space.md),
-          GlassButton(
-            key: const ValueKey('weekly-login-done'),
-            style: GlassButtonStyle.primary,
-            click: true,
-            onPressed: state.dismissWeeklyLogin,
-            label: t.tapToClose,
-          ),
-        ],
+      hero = _RewardLine(
+        keyed: const ValueKey('weekly-login-collected'),
+        prize: mine != null && mine.isNotEmpty ? mine.first.prize : todayPrize,
+        text: lines.join('\n'),
+        collected: true,
+        large: true,
       );
     }
+    final next = nextPrize == null || nextPrize.isNothing
+        ? null
+        : _RewardLine(
+            keyed: const ValueKey('weekly-login-next'),
+            prize: nextPrize,
+            text: rewardPrizeLabel(t, nextPrize).toUpperCase(),
+          );
+    final key = done
+        ? LuckyGoldKey(
+            key: const ValueKey('weekly-login-done'),
+            label: t.continueKey,
+            onTap: state.dismissWeeklyLogin,
+            expand: true,
+          )
+        : LuckyGoldKey(
+            key: const ValueKey('weekly-login-collect'),
+            label: t.rewardsCollect,
+            onTap: _claiming ? () {} : _collect,
+            glyph: _claiming ? const GameLoaderRing(size: 16) : null,
+            expand: true,
+          );
 
     return GestureDetector(
       key: const ValueKey('weekly-login-scrim'),
       behavior: HitTestBehavior.opaque,
       onTap: state.dismissWeeklyLogin,
       child: ColoredBox(
-        color: theme.colorScheme.scrim.withValues(alpha: 0.70),
+        color: theme.colorScheme.scrim.withValues(alpha: dark ? 0.66 : 0.5),
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -774,32 +1237,25 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
               child: Center(
                 child: LayoutBuilder(
                   builder: (context, box) {
-                    // The calendar takes the width left after the panel's
-                    // sides, held to the height left after the header and
-                    // the foot.
+                    // The calendar takes the panel's whole height, and no
+                    // more than its share of the width; the words the rest.
                     final panelW = (box.maxWidth - 2 * Space.md).clamp(
                       280.0,
-                      620.0,
+                      _WeeklyLoginScrim.widest,
                     );
                     final padH = short ? Space.md : Space.lg;
                     final padV = short ? Space.sm : Space.md;
-                    final headerH =
-                        (short ? 30.0 : 34.0) *
-                        MediaQuery.textScalerOf(context).scale(1);
-                    final footH =
-                        (short ? 42.0 : 46.0) *
-                        MediaQuery.textScalerOf(context).scale(1);
-                    final roomH =
-                        box.maxHeight -
-                        2 * Space.md -
-                        2 * padV -
-                        headerH -
-                        footH -
-                        2 * Space.sm;
-                    var calW = panelW - 2 * padH;
-                    if (WeeklyCalendar.sizeFor(calW).height > roomH) {
-                      calW = WeeklyCalendar.widthFor(roomH).clamp(200.0, calW);
-                    }
+                    final innerW = panelW - 2 * padH;
+                    final innerH = box.maxHeight - 2 * Space.md - 2 * padV;
+                    // A narrow panel (a 592dp phone) gives the words a
+                    // little more of the width.
+                    final share = innerW >= 600
+                        ? _WeeklyLoginScrim.calendarShare
+                        : _WeeklyLoginScrim.calendarShare - 0.05;
+                    final calW = math.min(
+                      WeeklyCalendar.widthFor(innerH),
+                      innerW * share - Space.md,
+                    );
                     final calSize = WeeklyCalendar.sizeFor(calW);
                     return GestureDetector(
                       // A tap on the panel is the panel's, not the scrim's.
@@ -807,65 +1263,169 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
                       child: AnimatedBuilder(
                         animation: _in,
                         builder: (context, child) {
-                          final e = Motion.settle.transform(_in.value);
+                          final e = Motion.standard.transform(_in.value);
                           return Opacity(
-                            opacity: Curves.easeOut.transform(_in.value),
-                            child: Transform.scale(
-                              scale: 0.86 + 0.14 * e,
+                            opacity: e,
+                            child: Transform.translate(
+                              offset: Offset(0, 16 * (1 - e)),
                               child: child,
                             ),
                           );
                         },
-                        child: SizedBox(
-                          width: panelW,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: dark ? null : AppTheme.panelBase(b),
-                              borderRadius: BorderRadius.circular(Radii.lg),
-                            ),
-                            child: PremiumGlassPanel(
-                              mode: GlassMode.auto,
-                              priority: 30,
-                              depth: Elevation.overlay,
-                              radius: Radii.lg,
-                              surface: dark
-                                  ? GlassSurface.pane
-                                  : GlassSurface.card,
-                              tint: dark ? null : AppTheme.gold,
-                              edge: AppTheme.gold.withValues(
-                                alpha: dark ? 0.42 : 0.6,
-                              ),
-                              padding: EdgeInsets.fromLTRB(
-                                padH,
-                                padV,
-                                padH,
-                                padV,
-                              ),
-                              child: Column(
-                                key: const ValueKey('weekly-login-panel'),
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  header,
-                                  const SizedBox(height: Space.sm),
-                                  Center(
-                                    child: WeeklyCalendar(
-                                      key: const ValueKey('weekly-calendar'),
-                                      state: shown,
-                                      size: calSize,
-                                      collected:
-                                          claimedNow &&
-                                              (mine?.isNotEmpty ?? false)
-                                          ? mine!.first.day
-                                          : null,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            // A soft gold light behind the panel — the
+                            // lobby's ambient glow, not a shadow.
+                            Positioned(
+                              left: -28,
+                              right: -28,
+                              top: -20,
+                              bottom: -36,
+                              child: IgnorePointer(
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(
+                                      Radii.xl + 24,
+                                    ),
+                                    gradient: RadialGradient(
+                                      radius: 0.85,
+                                      colors: [
+                                        accent.withValues(
+                                          alpha: dark ? 0.11 : 0.14,
+                                        ),
+                                        accent.withValues(alpha: 0),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(height: Space.sm),
-                                  foot,
-                                ],
+                                ),
                               ),
                             ),
-                          ),
+                            SizedBox(
+                              width: panelW,
+                              child: DecoratedBox(
+                                key: const ValueKey('weekly-login-base'),
+                                decoration: BoxDecoration(
+                                  // By day a solid ground under the card's
+                                  // glass: the house white, or the level's
+                                  // pearl — Blind's ice, Variation's
+                                  // lavender.
+                                  color: dark
+                                      ? null
+                                      : level?.pearl ?? AppTheme.panelBase(b),
+                                  borderRadius: BorderRadius.circular(Radii.xl),
+                                ),
+                                child: PremiumGlassPanel(
+                                  mode: GlassMode.auto,
+                                  priority: 30,
+                                  depth: Elevation.overlay,
+                                  radius: Radii.xl,
+                                  surface: dark
+                                      ? GlassSurface.pane
+                                      : GlassSurface.card,
+                                  // Washed in the level's colour where one
+                                  // stands; by day in the house gold
+                                  // otherwise, by night the plain pane.
+                                  tint: dark ? level?.fill : accent,
+                                  edge: accent.withValues(
+                                    alpha: dark ? 0.3 : 0.42,
+                                  ),
+                                  padding: EdgeInsets.fromLTRB(
+                                    padH,
+                                    padV,
+                                    padH,
+                                    padV,
+                                  ),
+                                  // As tall as the calendar, or as the
+                                  // words need, up to the screen: the
+                                  // calendar stands centred in a taller
+                                  // panel, and only past the screen's
+                                  // height do the words give way.
+                                  child: ConstrainedBox(
+                                    key: const ValueKey('weekly-login-panel'),
+                                    constraints: BoxConstraints(
+                                      minHeight: calSize.height,
+                                      maxHeight: math.max(
+                                        calSize.height,
+                                        innerH,
+                                      ),
+                                    ),
+                                    child: IntrinsicHeight(
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          Center(
+                                            child: WeeklyCalendar(
+                                              key: const ValueKey(
+                                                'weekly-calendar',
+                                              ),
+                                              state: shown,
+                                              size: calSize,
+                                              collected: collectedDay,
+                                            ),
+                                          ),
+                                          const SizedBox(width: Space.lg),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.stretch,
+                                              children: [
+                                                head,
+                                                const SizedBox(
+                                                  height: Space.xs,
+                                                ),
+                                                streak,
+                                                const SizedBox(
+                                                  height: Space.xs,
+                                                ),
+                                                // The one line that gives way, and only past the screen's height:
+                                                // weighted so the intrinsic height counts it near whole.
+                                                Flexible(flex: 9, child: hint),
+                                                const Spacer(),
+                                                Text(
+                                                  t.todaysRewardTitle
+                                                      .toUpperCase(),
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: headingStyle,
+                                                ),
+                                                const SizedBox(
+                                                  height: Space.xs,
+                                                ),
+                                                hero,
+                                                if (next != null) ...[
+                                                  const SizedBox(
+                                                    height: Space.sm,
+                                                  ),
+                                                  Text(
+                                                    t.rewardNext.toUpperCase(),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: headingStyle,
+                                                  ),
+                                                  const SizedBox(
+                                                    height: Space.xxs,
+                                                  ),
+                                                  next,
+                                                ],
+                                                const SizedBox(
+                                                  height: Space.sm,
+                                                ),
+                                                key,
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     );
@@ -879,11 +1439,94 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
     );
   }
 
-  /// "+ 20,000 chips" for a wallet, an item by its name, "(already yours)"
+  /// "20,000 chips" for a wallet, an item by its name, "(already yours)"
   /// after an item the player had.
   static String _line(Strings t, RewardGrant g) {
     final label = rewardPrizeLabel(t, g.prize);
-    final line = g.prize.isWallet ? '+ $label' : label;
-    return g.alreadyOwned ? '$line (${t.rewardAlreadyOwned})' : line;
+    return g.alreadyOwned ? '$label (${t.rewardAlreadyOwned})' : label;
+  }
+}
+
+/// A reward named on the right panel: its mark in its wallet's ink beside
+/// its words — large and gold for today's (with a check once collected), a
+/// line for the next.
+class _RewardLine extends StatelessWidget {
+  const _RewardLine({
+    required this.keyed,
+    required this.prize,
+    required this.text,
+    this.note,
+    this.collected = false,
+    this.large = false,
+  });
+
+  final Key keyed;
+  final RewardPrize? prize;
+  final String text;
+
+  /// After a claim that could not be made: what went wrong, in the reward's
+  /// place, so the panel keeps its height.
+  final String? note;
+  final bool collected;
+  final bool large;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final b = theme.brightness;
+    final text = theme.textTheme;
+    final gold = AppTheme.goldInk(b);
+    final ink = prize == null
+        ? theme.colorScheme.onSurface
+        : rewardPrizeInk(prize!, b);
+    if (note != null) {
+      return Text(
+        note!,
+        key: const ValueKey('weekly-login-note'),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: text.bodySmall?.copyWith(color: theme.colorScheme.error),
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.only(top: large ? 3 : 1),
+          child: collected
+              ? Icon(
+                  Icons.check_circle_rounded,
+                  size: large ? 20 : 16,
+                  color: gold,
+                )
+              : Icon(
+                  prize == null
+                      ? Icons.card_giftcard_rounded
+                      : rewardPrizeIcon(prize!),
+                  size: large ? 22 : 16,
+                  color: ink,
+                ),
+        ),
+        const SizedBox(width: Space.sm),
+        Expanded(
+          child: Text(
+            this.text,
+            key: keyed,
+            maxLines: large ? 3 : 1,
+            overflow: TextOverflow.ellipsis,
+            style: large
+                ? AppTheme.money(
+                    text.titleMedium!,
+                    colour: gold,
+                  ).copyWith(letterSpacing: 0.4)
+                : AppTheme.label(
+                    text.bodySmall!,
+                    colour: theme.colorScheme.onSurface,
+                    weight: FontWeight.w600,
+                  ).copyWith(letterSpacing: 0.6),
+          ),
+        ),
+      ],
+    );
   }
 }

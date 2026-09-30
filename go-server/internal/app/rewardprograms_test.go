@@ -58,7 +58,9 @@ func TestTheRewardProgramsAreClaimedFromTheLobbyOnceADay(t *testing.T) {
 		t.Fatalf("GET /api/reward-programs: %d %s", res.StatusCode, body)
 	}
 	programs := read(body)
-	want := []string{"WEEKLY_LOGIN", "MONTHLY_LOGIN", "WEEKLY_CALENDAR", "MONTHLY_CALENDAR"}
+	// The seed runs the weekly login streak alone (the other three wait,
+	// inactive, for their days).
+	want := []string{"WEEKLY_LOGIN"}
 	if len(programs) != len(want) {
 		t.Fatalf("%d programs: %s", len(programs), body)
 	}
@@ -92,10 +94,11 @@ func TestTheRewardProgramsAreClaimedFromTheLobbyOnceADay(t *testing.T) {
 		t.Fatalf("the claim: %d %v %v", claim.status, claim.body, claim.err)
 	}
 	granted, _ := claim.body["granted"].([]any)
-	// Every seeded day carries a reward, and every catalogue item they name is
-	// on this schema: the four programs each give today's.
-	if len(granted) != 4 {
-		t.Fatalf("%d rewards granted, want 4: %v", len(granted), claim.body["granted"])
+	// The one program the seed runs, the owner's weekly login streak, gives
+	// today's — its Day 1, 10,000 chips (the other three are seeded inactive,
+	// with no days).
+	if len(granted) != 1 {
+		t.Fatalf("%d rewards granted, want 1: %v", len(granted), claim.body["granted"])
 	}
 	var chipsGranted int64
 	codes := map[string]bool{}
@@ -109,8 +112,11 @@ func TestTheRewardProgramsAreClaimedFromTheLobbyOnceADay(t *testing.T) {
 			t.Fatalf("a grant names its day and its program's mode: %v", grant)
 		}
 	}
-	if len(codes) != 4 {
+	if len(codes) != 1 || !codes["WEEKLY_LOGIN"] {
 		t.Fatalf("the grants' programs: %v", codes)
+	}
+	if chipsGranted != 10_000 {
+		t.Fatalf("chips granted %d, want Day 1's 10,000", chipsGranted)
 	}
 	if got := wallet("chips"); got != chips+chipsGranted {
 		t.Fatalf("chips %d, want %d after grants of %d", got, chips+chipsGranted, chipsGranted)
@@ -139,8 +145,8 @@ func TestTheRewardProgramsAreClaimedFromTheLobbyOnceADay(t *testing.T) {
 		t.Fatalf("chips moved on a repeated claim: %d", got)
 	}
 	var claims, ledgerRows int64
-	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM user_reward_claims WHERE user_id = $1`, id).Scan(&claims); err != nil || claims != 4 {
-		t.Fatalf("%d claims recorded (%v), want 4", claims, err)
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM user_reward_claims WHERE user_id = $1`, id).Scan(&claims); err != nil || claims != 1 {
+		t.Fatalf("%d claims recorded (%v), want 1", claims, err)
 	}
 	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM chip_ledger WHERE user_id = $1 AND reason = 'reward_program'`, id).Scan(&ledgerRows); err != nil {
 		t.Fatal(err)
@@ -177,7 +183,7 @@ func TestTheRewardProgramsAreClaimedFromTheLobbyOnceADay(t *testing.T) {
 	res, body = get(t, a.Handler(), http.MethodGet, "/api/reward-programs", func(r *http.Request) {
 		r.Header.Set("Authorization", "Bearer "+seatedToken)
 	})
-	if res.StatusCode != http.StatusOK || len(read(body)) != 4 {
+	if res.StatusCode != http.StatusOK || len(read(body)) != 1 {
 		t.Fatalf("a seated look at the programs: %d %s", res.StatusCode, body)
 	}
 }

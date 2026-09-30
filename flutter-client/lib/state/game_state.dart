@@ -2940,6 +2940,7 @@ class GameState extends ChangeNotifier {
     weeklyLoginOffer = null;
     _weeklyOfferedFor = null;
     consentPending = false;
+    _consentKnownFor = null;
     // The next player on this phone never sees this one's friends.
     friends.reset();
     reports.reset();
@@ -2960,8 +2961,19 @@ class GameState extends ChangeNotifier {
   /// game whichever way the player arrived, and only if this account has not
   /// confirmed it on this device before.
   Future<void> loadConsent([SharedPreferences? prefs]) async {
-    consentPending = await NoWinningsConsent.isPending(user?.id, prefs);
+    final id = user?.id;
+    consentPending = await NoWinningsConsent.isPending(id, prefs);
+    // Known now for this account: the weekly login popup may have been
+    // waiting on the answer (offerWeeklyLogin) — a lobby's read of the
+    // programs lands before this on a fast link.
+    _consentKnownFor = id;
+    if (!consentPending && room == null) offerWeeklyLogin();
   }
+
+  /// The account whose consent [loadConsent] has answered for, so nothing
+  /// that must wait behind the no-winnings panel is shown before the answer
+  /// is in.
+  String? _consentKnownFor;
 
   /// Records the confirmation for this account and lets the game open.
   ///
@@ -2971,6 +2983,9 @@ class GameState extends ChangeNotifier {
     final id = user?.id;
     if (id != null) await NoWinningsConsent.record(id);
     consentPending = false;
+    _consentKnownFor = id;
+    // The weekly login popup waited behind the panel (offerWeeklyLogin).
+    if (room == null) offerWeeklyLogin();
     notifyListeners();
   }
 
@@ -4815,10 +4830,15 @@ class GameState extends ChangeNotifier {
 
   /// Puts the weekly login popup up for the day still to collect — once a
   /// day, unless asked [again] (the lobby's REWARDS chip). Answers whether
-  /// it did.
+  /// it did. Not while the no-winnings panel covers the lobby: the popup's
+  /// animation would play behind it unseen, so [acceptConsent] offers it
+  /// then.
   bool offerWeeklyLogin({bool again = false}) {
     final due = weeklyLoginDue;
-    if (due == null) return false;
+    if (due == null || consentPending) return false;
+    // Not before this account's consent is known: the programs' read can
+    // land first, and the popup would go up under the panel.
+    if (_consentKnownFor != user?.id) return false;
     final key = '${due.program.code}:${due.today}';
     if (!again && _weeklyOfferedFor == key) return false;
     _weeklyOfferedFor = key;

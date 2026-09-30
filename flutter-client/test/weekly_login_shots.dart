@@ -144,8 +144,11 @@ void main() {
           await real();
           await tester.pump(const Duration(seconds: 1));
           await real();
-          await tester.pump(const Duration(milliseconds: 700));
-          await snap('popping');
+          await tester.pump(const Duration(milliseconds: 400));
+          await snap('boxes');
+          await tester.pump(const Duration(milliseconds: 1150));
+          await real();
+          await snap('landing');
           await tester.pump(const Duration(seconds: 2));
           await real();
           await snap('due');

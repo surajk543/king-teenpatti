@@ -458,6 +458,11 @@ class _WeekRow extends StatelessWidget {
   final RewardProgramState state;
   final Strings t;
 
+  /// A day's box: taller than the 68 it was (owner, 30 Sep 2026: "Increase
+  /// the size of each box of Day along with text"), room for the larger
+  /// type [_DayTile] sets.
+  static const double tileHeight = 96;
+
   @override
   Widget build(BuildContext context) {
     final days = state.periodDays.clamp(1, 7);
@@ -467,7 +472,7 @@ class _WeekRow extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: Space.xxs),
-              child: _DayTile(program: state, day: k, t: t, height: 68),
+              child: _DayTile(program: state, day: k, t: t, height: tileHeight),
             ),
           ),
       ],
@@ -521,6 +526,16 @@ class _DayTile extends StatelessWidget {
 
   /// A fixed height, or null to take the grid cell's.
   final double? height;
+
+  /// The type on a tile (owner, 30 Sep 2026: "Increase the size of each box
+  /// of Day along with text" — the label ramp's smallest step, 11, for
+  /// everything before): the day's label, its weekday, the prize's mark and
+  /// its figure, the largest thing on the tile. A tile too small for them —
+  /// a month's cell on a phone — sets the column down whole.
+  static const double labelSize = 13;
+  static const double subSize = 12;
+  static const double markSize = 22;
+  static const double figureSize = 15.5;
 
   @override
   Widget build(BuildContext context) {
@@ -591,6 +606,7 @@ class _DayTile extends StatelessWidget {
                             label,
                             style: AppTheme.label(
                               text.labelSmall!,
+                              fontSize: _DayTile.labelSize,
                               colour: today ? gold : glass.cardMuted,
                               weight: FontWeight.w700,
                             ),
@@ -599,6 +615,7 @@ class _DayTile extends StatelessWidget {
                             Text(
                               sub,
                               style: text.labelSmall?.copyWith(
+                                fontSize: _DayTile.subSize,
                                 color: glass.cardMuted,
                               ),
                             ),
@@ -607,13 +624,17 @@ class _DayTile extends StatelessWidget {
                             prize == null
                                 ? Icons.remove_rounded
                                 : rewardPrizeIcon(prize),
-                            size: 16,
+                            size: _DayTile.markSize,
                             color: ink,
                           ),
                           Text(
                             prize == null ? '' : rewardPrizeShort(prize),
+                            key: ValueKey(
+                              'reward-figure-${program.program.code}-$day',
+                            ),
                             style: AppTheme.money(
                               text.labelSmall!,
+                              fontSize: _DayTile.figureSize,
                               colour: theme.colorScheme.onSurface,
                             ),
                           ),
@@ -628,7 +649,7 @@ class _DayTile extends StatelessWidget {
                     right: Space.xxs,
                     child: Icon(
                       Icons.check_circle_rounded,
-                      size: 12,
+                      size: 14,
                       color: theme.colorScheme.primary,
                     ),
                   ),
@@ -638,7 +659,7 @@ class _DayTile extends StatelessWidget {
                     right: Space.xxs,
                     child: Icon(
                       Icons.lock_rounded,
-                      size: 10,
+                      size: 12,
                       color: glass.cardMuted,
                     ),
                   ),

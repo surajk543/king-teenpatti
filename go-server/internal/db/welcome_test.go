@@ -96,7 +96,7 @@ func TestTheSeedHoldsFiveLakhChipsTheDiamondsHammersAndMissile(t *testing.T) {
 		{Code: "hammers", Type: "HAMMER", Active: true, Sort: 30},
 		{Code: "missiles", Type: "MISSILE", Active: true, Sort: 40},
 	}
-	values := []int64{500000, 9, 20, 1}
+	values := []int64{500000, 5, 10, 1}
 	if len(got) != len(want) {
 		t.Fatalf("the seed holds %d welcome rows, want 4: %+v", len(got), got)
 	}
@@ -207,24 +207,24 @@ func TestANewAccountGetsExactlyTheActiveRows(t *testing.T) {
 	f := newFixture(t)
 
 	all := signIn(t, f.users, "All")
-	if g := all.Welcome; g.Chips != welcome || g.Diamonds != 9 || g.Hammers != 20 || g.Missiles != 1 ||
+	if g := all.Welcome; g.Chips != welcome || g.Diamonds != 5 || g.Hammers != 10 || g.Missiles != 1 ||
 		len(g.Pictures) != 0 || len(g.TablePictures) != 0 || len(g.Emojis) != 0 {
 		t.Fatalf("every row: %+v", g)
 	}
-	if got := wallets(t, f.d, all.User.ID); got != [4]int64{welcome, 9, 20, 1} {
+	if got := wallets(t, f.d, all.User.ID); got != [4]int64{welcome, 5, 10, 1} {
 		t.Fatalf("wallets %v", got)
 	}
-	if u := all.User; u.Chips != welcome || u.Diamond != 9 || u.Hammer != 20 || u.Missile != 1 {
+	if u := all.User; u.Chips != welcome || u.Diamond != 5 || u.Hammer != 10 || u.Missile != 1 {
 		t.Fatalf("the account as answered: %+v", u)
 	}
 
 	// Some: the chips and the hammers switched off. No restart, same store.
 	execSQL(t, f.d, `UPDATE welcome_rewards SET is_active = FALSE WHERE code IN ('chips', 'hammers')`)
 	some := signIn(t, f.users, "Some")
-	if g := some.Welcome; g.Chips != 0 || g.Diamonds != 9 || g.Hammers != 0 || g.Missiles != 1 {
+	if g := some.Welcome; g.Chips != 0 || g.Diamonds != 5 || g.Hammers != 0 || g.Missiles != 1 {
 		t.Fatalf("some rows: %+v", g)
 	}
-	if got := wallets(t, f.d, some.User.ID); got != [4]int64{0, 9, 0, 1} {
+	if got := wallets(t, f.d, some.User.ID); got != [4]int64{0, 5, 0, 1} {
 		t.Fatalf("wallets %v", got)
 	}
 	rows := f.ledgerRows(some.User.ID)
@@ -337,7 +337,7 @@ func TestAWelcomePictureTablePictureAndEmojiAreOwnedForTheirTermsAndNeverPutOn(t
 		t.Errorf("a welcome laid a table picture")
 	}
 	// The wallets are the seed's, the ledger the chips alone.
-	if got := wallets(t, f.d, res.User.ID); got != [4]int64{welcome, 9, 20, 1} {
+	if got := wallets(t, f.d, res.User.ID); got != [4]int64{welcome, 5, 10, 1} {
 		t.Errorf("wallets %v", got)
 	}
 	f.reconcile()
@@ -364,7 +364,7 @@ func TestAWelcomeRowThatCannotBeGrantedIsLeftOutAndTheLoginSucceeds(t *testing.T
 
 	res := signIn(t, f.users, "Partial")
 	g := res.Welcome
-	if g.Chips != welcome || g.Diamonds != 9 || g.Hammers != 20 || g.Missiles != 1 ||
+	if g.Chips != welcome || g.Diamonds != 5 || g.Hammers != 10 || g.Missiles != 1 ||
 		len(g.Pictures) != 1 || g.Pictures[0].Name != "Lovestruck Cat" || len(g.TablePictures) != 0 || len(g.Emojis) != 0 {
 		t.Fatalf("the rows that can be granted: %+v", g)
 	}
@@ -418,7 +418,7 @@ func TestAReturningLoginGrantsNothing(t *testing.T) {
 	if err != nil || again.IsNew || again.Welcome != nil || again.User.ID != first.User.ID {
 		t.Fatalf("a returning login: %+v %v", again, err)
 	}
-	if got := wallets(t, f.d, first.User.ID); got != [4]int64{welcome, 9, 20, 1} {
+	if got := wallets(t, f.d, first.User.ID); got != [4]int64{welcome, 5, 10, 1} {
 		t.Fatalf("wallets %v after a returning login", got)
 	}
 	if n := f.count(`SELECT count(*) FROM user_profile_pictures WHERE user_id = $1`, first.User.ID); n != 0 {
@@ -487,7 +487,7 @@ func TestConcurrentFirstLoginsGrantTheWelcomeOnce(t *testing.T) {
 				t.Fatalf("round %d: %s = %d", round, q, n)
 			}
 		}
-		if got := wallets(t, f.d, user); got != [4]int64{welcome, 9, 20, 1} {
+		if got := wallets(t, f.d, user); got != [4]int64{welcome, 5, 10, 1} {
 			t.Fatalf("round %d: wallets %v", round, got)
 		}
 	}

@@ -616,8 +616,14 @@ class _LobbyScreenState extends State<LobbyScreen> {
               ),
               // The weekly login popup (30 Sep 2026): the owner's calendar
               // with the week's prizes in its boxes, up after sign-in while
-              // today's is still to collect.
-              const WeeklyLoginOverlay(),
+              // today's is still to collect — in the open level's colour
+              // inside Blind or Variation, as the drawers are (owner, the
+              // same day: "daily Streak background color should be changed
+              // acc to card color").
+              LevelAccent(
+                palette: drawerPalette,
+                child: const WeeklyLoginOverlay(),
+              ),
               // Sits last so it covers the foot and the rail. A wallet filling
               // is the one moment in the lobby worth interrupting for.
               const _RewardCelebration(),
