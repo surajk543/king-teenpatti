@@ -1378,7 +1378,13 @@ String ladderBadgeDetail(Strings t, LadderBadge badge) => [
 class LevelKey extends StatelessWidget {
   const LevelKey({super.key});
 
-  static const double side = Dim.minTouch;
+  /// A size up from the touch floor (owner, 30 Sep 2026: "increase the
+  /// size of friend icon and level icon which is in bottom right"), as the
+  /// Friends key beside it.
+  static const double side = 56;
+
+  /// The disc the level's mark sits in.
+  static const double disc = 36;
 
   @override
   Widget build(BuildContext context) {
@@ -1420,10 +1426,10 @@ class LevelKey extends StatelessWidget {
                   // The lobby's click (owner, 27 Sep 2026).
                   click: true,
                   onTap: () => showLevelInfo(context),
-                  padding: const EdgeInsets.all((side - 28) / 2),
+                  padding: const EdgeInsets.all((side - disc) / 2),
                   child: Container(
-                    width: 28,
-                    height: 28,
+                    width: disc,
+                    height: disc,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
@@ -1436,11 +1442,11 @@ class LevelKey extends StatelessWidget {
                         ? LevelArt.of(
                             level,
                             key: const ValueKey('level-key-art'),
-                            size: 26,
+                            size: disc - 2,
                           )
                         : Icon(
                             Icons.military_tech_rounded,
-                            size: 16,
+                            size: 21,
                             color: gold,
                           ),
                   ),

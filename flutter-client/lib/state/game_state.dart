@@ -1631,6 +1631,13 @@ class GameState extends ChangeNotifier {
         // that failed on the network, or a purchase finished while the app was
         // closed, lands now. The server is idempotent on the purchase token.
         unawaited(purchases.redeliver());
+        // The reward programs (owner, 30 Sep 2026): every session in the
+        // lobby reads today's standing and puts the weekly login popup up
+        // while its day is still to collect, so a phone that only
+        // reconnected across midnight is offered the new day. A cold start
+        // reads once its lobby is up (_RewardsChip); at a table the lobby
+        // asks when the player is back. Collecting is the player's tap.
+        if (room == null && !resuming) unawaited(loadRewardPrograms());
         _snapshotSinceSession = false;
         if (!resuming && room != null) {
           final offer = s.resume;
@@ -2760,16 +2767,10 @@ class GameState extends ChangeNotifier {
       await prefs.setString('token', r.token);
       await loadConsent(prefs);
 
-      // A new account is told what it was given, in its own language; a
-      // returning one hears nothing.
-      if (r.isNew) {
-        final welcome = welcomeNotice(
-          t,
-          r.welcome,
-          welcomeChips: r.welcomeChips,
-        );
-        if (welcome != null) notice = welcome;
-      }
+      // A new account is shown what it was given — the welcome rewards
+      // popup, after the no-winnings panel and before the weekly login's
+      // ([welcomePending]); a returning one sees nothing.
+      if (r.isNew) _welcomeGranted(r.welcome, welcomeChips: r.welcomeChips);
 
       _conn.connect(r.token);
       screen = Screen.lobby;
@@ -2830,16 +2831,10 @@ class GameState extends ChangeNotifier {
       await prefs.setString('token', r.token);
       await loadConsent(prefs);
 
-      // A new account is told what it was given, in its own language; a
-      // returning one hears nothing.
-      if (r.isNew) {
-        final welcome = welcomeNotice(
-          t,
-          r.welcome,
-          welcomeChips: r.welcomeChips,
-        );
-        if (welcome != null) notice = welcome;
-      }
+      // A new account is shown what it was given — the welcome rewards
+      // popup, after the no-winnings panel and before the weekly login's
+      // ([welcomePending]); a returning one sees nothing.
+      if (r.isNew) _welcomeGranted(r.welcome, welcomeChips: r.welcomeChips);
 
       _conn.connect(r.token);
       screen = Screen.lobby;
@@ -2927,7 +2922,14 @@ class GameState extends ChangeNotifier {
     user = null;
     luckyDraw = null;
     luckyDrawFailed = false;
+    rewardPrograms = null;
+    rewardProgramsFailed = false;
+    rewardsGranted = null;
+    weeklyLoginOffer = null;
+    _weeklyOfferedFor = null;
+    welcomePending = null;
     consentPending = false;
+    _consentKnownFor = null;
     // The next player on this phone never sees this one's friends.
     friends.reset();
     reports.reset();
@@ -2948,8 +2950,19 @@ class GameState extends ChangeNotifier {
   /// game whichever way the player arrived, and only if this account has not
   /// confirmed it on this device before.
   Future<void> loadConsent([SharedPreferences? prefs]) async {
-    consentPending = await NoWinningsConsent.isPending(user?.id, prefs);
+    final id = user?.id;
+    consentPending = await NoWinningsConsent.isPending(id, prefs);
+    // Known now for this account: the weekly login popup may have been
+    // waiting on the answer (offerWeeklyLogin) — a lobby's read of the
+    // programs lands before this on a fast link.
+    _consentKnownFor = id;
+    if (!consentPending && room == null) offerWeeklyLogin();
   }
+
+  /// The account whose consent [loadConsent] has answered for, so nothing
+  /// that must wait behind the no-winnings panel is shown before the answer
+  /// is in.
+  String? _consentKnownFor;
 
   /// Records the confirmation for this account and lets the game open.
   ///
@@ -2959,6 +2972,41 @@ class GameState extends ChangeNotifier {
     final id = user?.id;
     if (id != null) await NoWinningsConsent.record(id);
     consentPending = false;
+    _consentKnownFor = id;
+    // The welcome rewards popup stands next ([welcomePending], shown by
+    // main.dart once the panel is down), and the weekly login popup waited
+    // behind both (offerWeeklyLogin: nothing while the welcome is pending).
+    if (room == null) offerWeeklyLogin();
+    notifyListeners();
+  }
+
+  /// What a NEW account's sign-in granted, until the player has confirmed
+  /// it (owner, 30 Sep 2026: "WHen user login with new account it should
+  /// show first consent pop up "before you play", then after show pop up
+  /// Welcome Rewards which user must select confirm otherwise not able to
+  /// proceed then Weekly Login pop up"). main.dart shows the welcome rewards
+  /// popup while this stands and the no-winnings panel is down; the weekly
+  /// login popup is not offered until [confirmWelcome] clears it. A returning
+  /// account never has one. Not kept across a restart: the grant comes with
+  /// the login that created the account and with nothing else.
+  WelcomeGrant? welcomePending;
+
+  /// A new account's login has landed: what it was given, as the popup
+  /// shows it — the server's `welcome` block, or, from a server before the
+  /// grant, its `welcomeChips` alone (a grant of nothing is still welcomed).
+  void _welcomeGranted(WelcomeGrant? grant, {int welcomeChips = 0}) {
+    welcomePending =
+        grant ??
+        (welcomeChips > 0 ? WelcomeGrant(chips: welcomeChips) : null) ??
+        const WelcomeGrant();
+  }
+
+  /// The welcome rewards popup has been confirmed: the weekly login popup
+  /// may come now.
+  void confirmWelcome() {
+    if (welcomePending == null) return;
+    welcomePending = null;
+    if (room == null) offerWeeklyLogin();
     notifyListeners();
   }
 
@@ -3009,6 +3057,48 @@ class GameState extends ChangeNotifier {
     } catch (_) {
       // Offline or reconnecting; the next update catches up.
     }
+  }
+
+  /// The 6-hour bonus's refusal code for a bonus still recharging.
+  static const bonusNotReadyCode = 'reward_not_ready';
+
+  /// Whether a bonus claim is out, so the chip is pressed once.
+  bool claimingBonus = false;
+
+  /// Collects the 6-hour bonus (owner, 30 Sep 2026: "IN Top left Add Again
+  /// Every 6 hours bonus 25000 Coins"): the lobby's top-left chip, tapped
+  /// while the server says it is ready. Success is `claimed`; the account in
+  /// the answer carries the new clock, and the lobby's celebration shows the
+  /// chips. A refusal keeps the server's own wording — "The bonus is still
+  /// recharging", "Collect your reward from the lobby" — and a clock the
+  /// phone had wrong is put right by reading the account again. Nothing is
+  /// sent from a table: the chip is the lobby's, and the server would refuse
+  /// a seated player anyway (a seated wallet only moves at the three
+  /// checkpoints).
+  Future<void> claimBonus() async {
+    final token = _token;
+    if (token == null || claimingBonus || room != null) return;
+    claimingBonus = true;
+    notifyListeners();
+    try {
+      final r = await _api.claimBonus(token);
+      if (r.user != null) user = r.user;
+      if (r.claimed) {
+        rewardWon = (kind: 'bonus', amount: r.amount, missiles: 0, hammers: 0);
+      } else {
+        notice = r.message.isEmpty ? t.bonusRefused : r.message;
+      }
+    } on ApiException catch (e) {
+      notice = e.message.isEmpty ? t.bonusRefused : e.message;
+      // The server's clock, not the phone's guess, decides when the bonus is
+      // ready: told it is not, take the account's clock afresh.
+      if (e.code == bonusNotReadyCode) unawaited(refreshUser());
+    } catch (_) {
+      notice = t.bonusRefused;
+    } finally {
+      claimingBonus = false;
+    }
+    notifyListeners();
   }
 
   /// Loads the picture catalogue.
@@ -3398,6 +3488,12 @@ class GameState extends ChangeNotifier {
     user = null;
     luckyDraw = null;
     luckyDrawFailed = false;
+    rewardPrograms = null;
+    rewardProgramsFailed = false;
+    rewardsGranted = null;
+    weeklyLoginOffer = null;
+    _weeklyOfferedFor = null;
+    welcomePending = null;
     friends.reset();
     reports.reset();
     xpMissions.clear();
@@ -4721,6 +4817,165 @@ class GameState extends ChangeNotifier {
     }
   }
 
+  // --------------------------------------------------------- reward programs
+
+  /// The reward programs (owner, 30 Sep 2026) as this player stands in
+  /// them: the login streaks and the calendar rewards the server runs, each
+  /// with its days and which are claimed. Null while the server has
+  /// described none — none running, or a server that predates them — and
+  /// then the lobby shows no rewards.
+  List<RewardProgramState>? rewardPrograms;
+
+  /// True while [loadRewardPrograms] is asking.
+  bool rewardProgramsLoading = false;
+
+  /// True when the last read failed — the network, a refusal — rather than
+  /// being told there are none; the screen offers Try again.
+  bool rewardProgramsFailed = false;
+
+  /// True from the moment a claim is sent until the server has answered it.
+  bool rewardClaimPending = false;
+
+  /// What the last claim gave, while its celebration is on screen; null the
+  /// rest of the time. Only a claim's answer sets it — the server says
+  /// whether anything was granted — so reopening the app never shows a
+  /// reward twice.
+  List<RewardGrant>? rewardsGranted;
+
+  /// The weekly login popup's program (owner, 30 Sep 2026: "it should pop
+  /// after login and if user has claimed it should not show when user start
+  /// the app, otherwise show it"): the WEEKLY login streak whose today is
+  /// still to collect, offered once a day — set when the programs are read
+  /// with it unclaimed and not yet offered for that day, cleared by Close,
+  /// a tap outside, Back, and a session's end. Null the rest of the time,
+  /// and then the lobby shows no popup. A claim never clears it: the popup
+  /// shows what the claim gave and is closed by the player.
+  RewardProgramState? weeklyLoginOffer;
+
+  /// `<code>:<today>` of the last day offered, so a day is offered once
+  /// however many times the programs are read in a session (a
+  /// session:ready, the lobby coming back from a table); the next start of
+  /// the app offers it again while it is still unclaimed.
+  String? _weeklyOfferedFor;
+
+  /// Reads the reward programs — as the lobby appears, at every
+  /// `session:ready` in the lobby, when the rewards screen opens, and on the
+  /// screen's Try again — and offers the weekly login popup when its day is
+  /// still to collect. Claims nothing: collecting is the player's tap.
+  Future<void> loadRewardPrograms() async {
+    final token = _token;
+    if (token == null) return;
+    rewardProgramsLoading = true;
+    notifyListeners();
+    try {
+      final programs = await _api.rewardPrograms(token);
+      // Signed out, or somebody else signed in, while it was asked.
+      if (_token != token) return;
+      rewardPrograms = programs;
+      rewardProgramsFailed = false;
+      offerWeeklyLogin();
+    } catch (_) {
+      if (_token == token) rewardProgramsFailed = true;
+    } finally {
+      rewardProgramsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// The weekly login streak whose today is still to collect, or null.
+  RewardProgramState? get weeklyLoginDue {
+    for (final p in rewardPrograms ?? const <RewardProgramState>[]) {
+      if (p.program.isStreak && p.program.isWeekly && !p.claimedToday) {
+        return p;
+      }
+    }
+    return null;
+  }
+
+  /// Puts the weekly login popup up for the day still to collect — once a
+  /// day, unless asked [again] (the lobby's REWARDS chip). Answers whether
+  /// it did. Not while the no-winnings panel covers the lobby: the popup's
+  /// animation would play behind it unseen, so [acceptConsent] offers it
+  /// then.
+  bool offerWeeklyLogin({bool again = false}) {
+    final due = weeklyLoginDue;
+    if (due == null || consentPending) return false;
+    // Not before this account's consent is known: the programs' read can
+    // land first, and the popup would go up under the panel.
+    if (_consentKnownFor != user?.id) return false;
+    // Nor while a new account's welcome rewards wait to be confirmed: that
+    // popup comes first, and confirmWelcome offers this one.
+    if (welcomePending != null) return false;
+    final key = '${due.program.code}:${due.today}';
+    if (!again && _weeklyOfferedFor == key) return false;
+    _weeklyOfferedFor = key;
+    weeklyLoginOffer = due;
+    notifyListeners();
+    return true;
+  }
+
+  /// Closes the weekly login popup.
+  void dismissWeeklyLogin() {
+    if (weeklyLoginOffer == null) return;
+    weeklyLoginOffer = null;
+    notifyListeners();
+  }
+
+  /// Claims today's reward of every program the server runs — once a day
+  /// a program, which the SERVER decides — on the player's tap: the weekly
+  /// popup's Collect, or the rewards screen's. Answers what the claim gave
+  /// (empty when today was already collected), or null when it could not be
+  /// made; with [celebrate] the lobby's celebration shows the grants too.
+  /// Nothing is asked at a table: a reward may be chips, which only the
+  /// lobby may credit.
+  Future<List<RewardGrant>?> claimRewardPrograms({
+    bool celebrate = true,
+  }) async {
+    final token = _token;
+    if (token == null || rewardClaimPending || room != null) return null;
+    rewardClaimPending = true;
+    notifyListeners();
+    try {
+      final r = await _api.claimRewardPrograms(token);
+      if (_token != token) return null;
+      if (r == null) {
+        // An older server, or none running: nothing to show.
+        rewardPrograms = null;
+        rewardProgramsFailed = false;
+        return null;
+      }
+      rewardPrograms = r.programs;
+      rewardProgramsFailed = false;
+      if (r.user != null) user = r.user;
+      if (r.granted.isNotEmpty) {
+        if (celebrate) rewardsGranted = r.granted;
+        // An item won is owned now: the shelves re-read who owns what.
+        if (r.granted.any((g) => g.prize.isItem && !g.alreadyOwned)) {
+          unawaited(_loadPictures());
+        }
+      }
+      return r.granted;
+    } on ApiException catch (e) {
+      // At a table by the server's reckoning: the lobby will ask again.
+      if (e.code == 'seated') return null;
+      if (rewardPrograms == null) rewardProgramsFailed = true;
+      return null;
+    } catch (_) {
+      if (rewardPrograms == null) rewardProgramsFailed = true;
+      return null;
+    } finally {
+      rewardClaimPending = false;
+      notifyListeners();
+    }
+  }
+
+  /// Closes the rewards celebration.
+  void dismissRewardsGranted() {
+    if (rewardsGranted == null) return;
+    rewardsGranted = null;
+    notifyListeners();
+  }
+
   void answerSideshow(bool accept) => _conn.respondToSideshow(accept);
 
   String _sideshowRefusedLine(String reason) => switch (reason) {
@@ -5044,13 +5299,15 @@ enum NumberSystem {
   );
 }
 
-/// The toast a NEW account's sign-in raises (30 Sep 2026): what the server's
-/// welcome grant gave it, in the player's language, and nothing it did not —
-/// "Welcome! Added to your account: 10 Lakh chips · 9 diamonds · 20 hammers ·
-/// 1 missile · 1 picture · 2 emojis". A grant of nothing is a plain welcome.
-/// A server from before the grant sends no `welcome`, only `welcomeChips`: its
-/// chips alone, or no toast at all when it gave none (as before). The caller
-/// asks only for a new account; a returning one hears nothing.
+/// What a NEW account's sign-in granted, in one line in the player's
+/// language (30 Sep 2026) — what the server's welcome grant gave it and
+/// nothing it did not: "Welcome! Added to your account: 10 Lakh chips · 9
+/// diamonds · 20 hammers · 1 missile · 1 picture · 2 emojis"; a grant of
+/// nothing is a plain welcome. A server from before the grant sends no
+/// `welcome`, only `welcomeChips`: its chips alone, or nothing when it gave
+/// none. It was the sign-in's toast until the welcome rewards popup
+/// (`widgets/welcome_rewards.dart`) took its place the same day; it is now
+/// the popup's one-line summary — what a screen reader hears.
 String? welcomeNotice(Strings t, WelcomeGrant? grant, {int welcomeChips = 0}) {
   if (grant == null) {
     if (welcomeChips <= 0) return null;

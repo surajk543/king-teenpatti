@@ -5,12 +5,16 @@
 // 0 or empty. `welcomeChips` stays for older apps.
 //
 // These hold WelcomeGrant (models/dtos.dart) to a tolerant reading of that
-// block; the toast (state/game_state.dart welcomeNotice) to naming exactly
-// what was granted, in the player's language, singular and plural right —
-// a plain welcome when nothing was, the chips alone from a server that
-// predates the grant, and nothing for a returning account; and the
-// catalogues to showing a granted picture owned once the sign-in lands, even
-// when the cold start's anonymous read answers after the signed-in one.
+// block; the grant's one-line summary (state/game_state.dart welcomeNotice —
+// the sign-in's toast until the welcome rewards popup took its place, 30 Sep
+// 2026; what a screen reader hears of the popup) to naming exactly what was
+// granted, in the player's language, singular and plural right — a plain
+// welcome when nothing was, the chips alone from a server that predates the
+// grant; a new account's sign-in to leaving the grant for the popup
+// (GameState.welcomePending, test/welcome_rewards_test.dart) and a returning
+// account's to nothing; and the catalogues to showing a granted picture owned
+// once the sign-in lands, even when the cold start's anonymous read answers
+// after the signed-in one.
 import 'dart:async';
 import 'dart:convert';
 
@@ -408,7 +412,7 @@ void main() {
 
   group('signing in', () {
     test(
-      'a new guest account hears what it was given, in its language',
+      'a new guest account is left its grant to confirm, and no toast',
       () async {
         final state = _state(lang: AppLang.hindi);
         addTearDown(state.dispose);
@@ -421,22 +425,32 @@ void main() {
         // before the state is disposed.
         await pumpEventQueue();
         expect(state.screen, Screen.lobby);
+        // The popup's, not a toast's (30 Sep 2026): the grant as the server
+        // sent it, waiting for the player's Confirm.
+        expect(state.notice, isNull);
+        final pending = state.welcomePending;
+        expect(pending, isNotNull);
+        expect(pending!.chips, 1000000);
+        expect(pending.diamonds, 9);
+        expect(pending.hammers, 20);
+        expect(pending.missiles, 1);
+        expect(pending.pictures.single.name, 'Lovestruck Cat');
+        expect(pending.tablePictures, isEmpty);
+        expect(pending.emojis, hasLength(2));
+        // Its summary, in the player's language.
+        final t = const Strings(AppLang.hindi);
         expect(
-          state.notice,
-          welcomeNotice(
-            const Strings(AppLang.hindi),
-            WelcomeGrant.fromJson(_fullWelcome()),
-          ),
+          welcomeNotice(t, pending),
+          welcomeNotice(t, WelcomeGrant.fromJson(_fullWelcome())),
         );
         expect(
-          state.notice,
+          welcomeNotice(t, pending),
           startsWith('स्वागत है! आपके खाते में जोड़ा गया: '),
         );
-        expect(state.notice, isNot(contains('Welcome')));
       },
     );
 
-    test('a new Google account hears it too', () async {
+    test('a new Google account is left its grant too', () async {
       final state = _state();
       addTearDown(state.dispose);
       final server = _Server(
@@ -449,30 +463,48 @@ void main() {
       // The sign-in's own reads (catalogues, the draw, the ladder) finish
       // before the state is disposed.
       await pumpEventQueue();
+      expect(state.notice, isNull);
+      expect(state.welcomePending?.chips, 1000000);
+      expect(state.welcomePending?.missiles, 1);
+      expect(state.welcomePending?.diamonds, 0);
       expect(
-        state.notice,
+        welcomeNotice(state.t, state.welcomePending),
         'Welcome! Added to your account: ${formatChips(1000000)} chips · '
         '1 missile',
       );
     });
 
-    test('a new account granted nothing is simply welcomed', () async {
-      final state = _state();
-      addTearDown(state.dispose);
-      final server = _Server(
-        _loginJson(welcomeChips: 0, welcome: const <String, Object?>{}),
-      );
-      await http.runWithClient(
-        () => state.loginAsGuest('Ravi'),
-        () => server.client,
-      );
-      // The sign-in's own reads (catalogues, the draw, the ladder) finish
-      // before the state is disposed.
-      await pumpEventQueue();
-      expect(state.notice, 'Welcome to King Teen Patti!');
-    });
+    test(
+      'a new account granted nothing is still welcomed, and confirms it',
+      () async {
+        final state = _state();
+        addTearDown(state.dispose);
+        final server = _Server(
+          _loginJson(welcomeChips: 0, welcome: const <String, Object?>{}),
+        );
+        await http.runWithClient(
+          () => state.loginAsGuest('Ravi'),
+          () => server.client,
+        );
+        // The sign-in's own reads (catalogues, the draw, the ladder) finish
+        // before the state is disposed.
+        await pumpEventQueue();
+        expect(state.notice, isNull);
+        expect(state.welcomePending, isNotNull);
+        expect(state.welcomePending!.isEmpty, isTrue);
+        expect(
+          welcomeNotice(state.t, state.welcomePending),
+          'Welcome to King Teen Patti!',
+        );
+        // Confirmed, it is gone; confirming again is nothing.
+        state.confirmWelcome();
+        expect(state.welcomePending, isNull);
+        state.confirmWelcome();
+        expect(state.welcomePending, isNull);
+      },
+    );
 
-    test('an older server\'s new account hears its chips alone', () async {
+    test('an older server\'s new account is left its chips alone', () async {
       final state = _state();
       addTearDown(state.dispose);
       final server = _Server(_loginJson(withWelcome: false));
@@ -483,13 +515,16 @@ void main() {
       // The sign-in's own reads (catalogues, the draw, the ladder) finish
       // before the state is disposed.
       await pumpEventQueue();
+      expect(state.notice, isNull);
+      expect(state.welcomePending?.chips, 1000000);
+      expect(state.welcomePending?.pictures, isEmpty);
       expect(
-        state.notice,
+        welcomeNotice(state.t, state.welcomePending),
         'Welcome! Added to your account: ${formatChips(1000000)} chips',
       );
     });
 
-    test('a returning account hears nothing', () async {
+    test('a returning account is shown nothing', () async {
       for (final login in [
         _loginJson(isNew: false, welcomeChips: 0, withWelcome: false),
         // Even a server that wrongly sent the block on a returning login.
@@ -506,7 +541,23 @@ void main() {
         await pumpEventQueue();
         expect(state.screen, Screen.lobby);
         expect(state.notice, isNull);
+        expect(state.welcomePending, isNull);
       }
+    });
+
+    test('signing out forgets a grant not yet confirmed', () async {
+      final state = _state();
+      addTearDown(state.dispose);
+      final server = _Server(_loginJson(welcome: _fullWelcome()));
+      await http.runWithClient(
+        () => state.loginAsGuest('Ravi'),
+        () => server.client,
+      );
+      await pumpEventQueue();
+      expect(state.welcomePending, isNotNull);
+      await http.runWithClient(state.signOut, () => server.client);
+      await pumpEventQueue();
+      expect(state.welcomePending, isNull);
     });
 
     test('what the welcome gave shows owned once the sign-in lands, even when '

@@ -25,6 +25,8 @@ type UserStore interface {
 	SetDisplayName(ctx context.Context, userID, displayName string) (*db.User, error)
 	SetActivePicture(ctx context.Context, userID string, pictureID *int64) (*db.User, error)
 	DeleteAccount(ctx context.Context, userID string) error
+	// ClaimTimedBonus collects the 6-hour bonus (db.Users.ClaimTimedBonus).
+	ClaimTimedBonus(ctx context.Context, userID string) (*db.RewardResult, error)
 }
 
 // PictureStore is the slice of db.Pictures the handlers use: the catalogue a
@@ -145,6 +147,10 @@ type Deps struct {
 	// LuckyDraws is the Lucky Draw (owner, 24 Sep 2026). Nil → both of its
 	// endpoints answer 503 lucky_draw_unavailable.
 	LuckyDraws LuckyDrawStore
+	// RewardPrograms are the login streaks and calendar rewards (owner,
+	// 30 Sep 2026; rewardprograms.go). Nil → both of their endpoints answer
+	// 503 reward_programs_unavailable.
+	RewardPrograms RewardProgramStore
 	// Friends is the social graph (Friends V1, owner 26 Sep 2026; friends.go).
 	// Nil → its eight routes are not mounted (unknown /api paths answer the
 	// JSON 404).
@@ -256,6 +262,9 @@ type BoughtBadge struct {
 //	POST /api/table-pictures/buy → BuyTablePicture  (RequireAuth; Go only)
 //	GET  /api/lucky-draw         → LuckyDraw        (RequireAuth; Go only)
 //	POST /api/lucky-draw/spin    → SpinLuckyDraw    (RequireAuth; Go only)
+//	GET  /api/reward-programs       → RewardPrograms      (RequireAuth; Go only)
+//	POST /api/reward-programs/claim → ClaimRewardPrograms (RequireAuth, wallet limiter; Go only)
+//	POST /api/rewards/bonus      → Bonus            (RequireAuth, wallet limiter; the 6-hour bonus, 30 Sep 2026)
 //	GET  /api/emojis             → Emojis           (token optional; Go only)
 //	POST /api/emojis/buy         → BuyEmoji         (RequireAuth; Go only)
 //	GET  /api/levels             → Levels           (public; Go only)
@@ -346,6 +355,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/table-pictures/buy", methods(http.MethodPost, wallet(h.BuyTablePicture)))
 	mux.Handle("/api/lucky-draw", methods(http.MethodGet, h.RequireAuth(h.LuckyDraw)))
 	mux.Handle("/api/lucky-draw/spin", methods(http.MethodPost, wallet(h.SpinLuckyDraw)))
+	mux.Handle("/api/reward-programs", methods(http.MethodGet, h.RequireAuth(h.RewardPrograms)))
+	mux.Handle("/api/reward-programs/claim", methods(http.MethodPost, wallet(h.ClaimRewardPrograms)))
+	mux.Handle("/api/rewards/bonus", methods(http.MethodPost, wallet(h.Bonus)))
 	mux.Handle("/api/emojis", methods(http.MethodGet, http.HandlerFunc(h.Emojis)))
 	mux.Handle("/api/emojis/buy", methods(http.MethodPost, wallet(h.BuyEmoji)))
 	mux.Handle("/api/levels", methods(http.MethodGet, http.HandlerFunc(h.Levels)))
@@ -497,11 +509,15 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 // update_required the store link and the version the app must reach (each
 // absent when there is none).
 type ErrorResponse struct {
-	Error          string `json:"error"`
-	Message        string `json:"message"`
-	ReadyAt        *int64 `json:"readyAt,omitempty"`
-	StoreURL       string `json:"storeUrl,omitempty"`
-	MinimumVersion string `json:"minimumVersion,omitempty"`
+	Error   string `json:"error"`
+	Message string `json:"message"`
+	// ReadyAt and User ride on the 6-hour bonus's 409 reward_not_ready (30
+	// Sep 2026): when the bonus unlocks, and the account as it stands, so
+	// the lobby's chip can set its clock from the refusal.
+	ReadyAt        *int64   `json:"readyAt,omitempty"`
+	User           *db.User `json:"user,omitempty"`
+	StoreURL       string   `json:"storeUrl,omitempty"`
+	MinimumVersion string   `json:"minimumVersion,omitempty"`
 }
 
 // AdmitApp is the app version gate at a signed-in REST door (owner, 28 Sep
@@ -883,7 +899,14 @@ const (
 	MsgLuckyDrawUnavailable = "The Lucky Draw is closed right now."
 	MsgLuckyDrawNotReady    = "Your next Lucky Draw spin is not ready yet."
 	MsgSeatedLuckyDraw      = "Spin the Lucky Draw from the lobby, not while you are at a table."
-	MsgInvalidActionID      = "A spin needs an action id of 1 to 64 characters"
+	// The reward programs (owner, 30 Sep 2026).
+	MsgRewardProgramsUnavailable = "Rewards are not available right now."
+	MsgSeatedRewardPrograms      = "Collect your rewards from the lobby, not while you are at a table."
+	// The 6-hour bonus (30 Sep 2026): its two refusals.
+	CodeRewardNotReady = "reward_not_ready"
+	MsgRewardNotReady  = "The bonus is still recharging."
+	MsgSeatedBonus     = "Collect your reward from the lobby, not while you are at a table."
+	MsgInvalidActionID = "A spin needs an action id of 1 to 64 characters"
 	// MsgNotEnoughDiamondsFormat is fmt.Sprintf'd with the pack's diamonds.
 	// It is always plural: the cheapest pack in db.MissilePacks costs 10
 	// diamonds, so none costs a single diamond.

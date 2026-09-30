@@ -321,6 +321,13 @@ const (
 	// retried spin cannot pay twice. Like the bonuses it creates chips: the
 	// delta is positive.
 	LedgerReasonLuckyDraw = "lucky_draw"
+	// LedgerReasonRewardProgram is chips given by a reward program — a day of
+	// a login streak or of a calendar (owner, 30 Sep 2026;
+	// db.RewardPrograms.Claim). Its action_id is the claim's key,
+	// "reward:<userId>:<programCode>:<claimDate>" — UNIQUE here as in
+	// user_reward_claims, so a day's reward cannot be paid twice. Like the
+	// Lucky Draw it creates chips: the delta is positive.
+	LedgerReasonRewardProgram = "reward_program"
 	// LedgerReasonAccountDeleted empties a wallet when a player deletes their
 	// account. The row is what keeps SUM(delta) == chips true afterwards: the
 	// account's chips go to 0, so the ledger has to record the same drop.

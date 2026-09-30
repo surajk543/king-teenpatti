@@ -2169,3 +2169,188 @@ BEGIN
   END IF;
 END;
 $$;
+
+
+-- ------------------------------------------------------------ reward programs
+
+-- The reward programs (owner, 30 Sep 2026: "a unified REWARD PROGRAM system
+-- that supports both LOGIN STREAK rewards and CALENDAR rewards, with WEEKLY
+-- and MONTHLY periods"; db/rewardprograms.go). ONE generic model for every
+-- program the lobby runs — the weekly and monthly login streaks, the weekly
+-- and monthly calendars, and a one-off campaign such as a December calendar —
+-- so a later program is rows here, never a table or a line of Go. Three
+-- tables:
+--
+--   reward_programs         a program: LOGIN_STREAK or CALENDAR, WEEKLY or
+--                           MONTHLY, its timezone, the day its week starts,
+--                           whether a missed day resets the streak, and an
+--                           optional campaign window;
+--   reward_program_rewards  what each day of a program gives;
+--   user_reward_claims      every reward granted, for good: the audit, the
+--                           streak's memory and the replay guard.
+--
+-- The first two are CONFIGURATION, as the Lucky Draw's are: read on every
+-- claim and every look, so an owner's UPDATE is in force at the next one, no
+-- restart. The third is APPEND-ONLY by use, as user_lucky_draws is. No game
+-- state, and nothing on users: there is no user_login_streaks table and no
+-- streak column — the current streak is DERIVED from the latest claim of the
+-- current period, every time.
+--
+-- A DAY NUMBER means two different things, by the program's mode:
+--
+--   LOGIN_STREAK  the consecutive login day — Mon Day 1, Tue Day 2, Wed
+--                 missed, Thu Day 1 again (reset_on_missed_day TRUE);
+--   CALENDAR      the day's position in the period — Mon Day 1, Tue Day 2,
+--                 Wed missed, Thu Day 4; nothing ever resets.
+--
+-- A PERIOD is a calendar week (starting on week_start_day) or a calendar
+-- month, in the program's timezone, worked out by the server with calendar
+-- arithmetic — never 7 × 86,400,000 ms: a month is 28 to 31 days and a week
+-- may cross a daylight-saving change.
+
+-- One row per program. code is what a claim is recorded under and the seed's
+-- conflict key; name the owner's label (the app names the four it knows in
+-- its own languages). timezone is an IANA name (UTC, Asia/Kolkata …) and
+-- decides today's date, the week and month boundaries and the claim date —
+-- never the server's local zone; a zone this server cannot load leaves the
+-- program out with a logged reason. week_start_day is 1 Monday … 7 Sunday
+-- and is read by WEEKLY programs only. reset_on_missed_day is read by
+-- LOGIN_STREAK programs only, and the CHECK below keeps it FALSE on a
+-- CALENDAR one. starts_at / ends_at (epoch ms, NULL for none) bound a
+-- campaign — DECEMBER_2026 runs Dec 1 to Dec 31 — while a recurring program
+-- leaves both NULL. Retire a program with is_active = FALSE, never DELETE:
+-- its claims point at it.
+CREATE TABLE IF NOT EXISTS reward_programs (
+  id                  BIGSERIAL PRIMARY KEY,
+  code                TEXT     NOT NULL UNIQUE CHECK (code ~ '^[A-Z0-9_]{1,64}$'),
+  name                TEXT     NOT NULL,
+  mode                TEXT     NOT NULL CHECK (mode IN ('LOGIN_STREAK', 'CALENDAR')),
+  period_type         TEXT     NOT NULL CHECK (period_type IN ('WEEKLY', 'MONTHLY')),
+  timezone            TEXT     NOT NULL DEFAULT 'UTC',
+  week_start_day      SMALLINT NOT NULL DEFAULT 1 CHECK (week_start_day BETWEEN 1 AND 7),
+  reset_on_missed_day BOOLEAN  NOT NULL DEFAULT FALSE,
+  starts_at           BIGINT   CHECK (starts_at IS NULL OR starts_at >= 0),
+  ends_at             BIGINT   CHECK (ends_at IS NULL OR ends_at >= 0),
+  is_active           BOOLEAN  NOT NULL DEFAULT TRUE,
+  sort_order          INTEGER  NOT NULL DEFAULT 0,
+  created_at          BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at          BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  -- A missed day resets a LOGIN STREAK and nothing else: a CALENDAR program
+  -- cannot be made to behave like a streak.
+  CONSTRAINT reward_programs_reset_is_a_streaks CHECK (mode = 'LOGIN_STREAK' OR reset_on_missed_day = FALSE),
+  CONSTRAINT reward_programs_window_in_order CHECK (starts_at IS NULL OR ends_at IS NULL OR starts_at <= ends_at)
+);
+
+-- One row per day of a program: day_number 1 to 7 for a WEEKLY program, 1 to
+-- 31 for a MONTHLY one (a day past the period is never reached), read by the
+-- program's mode (above). A REWARD IS reward_type + reward_value +
+-- reward_ref_id, the Lucky Draw's and the welcome's shape: CHIPS, HAMMER,
+-- DIAMOND and MISSILE carry an amount; EMOJI, PROFILE_PICTURE and
+-- TABLE_PICTURE name a catalogue row by its id in reward_ref_id (TEXT), BADGE
+-- a badge by its code (badges.code); NO_REWARD is a day that gives nothing
+-- (the claim is still recorded, so a streak keeps counting through it). The
+-- CHECK holds the SHAPE of every type this build grants — an amount and no
+-- reference for a wallet, a reference and no amount for a catalogue item —
+-- and lets any other type through, so the set stays OPEN as
+-- lucky_draw_slots.reward_type is: a later kind is a row and a release,
+-- never a change to a constraint every database already carries, and the
+-- server leaves such a row out with a logged reason until a build grants it.
+-- A day with no row, or a row it cannot grant (a retired picture, a missing
+-- emoji), is a NO_REWARD day. Retire a row with is_active = FALSE.
+CREATE TABLE IF NOT EXISTS reward_program_rewards (
+  id            BIGSERIAL PRIMARY KEY,
+  program_id    BIGINT   NOT NULL REFERENCES reward_programs (id) ON DELETE CASCADE,
+  day_number    SMALLINT NOT NULL CHECK (day_number BETWEEN 1 AND 31),
+  reward_type   TEXT     NOT NULL,
+  reward_value  BIGINT   CHECK (reward_value IS NULL OR reward_value >= 0),
+  reward_ref_id TEXT,
+  is_active     BOOLEAN  NOT NULL DEFAULT TRUE,
+  sort_order    INTEGER  NOT NULL DEFAULT 0,
+  created_at    BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at    BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  UNIQUE (program_id, day_number),
+  CONSTRAINT reward_program_rewards_shape CHECK (
+       (reward_type IN ('CHIPS', 'HAMMER', 'DIAMOND', 'MISSILE')
+          AND reward_value IS NOT NULL AND reward_value > 0 AND reward_ref_id IS NULL)
+    OR (reward_type IN ('EMOJI', 'PROFILE_PICTURE', 'TABLE_PICTURE', 'BADGE')
+          AND reward_value IS NULL AND reward_ref_id IS NOT NULL)
+    OR (reward_type = 'NO_REWARD' AND reward_value IS NULL AND reward_ref_id IS NULL)
+    OR reward_type NOT IN ('CHIPS', 'HAMMER', 'DIAMOND', 'MISSILE',
+                           'EMOJI', 'PROFILE_PICTURE', 'TABLE_PICTURE', 'BADGE', 'NO_REWARD')
+  )
+);
+
+-- One row per reward granted, never updated and never deleted: which program,
+-- which period (period_start_at: the local midnight its first day began,
+-- epoch ms), which day number the claim counted as, the claim's calendar date
+-- in the program's timezone, and a SNAPSHOT of the reward as it stood — so
+-- the record keeps saying what was given after Day 5 is pointed at another
+-- emoji. A player's claims in a period, newest first, are the streak's
+-- memory: the latest one says which day comes next, and none of it is kept
+-- anywhere else. action_id is the claim's key,
+-- "reward:<userId>:<programCode>:<claimDate>" (db.RewardClaimActionID) — one
+-- per player, program and day by construction, so a claim is idempotent
+-- without any key from the client; a CHIPS reward's chip_ledger row carries
+-- the same key, and the ledger's own UNIQUE index guards it as well. The
+-- unique index below is the same guarantee from the other side (one claim a
+-- day a program), and the one read the store makes: this player's claims of
+-- this program in this period, newest first — never a scan of the history.
+-- program_id has no ON DELETE: a program that has been claimed cannot be
+-- deleted, only retired, because the record points at it.
+CREATE TABLE IF NOT EXISTS user_reward_claims (
+  id              BIGSERIAL PRIMARY KEY,
+  user_id         TEXT     NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  program_id      BIGINT   NOT NULL REFERENCES reward_programs (id),
+  period_start_at BIGINT   NOT NULL,
+  day_number      SMALLINT NOT NULL CHECK (day_number BETWEEN 1 AND 31),
+  claim_date      DATE     NOT NULL,
+  reward_type     TEXT     NOT NULL,
+  reward_value    BIGINT   CHECK (reward_value IS NULL OR reward_value >= 0),
+  reward_ref_id   TEXT,
+  action_id       TEXT     NOT NULL UNIQUE,
+  claimed_at      BIGINT   NOT NULL
+);
+
+-- One claim per player, program and calendar day, and the store's one read:
+-- the latest claim of this program in this period.
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'user_reward_claims_period_idx')) IS NULL THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS user_reward_claims_period_idx
+      ON user_reward_claims (user_id, program_id, period_start_at, claim_date DESC);
+  END IF;
+END;
+$$;
+
+-- updated_at follows every UPDATE of the two configuration tables by itself.
+-- Replaced on every boot (a function takes no table lock); each trigger is
+-- created only when missing, so a boot never queues behind a reader.
+CREATE OR REPLACE FUNCTION reward_programs_touch() RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at := (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgname = 'reward_programs_touch'
+       AND tgrelid = 'reward_programs'::regclass
+  ) THEN
+    CREATE TRIGGER reward_programs_touch
+      BEFORE UPDATE ON reward_programs
+      FOR EACH ROW EXECUTE FUNCTION reward_programs_touch();
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+     WHERE tgname = 'reward_program_rewards_touch'
+       AND tgrelid = 'reward_program_rewards'::regclass
+  ) THEN
+    CREATE TRIGGER reward_program_rewards_touch
+      BEFORE UPDATE ON reward_program_rewards
+      FOR EACH ROW EXECUTE FUNCTION reward_programs_touch();
+  END IF;
+END;
+$$;

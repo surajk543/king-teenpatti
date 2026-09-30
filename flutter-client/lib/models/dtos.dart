@@ -244,6 +244,55 @@ const forceSideshowCost = 1;
 /// How many missiles firing one spends. The server charges it.
 const missileCost = 1;
 
+/// The 6-hour bonus as the account carries it — `user.rewards` (owner, 30 Sep
+/// 2026: "IN Top left Add Again Every 6 hours bonus 25000 Coins": requirement
+/// 18's four-hour bonus, taken away that morning with the other two lobby
+/// rewards, back as six hours and 25,000 chips). The server says what it pays
+/// and when it unlocks; the lobby's top-left chip counts down to it and
+/// collects it (`POST /api/rewards/bonus`). Null from a server without it.
+class Rewards {
+  const Rewards({
+    required this.bonusReward,
+    required this.bonusReadyAt,
+    required this.bonusAvailable,
+    this.bonusIntervalMs = 0,
+  });
+
+  /// What one collection pays, in chips.
+  final int bonusReward;
+
+  /// Epoch ms the bonus unlocks; 0 means it is ready now. The server calls
+  /// this `bonusReadyAt`.
+  final int bonusReadyAt;
+
+  /// The server's own verdict, which is what actually gates the claim.
+  final bool bonusAvailable;
+
+  /// How long the bonus takes to recharge, in ms (six hours); 0 from a server
+  /// that does not say.
+  final int bonusIntervalMs;
+
+  bool get bonusReady =>
+      bonusAvailable || bonusReadyAt <= DateTime.now().millisecondsSinceEpoch;
+
+  Duration get untilBonus {
+    final ms = bonusReadyAt - DateTime.now().millisecondsSinceEpoch;
+    return Duration(milliseconds: ms < 0 ? 0 : ms);
+  }
+
+  /// The recharge as hours, for the words ("A new bonus every 6 hours."); 6
+  /// where the server did not say.
+  int get bonusEveryHours =>
+      bonusIntervalMs > 0 ? (bonusIntervalMs / 3600000).round() : 6;
+
+  factory Rewards.fromJson(Map<String, dynamic> j) => Rewards(
+    bonusReward: _int(j['bonusReward']),
+    bonusReadyAt: _int(j['bonusReadyAt']),
+    bonusAvailable: j['bonusAvailable'] == true,
+    bonusIntervalMs: _int(j['bonusIntervalMs']),
+  );
+}
+
 class User {
   const User({
     required this.id,
@@ -267,12 +316,17 @@ class User {
     this.playerLevel,
     this.badges = const [],
     this.taxBps,
+    this.rewards,
   });
 
   final String id;
   final String provider;
   final String displayName;
   final int chips;
+
+  /// The 6-hour bonus as it stands for this player ([Rewards]); null from a
+  /// server that offers none, and then the lobby draws no bonus chip.
+  final Rewards? rewards;
 
   /// The player's level, their XP and the winning tax the level sets (owner,
   /// 26 Sep 2026) — this viewer's own and nobody else's: the server never
@@ -416,6 +470,7 @@ class User {
     playerLevel: playerLevel,
     badges: badges,
     taxBps: taxBps,
+    rewards: rewards,
   );
 
   /// The same account at a new standing — what `player:level` reports after
@@ -443,6 +498,7 @@ class User {
     playerLevel: standing.playerLevel,
     badges: standing.badges,
     taxBps: standing.taxBps,
+    rewards: rewards,
   );
 
   /// The same account with a new missile count — what firing one reports in
@@ -469,6 +525,7 @@ class User {
     playerLevel: playerLevel,
     badges: badges,
     taxBps: taxBps,
+    rewards: rewards,
   );
 
   factory User.fromJson(Map<String, dynamic> j) => User(
@@ -499,6 +556,9 @@ class User {
     playerLevel: PlayerLevel.maybe(j['playerLevel']),
     badges: PlayerBadge.listOf(j['badges']),
     taxBps: _bpsOrNull(j['taxBps']),
+    rewards: j['rewards'] is Map
+        ? Rewards.fromJson(Map<String, dynamic>.from(j['rewards'] as Map))
+        : null,
   );
 }
 
@@ -3746,3 +3806,410 @@ class LuckySpin {
         : null,
   );
 }
+
+// ---------------------------------------------------------- reward programs
+//
+// The reward programs (owner, 30 Sep 2026): login streaks and calendar
+// rewards, weekly and monthly, in ONE shape (GET /api/reward-programs, POST
+// /api/reward-programs/claim). The SERVER works out every period, every day
+// and every reward, and grants once a day a program; the app draws what it
+// is told and never decides a day itself.
+
+/// A program's mode: what its day numbers mean.
+class RewardMode {
+  /// The day number is the consecutive login day — Mon Day 1, Tue Day 2, Wed
+  /// missed, Thu Day 1 again.
+  static const loginStreak = 'LOGIN_STREAK';
+
+  /// The day number is the day's place in the week or month — Mon Day 1, Tue
+  /// Day 2, Wed missed, Thu Day 4.
+  static const calendar = 'CALENDAR';
+}
+
+/// A program's period: a calendar week, or a calendar month.
+class RewardPeriod {
+  static const weekly = 'WEEKLY';
+  static const monthly = 'MONTHLY';
+}
+
+/// What a day gives (reward_program_rewards.reward_type): the Lucky Draw's
+/// kinds, an emoji and a badge. A kind this build does not know is drawn as
+/// a plain gift.
+class RewardKind {
+  static const chips = 'CHIPS';
+  static const hammer = 'HAMMER';
+  static const diamond = 'DIAMOND';
+  static const missile = 'MISSILE';
+  static const emoji = 'EMOJI';
+  static const profilePicture = 'PROFILE_PICTURE';
+  static const tablePicture = 'TABLE_PICTURE';
+  static const badge = 'BADGE';
+  static const none = 'NO_REWARD';
+}
+
+/// A badge as a reward names it, and whether this player holds it now.
+class RewardBadge {
+  const RewardBadge({
+    required this.code,
+    required this.title,
+    this.icon = '',
+    this.validityDays = 0,
+    this.assetUrl = '',
+    this.assetFormat = '',
+    this.held = false,
+    this.expiresAt = 0,
+  });
+
+  final String code;
+  final String title;
+  final String icon;
+
+  /// How many days a grant of it lasts; 0 for ever.
+  final int validityDays;
+  final String assetUrl;
+  final String assetFormat;
+
+  /// Whether this player holds it now, and until when (epoch ms; 0 for ever).
+  final bool held;
+  final int expiresAt;
+
+  factory RewardBadge.fromJson(Map<String, dynamic> j) => RewardBadge(
+    code: _str(j['code']),
+    title: _str(j['title']),
+    icon: _str(j['icon']),
+    validityDays: _int(j['validityDays']),
+    assetUrl: _str(j['assetUrl']),
+    assetFormat: _str(j['assetFormat']),
+    held: j['held'] == true,
+    expiresAt: _int(j['expiresAt']),
+  );
+}
+
+/// One reward: its kind, an amount for a wallet, or the catalogue item — the
+/// row exactly as its catalogue route serves it, so the app draws it with
+/// the loaders it already has.
+class RewardPrize {
+  const RewardPrize({
+    required this.kind,
+    this.value,
+    this.refId,
+    this.picture,
+    this.tablePicture,
+    this.emoji,
+    this.badge,
+  });
+
+  /// One of [RewardKind].
+  final String kind;
+
+  /// The amount of a wallet reward; null for an item.
+  final int? value;
+
+  /// The catalogue id of an item, as text (a badge's code).
+  final String? refId;
+  final ProfilePicture? picture;
+  final TablePicture? tablePicture;
+  final EmojiItem? emoji;
+  final RewardBadge? badge;
+
+  bool get isNothing => kind == RewardKind.none;
+  bool get isWallet =>
+      kind == RewardKind.chips ||
+      kind == RewardKind.hammer ||
+      kind == RewardKind.diamond ||
+      kind == RewardKind.missile;
+  bool get isItem =>
+      kind == RewardKind.emoji ||
+      kind == RewardKind.profilePicture ||
+      kind == RewardKind.tablePicture ||
+      kind == RewardKind.badge;
+
+  /// The amount, 0 where the reward has none.
+  int get amount => value ?? 0;
+
+  /// The item's name, for an item reward.
+  String get itemName =>
+      emoji?.name ?? picture?.name ?? tablePicture?.name ?? badge?.title ?? '';
+
+  factory RewardPrize.fromJson(Map<String, dynamic> j) => RewardPrize(
+    kind: _str(j['rewardType']),
+    value: _intOrNull(j['rewardValue']),
+    refId: _strOrNull(j['rewardRefId']),
+    picture: j['picture'] is Map
+        ? ProfilePicture.fromJson(
+            Map<String, dynamic>.from(j['picture'] as Map),
+          )
+        : null,
+    tablePicture: j['tablePicture'] is Map
+        ? TablePicture.fromJson(
+            Map<String, dynamic>.from(j['tablePicture'] as Map),
+          )
+        : null,
+    emoji: j['emoji'] is Map
+        ? EmojiItem.fromJson(Map<String, dynamic>.from(j['emoji'] as Map))
+        : null,
+    badge: j['badge'] is Map
+        ? RewardBadge.fromJson(Map<String, dynamic>.from(j['badge'] as Map))
+        : null,
+  );
+}
+
+/// One day of a program that carries a reward, and whether this player has
+/// claimed it in the current period. For a login streak `claimed` marks the
+/// days of the CURRENT run, not the history.
+class RewardDay {
+  const RewardDay({
+    required this.day,
+    required this.prize,
+    required this.claimed,
+  });
+
+  final int day;
+  final RewardPrize prize;
+  final bool claimed;
+
+  factory RewardDay.fromJson(Map<String, dynamic> j) => RewardDay(
+    day: _int(j['day']),
+    prize: RewardPrize.fromJson(j),
+    claimed: j['claimed'] == true,
+  );
+}
+
+/// A program as the server describes it, with the period it is in now.
+class RewardProgramInfo {
+  const RewardProgramInfo({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.mode,
+    required this.periodType,
+    this.timezone = 'UTC',
+    this.weekStartDay = 1,
+    this.resetOnMissedDay = false,
+    this.startsAt,
+    this.endsAt,
+    this.periodStart = 0,
+    this.periodEnd = 0,
+  });
+
+  final int id;
+
+  /// WEEKLY_LOGIN, MONTHLY_CALENDAR, DECEMBER_2026 … — what the app names
+  /// the four it knows by; the server's [name] for any other.
+  final String code;
+  final String name;
+
+  /// One of [RewardMode].
+  final String mode;
+
+  /// One of [RewardPeriod].
+  final String periodType;
+  final String timezone;
+
+  /// 1 Monday … 7 Sunday; a weekly program's first day.
+  final int weekStartDay;
+  final bool resetOnMissedDay;
+
+  /// A campaign's window (epoch ms); null on a recurring program.
+  final int? startsAt;
+  final int? endsAt;
+
+  /// The current period's bounds, epoch ms.
+  final int periodStart;
+  final int periodEnd;
+
+  bool get isStreak => mode == RewardMode.loginStreak;
+  bool get isWeekly => periodType == RewardPeriod.weekly;
+
+  factory RewardProgramInfo.fromJson(Map<String, dynamic> j) =>
+      RewardProgramInfo(
+        id: _int(j['id']),
+        code: _str(j['code']),
+        name: _str(j['name']),
+        mode: _str(j['mode']),
+        periodType: _str(j['periodType']),
+        timezone: _str(j['timezone']).isEmpty ? 'UTC' : _str(j['timezone']),
+        weekStartDay: _int(j['weekStartDay']).clamp(1, 7),
+        resetOnMissedDay: j['resetOnMissedDay'] == true,
+        startsAt: _intOrNull(j['startsAt']),
+        endsAt: _intOrNull(j['endsAt']),
+        periodStart: _int(j['periodStart']),
+        periodEnd: _int(j['periodEnd']),
+      );
+}
+
+/// One program as it stands for this player.
+class RewardProgramState {
+  const RewardProgramState({
+    required this.program,
+    required this.today,
+    required this.dayOfPeriod,
+    required this.periodDays,
+    required this.currentDay,
+    required this.claimedToday,
+    required this.claimedDays,
+    required this.rewards,
+  });
+
+  final RewardProgramInfo program;
+
+  /// Today's date in the program's zone, "2006-01-02".
+  final String today;
+
+  /// Today's place in the period: 1..7 in a week, the date in a month.
+  final int dayOfPeriod;
+
+  /// How many days the period has: 7, or the month's 28 to 31.
+  final int periodDays;
+
+  /// The day today's claim counts (or counted) as: a streak's consecutive
+  /// login day, a calendar's [dayOfPeriod].
+  final int currentDay;
+  final bool claimedToday;
+
+  /// The days that count now: a streak's current run ("3 day streak"), a
+  /// calendar's days claimed this period.
+  final int claimedDays;
+
+  /// The days that carry a reward, in day order.
+  final List<RewardDay> rewards;
+
+  RewardDay? rewardFor(int day) {
+    for (final r in rewards) {
+      if (r.day == day) return r;
+    }
+    return null;
+  }
+
+  /// Today as the program's zone has it, at UTC midnight — for the labels'
+  /// calendar arithmetic only; every decision is the server's.
+  DateTime get todayDate {
+    final parts = today.split('-');
+    if (parts.length == 3) {
+      final y = int.tryParse(parts[0]);
+      final m = int.tryParse(parts[1]);
+      final d = int.tryParse(parts[2]);
+      if (y != null && m != null && d != null) return DateTime.utc(y, m, d);
+    }
+    final now = DateTime.now().toUtc();
+    return DateTime.utc(now.year, now.month, now.day);
+  }
+
+  /// The date day [k] stands for: for a streak, the day the run reaches (or
+  /// reached) it, counted from today's [currentDay]; for a calendar, the
+  /// date at that place in the period.
+  DateTime dateOfDay(int k) {
+    final offset = program.isStreak ? k - currentDay : k - dayOfPeriod;
+    return todayDate.add(Duration(days: offset));
+  }
+
+  /// The ISO weekday (1 Monday … 7 Sunday) of day [k].
+  int weekdayOfDay(int k) => dateOfDay(k).weekday;
+
+  /// The next day the player can earn — today's while it is unclaimed, else
+  /// tomorrow's — or null past the period's end.
+  int? get nextDay {
+    final next = program.isStreak
+        ? (claimedToday ? currentDay + 1 : currentDay)
+        : (claimedToday ? dayOfPeriod + 1 : dayOfPeriod);
+    return next < 1 || next > periodDays ? null : next;
+  }
+
+  RewardDay? get nextReward {
+    final next = nextDay;
+    return next == null ? null : rewardFor(next);
+  }
+
+  factory RewardProgramState.fromJson(Map<String, dynamic> j) {
+    final rewards =
+        (j['rewards'] is List ? j['rewards'] as List : const [])
+            .whereType<Map>()
+            .map((e) => RewardDay.fromJson(Map<String, dynamic>.from(e)))
+            .where((d) => d.day >= 1)
+            .toList()
+          ..sort((a, b) => a.day.compareTo(b.day));
+    return RewardProgramState(
+      program: RewardProgramInfo.fromJson(
+        j['program'] is Map
+            ? Map<String, dynamic>.from(j['program'] as Map)
+            : const <String, dynamic>{},
+      ),
+      today: _str(j['today']),
+      dayOfPeriod: _int(j['dayOfPeriod']),
+      periodDays: _int(j['periodDays']),
+      currentDay: _int(j['currentDay']),
+      claimedToday: j['claimedToday'] == true,
+      claimedDays: _int(j['claimedDays']),
+      rewards: rewards,
+    );
+  }
+}
+
+/// A reward one claim gave (POST /api/reward-programs/claim's `granted`).
+class RewardGrant {
+  const RewardGrant({
+    required this.programCode,
+    required this.programName,
+    required this.mode,
+    required this.periodType,
+    required this.day,
+    required this.prize,
+    this.alreadyOwned = false,
+    this.claimedAt = 0,
+  });
+
+  final String programCode;
+  final String programName;
+  final String mode;
+  final String periodType;
+  final int day;
+  final RewardPrize prize;
+
+  /// An item the player already had: the day is claimed, nothing more was
+  /// given.
+  final bool alreadyOwned;
+  final int claimedAt;
+
+  factory RewardGrant.fromJson(Map<String, dynamic> j) => RewardGrant(
+    programCode: _str(j['programCode']),
+    programName: _str(j['programName']),
+    mode: _str(j['mode']),
+    periodType: _str(j['periodType']),
+    day: _int(j['day']),
+    prize: RewardPrize.fromJson(j),
+    alreadyOwned: j['alreadyOwned'] == true,
+    claimedAt: _int(j['claimedAt']),
+  );
+}
+
+/// What one claim did: what it gave, every program after, the account after.
+class RewardClaimResult {
+  const RewardClaimResult({
+    required this.granted,
+    required this.programs,
+    this.user,
+  });
+
+  final List<RewardGrant> granted;
+  final List<RewardProgramState> programs;
+  final User? user;
+
+  factory RewardClaimResult.fromJson(Map<String, dynamic> j) =>
+      RewardClaimResult(
+        granted: (j['granted'] is List ? j['granted'] as List : const [])
+            .whereType<Map>()
+            .map((e) => RewardGrant.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
+        programs: rewardProgramsFromJson(j['programs']),
+        user: j['user'] is Map
+            ? User.fromJson(Map<String, dynamic>.from(j['user'] as Map))
+            : null,
+      );
+}
+
+/// The programs of GET /api/reward-programs or a claim's answer.
+List<RewardProgramState> rewardProgramsFromJson(Object? programs) =>
+    (programs is List ? programs : const [])
+        .whereType<Map>()
+        .map((e) => RewardProgramState.fromJson(Map<String, dynamic>.from(e)))
+        .toList();

@@ -89,7 +89,10 @@ class FriendsKey extends StatefulWidget {
   const FriendsKey({super.key});
 
   /// The key's side: a legal touch target.
-  static const double side = Dim.minTouch;
+  /// A size up from the touch floor (owner, 30 Sep 2026: "increase the
+  /// size of friend icon and level icon which is in bottom right"), as the
+  /// level key beside it.
+  static const double side = 56;
 
   @override
   State<FriendsKey> createState() => _FriendsKeyState();
@@ -138,7 +141,7 @@ class _FriendsKeyState extends State<FriendsKey> {
           padding: const EdgeInsets.all((FriendsKey.side - _Mark.size) / 2),
           child: _Mark(
             lit: lit,
-            child: Icon(Icons.people_alt_rounded, size: 16, color: fg),
+            child: Icon(Icons.people_alt_rounded, size: 21, color: fg),
           ),
         );
 
@@ -205,7 +208,7 @@ class _Mark extends StatelessWidget {
   final bool lit;
   final Widget child;
 
-  static const double size = 28;
+  static const double size = 36;
 
   @override
   Widget build(BuildContext context) {

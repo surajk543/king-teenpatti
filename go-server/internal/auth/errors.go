@@ -70,6 +70,8 @@ const (
 	CodeLuckyDrawUnavailable = "lucky_draw_unavailable" // 503: no active draw with that code, or none of its slots can be won
 	CodeLuckyDrawNotReady    = "lucky_draw_not_ready"   // 409: the player's last spin has not recharged; readyAt says when it will
 	CodeInvalidActionID      = "invalid_action_id"      // 400: a spin's actionId empty or over 64 characters
+	// The reward programs (owner, 30 Sep 2026; rewardprograms.go).
+	CodeRewardProgramsUnavailable = "reward_programs_unavailable" // 503: the server runs no reward programs (no store wired)
 	// The app version gate (owner, 28 Sep 2026; Go only; appversion): every
 	// signed-in route, and the socket handshake as a connect_error.
 	CodeUpdateRequired = "update_required" // 426: the app build is below its platform's minimum_version

@@ -45,8 +45,10 @@ import '../widgets/premium_surface.dart';
 import '../widgets/rules_sheet.dart';
 import '../widgets/table_ground.dart';
 import '../widgets/table_tax.dart';
+import '../widgets/weekly_login.dart';
 import 'friends_screen.dart';
 import 'lucky_draw_screen.dart';
+import 'reward_programs_screen.dart';
 
 /// The lobby: every choice is a card on one horizontal rail, so a phone held in
 /// landscape never has to scroll down — swipe sideways instead.
@@ -568,25 +570,35 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ),
                 ],
               ),
-              // The Lucky Draw in the bottom-left corner (owner, 24 Sep 2026).
-              // The daily bonus stood beside it until the owner took the
-              // lobby's three rewards away (30 Sep 2026: "Remove 24-hour daily
-              // reward, 4-hour bonus, and milestone reward"). Keyed so a lobby
-              // toast can stand clear of it (lobbyNoticeArea).
+              // The Lucky Draw in the bottom-left corner (owner, 24 Sep 2026),
+              // and beside it the reward programs' chip (30 Sep 2026: the
+              // login streaks and calendar rewards), where the daily bonus
+              // stood until the owner took the lobby's three rewards away
+              // (30 Sep 2026: "Remove 24-hour daily reward, 4-hour bonus, and
+              // milestone reward"). Keyed so a lobby toast can stand clear of
+              // both (lobbyNoticeArea).
               Positioned(
                 bottom: Space.md,
                 left: Space.md,
-                child: _LuckyDrawChip(key: _luckyChip),
+                child: Row(
+                  key: _luckyChip,
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: const [_LuckyDrawChip(), _RewardsChip()],
+                ),
               ),
-              // The level key and Friends in the bottom-right corner, where
-              // the milestone chip stood until 30 Sep 2026. The rail of tables
-              // stops short of the foot (`band`), so no card's keys run under
-              // either corner.
+              // The level key, the record and Friends in the bottom-right
+              // corner, where the milestone chip stood until 30 Sep 2026. The
+              // rail of tables stops short of the foot (`band`), so no card's
+              // keys run under either corner.
               //
               // Friends (owner, 26 Sep 2026) is a round key, the requests
               // waiting counted on it. The brief put it among the top bar's
               // keys, but there a fourth key takes its width from the player's
               // name; the foot has room for a key and keeps the name whole.
+              // The record's key came down here the same way (owner, 30 Sep
+              // 2026: "move the player stats button from top left to bottom
+              // right of screen"), beside the level it belongs with.
               Positioned(
                 bottom: Space.md,
                 right: Space.md,
@@ -596,14 +608,25 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   key: _footKeys,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   mainAxisSize: MainAxisSize.min,
-                  children: const [
+                  children: [
                     // The level key (owner, 27 Sep 2026: "Add one icon in
                     // lobby so that user can see his level"): the player's
                     // level on it, and the level popup behind it.
-                    LevelKey(),
-                    FriendsKey(),
+                    const LevelKey(),
+                    _StatsKey(onOpen: _open),
+                    const FriendsKey(),
                   ],
                 ),
+              ),
+              // The weekly login popup (30 Sep 2026): the owner's calendar
+              // with the week's prizes in its boxes, up after sign-in while
+              // today's is still to collect — in the open level's colour
+              // inside Blind or Variation, as the drawers are (owner, the
+              // same day: "daily Streak background color should be changed
+              // acc to card color").
+              LevelAccent(
+                palette: drawerPalette,
+                child: const WeeklyLoginOverlay(),
               ),
               // Sits last so it covers the foot and the rail. A wallet filling
               // is the one moment in the lobby worth interrupting for.
@@ -838,17 +861,24 @@ class _RewardCelebrationState extends State<_RewardCelebration>
     final theme = Theme.of(context);
     final text = theme.textTheme;
     final state = context.watch<GameState>();
-    final won = state.rewardWon;
+    // A reward program's claim (30 Sep 2026: the login streaks and calendar
+    // rewards) is celebrated here too, listing what the server says it gave.
+    final grants = state.rewardsGranted;
+    final won = grants != null ? null : state.rewardWon;
     final t = state.t;
 
-    if (won == null) {
+    if (won == null && grants == null) {
       _shownFor = null;
       return const SizedBox.shrink();
     }
-    if (_shownFor != won.amount) {
-      _shownFor = won.amount;
+    final shownKey = won?.amount ?? _grantsKey(grants!);
+    if (_shownFor != shownKey) {
+      _shownFor = shownKey;
       _in.forward(from: 0);
     }
+    final VoidCallback dismiss = grants != null
+        ? state.dismissRewardsGranted
+        : state.dismissReward;
 
     final size = MediaQuery.sizeOf(context);
     // Height is the scarce axis, so the panel's own padding and its hero chip
@@ -859,27 +889,28 @@ class _RewardCelebrationState extends State<_RewardCelebration>
     // A Premium Package has a line more to show — the missiles and hammers
     // under its chips — and on a 360dp phone at the 1.25 text ceiling that
     // line is paid for by a smaller hero chip and a tighter gap under it.
-    final premium = won.kind == 'premium';
+    final premium = won?.kind == 'premium';
     // A hammer pack has that line too, for its hammers.
-    final wallets = premium || won.hammers > 0;
+    final wallets = premium || (won?.hammers ?? 0) > 0;
     final chip = (size.height * 0.16).clamp(40.0, 68.0) * (wallets ? 0.75 : 1);
 
-    final blurb = switch (won.kind) {
+    final blurb = switch (won?.kind) {
+      'bonus' => t.bonusComeBack(state.user?.rewards?.bonusEveryHours ?? 6),
       'premium' => t.rewardPremiumPurchased,
       'diamonds' => t.rewardDiamondsPurchased,
       'hammers' => t.rewardHammersPurchased,
-      'missiles' => t.rewardMissilesTraded(won.amount),
+      'missiles' => t.rewardMissilesTraded(won?.amount ?? 0),
       _ => t.rewardPurchased,
     };
     // The ink of the soft wallet that filled, or null for chips — which keep
     // the spinning chip and the gold.
-    final softInk = switch (won.kind) {
+    final softInk = switch (won?.kind) {
       'diamonds' => diamondInkOn(theme.brightness),
       'hammers' => hammerInkOn(theme.brightness),
       'missiles' => missileInkOn(theme.brightness),
       _ => null,
     };
-    final softIcon = switch (won.kind) {
+    final softIcon = switch (won?.kind) {
       'hammers' => Icons.hardware,
       'missiles' => missileIcon,
       _ => Icons.diamond,
@@ -887,7 +918,7 @@ class _RewardCelebrationState extends State<_RewardCelebration>
 
     return Positioned.fill(
       child: GestureDetector(
-        onTap: state.dismissReward,
+        onTap: dismiss,
         child: ColoredBox(
           color: theme.colorScheme.scrim.withValues(alpha: 0.70),
           child: Stack(
@@ -895,7 +926,7 @@ class _RewardCelebrationState extends State<_RewardCelebration>
             children: [
               // Seeded on the amount so the burst pattern is fixed while the
               // banner is up and different for the next reward.
-              Fireworks(seed: won.amount, bursts: 7),
+              Fireworks(seed: shownKey, bursts: 7),
               Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
@@ -920,93 +951,110 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                       radius: Radii.lg,
                       child: Padding(
                         padding: EdgeInsets.fromLTRB(padH, padV, padH, padV),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // A gem for diamonds, a hammer for hammers, the
-                            // spinning chip for chips: the hero says which
-                            // wallet just filled.
-                            softInk != null
-                                ? Icon(softIcon, size: chip, color: softInk)
-                                : SpinningChip(
-                                    colour: AppTheme.gold,
-                                    size: chip,
-                                    turn: const Duration(milliseconds: 900),
-                                    rest: const Duration(milliseconds: 260),
-                                  ),
-                            SizedBox(height: wallets ? Space.md : Space.lg),
-                            Text(
-                              t.rewardCollected,
-                              textAlign: TextAlign.center,
-                              style: AppTheme.label(text.titleMedium!),
-                            ),
-                            const SizedBox(height: Space.sm),
-                            Text(
-                              '+ ${formatChips(won.amount)}',
-                              style: AppTheme.money(
-                                text.headlineMedium!,
-                                colour: softInk ?? _goldInk(theme.brightness),
-                              ),
-                            ),
-                            // A Premium Package's chips are the headline; the
-                            // missiles and hammers that came with them follow,
-                            // each in its wallet's mark and ink.
-                            if (wallets) ...[
-                              const SizedBox(height: Space.xs),
-                              Wrap(
-                                alignment: WrapAlignment.center,
-                                spacing: Space.lg,
-                                runSpacing: Space.xs,
+                        child: grants != null
+                            ? _GrantsSummary(
+                                grants: grants,
+                                t: t,
+                                heroSize: chip,
+                                onClose: dismiss,
+                              )
+                            : Column(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  for (final (icon, ink, label) in [
-                                    if (premium)
-                                      (
-                                        missileIcon,
-                                        missileInkOn(theme.brightness),
-                                        t.plusMissiles(won.missiles),
-                                      ),
-                                    (
-                                      Icons.hardware,
-                                      hammerInkOn(theme.brightness),
-                                      t.plusHammers(won.hammers),
-                                    ),
-                                  ])
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(icon, size: 20, color: ink),
-                                        const SizedBox(width: Space.xs),
-                                        Text(
-                                          label,
-                                          style: AppTheme.money(
-                                            text.titleMedium!,
-                                            colour: ink,
+                                  // A gem for diamonds, a hammer for hammers, the
+                                  // spinning chip for chips: the hero says which
+                                  // wallet just filled.
+                                  softInk != null
+                                      ? Icon(
+                                          softIcon,
+                                          size: chip,
+                                          color: softInk,
+                                        )
+                                      : SpinningChip(
+                                          colour: AppTheme.gold,
+                                          size: chip,
+                                          turn: const Duration(
+                                            milliseconds: 900,
+                                          ),
+                                          rest: const Duration(
+                                            milliseconds: 260,
                                           ),
                                         ),
+                                  SizedBox(
+                                    height: wallets ? Space.md : Space.lg,
+                                  ),
+                                  Text(
+                                    t.rewardCollected,
+                                    textAlign: TextAlign.center,
+                                    style: AppTheme.label(text.titleMedium!),
+                                  ),
+                                  const SizedBox(height: Space.sm),
+                                  Text(
+                                    '+ ${formatChips(won!.amount)}',
+                                    style: AppTheme.money(
+                                      text.headlineMedium!,
+                                      colour:
+                                          softInk ?? _goldInk(theme.brightness),
+                                    ),
+                                  ),
+                                  // A Premium Package's chips are the headline; the
+                                  // missiles and hammers that came with them follow,
+                                  // each in its wallet's mark and ink.
+                                  if (wallets) ...[
+                                    const SizedBox(height: Space.xs),
+                                    Wrap(
+                                      alignment: WrapAlignment.center,
+                                      spacing: Space.lg,
+                                      runSpacing: Space.xs,
+                                      children: [
+                                        for (final (icon, ink, label) in [
+                                          if (premium)
+                                            (
+                                              missileIcon,
+                                              missileInkOn(theme.brightness),
+                                              t.plusMissiles(won.missiles),
+                                            ),
+                                          (
+                                            Icons.hardware,
+                                            hammerInkOn(theme.brightness),
+                                            t.plusHammers(won.hammers),
+                                          ),
+                                        ])
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(icon, size: 20, color: ink),
+                                              const SizedBox(width: Space.xs),
+                                              Text(
+                                                label,
+                                                style: AppTheme.money(
+                                                  text.titleMedium!,
+                                                  colour: ink,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                       ],
                                     ),
+                                  ],
+                                  const SizedBox(height: Space.md),
+                                  Text(
+                                    blurb,
+                                    textAlign: TextAlign.center,
+                                    style: text.bodyMedium?.copyWith(
+                                      color: theme.colorScheme.onSurface
+                                          .withValues(alpha: AppTheme.inkMed),
+                                    ),
+                                  ),
+                                  const SizedBox(height: Space.lg),
+                                  GlassButton(
+                                    style: GlassButtonStyle.primary,
+                                    onPressed: dismiss,
+                                    click: true,
+                                    label: t.tapToClose,
+                                  ),
                                 ],
                               ),
-                            ],
-                            const SizedBox(height: Space.md),
-                            Text(
-                              blurb,
-                              textAlign: TextAlign.center,
-                              style: text.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurface.withValues(
-                                  alpha: AppTheme.inkMed,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: Space.lg),
-                            GlassButton(
-                              style: GlassButtonStyle.primary,
-                              onPressed: state.dismissReward,
-                              click: true,
-                              label: t.tapToClose,
-                            ),
-                          ],
-                        ),
                       ),
                     ),
                   ),
@@ -1015,6 +1063,127 @@ class _RewardCelebrationState extends State<_RewardCelebration>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// A key for one claim's grants, so a second claim's celebration re-runs
+  /// the entrance: the first grant's moment, which the server stamps.
+  static int _grantsKey(List<RewardGrant> grants) =>
+      grants.length * 1000003 + grants.first.claimedAt % 1000003;
+}
+
+/// The celebration's content after a reward program's claim: a gift over
+/// "Daily rewards collected!", one line per reward the server gave — its mark
+/// in its wallet's ink, "+ 10,000 chips", "Clapping Hands emoji" — and the
+/// programs and days they came from. Set down to fit the screen: the list
+/// scrolls before anything is cut.
+class _GrantsSummary extends StatelessWidget {
+  const _GrantsSummary({
+    required this.grants,
+    required this.t,
+    required this.heroSize,
+    required this.onClose,
+  });
+
+  final List<RewardGrant> grants;
+  final Strings t;
+  final double heroSize;
+  final VoidCallback onClose;
+
+  /// "+ 10,000 chips" for a wallet, an item by its name, "(already yours)"
+  /// after an item the player had.
+  String _line(RewardGrant g) {
+    final label = rewardPrizeLabel(t, g.prize);
+    final line = g.prize.isWallet ? '+ $label' : label;
+    return g.alreadyOwned ? '$line (${t.rewardAlreadyOwned})' : line;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+    final b = theme.brightness;
+    final quiet = theme.colorScheme.onSurface.withValues(
+      alpha: AppTheme.inkMed,
+    );
+    final origins = grants
+        .map(
+          (g) =>
+              '${t.rewardProgramName(g.programCode, g.programName)} · '
+              '${t.rewardDay(g.day)}',
+        )
+        .join('   ');
+    final size = MediaQuery.sizeOf(context);
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: size.height * 0.82),
+      child: Column(
+        key: const ValueKey('rewards-celebration'),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.card_giftcard_rounded,
+            size: heroSize * 0.8,
+            color: _goldInk(b),
+          ),
+          const SizedBox(height: Space.md),
+          Text(
+            t.rewardsCollectedTitle,
+            textAlign: TextAlign.center,
+            style: AppTheme.label(text.titleMedium!),
+          ),
+          const SizedBox(height: Space.sm),
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final g in grants)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: Space.xxs),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            rewardPrizeIcon(g.prize),
+                            size: 20,
+                            color: rewardPrizeInk(g.prize, b),
+                          ),
+                          const SizedBox(width: Space.xs),
+                          Flexible(
+                            child: Text(
+                              _line(g),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTheme.money(
+                                text.titleSmall!,
+                                colour: rewardPrizeInk(g.prize, b),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: Space.sm),
+          Text(
+            origins,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: text.bodySmall?.copyWith(color: quiet),
+          ),
+          const SizedBox(height: Space.lg),
+          GlassButton(
+            style: GlassButtonStyle.primary,
+            onPressed: onClose,
+            click: true,
+            label: t.tapToClose,
+          ),
+        ],
       ),
     );
   }
@@ -1104,7 +1273,19 @@ class _TopBar extends StatelessWidget {
                 // truncated. Until 30 Sep 2026 the row was what the 4-hour
                 // bonus's slot left (Dim.cornerChipW, 0.3 of the bar); the
                 // owner took the bonus away, and the row is the whole bar.
-                final tight = Breaks.isTightBar(box.maxWidth);
+                // The 6-hour bonus's chip stands before the picture again
+                // (owner, 30 Sep 2026, evening: "IN Top left Add Again Every
+                // 6 hours bonus 25000 Coins"), capped at the slot the four-hour
+                // one had (Dim.cornerChipW), which the bar's tightness is
+                // measured without: a 640dp phone is tight again, its Shop key
+                // icon-only and its steps closer, as it was before the morning
+                // took the rewards away. A server offering no bonus draws no
+                // chip, and the name has the whole bar.
+                final slotW = Dim.cornerChipW(box.maxWidth);
+                final bonusOffered = user?.rewards != null;
+                final tight = Breaks.isTightBar(
+                  bonusOffered ? box.maxWidth - slotW : box.maxWidth,
+                );
                 final gap = tight ? Space.sm : Space.md;
 
                 return Padding(
@@ -1114,10 +1295,15 @@ class _TopBar extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      // The picture opens the bar. The 4-hour bonus stood
-                      // before it (requirement 26) until the owner took the
-                      // lobby's rewards away (30 Sep 2026), and the name has
-                      // the room it took.
+                      // Requirement 26's corner: the bonus. The chip takes its
+                      // own width, capped at the slot, and the picture follows
+                      // straight after it (owner, 13 Sep 2026): a reserved
+                      // slot left a gap there that the name needed.
+                      if (bonusOffered) ...[
+                        _BonusChip(maxWidth: slotW - Space.md),
+                        SizedBox(width: gap),
+                      ],
+                      // The picture opens the bar.
                       Tooltip(
                         message: state.t.yourPicture,
                         child: SizedBox(
@@ -1728,10 +1914,11 @@ class _ProviderPill extends StatelessWidget {
 }
 
 /// Signing out drops the player on the login screen, so it asks first, the way
-/// quitting and leaving a table do. The top bar's key sits one tap from
-/// Settings and used to sign a player out with no question at all (QA 14 Sep
-/// 2026) — and a guest who then played on without typing a name came back
-/// under a fresh guest name.
+/// quitting and leaving a table do. The Settings drawer's row is the one way
+/// to it since 30 Sep 2026 (owner: "remove the sign out button from top
+/// left"); the top bar's key, one tap from Settings, used to sign a player out
+/// with no question at all (QA 14 Sep 2026) — and a guest who then played on
+/// without typing a name came back under a fresh guest name.
 Future<void> _confirmSignOut(BuildContext context, GameState state) async {
   final theme = Theme.of(context);
   final t = state.t;
@@ -1780,12 +1967,13 @@ Future<void> _confirmSignOut(BuildContext context, GameState state) async {
   if (yes == true) await state.signOut();
 }
 
-/// The three panels the top rail can open, as one segmented control.
-///
-/// Grouped because they are one class of thing — places to go — and separated
-/// from the balance beside them, which is the only gold in the bar. Sign out is
-/// dropped to the quietest ink in the group: it is destructive and it should
-/// not compete with the two informational buttons it sits next to.
+/// The Settings key at the bar's right end, in the pill that held the three
+/// panels the bar could open — the record, Settings and Sign out — until
+/// 30 Sep 2026 (owner: "remove the sign out button from top left", "move the
+/// player stats button from top left to bottom right of screen"): Sign out is
+/// the Settings drawer's row alone now (its ACCOUNT group, where it always
+/// also was), and the record is [_StatsKey] in the lobby's foot. Kept a pill,
+/// separated from the balance beside it, which is the only gold in the bar.
 class _BarActions extends StatelessWidget {
   const _BarActions({required this.onOpen});
 
@@ -1797,7 +1985,6 @@ class _BarActions extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final glass = GlassColors.of(context);
-    final dark = theme.brightness == Brightness.dark;
 
     Widget key(String tip, IconData icon, VoidCallback onTap, double alpha) =>
         Tooltip(
@@ -1826,12 +2013,6 @@ class _BarActions extends StatelessWidget {
             ),
           ),
         );
-
-    final divider = Container(
-      width: Dim.hairline,
-      height: Dim.minTouch * 0.44,
-      color: dark ? glass.borderTop : glass.borderBottom,
-    );
 
     // A pill of tinted glass: the fill, the 1px top-to-bottom hairline and no
     // blur — the chips drift under it.
@@ -1862,26 +2043,80 @@ class _BarActions extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   key(
-                    state.t.yourRecord,
-                    Icons.insights_outlined,
-                    () => onOpen(context, _EndPanel.stats),
-                    AppTheme.inkMed,
-                  ),
-                  divider,
-                  key(
                     state.t.settings,
                     Icons.tune_rounded,
                     () => onOpen(context, _EndPanel.settings),
                     AppTheme.inkMed,
                   ),
-                  divider,
-                  key(
-                    state.t.signOut,
-                    Icons.logout_rounded,
-                    () => _confirmSignOut(context, state),
-                    0.42,
-                  ),
                 ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The record's key in the lobby's foot (owner, 30 Sep 2026: "move the player
+/// stats button from top left to bottom right of screen"): a round key of the
+/// level key's and Friends' shape, between them, opening the Stats drawer as
+/// the top bar's key did — the same tooltip and glyph, so nothing that opens
+/// the record changed but where it is pressed. Nothing to show signed out.
+class _StatsKey extends StatelessWidget {
+  const _StatsKey({required this.onOpen});
+
+  final void Function(BuildContext, _EndPanel) onOpen;
+
+  /// The level key's side and disc, so the three keys stand as one row.
+  static const double side = LevelKey.side;
+  static const double disc = LevelKey.disc;
+
+  @override
+  Widget build(BuildContext context) {
+    final signedIn = context.select<GameState, bool>((s) => s.user != null);
+    final lang = context.select<GameState, AppLang>((s) => s.lang);
+    if (!signedIn) return const SizedBox.shrink();
+    final t = Strings(lang);
+    final glass = GlassColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(right: Space.sm),
+      child: Semantics(
+        button: true,
+        label: t.yourRecord,
+        onTap: () {
+          lobbyClick(context);
+          onOpen(context, _EndPanel.stats);
+        },
+        excludeSemantics: true,
+        child: Tooltip(
+          message: t.yourRecord,
+          child: PressScale(
+            child: SizedBox.square(
+              dimension: side,
+              child: GlassCapsule(
+                key: const ValueKey('stats-key'),
+                surface: GlassSurface.card,
+                minHeight: side,
+                // The lobby's click (owner, 27 Sep 2026).
+                click: true,
+                onTap: () => onOpen(context, _EndPanel.stats),
+                padding: const EdgeInsets.all((side - disc) / 2),
+                child: Container(
+                  width: disc,
+                  height: disc,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: glass.wellFill,
+                    border: Border.all(color: glass.cardBorder),
+                  ),
+                  child: Icon(
+                    Icons.insights_outlined,
+                    size: 21,
+                    color: glass.textBody,
+                  ),
+                ),
               ),
             ),
           ),
@@ -5919,7 +6154,7 @@ class _PressableState extends State<_Pressable> {
 /// — its prizes are worth a look while the wait runs. Absent when the server
 /// offers no draw (none open, or a server that predates it).
 class _LuckyDrawChip extends StatelessWidget {
-  const _LuckyDrawChip({super.key});
+  const _LuckyDrawChip();
 
   @override
   Widget build(BuildContext context) {
@@ -5962,16 +6197,106 @@ class _LuckyDrawChip extends StatelessWidget {
   }
 }
 
-/// On the Lucky Draw chip in the lobby's bottom-left corner, so
-/// [lobbyNoticeArea] can keep a toast off it.
+/// The reward programs (owner, 30 Sep 2026) beside the Lucky Draw in the
+/// lobby's bottom-left corner: the login streaks and the calendar rewards
+/// the server runs. Its second line is what stands — "Collect now" while a
+/// program's today waits, else the longest login streak ("3 day streak"), or
+/// "Collected today" — and a tap opens the rewards screen, claiming first
+/// when something waits. Absent when the server describes no program (none
+/// running, or a server that predates them).
 ///
-/// Measured rather than worked out: the chip is as wide as its two lines of
+/// It is also where the lobby CLAIMS: the moment the lobby is up — its
+/// resume wait over, so a held seat is not asked at — today's rewards are
+/// claimed once, and the celebration follows what the server says it gave.
+/// A reconnect claims again from session:ready; the server grants once a
+/// day whoever asks.
+class _RewardsChip extends StatefulWidget {
+  const _RewardsChip();
+
+  @override
+  State<_RewardsChip> createState() => _RewardsChipState();
+}
+
+class _RewardsChipState extends State<_RewardsChip> {
+  bool _asked = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    final t = state.t;
+    if (state.user == null) return const SizedBox.shrink();
+    if (!_asked && !state.resuming) {
+      _asked = true;
+      final gameState = context.read<GameState>();
+      scheduleMicrotask(() => unawaited(gameState.loadRewardPrograms()));
+    }
+    final programs = state.rewardPrograms;
+    if (programs == null || programs.isEmpty) {
+      // While the first claim is out, the chip's room is kept, unseen, as the
+      // Lucky Draw's is: a toast raised at sign-in is placed the moment it
+      // appears (lobbyNoticeArea).
+      if (!state.rewardClaimPending && !state.rewardProgramsLoading) {
+        return const SizedBox.shrink();
+      }
+      return Padding(
+        padding: const EdgeInsets.only(left: Space.sm),
+        child: Visibility.maintain(
+          visible: false,
+          child: _CornerChip(
+            icon: Icons.card_giftcard_rounded,
+            title: t.rewardsChip,
+            subtitle: t.rewardsCollect,
+            enabled: false,
+            onTap: () {},
+          ),
+        ),
+      );
+    }
+    final due = programs.any((p) => !p.claimedToday);
+    var streak = 0;
+    for (final p in programs) {
+      if (p.program.isStreak) streak = math.max(streak, p.claimedDays);
+    }
+    final subtitle = due
+        ? t.rewardsCollect
+        : streak > 0
+        ? t.streakDays(streak)
+        : t.rewardsCollected;
+    // A tap: the weekly login popup while its day waits (the owner's
+    // calendar, the same one that pops at sign-in), else the rewards screen.
+    void open() {
+      if (!context.read<GameState>().offerWeeklyLogin(again: true)) {
+        showRewardPrograms(context);
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(left: Space.sm),
+      child: KeyedSubtree(
+        key: const ValueKey('rewards-chip'),
+        child: _CornerChip(
+          icon: Icons.card_giftcard_rounded,
+          title: t.rewardsChip,
+          subtitle: subtitle,
+          enabled: due,
+          onTap: open,
+          onWaitTap: open,
+        ),
+      ),
+    );
+  }
+}
+
+/// On the foot's left-hand chips — the Lucky Draw and the rewards — so
+/// [lobbyNoticeArea] can keep a toast off them.
+///
+/// Measured rather than worked out: each chip is as wide as its two lines of
 /// text in the player's language, which nothing outside it knows.
 final _luckyChip = GlobalKey(debugLabel: 'lucky draw chip');
 
-/// On the row of round keys in the bottom-right corner — the level key and
-/// Friends — for the same reason, and so [lobbyNoticeArea] can tell when a
-/// page covers the lobby.
+/// On the row of round keys in the bottom-right corner — the level key, the
+/// record and Friends — for the same reason, and so [lobbyNoticeArea] can tell
+/// when a page covers the lobby.
 final _footKeys = GlobalKey(debugLabel: 'foot keys');
 
 /// The narrowest a lobby toast is made to keep clear of the foot's round keys:
@@ -5983,8 +6308,9 @@ const double _toastFloor = 160;
 /// Where a notice may stand in the lobby, in screen coordinates, or null for
 /// the plain foot of the screen.
 ///
-/// The lobby's foot holds the Lucky Draw chip in its left-hand corner and the
-/// level and Friends keys in its right-hand one. The toast keeps its width and
+/// The lobby's foot holds the Lucky Draw and rewards chips in its left-hand
+/// corner and the level, record and Friends keys in its right-hand one. The
+/// toast keeps its width and
 /// its place at the foot and moves aside only as far as a corner needs,
 /// narrowing only if the whole space between them is smaller than it — and it
 /// keeps clear of the round keys only where that still leaves it [_toastFloor]
@@ -6098,12 +6424,17 @@ class _CornerChip extends StatelessWidget {
   const _CornerChip({
     required this.icon,
     required this.title,
-    required this.subtitle,
     required this.enabled,
     required this.onTap,
+    this.subtitle,
+    this.reward,
     this.leadingBuilder,
     this.onWaitTap,
-  });
+    this.maxWidth,
+  }) : assert(
+         (subtitle == null) != (reward == null),
+         'a chip has one second line: words, or what the reward pays',
+       );
 
   final IconData icon;
 
@@ -6113,16 +6444,25 @@ class _CornerChip extends StatelessWidget {
   final Widget Function(Color colour)? leadingBuilder;
   final String title;
 
-  /// The second line: what is ready, or the time left.
-  final String subtitle;
+  /// The second line in words: what is ready, or the time left. Exactly one
+  /// of this and [reward] is given.
+  final String? subtitle;
+
+  /// The second line as the chips a reward pays — the wallet's own coin and
+  /// the figure, no word (owner, 24 Sep 2026: "show coin icon instead of
+  /// collect text"): the bonus chip's, once the bonus is ready.
+  final int? reward;
 
   final bool enabled;
   final VoidCallback onTap;
 
   /// What a tap does while the chip is not [enabled] — the Lucky Draw opens
-  /// its wheel and the time left. Null leaves a chip that is still counting
-  /// down deaf to the finger.
+  /// its wheel and the time left, the bonus its popup. Null leaves a chip
+  /// that is still counting down deaf to the finger.
   final VoidCallback? onWaitTap;
+
+  /// A cap of the caller's; the corner chips' [Dim.cornerChipW] otherwise.
+  final double? maxWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -6138,7 +6478,7 @@ class _CornerChip extends StatelessWidget {
     final fg = enabled ? gold : glass.textBody;
     // A finite cap so the two lines can ellipsise. Without one this pill sizes
     // to its longest translation and runs off the screen.
-    final cap = Dim.cornerChipW(MediaQuery.sizeOf(context).width);
+    final cap = maxWidth ?? Dim.cornerChipW(MediaQuery.sizeOf(context).width);
     final money = AppTheme.money(
       text.labelLarge!,
       colour: enabled ? gold : glass.textDisplay,
@@ -6210,12 +6550,17 @@ class _CornerChip extends StatelessWidget {
                           colour: glass.cardMuted,
                         ),
                       ),
-                      Text(
-                        subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: money,
-                      ),
+                      // The second line set down rather than cut where the
+                      // slot is narrow: "5घं 59मि 58से" at text x1.25 on a
+                      // 640dp phone was cut to "5घं 59मि 5…" (30 Sep 2026).
+                      if (reward == null)
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(subtitle!, maxLines: 1, style: money),
+                        )
+                      else
+                        _rewardLine(context, reward!, money),
                     ],
                   ),
                 ),
@@ -6226,4 +6571,346 @@ class _CornerChip extends StatelessWidget {
       ),
     );
   }
+
+  /// `[coin] 25,000`: the wallet's own coin — the top bar's gold, not the
+  /// chip's champagne ink — so the chip reads as paying the currency the bar
+  /// counts, and the figure. The coin is the size of the figure's type, so it
+  /// scales with the text and stays under its line: the row is exactly as
+  /// tall as the countdown's one line, and the chip does not grow when it
+  /// becomes claimable. A row rather than a paragraph with the glyph inline,
+  /// because a placeholder that opens a paragraph is centred on a line that
+  /// has no text metrics yet and pushes the line 2dp taller. The figure is
+  /// flexible, so a slot too narrow cuts it to "…" and never overflows.
+  static Widget _rewardLine(BuildContext context, int chips, TextStyle style) {
+    final glyph = MediaQuery.textScalerOf(context).scale(style.fontSize!);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        PokerChip(colour: AppTheme.gold, size: glyph),
+        const SizedBox(width: Space.xs),
+        Flexible(
+          child: Text(
+            formatChips(chips),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: style,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The 6-hour bonus's chip in the top bar's left-hand corner (owner, 30 Sep
+/// 2026: "IN Top left Add Again Every 6 hours bonus 25000 Coins" — requirement
+/// 18's four-hour bonus, taken away that morning, back as six hours and 25,000
+/// chips; requirement 26 kept its corner): an hourglass turning while the
+/// bonus recharges, the time left under the title; ready, the coin and what
+/// it pays, gold-lit, and a tap collects it ([GameState.claimBonus]). Tapped
+/// while it counts down it opens [openBonusDetails]. Drawn from
+/// `user.rewards` alone: a server offering no bonus draws nothing.
+class _BonusChip extends StatelessWidget {
+  const _BonusChip({this.maxWidth});
+
+  /// The slot the top rail keeps for it. A long translated subtitle used to
+  /// grow this pill under the bar; here it ellipsises instead.
+  final double? maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    final r = state.user?.rewards;
+    if (r == null) return const SizedBox.shrink();
+
+    final ready = r.bonusReady;
+    return _CornerChip(
+      icon: Icons.hourglass_bottom,
+      leadingBuilder: (fg) => _Hourglass(colour: fg, running: !ready),
+      title: state.t.sixHourBonus,
+      // Ready, it shows what it pays behind a coin rather than the word
+      // Collect (owner, 24 Sep 2026).
+      subtitle: ready ? null : formatCountdown(r.untilBonus, state.t),
+      reward: ready ? r.bonusReward : null,
+      enabled: ready && !state.claimingBonus,
+      maxWidth: maxWidth,
+      onTap: state.claimBonus,
+      // While a claim is out the chip does nothing at all: opened then, the
+      // popup would still say "Ready to collect now" from the account the
+      // answer is about to replace (seen on a slow emulator, 30 Sep 2026).
+      onWaitTap: state.claimingBonus ? null : () => openBonusDetails(context),
+    );
+  }
+}
+
+/// The bonus tapped while it is still counting down (owner, 14 Sep 2026):
+/// what it pays and how long is left, and Collect once it is ready. A route
+/// over the lobby, closed by Back or its own key.
+Future<void> openBonusDetails(BuildContext context) => showDialog<void>(
+  context: context,
+  builder: (context) => const _BonusDetails(),
+);
+
+class _BonusDetails extends StatelessWidget {
+  const _BonusDetails();
+
+  @override
+  Widget build(BuildContext context) {
+    // Watched, so the countdown moves with the lobby's one-second tick.
+    final state = context.watch<GameState>();
+    final t = state.t;
+    final r = state.user?.rewards;
+    if (r == null) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+    final onSurface = theme.colorScheme.onSurface;
+    final quiet = onSurface.withValues(alpha: AppTheme.inkLow);
+    final gold = _goldInk(theme.brightness);
+    final ready = r.bonusReady;
+
+    return GlassDialog(
+      padding: const EdgeInsets.all(Space.xl),
+      title: Row(
+        children: [
+          // The chip's own mark, so the popup reads as that chip opened up.
+          _Hourglass(colour: gold, running: !ready),
+          const SizedBox(width: Space.md),
+          Expanded(
+            child: Text(
+              t.sixHourBonus,
+              style: AppTheme.label(text.titleMedium ?? const TextStyle()),
+            ),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            t.bonusYouGet,
+            textAlign: TextAlign.center,
+            style: AppTheme.label(text.labelMedium!, colour: quiet),
+          ),
+          const SizedBox(height: Space.sm),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const PokerChip(colour: AppTheme.gold, size: 26),
+              const SizedBox(width: Space.sm),
+              Text(
+                formatChips(r.bonusReward),
+                key: const ValueKey('bonus-details-chips'),
+                style: AppTheme.money(text.headlineSmall!, colour: gold),
+              ),
+            ],
+          ),
+          const SizedBox(height: Space.lg),
+          Text(
+            ready ? t.bonusReadyNow : t.bonusNextIn,
+            textAlign: TextAlign.center,
+            style: AppTheme.label(
+              text.labelMedium!,
+              colour: ready ? gold : quiet,
+            ),
+          ),
+          if (!ready) ...[
+            const SizedBox(height: Space.xs),
+            Text(
+              formatCountdown(r.untilBonus, t),
+              key: const ValueKey('bonus-details-countdown'),
+              textAlign: TextAlign.center,
+              style: AppTheme.money(text.headlineMedium!, colour: onSurface),
+            ),
+          ],
+          const SizedBox(height: Space.md),
+          Text(
+            t.bonusEveryHours(r.bonusEveryHours),
+            textAlign: TextAlign.center,
+            style: text.bodyMedium?.copyWith(
+              color: onSurface.withValues(alpha: AppTheme.inkMed),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        GlassButton(
+          style: GlassButtonStyle.text,
+          label: t.close,
+          onPressed: () => Navigator.pop(context),
+        ),
+        if (ready)
+          GlassButton(
+            key: const ValueKey('bonus-details-collect'),
+            style: GlassButtonStyle.primary,
+            label: t.collect,
+            onPressed: () {
+              Navigator.pop(context);
+              state.claimBonus();
+            },
+          ),
+      ],
+    );
+  }
+}
+
+/// The bonus chip's hourglass, turning while the bonus recharges.
+///
+/// One cycle is: sand at the top, sand run through, then the glass is flipped
+/// a half turn. Because the flip ends where the next cycle begins — a
+/// "drained" glass upside down is a "full" one — the loop closes without a
+/// jump, and the glass never has to be swapped mid-rotation.
+///
+/// When the bonus is ready it stops turning and breathes instead. A countdown
+/// that has finished should not still look like it is counting; the movement
+/// changes from "waiting" to "come and take it".
+///
+/// Drawn rather than typed: at 18dp the Material glyph is the cheapest mark in
+/// the lobby, and the sand cannot fall out of a glyph.
+class _Hourglass extends StatefulWidget {
+  const _Hourglass({required this.colour, required this.running});
+
+  final Color colour;
+  final bool running;
+
+  @override
+  State<_Hourglass> createState() => _HourglassState();
+}
+
+class _HourglassState extends State<_Hourglass>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: Motion.breath,
+  )..repeat();
+
+  static const double _size = 18;
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          final t = _c.value;
+          if (!widget.running) {
+            // Ready: a slow breath, no rotation, and a full glass.
+            final breath = 1 + 0.12 * math.sin(t * 2 * math.pi);
+            return Transform.scale(
+              scale: breath,
+              child: CustomPaint(
+                size: const Size.square(_size),
+                painter: _HourglassPainter(colour: widget.colour, drained: 0),
+              ),
+            );
+          }
+          // Upright for the first 72% of the cycle while the sand runs, then a
+          // half turn over the last 28%.
+          const flipFrom = 0.72;
+          final angle = t < flipFrom
+              ? 0.0
+              : math.pi *
+                    Motion.travel.transform((t - flipFrom) / (1 - flipFrom));
+
+          return Transform.rotate(
+            angle: angle,
+            child: CustomPaint(
+              size: const Size.square(_size),
+              painter: _HourglassPainter(
+                colour: widget.colour,
+                drained: (t / flipFrom).clamp(0.0, 1.0),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _HourglassPainter extends CustomPainter {
+  const _HourglassPainter({required this.colour, required this.drained});
+
+  final Color colour;
+
+  /// How much of the sand has fallen, 0 (full) to 1 (run through).
+  final double drained;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.shortestSide;
+    final frame = Paint()
+      ..color = colour.withValues(alpha: 0.75)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = s * 0.075
+      ..strokeJoin = StrokeJoin.round;
+    final sand = Paint()..color = colour;
+
+    const top = 0.16;
+    const waist = 0.50;
+    const foot = 0.84;
+    const halfW = 0.30;
+
+    Offset p(double x, double y) => Offset(x * s, y * s);
+
+    // The two bulbs, drawn as one outline that meets at the waist.
+    final glass = Path()
+      ..moveTo(p(0.5 - halfW, top).dx, p(0, top).dy)
+      ..lineTo(p(0.5 + halfW, top).dx, p(0, top).dy)
+      ..lineTo(p(0.5, waist).dx, p(0, waist).dy)
+      ..lineTo(p(0.5 + halfW, foot).dx, p(0, foot).dy)
+      ..lineTo(p(0.5 - halfW, foot).dx, p(0, foot).dy)
+      ..lineTo(p(0.5, waist).dx, p(0, waist).dy)
+      ..close();
+    canvas.drawPath(glass, frame);
+    // The caps, so the glass reads as an object and not as a bow tie.
+    canvas.drawLine(
+      p(0.5 - halfW - 0.06, top),
+      p(0.5 + halfW + 0.06, top),
+      frame,
+    );
+    canvas.drawLine(
+      p(0.5 - halfW - 0.06, foot),
+      p(0.5 + halfW + 0.06, foot),
+      frame,
+    );
+
+    // What is left in the upper bulb: a triangle whose apex stays at the waist.
+    final level = top + (waist - top) * drained;
+    if (drained < 0.995) {
+      final w = halfW * (waist - level) / (waist - top);
+      canvas.drawPath(
+        Path()
+          ..moveTo(p(0.5 - w, level).dx, p(0, level).dy)
+          ..lineTo(p(0.5 + w, level).dx, p(0, level).dy)
+          ..lineTo(p(0.5, waist).dx, p(0, waist).dy)
+          ..close(),
+        sand,
+      );
+    }
+
+    // And the pile it has made below.
+    if (drained > 0.005) {
+      final pileTop = foot - (foot - waist) * drained;
+      final w = halfW * (pileTop - waist) / (foot - waist);
+      canvas.drawPath(
+        Path()
+          ..moveTo(p(0.5 - w, pileTop).dx, p(0, pileTop).dy)
+          ..lineTo(p(0.5 + w, pileTop).dx, p(0, pileTop).dy)
+          ..lineTo(p(0.5 + halfW, foot).dx, p(0, foot).dy)
+          ..lineTo(p(0.5 - halfW, foot).dx, p(0, foot).dy)
+          ..close(),
+        sand,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_HourglassPainter old) =>
+      old.colour != colour || old.drained != drained;
 }

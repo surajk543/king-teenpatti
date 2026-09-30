@@ -20,6 +20,7 @@ import 'widgets/game_loader.dart';
 import 'widgets/glass_components.dart';
 import 'widgets/glass_panels.dart';
 import 'widgets/premium_surface.dart';
+import 'widgets/welcome_rewards.dart';
 import 'widgets/xp_mission_bar.dart';
 
 Future<void> main() async {
@@ -151,6 +152,15 @@ class _Root extends StatelessWidget {
           s.consentPending &&
           (s.screen == Screen.lobby || s.screen == Screen.table),
     );
+    // A new account's welcome rewards (30 Sep 2026), to be confirmed once
+    // the statement is: the same two screens, and never while the panel is
+    // up — the statement comes first.
+    final welcome = context.select<GameState, bool>(
+      (s) =>
+          s.welcomePending != null &&
+          !s.consentPending &&
+          (s.screen == Screen.lobby || s.screen == Screen.table),
+    );
     // The optional update (the app version gate, 28 Sep 2026): over the
     // sign-in screen or the lobby, never a table.
     final softUpdate = context.select<GameState, bool>(softUpdateShown);
@@ -200,6 +210,24 @@ class _Root extends StatelessWidget {
                 child: consent
                     ? const _ConsentGate(key: ValueKey('consent-gate'))
                     : const SizedBox.shrink(key: ValueKey('no-consent')),
+              ),
+            ),
+            // Where the consent panel stood: a new account is shown what it
+            // was given the moment the statement is confirmed, and must
+            // confirm that too before the weekly login popup, the lobby and
+            // the game (owner, 30 Sep 2026). Covers the game exactly as the
+            // panel does, and is passed the same one way: its key.
+            IgnorePointer(
+              ignoring: !welcome,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 380),
+                child: welcome
+                    ? const WelcomeRewardsPanel(
+                        key: ValueKey('welcome-rewards'),
+                      )
+                    : const SizedBox.shrink(
+                        key: ValueKey('no-welcome-rewards'),
+                      ),
               ),
             ),
             // Above the consent panel: it asks once and is answered in a tap,
@@ -564,14 +592,23 @@ class _BackGuard extends StatelessWidget {
         // click.mp3 sound should be played when i click back button"): once
         // per press, whatever it does — closing the Stats or Settings drawer,
         // going up a level, or asking to quit. Not while the no-winnings
-        // panel covers the lobby, nor while a cold start's resume veil does
-        // (the player sees the veil, not the lobby), and never at the table
-        // or the sign-in screen. A dialog, sheet or page over the lobby takes
-        // Back itself and never reaches here.
+        // panel or the welcome rewards popup covers the lobby, nor while a
+        // cold start's resume veil does (the player sees the veil, not the
+        // lobby), and never at the table or the sign-in screen. A dialog,
+        // sheet or page over the lobby takes Back itself and never reaches
+        // here.
         if (screen == Screen.lobby &&
             !state.consentPending &&
+            state.welcomePending == null &&
             !state.resuming) {
           lobbyClick(context);
+        }
+
+        // The weekly login popup over the lobby (30 Sep 2026) closes first,
+        // as a drawer does.
+        if (screen == Screen.lobby && state.weeklyLoginOffer != null) {
+          state.dismissWeeklyLogin();
+          return;
         }
 
         // An open drawer — chat, menu, settings, stats — closes first. Back
@@ -613,11 +650,12 @@ class _BackGuard extends StatelessWidget {
         // or, in a build without the Poker family, from a category's tables
         // straight to the front, where Seen, Blind and Variation stand
         // (GameState.lobbyFrontEngine). Only the front of the lobby offers to
-        // quit. Not while the
-        // no-winnings panel is up: it covers the lobby, and Back there is the
-        // quit question.
+        // quit. Not while the no-winnings panel or the welcome rewards popup
+        // is up: each covers the lobby, and Back there is the quit question
+        // — never a way past either.
         if (screen == Screen.lobby &&
             !state.consentPending &&
+            state.welcomePending == null &&
             state.closeLobbyLevel()) {
           return;
         }

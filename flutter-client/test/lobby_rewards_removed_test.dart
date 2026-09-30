@@ -1,10 +1,12 @@
-// The lobby's three rewards are gone (owner, 30 Sep 2026: "Remove 24-hour
-// daily reward, 4-hour bonus, and milestone reward"): no 4-hour bonus in the
-// top bar, no daily bonus beside the Lucky Draw, no milestone in the
-// bottom-right corner — even from a server that still sends the old `rewards`
-// object on the account. The picture opens the top bar and the name has the
-// room the bonus took; the Lucky Draw stands alone in the bottom-left corner,
-// the level key and Friends in the bottom-right one, each on the screen and
+// Two of the lobby's three rewards are gone (owner, 30 Sep 2026: "Remove
+// 24-hour daily reward, 4-hour bonus, and milestone reward") and the third is
+// back the same evening as the 6-hour bonus ("IN Top left Add Again Every 6
+// hours bonus 25000 Coins", test/six_hour_bonus_test.dart): no daily bonus
+// beside the Lucky Draw, no milestone in the bottom-right corner — even from
+// a server that still sends the old `rewards` object on the account, whose
+// bonus keys draw the 6-hour chip. The bonus chip opens the top bar before the
+// picture; the Lucky Draw stands alone in the bottom-left corner, the level
+// key, the record and Friends in the bottom-right one, each on the screen and
 // clear of the others, and a toast still keeps off them.
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -163,7 +165,8 @@ void main() {
   ]) {
     for (final brightness in Brightness.values) {
       testWidgets('at $screen x$scale (${brightness.name}) the lobby draws no '
-          'reward, and its foot is the Lucky Draw, the level key and Friends, '
+          'daily bonus or milestone, the 6-hour bonus opens the top bar, and '
+          'its foot is the Lucky Draw, the level key, the record and Friends, '
           'on the screen and clear of each other', (tester) async {
         final state = _state();
         await _pumpLobby(
@@ -176,8 +179,9 @@ void main() {
         expect(tester.takeException(), isNull);
         final t = state.t;
 
-        // Nothing of the three rewards — no chip, no popup, not a word of
-        // them — whatever the account says.
+        // Nothing of the two rewards taken away — no chip, no popup, not a
+        // word of them — whatever the account says; the 6-hour bonus's chip
+        // in the top bar's left-hand corner (its own suite has the rest).
         for (final words in const [
           '4-HOUR BONUS',
           'DAILY BONUS',
@@ -188,25 +192,36 @@ void main() {
         ]) {
           expect(find.textContaining(words), findsNothing, reason: words);
         }
-        // One corner chip left in the lobby: the Lucky Draw's.
+        expect(find.text('6-HOUR BONUS'), findsOneWidget);
+        for (final type in const ['_DailyBonusChip', '_MilestoneChip']) {
+          expect(
+            find.byWidgetPredicate((w) => w.runtimeType.toString() == type),
+            findsNothing,
+            reason: type,
+          );
+        }
+        // Two corner chips in the lobby: the bonus's and the Lucky Draw's.
         expect(
           find.byWidgetPredicate(
             (w) => w.runtimeType.toString() == '_CornerChip',
           ),
-          findsOneWidget,
+          findsNWidgets(2),
         );
 
-        // The foot: the Lucky Draw bottom-left, the level key and Friends
-        // bottom-right, each whole on the screen and clear of the others.
+        // The foot: the Lucky Draw bottom-left, the level key, the record
+        // (down from the top bar, 30 Sep 2026) and Friends bottom-right,
+        // each whole on the screen and clear of the others.
         final lucky = tester.getRect(
           find.byKey(const ValueKey('lucky-draw-chip')),
         );
         final level = tester.getRect(find.byKey(const ValueKey('level-key')));
+        final record = tester.getRect(find.byKey(const ValueKey('stats-key')));
         final friends = tester.getRect(find.byTooltip(t.friends));
         final onScreen = Offset.zero & screen;
         for (final (name, r) in [
           ('the Lucky Draw', lucky),
           ('the level key', level),
+          ('the record', record),
           ('Friends', friends),
         ]) {
           expect(r.isEmpty, isFalse, reason: name);
@@ -219,19 +234,25 @@ void main() {
           expect(r.height, greaterThanOrEqualTo(Dim.minTouch), reason: name);
         }
         expect(lucky.overlaps(level), isFalse);
+        expect(lucky.overlaps(record), isFalse);
         expect(lucky.overlaps(friends), isFalse);
+        expect(level.overlaps(record), isFalse);
         expect(level.overlaps(friends), isFalse);
+        expect(record.overlaps(friends), isFalse);
         // In their corners: the chip from the left edge, the keys to the
-        // right one, Friends the last.
+        // right one — the level, then the record, Friends the last.
         expect(lucky.left, lessThanOrEqualTo(Space.md + 1));
         expect(lucky.center.dx, lessThan(screen.width / 2));
-        expect(level.right, lessThanOrEqualTo(friends.left));
+        expect(level.right, lessThanOrEqualTo(record.left));
+        expect(record.right, lessThanOrEqualTo(friends.left));
         expect(friends.right, greaterThan(screen.width - Space.md - Space.lg));
-        // Level with each other at the foot.
+        // Level with each other at the foot, and one size.
         expect((lucky.bottom - friends.bottom).abs(), lessThan(1));
         expect((level.bottom - friends.bottom).abs(), lessThan(1));
+        expect((record.bottom - friends.bottom).abs(), lessThan(1));
+        expect(record.size, level.size);
 
-        // A toast keeps off all three.
+        // A toast keeps off all four.
         final lobby = tester.element(find.byType(LobbyScreen));
         final toast = lobbyNoticeArea(lobby);
         expect(toast, isNotNull);
@@ -239,10 +260,20 @@ void main() {
         expect(toast.right, lessThanOrEqualTo(level.left));
         expect(toast.width, greaterThanOrEqualTo(160));
 
-        // The top bar opens with the picture, where the 4-hour bonus stood,
-        // and the name has the room it took: whole.
+        // The top bar carries neither the record's key nor Sign out any more
+        // (30 Sep 2026): the record is the foot's, Sign out the Settings
+        // drawer's row alone.
+        final bar = tester.getRect(find.byTooltip(t.settings));
+        expect(record.top, greaterThan(bar.bottom));
+        expect(find.byTooltip(t.signOut), findsNothing);
+        expect(find.byIcon(Icons.logout_rounded), findsNothing);
+
+        // The top bar opens with the bonus chip, the picture after it, and
+        // the name whole beside them.
+        final bonus = tester.getRect(find.text('6-HOUR BONUS'));
         final picture = tester.getRect(find.byTooltip(t.yourPicture));
-        expect(picture.left, lessThanOrEqualTo(Space.md + 1));
+        expect(bonus.left, lessThan(picture.left));
+        expect(bonus.top, lessThan(picture.bottom));
         final name = tester.renderObject<RenderParagraph>(
           find.text('Guest0E00B'),
         );

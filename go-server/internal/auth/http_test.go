@@ -59,7 +59,9 @@ func (s *fakeStore) UpsertFromProfile(_ context.Context, p db.Profile) (*db.User
 		return &copied, false, nil
 	}
 	id := fmt.Sprintf("user-%d", len(s.users)+1)
-	u := &db.User{ID: id, Provider: p.Provider, DisplayName: p.DisplayName, Email: p.Email, AvatarURL: p.AvatarURL,
+	u := &db.User{
+		// A new account's bonus is ready, as the real store answers it.
+		Rewards: db.Rewards{BonusAvailable: true, BonusReward: db.TimedBonusReward, BonusIntervalMs: db.TimedBonusInterval.Milliseconds()}, ID: id, Provider: p.Provider, DisplayName: p.DisplayName, Email: p.Email, AvatarURL: p.AvatarURL,
 		ProviderAvatarURL: p.AvatarURL, Chips: 200000, Diamond: 1, CreatedAt: s.now, LastLoginAt: s.now}
 	s.users[id] = u
 	s.byIdent[key] = id
@@ -104,6 +106,28 @@ func (s *fakeStore) DeleteAccount(_ context.Context, userID string) error {
 		delete(s.users, userID)
 	}
 	return nil
+}
+
+// ClaimTimedBonus mirrors db.Users.ClaimTimedBonus as the HTTP layer sees
+// it: the 6-hour bonus paid once, then not ready until the interval is up.
+func (s *fakeStore) ClaimTimedBonus(_ context.Context, userID string) (*db.RewardResult, error) {
+	if s.failWith != nil {
+		return nil, s.failWith
+	}
+	u := s.users[userID]
+	if u == nil {
+		return nil, fmt.Errorf("unknown user %s", userID)
+	}
+	if s.now < u.Rewards.BonusReadyAt {
+		return &db.RewardResult{Claimed: false, Reason: db.RewardNotReady, ReadyAt: u.Rewards.BonusReadyAt, User: u}, nil
+	}
+	u.Chips += db.TimedBonusReward
+	u.Rewards = db.Rewards{
+		BonusReadyAt:    s.now + db.TimedBonusInterval.Milliseconds(),
+		BonusReward:     db.TimedBonusReward,
+		BonusIntervalMs: db.TimedBonusInterval.Milliseconds(),
+	}
+	return &db.RewardResult{Claimed: true, Amount: db.TimedBonusReward, ReadyAt: u.Rewards.BonusReadyAt, User: u}, nil
 }
 
 func (s *fakeStore) SetActivePicture(_ context.Context, userID string, pictureID *int64) (*db.User, error) {
@@ -694,27 +718,24 @@ func TestTheHandHistoryEndpointIsGone(t *testing.T) {
 	}
 }
 
-// The three lobby rewards are gone (owner, 30 Sep 2026: "Remove 24-hour daily
-// reward, 4-hour bonus, and milestone reward"). Their paths answer the JSON
-// 404 any unknown /api path does — signed in or not, whatever the method —
-// and the account carries no `rewards` key at all: an installed app draws the
-// three reward chips only when user.rewards is present, so leaving the key out
-// (rather than sending it empty) is what takes them off every lobby.
-func TestTheLobbyRewardsAreGone(t *testing.T) {
+// Two of the three lobby rewards are gone (owner, 30 Sep 2026: "Remove
+// 24-hour daily reward, 4-hour bonus, and milestone reward") and the third is
+// back as the 6-hour bonus the same evening ("IN Top left Add Again Every 6
+// hours bonus 25000 Coins"). The milestone's and the daily bonus's paths
+// answer the JSON 404 any unknown /api path does — signed in or not, whatever
+// the method — and move nothing; POST /api/rewards/bonus pays once, refuses a
+// second claim inside the interval with reward_not_ready, readyAt and the
+// account, and needs a signature; and the account carries `rewards` with the
+// bonus's clock, which the lobby's top-left chip is drawn from.
+func TestTheSixHourBonusIsBackAndTheOtherRewardsStayGone(t *testing.T) {
 	h := newHarness(t)
 	token, user := h.login("device-guest-0001", "Suraj")
-	if _, ok := user["rewards"]; ok {
-		t.Fatalf("the login's user still carries rewards: %v", user)
-	}
-	res := h.do(http.MethodGet, "/api/auth/me", nil, bearer(token)...)
-	if res.status != 200 {
-		t.Fatalf("me: %d %s", res.status, res.raw)
-	}
-	if _, ok := res.body["user"].(map[string]any)["rewards"]; ok || bytes.Contains(res.raw, []byte(`"rewards"`)) {
-		t.Fatalf("GET /api/auth/me still carries rewards: %s", res.raw)
+	rewards, ok := user["rewards"].(map[string]any)
+	if !ok || rewards["bonusAvailable"] != true || rewards["bonusReadyAt"] != float64(0) {
+		t.Fatalf("the login's user carries no ready bonus: %v", user)
 	}
 	chips := h.store.users[user["id"].(string)].Chips
-	for _, path := range []string{"/api/rewards/milestone", "/api/rewards/bonus", "/api/rewards/daily"} {
+	for _, path := range []string{"/api/rewards/milestone", "/api/rewards/daily"} {
 		for _, tc := range []struct {
 			method  string
 			headers []string
@@ -732,6 +753,28 @@ func TestTheLobbyRewardsAreGone(t *testing.T) {
 	}
 	if got := h.store.users[user["id"].(string)].Chips; got != chips {
 		t.Fatalf("a removed reward path moved chips: %d → %d", chips, got)
+	}
+
+	// The bonus: a signature, then paid once.
+	expectError(t, h.do(http.MethodPost, "/api/rewards/bonus", map[string]any{}), 401, CodeMissingToken)
+	res := h.do(http.MethodPost, "/api/rewards/bonus", map[string]any{"amount": 1}, bearer(token)...)
+	if res.status != 200 || res.body["claimed"] != true || res.body["amount"] != float64(db.TimedBonusReward) {
+		t.Fatalf("the bonus: %d %s", res.status, res.raw)
+	}
+	readyAt, _ := res.body["readyAt"].(float64)
+	if readyAt != float64(h.store.now+db.TimedBonusInterval.Milliseconds()) {
+		t.Fatalf("readyAt %v, want six hours from the store's clock", readyAt)
+	}
+	if got := h.store.users[user["id"].(string)].Chips; got != chips+db.TimedBonusReward {
+		t.Fatalf("the bonus paid %d, want %d", got-chips, db.TimedBonusReward)
+	}
+	again := h.do(http.MethodPost, "/api/rewards/bonus", map[string]any{}, bearer(token)...)
+	expectError(t, again, 409, CodeRewardNotReady)
+	if again.body["readyAt"] != readyAt || again.body["user"] == nil || again.body["message"] != MsgRewardNotReady {
+		t.Fatalf("a second claim: %s", again.raw)
+	}
+	if got := h.store.users[user["id"].(string)].Chips; got != chips+db.TimedBonusReward {
+		t.Fatalf("a refused claim moved chips: %d", got)
 	}
 }
 
