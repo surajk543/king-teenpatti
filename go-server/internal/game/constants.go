@@ -259,7 +259,8 @@ const (
 // switch, hand_win / hand_loss when the hand ends — and nothing at the deal
 // or per bet (see the Ledger doc). `boot`, `bet` and `show` are retired: they
 // are still in the vocabulary because rows written before that date carry
-// them and the money audit must still read. The last three are written by
+// them and the money audit must still read — as are the three lobby rewards'
+// reasons, retired 30 Sep 2026. The last three are written by
 // tooling only and listed so the vocabulary is complete (CLAUDE.md §7.3).
 const (
 	LedgerReasonWelcomeBonus = "welcome_bonus"
@@ -275,14 +276,17 @@ const (
 	// revenue record.
 	LedgerReasonTableTax = "table_tax"
 	// Retired 9 Sep 2026; historical rows only.
-	LedgerReasonBoot            = "boot"
-	LedgerReasonBet             = "bet"
-	LedgerReasonShow            = "show"
+	LedgerReasonBoot = "boot"
+	LedgerReasonBet  = "bet"
+	LedgerReasonShow = "show"
+	// Retired 30 Sep 2026 (owner: "Remove 24-hour daily reward, 4-hour bonus,
+	// and milestone reward"); historical rows only, never written again and
+	// never purged (db.purgeableReasons). milestone_reward was the 25,000
+	// chips of every 25 hands played, timed_bonus the four-hourly 10,000, and
+	// daily_bonus the chips of the daily 1,00,000 and a hammer (Go only).
 	LedgerReasonMilestoneReward = "milestone_reward"
 	LedgerReasonTimedBonus      = "timed_bonus"
-	// LedgerReasonDailyBonus is the chips of the daily bonus, beside the
-	// four-hour timed_bonus (owner, 14 Sep 2026; Go only).
-	LedgerReasonDailyBonus = "daily_bonus"
+	LedgerReasonDailyBonus      = "daily_bonus"
 	// LedgerReasonPurchase is chips bought with real money through Google
 	// Play. Its action_id is "gplay:<purchaseToken>", and the UNIQUE index on
 	// action_id is what stops one purchase being credited twice — see

@@ -394,20 +394,6 @@ Map<String, dynamic> _userJson(_Scene scene) => {
           'currency': 'COIN',
           'cost': 500000,
         },
-  'rewards': {
-    'milestoneAvailable': false,
-    'milestoneReward': 25000,
-    'handsToNextMilestone': 25,
-    'bonusReward': 10000,
-    'bonusReadyAt': DateTime.now()
-        .add(const Duration(hours: 3, minutes: 12))
-        .millisecondsSinceEpoch,
-    'bonusAvailable': false,
-    'dailyReward': 100000,
-    'dailyHammers': 1,
-    'dailyReadyAt': 0,
-    'dailyAvailable': true,
-  },
 };
 
 const _menu = <Map<String, Object>>[

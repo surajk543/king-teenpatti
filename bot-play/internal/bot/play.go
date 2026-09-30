@@ -226,9 +226,6 @@ func (b *Bot) onKicked(k protocol.RoomKicked) {
 	b.invalidateTurn()
 	b.d.Metrics.TableLeave("kicked_" + k.Reason)
 	b.log.Warn("kicked", "reason", k.Reason)
-	if k.Reason == protocol.CodeInsufficientChips {
-		b.collectBonus(b.ctx)
-	}
 	b.afterLeaving(outNone)
 }
 
@@ -991,23 +988,20 @@ func (b *Bot) joinSomewhere(attempt int) {
 		return
 	}
 	if !ok {
-		// Nothing this stack may sit at: the lobby's bonus, as any player
-		// would, then rest and try again later (brief §20).
-		b.collectBonus(b.ctx)
-		in.Chips = b.chips
-		if choice, ok = table.Select(menu, in, b.rand); !ok {
-			if b.d.Config.Bankroll.DevReplenish && b.d.Config.Mode == "simulation" {
-				// Simulation only (config refuses it against a server): a
-				// broke bot comes back as a fresh account with its welcome.
-				b.log.Info("broke: replenishing with a fresh simulated account", "chips", b.chips)
-				b.replenish = true
-				b.outcome = outEnded
-				return
-			}
-			b.log.Warn("no table admits this stack; resting", "chips", b.chips)
+		// Nothing this stack may sit at: rest and try again later (brief
+		// §20). The lobby has no reward to collect first — the game server
+		// removed the daily, 4-hour and milestone rewards (30 Sep 2026).
+		if b.d.Config.Bankroll.DevReplenish && b.d.Config.Mode == "simulation" {
+			// Simulation only (config refuses it against a server): a broke
+			// bot comes back as a fresh account with its welcome.
+			b.log.Info("broke: replenishing with a fresh simulated account", "chips", b.chips)
+			b.replenish = true
 			b.outcome = outEnded
 			return
 		}
+		b.log.Warn("no table admits this stack; resting", "chips", b.chips)
+		b.outcome = outEnded
+		return
 	}
 	// Take the place before asking for it: bots choosing at the same moment
 	// must not all fill a table's last places (config table.fleet_per_table).
@@ -1048,7 +1042,6 @@ func (b *Bot) joinSomewhere(attempt int) {
 		b.exclude = append(b.exclude, choice.Key)
 		retry(time.Duration(b.rand.Between(1, 2.5) * float64(time.Second)))
 	case protocol.CodeInsufficientChips:
-		b.collectBonus(b.ctx)
 		b.exclude = append(b.exclude, choice.Key)
 		retry(time.Duration(b.rand.Between(1, 2.5) * float64(time.Second)))
 	case protocol.CodeAlreadyInRoom:

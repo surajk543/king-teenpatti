@@ -20,6 +20,7 @@ import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/depth.dart';
 import '../theme/theme_colors.dart';
+import 'level_accent.dart';
 import 'premium_surface.dart';
 
 // ---------------------------------------------------------------- feel
@@ -715,6 +716,9 @@ class _GlassThemeSwitcherState extends State<GlassThemeSwitcher>
     final glass = GlassColors.of(context);
     final b = theme.brightness;
     final dark = b == Brightness.dark;
+    // In a lobby drawer inside a Blind or Variation level the chosen segment
+    // wears that level's colour where it wears gold ([LevelAccent]).
+    final level = LevelAccent.of(context);
 
     // A well sunk into whatever it sits on — the fill every field in a panel
     // has (GlassColors.wellFill) — with the chosen segment raised out of it
@@ -756,13 +760,17 @@ class _GlassThemeSwitcherState extends State<GlassThemeSwitcher>
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(Radii.pill),
                         color: Color.alphaBlend(
-                          AppTheme.gold.withValues(alpha: dark ? 0.18 : 0.10),
+                          (level?.fill ?? AppTheme.gold).withValues(
+                            alpha: dark ? 0.18 : 0.10,
+                          ),
                           glass.thumb,
                         ),
                         border: Border.all(
-                          color: dark
-                              ? AppTheme.goldBright.withValues(alpha: 0.55)
-                              : AppTheme.hairlineColour(b, live: true),
+                          color:
+                              level?.chosenEdge ??
+                              (dark
+                                  ? AppTheme.goldBright.withValues(alpha: 0.55)
+                                  : AppTheme.hairlineColour(b, live: true)),
                           width: Dim.hairline,
                         ),
                         boxShadow: AppTheme.controlShadow(
@@ -826,9 +834,10 @@ class _Segment extends StatelessWidget {
     // tier, which at white38 by night read as switched off rather than as
     // two more choices (settings polish, 26 Sep 2026).
     final colour = selected
-        ? (theme.brightness == Brightness.dark
-              ? AppTheme.goldBright
-              : AppTheme.goldDeep)
+        ? (LevelAccent.of(context)?.ink ??
+              (theme.brightness == Brightness.dark
+                  ? AppTheme.goldBright
+                  : AppTheme.goldDeep))
         : glass.textBody;
 
     Widget body = InkWell(

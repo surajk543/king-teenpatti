@@ -245,7 +245,7 @@ void main() {
     });
 
     testWidgets('a toast raised over the page takes the plain foot, not the '
-        'gap between the lobby chips the page covers', (tester) async {
+        'room beside the lobby\'s foot keys the page covers', (tester) async {
       await _setView(tester);
       final server = populatedServer();
       await http.runWithClient(() async {
@@ -254,7 +254,9 @@ void main() {
         final lobby = tester.element(find.byType(LobbyScreen));
         final between = lobbyNoticeArea(lobby);
         expect(between, isNotNull);
-        expect(between!.width, lessThan(Dim.toastW(640)));
+        // Clear of the Friends key in the bottom-right corner.
+        final key = tester.getRect(find.byTooltip('Friends'));
+        expect(between!.right, lessThanOrEqualTo(key.left));
 
         await tester.tap(find.byTooltip('Friends'));
         await _settle(tester);
@@ -322,8 +324,8 @@ void main() {
           await _setView(tester, textScale: 1.25);
           final server = populatedServer();
           await http.runWithClient(() async {
-            // The foot as full as it gets: the daily bonus, the Lucky Draw
-            // counting down, the milestone.
+            // The foot as full as it gets: the Lucky Draw counting down in
+            // one corner, the keys in the other.
             final state = signedInState(lang: lang)
               ..luckyDraw = LuckyDrawState.fromJson({
                 'draw': {

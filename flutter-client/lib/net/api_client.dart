@@ -83,7 +83,7 @@ final class TableConfigAbsent extends TableConfigAnswer {
 ///
 /// Gameplay itself runs over the socket — see [GameConnection]. These calls are
 /// the ones that make sense as one-shot requests: signing in, re-reading the
-/// account, and claiming rewards.
+/// account, and the lobby's wallets and catalogues.
 /// The code every door answers an account support has disabled with
 /// (users.is_active; owner, 26 Sep 2026): the login, a restored session
 /// (`GET /api/auth/me`), any signed-in request, the socket handshake and a
@@ -237,10 +237,16 @@ class ApiClient {
 
   /// Signs in. Guest play is keyed to [deviceId], so the same device keeps its
   /// chips across launches (requirements 1 and 7).
-  Future<({String token, User user, bool isNew, int welcomeChips})> loginGuest({
-    required String deviceId,
-    String? displayName,
-  }) async {
+  Future<
+    ({
+      String token,
+      User user,
+      bool isNew,
+      int welcomeChips,
+      WelcomeGrant? welcome,
+    })
+  >
+  loginGuest({required String deviceId, String? displayName}) async {
     final r = await http.post(
       _uri('/api/auth/login'),
       headers: _headers(),
@@ -258,6 +264,9 @@ class ApiClient {
       user: User.fromJson(Map<String, dynamic>.from(j['user'] as Map)),
       isNew: j['isNew'] == true,
       welcomeChips: (j['welcomeChips'] as num?)?.toInt() ?? 0,
+      // What a new account was given (30 Sep 2026); absent on a returning
+      // account's login and from a server that predates the grant.
+      welcome: WelcomeGrant.fromJson(j['welcome']),
     );
   }
 
@@ -272,7 +281,15 @@ class ApiClient {
   /// The server answers 503 `provider_unconfigured` when it has no credentials
   /// for that provider, which is a deployment state rather than a user error —
   /// the caller shows it as one.
-  Future<({String token, User user, bool isNew, int welcomeChips})>
+  Future<
+    ({
+      String token,
+      User user,
+      bool isNew,
+      int welcomeChips,
+      WelcomeGrant? welcome,
+    })
+  >
   loginProvider({
     required String provider,
     required String credential,
@@ -297,10 +314,13 @@ class ApiClient {
       user: User.fromJson(Map<String, dynamic>.from(j['user'] as Map)),
       isNew: j['isNew'] == true,
       welcomeChips: (j['welcomeChips'] as num?)?.toInt() ?? 0,
+      // What a new account was given (30 Sep 2026); absent on a returning
+      // account's login and from a server that predates the grant.
+      welcome: WelcomeGrant.fromJson(j['welcome']),
     );
   }
 
-  /// Re-reads the account, so chips, stats and reward timers stay current.
+  /// Re-reads the account, so chips, stats and standing stay current.
   Future<User> me(String token) async {
     final r = await http.get(_uri('/api/auth/me'), headers: _headers(token));
     final j = _decode(r);
@@ -995,34 +1015,6 @@ class ApiClient {
         {'expiresAt': final num at} => at.toInt(),
         _ => 0,
       },
-    );
-  }
-
-  /// Claims a reward. [kind] is "milestone" (requirement 17) or "bonus"
-  /// (requirement 18). The server decides whether it is actually due, and
-  /// answers 200 `{claimed:true, amount, milestone|readyAt, user}` or 409
-  /// `{error, message, readyAt?, user}`.
-  ///
-  /// Read `claimed`, and read the amount from `amount` — NOT from `awarded`,
-  /// which no endpoint has ever sent. Keying success off a missing field meant
-  /// every successful collection fell through to the refusal branch and told
-  /// the player "Not ready yet" while the chips landed in their wallet.
-  Future<({User? user, bool claimed, int amount, int readyAt, String message})>
-  claimReward(String token, String kind) async {
-    final r = await http.post(
-      _uri('/api/rewards/$kind'),
-      headers: _headers(token),
-      body: jsonEncode(const {}),
-    );
-    final j = _decode(r);
-    return (
-      user: j['user'] is Map
-          ? User.fromJson(Map<String, dynamic>.from(j['user'] as Map))
-          : null,
-      claimed: j['claimed'] == true,
-      amount: (j['amount'] as num?)?.toInt() ?? 0,
-      readyAt: (j['readyAt'] as num?)?.toInt() ?? 0,
-      message: '${j['message'] ?? ''}',
     );
   }
 }

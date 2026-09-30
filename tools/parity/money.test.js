@@ -38,8 +38,16 @@ test.after(closeDb);
 
 // The vocabulary of chip_ledger.reason. `boot`, `bet` and `show` are retired
 // (they belonged to the per-bet model) and must not appear in a fresh schema.
+//
+// The lobby rewards' reasons — milestone_reward, timed_bonus, daily_bonus —
+// are retired too (owner, 30 Sep 2026: the milestone, the 4-hour bonus and the
+// daily bonus were removed) and nothing writes them any more, but they stay
+// in the vocabulary: an older database's history keeps its rows, and the
+// ledger is append-only, so the audit must still read them as the chip
+// sources they were.
+const RETIRED_REWARD_REASONS = ['milestone_reward', 'timed_bonus', 'daily_bonus'];
 const REASONS = new Set([
-  'welcome_bonus', 'hand_win', 'hand_loss', 'hand_packed', 'hand_left', 'milestone_reward', 'timed_bonus', 'daily_bonus',
+  'welcome_bonus', 'hand_win', 'hand_loss', 'hand_packed', 'hand_left', ...RETIRED_REWARD_REASONS,
   'lucky_draw', 'picture_purchase', 'table_picture_purchase', 'emoji_purchase', 'test_fixture',
   // The winning tax a hand's winner pays at a table that taxes its winners
   // (owner, 26 Sep 2026): a chip sink, beside that hand's hand_win row.
@@ -83,7 +91,7 @@ test('every ledger row has a known reason, a balance that follows the running to
       assert.equal(row.action_id, `${row.hand_id}:${verb}:${row.user_id}`,
         'every checkpoint action id is server-minted — no client id ever reaches the ledger');
     }
-    if (['welcome_bonus', 'milestone_reward', 'timed_bonus', 'daily_bonus', 'lucky_draw'].includes(row.reason)) assert.ok(row.delta > 0);
+    if (['welcome_bonus', ...RETIRED_REWARD_REASONS, 'lucky_draw'].includes(row.reason)) assert.ok(row.delta > 0);
     // The winning tax (owner, 26 Sep 2026): only ever takes chips, names its
     // hand, and carries the server's own id for it.
     if (row.reason === 'table_tax') {
@@ -206,7 +214,8 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   // missile_spends (14 Sep 2026) are the missiles' twins: the record and
   // replay guard of a diamonds-for-missiles trade, and the receipt a fired
   // missile is spent against. user_milestones (14 Sep 2026) is an account fact
-  // too: which rewards a player has collected, moved off users. table_pictures,
+  // too: which rewards a player collected, moved off users — history since the
+  // lobby rewards were removed (30 Sep 2026), written by nothing. table_pictures,
   // user_table_pictures and user_table_choice (15 Sep 2026) are the
   // table-picture catalogue, who has bought which, and which each player has
   // laid on their own table — a catalogue, receipts and a choice, the same
@@ -272,14 +281,17 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   // app_versions (28 Sep 2026) is the app version gate's configuration: a row
   // per app platform — open or in maintenance, its minimum and latest
   // versions, its store link — read by the REST and handshake gate through a
-  // short cache, never by a table.
+  // short cache, never by a table. welcome_rewards (30 Sep 2026) is what a new
+  // account is given — chips, diamonds, hammers, missiles, a picture, a table
+  // picture, an emoji — configuration the login that creates an account reads,
+  // never a table.
   assert.deepEqual(tables, [
     'app_versions', 'badge_purchases', 'badges', 'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships',
     'hammer_purchases', 'hammer_spends', 'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends',
     'player_levels', 'player_reports', 'player_stats', 'player_variation_stats', 'player_xp', 'player_xp_claims', 'player_xp_missions', 'profile_pictures',
     'stats_flushes', 'table_categories', 'table_configs', 'table_engines', 'table_pictures', 'table_settings',
     'user_badges', 'user_emojis', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures', 'user_sessions', 'user_table_choice',
-    'user_table_pictures', 'users', 'xp_settings', 'xp_sources',
+    'user_table_pictures', 'users', 'welcome_rewards', 'xp_settings', 'xp_sources',
   ], `the schema must hold money, audit, accounts, the picture catalogues and table configuration only, got ${tables.join(', ')}`);
   // Configuration, by construction: no column of the four — nor of the level
   // ladder, the badges and the XP rules — refers to a room, a hand, a seat or a
@@ -288,7 +300,7 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
     `SELECT table_name, column_name FROM information_schema.columns
       WHERE table_schema = current_schema()
         AND table_name IN ('table_engines', 'table_categories', 'table_settings', 'table_configs',
-                           'player_levels', 'badges', 'xp_sources', 'xp_settings', 'app_versions')
+                           'player_levels', 'badges', 'xp_sources', 'xp_settings', 'app_versions', 'welcome_rewards')
         AND column_name ~ '^(room|hand|seat|user)_'
         -- the kind of hand a daily XP source is won with (PAIR … TRAIL): a
         -- rule, never a hand

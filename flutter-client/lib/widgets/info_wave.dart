@@ -31,14 +31,16 @@ List<ValueDelegate<Object>> _recolour(
       ]
     : const [];
 
-/// Where the mark sits in its file: the waves at their widest span 46–74 both
-/// ways round the middle, and that 28 units fills the box; the "i" in its
-/// ring, 53–66, is then about as large as the info glyph it replaced.
+/// Where the mark sits in its file: the waves at their widest span 4–116 both
+/// ways round the middle, and that 112 units fills the box, so no ripple
+/// leaves the key's disc; the ring round the "i" (layer "Shape Layer 3",
+/// 34–86) is then 12dp in a 26dp box, about the ring of the info glyph it
+/// replaced.
 const FactMarkArt infoWaveArt = FactMarkArt(
   asset: infoWaveAsset,
   canvas: 120,
   centre: Offset(60, 60),
-  extent: 28,
+  extent: 112,
   fallback: Icons.info_outline_rounded,
   recolour: _recolour,
 );

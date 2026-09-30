@@ -21,6 +21,7 @@ import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/net/picture_cache.dart';
 import 'package:teenpatti/state/game_state.dart';
+import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/widgets/avatar_badge.dart';
 import 'package:teenpatti/widgets/game_card.dart';
 import 'package:teenpatti/widgets/table_tax.dart';
@@ -315,7 +316,19 @@ void main() {
               final art = _art(tester);
               final d = picture.width;
               final centre = AvatarBadge.centreFor(d);
-              expect(art.width, closeTo(AvatarBadge.sizeFor(d), 0.01));
+              // The picture grew on 30 Sep 2026 (owner: "increase Profile
+              // size but don't increase size of badge"): the picture is
+              // Dim.avatarD, the badge still what the smaller picture wore.
+              expect(d, closeTo(Dim.avatarD(size.height), 0.01), reason: where);
+              expect(d, greaterThan(Dim.avatarMarkD(size.height) + 8));
+              expect(
+                art.width,
+                closeTo(
+                  AvatarBadge.sizeFor(Dim.avatarMarkD(size.height)),
+                  0.01,
+                ),
+                reason: '$where: the badge kept its size',
+              );
               expect(
                 art.center.dx - picture.left,
                 closeTo(centre.dx, 0.01),
@@ -368,9 +381,12 @@ void main() {
       ..sort((a, b) => _art(tester, b).width.compareTo(_art(tester, a).width));
     final drawer = drawers.first;
     final picture = _picture(tester, drawer);
-    expect(picture.width, 72, reason: 'the drawer\'s 72dp portrait');
+    // A quarter larger than its first 72dp (30 Sep 2026), its badge the
+    // 72dp picture's still.
+    expect(picture.width, 90, reason: 'the drawer\'s 90dp portrait');
     final art = _art(tester, drawer);
-    final centre = AvatarBadge.centreFor(72);
+    expect(art.width, closeTo(AvatarBadge.sizeFor(72), 0.01));
+    final centre = AvatarBadge.centreFor(90);
     expect(art.center.dx - picture.left, closeTo(centre.dx, 0.01));
     expect(art.center.dy - picture.top, closeTo(centre.dy, 0.01));
     expect(

@@ -6,6 +6,7 @@ import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import 'glass_components.dart';
+import 'level_accent.dart';
 
 /// The sound and vibration switches.
 ///
@@ -84,10 +85,14 @@ class FeedbackSwitchStyle {
   static const double groupedRowHeight = Dim.minTouch + Space.xs;
 
   /// The track when on: the struck-gold face's middle by night, its foot by
-  /// day.
-  static Color trackOn(Brightness b) => b == Brightness.dark
-      ? AppTheme.goldFace.colors[1]
-      : AppTheme.goldFace.colors.last;
+  /// day — or, in a lobby drawer inside a Blind or Variation level, the
+  /// level's accent ([LevelAccent]: pale by night under the charcoal thumb,
+  /// deep by day under the white one).
+  static Color trackOn(Brightness b, {Color? accent}) =>
+      accent ??
+      (b == Brightness.dark
+          ? AppTheme.goldFace.colors[1]
+          : AppTheme.goldFace.colors.last);
 
   /// The thumb when on.
   static Color thumbOn(Brightness b) =>
@@ -105,12 +110,14 @@ class FeedbackSwitchStyle {
             : offInk(scheme),
       );
 
-  static WidgetStateProperty<Color?> track(ColorScheme scheme) =>
-      WidgetStateProperty.resolveWith(
-        (s) => s.contains(WidgetState.selected)
-            ? trackOn(scheme.brightness)
-            : scheme.onSurface.withValues(alpha: 0.06),
-      );
+  static WidgetStateProperty<Color?> track(
+    ColorScheme scheme, {
+    Color? accent,
+  }) => WidgetStateProperty.resolveWith(
+    (s) => s.contains(WidgetState.selected)
+        ? trackOn(scheme.brightness, accent: accent)
+        : scheme.onSurface.withValues(alpha: 0.06),
+  );
 
   static WidgetStateProperty<Color?> outline(ColorScheme scheme) =>
       WidgetStateProperty.resolveWith(
@@ -177,7 +184,10 @@ class _FeedbackSwitch extends StatelessWidget {
             onChanged(v);
           },
           thumbColor: FeedbackSwitchStyle.thumb(scheme),
-          trackColor: FeedbackSwitchStyle.track(scheme),
+          trackColor: FeedbackSwitchStyle.track(
+            scheme,
+            accent: LevelAccent.of(context)?.fill,
+          ),
           trackOutlineColor: FeedbackSwitchStyle.outline(scheme),
           // In a group the whole row is the target, so the switch keeps only
           // its own size and the row keeps the group's rhythm.

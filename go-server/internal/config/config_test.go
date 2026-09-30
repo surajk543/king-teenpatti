@@ -251,6 +251,25 @@ func TestEmptyIntegerKeepsDefault(t *testing.T) {
 	}
 }
 
+// WELCOME_CHIPS set in the environment is told apart from the default: the
+// boot compares a set figure with the welcome_rewards chips row, and says
+// nothing of a default one (owner, 30 Sep 2026: the rows decide what a new
+// account gets).
+func TestWelcomeChipsSetIsToldApartFromTheDefault(t *testing.T) {
+	if cfg := mustLoad(t, map[string]string{}); cfg.Game.WelcomeChipsSet || cfg.Game.WelcomeChips != 1000000 {
+		t.Errorf("unset: %d set=%v", cfg.Game.WelcomeChips, cfg.Game.WelcomeChipsSet)
+	}
+	if cfg := mustLoad(t, map[string]string{"WELCOME_CHIPS": ""}); cfg.Game.WelcomeChipsSet {
+		t.Error("an empty WELCOME_CHIPS is the default, not a setting")
+	}
+	if cfg := mustLoad(t, map[string]string{"WELCOME_CHIPS": "300000"}); !cfg.Game.WelcomeChipsSet || cfg.Game.WelcomeChips != 300000 {
+		t.Errorf("set: %d set=%v", cfg.Game.WelcomeChips, cfg.Game.WelcomeChipsSet)
+	}
+	if cfg := mustLoad(t, map[string]string{"WELCOME_CHIPS": "0"}); !cfg.Game.WelcomeChipsSet || cfg.Game.WelcomeChips != 0 {
+		t.Errorf("zero: %d set=%v", cfg.Game.WelcomeChips, cfg.Game.WelcomeChipsSet)
+	}
+}
+
 func TestMalformedIntegersFailStartup(t *testing.T) {
 	// DECISIONS.md §5: strict decimal integers. Node would have read "12abc"
 	// as 12, "1e3" as 1 and "abc" as the default without a word.
@@ -258,6 +277,9 @@ func TestMalformedIntegersFailStartup(t *testing.T) {
 		{"PORT": "abc"},
 		{"TURN_TIMEOUT_MS": "12abc"},
 		{"WELCOME_CHIPS": "1e3"},
+		// Since the welcome_rewards rows (30 Sep 2026) WELCOME_CHIPS writes the
+		// chips row, whose amount is never negative.
+		{"WELCOME_CHIPS": "-1"},
 		{"PG_POOL_MAX": "10.5"},
 		{"MAX_PLAYERS_PER_ROOM": "0x10"},
 		{"TABLE_STAKES": "200,abc"},
@@ -630,6 +652,8 @@ func TestEnvExampleIsTheDefaults(t *testing.T) {
 	// The example sets every table key (so it can document each default) and
 	// therefore names the source explicitly; Defaults() sets none of them.
 	want.TableEnvKeysSet = TableEnvKeys()
+	// It sets WELCOME_CHIPS too, to document it; Defaults() does not.
+	want.Game.WelcomeChipsSet = true
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf(".env.example drifted from Defaults():\n got %+v\nwant %+v", got, want)
 	}

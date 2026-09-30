@@ -16,6 +16,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lottie/lottie.dart';
 import 'package:teenpatti/models/dtos.dart';
@@ -37,14 +38,17 @@ double _contrast(Color a, Color b) {
 }
 
 /// Where the painted pixels of [progress] lie on the file's canvas, drawn
-/// four pixels a unit over a mid grey.
+/// four pixels a unit over a mid grey. `fit: BoxFit.fill`: the drawable's
+/// default, `BoxFit.scaleDown`, never scales UP, and drew the 120-unit file at
+/// 120px — a quarter of the art — which is how the first cut came to draw the
+/// waves four times too large.
 Future<Rect> _paintedAt(LottieComposition comp, double progress) async {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder)
     ..drawColor(const Color(0xFF808080), BlendMode.src);
   LottieDrawable(comp)
     ..setProgress(progress)
-    ..draw(canvas, const Rect.fromLTWH(0, 0, 480, 480));
+    ..draw(canvas, const Rect.fromLTWH(0, 0, 480, 480), fit: BoxFit.fill);
   final image = await recorder.endRecording().toImage(480, 480);
   final pixels = (await image.toByteData())!;
   var left = 480, top = 480, right = -1, bottom = -1;
@@ -130,6 +134,77 @@ void main() {
         expect(all.center.dy, closeTo(art.centre.dy, 0.5));
       });
     });
+  });
+
+  testWidgets('the widget paints nothing outside its 26dp box, and its '
+      'waves reach the box', (tester) async {
+    await tester.runAsync(() => AssetLottie(infoWaveAsset).load());
+    final boundary = GlobalKey();
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Center(
+          child: RepaintBoundary(
+            key: boundary,
+            child: const SizedBox(
+              width: 60,
+              height: 60,
+              child: ColoredBox(
+                color: Color(0xFF808080),
+                child: Center(
+                  child: InfoWave(
+                    size: 26,
+                    fallbackInk: Color(0xFFC9A227),
+                    tint: Color(0xFFC9A227),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    const box = Rect.fromLTWH(17, 17, 26, 26);
+    var all = Rect.zero;
+    for (var step = 0; step < 16; step++) {
+      await tester.pump(const Duration(milliseconds: 125));
+      final render =
+          boundary.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+      final bytes = await tester.runAsync(() async {
+        final image = await render.toImage(pixelRatio: 4);
+        return (await image.toByteData())!;
+      });
+      var left = 240, top = 240, right = -1, bottom = -1;
+      for (var y = 0; y < 240; y++) {
+        for (var x = 0; x < 240; x++) {
+          final i = (y * 240 + x) * 4;
+          if ((bytes!.getUint8(i) - 0x80).abs() > 6 ||
+              (bytes.getUint8(i + 1) - 0x80).abs() > 6 ||
+              (bytes.getUint8(i + 2) - 0x80).abs() > 6) {
+            if (x < left) left = x;
+            if (x > right) right = x;
+            if (y < top) top = y;
+            if (y > bottom) bottom = y;
+          }
+        }
+      }
+      final painted = Rect.fromLTRB(
+        left / 4,
+        top / 4,
+        (right + 1) / 4,
+        (bottom + 1) / 4,
+      );
+      all = step == 0 ? painted : all.expandToInclude(painted);
+      expect(
+        box.inflate(0.5).contains(painted.topLeft) &&
+            box.inflate(0.5).contains(painted.bottomRight),
+        isTrue,
+        reason: 'step $step: $painted outside $box',
+      );
+    }
+    expect(all.width, greaterThan(24), reason: '$all');
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   test('the "i" reads on the day card in every card colour; the file\'s '

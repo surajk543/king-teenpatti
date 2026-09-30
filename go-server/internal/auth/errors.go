@@ -52,9 +52,7 @@ const (
 
 // REST-only error codes routes.js returns as plain JSON (not AuthErrors).
 const (
-	CodeRewardNotAvailable  = "reward_not_available"  // 409
-	CodeRewardNotReady      = "reward_not_ready"      // 409
-	CodeSeated              = "seated"                // 409: a name change, a reward claim or a chip-priced picture while at a table
+	CodeSeated              = "seated"                // 409: a name change, a Lucky Draw spin, account deletion or a chip-priced picture while at a table
 	CodeStoreUnavailable    = "store_unavailable"     // 503: no Google Play credentials configured
 	CodeInvalidPurchase     = "invalid_purchase"      // 400: productId or purchaseToken missing
 	CodeUnknownProduct      = "unknown_product"       // 400: a product id the catalogue does not hold

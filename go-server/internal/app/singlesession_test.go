@@ -70,9 +70,9 @@ func TestASecondSignInSignsTheFirstDeviceOutAndHandsTheNewOneTheLiveTable(t *tes
 	// request and the handshake all answer session_replaced.
 	res, body := get(t, a.Handler(), http.MethodGet, "/api/auth/me", func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+first) })
 	assertReplaced(t, "GET /api/auth/me", res.StatusCode, body)
-	answer := postJSON(ts.URL, first, "/api/rewards/daily", map[string]any{})
+	answer := postJSON(ts.URL, first, "/api/lucky-draw/spin", map[string]any{"actionId": "spin-replaced-1"})
 	if answer.err != nil || answer.status != http.StatusUnauthorized || answer.body["error"] != auth.CodeSessionReplaced {
-		t.Errorf("POST /api/rewards/daily with the replaced token: %d %v %v", answer.status, answer.body, answer.err)
+		t.Errorf("POST /api/lucky-draw/spin with the replaced token: %d %v %v", answer.status, answer.body, answer.err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -22,7 +22,7 @@ import (
 // session:ready, makes two acknowledged requests that touch no table
 // (ping:rtt, and chat:history, which is refused outside a table), checks
 // that a bad token is refused at the handshake, and closes. It never joins a
-// table, collects a reward or changes the account.
+// table or changes the account.
 func TestLiveServerInterop(t *testing.T) {
 	base := os.Getenv("BOTPLAY_LIVE_URL")
 	if base == "" {

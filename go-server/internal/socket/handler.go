@@ -38,6 +38,12 @@ type EmojiStore interface {
 	Owns(ctx context.Context, userID string, emojiID int64) (db.Emoji, error)
 }
 
+// WelcomeChipsSource answers what a new account would get in chips now
+// (db.WelcomeChipsCache).
+type WelcomeChipsSource interface {
+	Current(ctx context.Context) int64
+}
+
 // Deps wires the realtime layer.
 type Deps struct {
 	Config  *config.Config
@@ -59,6 +65,11 @@ type Deps struct {
 	// database read per send). Nil → no catalogue: every chat:emoji is
 	// unknown_emoji.
 	Emojis EmojiStore
+	// WelcomeChips is what session:ready's config.welcomeChips says: the chips
+	// the next new account would get, from the welcome_rewards rows (owner,
+	// 30 Sep 2026) behind a short cache (db.WelcomeChipsCache). Nil →
+	// config.Game.WelcomeChips, as before the rows (tests).
+	WelcomeChips WelcomeChipsSource
 	// AppGate is the app version gate (owner, 28 Sep 2026; appversion): the
 	// handshake asks it before the token, and refuses an app build below its
 	// platform's minimum (connect_error update_required) or on a platform in
@@ -909,7 +920,7 @@ func roomAck(table game.Room) RoomAck {
 // table_not_offered, insufficient_chips, over_entry_cap, then the table's
 // stack band. The RoomManager makes every one of those checks, and the seat,
 // holding the creator's seat lock and on the wallet read under it. Made here
-// on freshUser's earlier read, as they were, a lobby purchase or reward
+// on freshUser's earlier read, as they were, a lobby purchase or prize
 // committing in between could seat the creator below the boot, over the entry
 // cap or outside the band. A private create is unchanged (boot forced to
 // PrivateBoot; requirement 22).
@@ -1121,9 +1132,10 @@ func (h *Handler) action(s *sio.Socket, req ActionRequest) (any, error) {
 	// twice. A client that sends none (or one out of range) gets a fresh id
 	// and no protection. The same column carries the server's own
 	// deterministic ids ("<handId>:boot:<userId>", "<handId>:settle:<userId>",
-	// "<userId>:milestone:<n>"); an id shaped like one of those — any colon —
-	// is not a token, it is an attempt to occupy a key the server will need
-	// (another player's milestone id fits in 64 chars), so it is dropped too.
+	// "picture:<userId>:<pictureId>:<n>"); an id shaped like one of those — any
+	// colon — is not a token, it is an attempt to occupy a key the server will
+	// need (another player's purchase id fits in 64 chars), so it is dropped
+	// too.
 	actionID := ""
 	if n := utf16Len(req.ActionID); n > 0 && n <= ActionIDMaxLength && !strings.ContainsRune(req.ActionID, ReservedActionIDSeparator) {
 		actionID = req.ActionID
@@ -1802,7 +1814,7 @@ func (h *Handler) publicGameConfig() PublicGameConfig {
 		MinPlayers:         g.MinPlayers,
 		BootAmount:         g.BootAmount,
 		TurnTimeoutMs:      g.TurnTimeout.Milliseconds(),
-		WelcomeChips:       g.WelcomeChips,
+		WelcomeChips:       h.welcomeChips(),
 		MaxBetRounds:       g.MaxBetRounds,
 		SideshowTimeoutMs:  g.SideshowTimeout.Milliseconds(),
 		SideshowMinPlayers: g.SideshowMinPlayers,
@@ -1813,6 +1825,15 @@ func (h *Handler) publicGameConfig() PublicGameConfig {
 		out.TableConfigVersion = rooms.TableConfigVersion()
 	}
 	return out
+}
+
+// welcomeChips is session:ready's config.welcomeChips: the chips the next new
+// account would get (Deps.WelcomeChips), or WELCOME_CHIPS with no source.
+func (h *Handler) welcomeChips() int64 {
+	if h.deps.WelcomeChips != nil {
+		return h.deps.WelcomeChips.Current(context.Background())
+	}
+	return h.cfg().Game.WelcomeChips
 }
 
 // ------------------------------------------------------------ rate limit

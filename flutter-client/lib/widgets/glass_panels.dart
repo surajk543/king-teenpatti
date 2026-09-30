@@ -329,7 +329,7 @@ class NoticeToast extends StatelessWidget {
   /// rather than growing past its top. At a table the foot is the viewer's own
   /// pod, hand and keys, so the area is the one patch of felt nobody reads
   /// anything from, and even a long refusal on a 640dp phone covers no seat.
-  /// In the lobby it is the foot beside the milestone chip.
+  /// In the lobby it is the foot between its two corners.
   ///
   /// Every toast is painted on the Scaffold main.dart puts round the
   /// Navigator, which is never resized for the keyboard, so a toast lifts

@@ -27,11 +27,12 @@ import (
 //
 // Every write is `UPDATE users SET chips = chips + delta`, where the Table
 // computed `delta = seat.chips now − seat.chips as last written`. It is never
-// `SET chips = <value from the live state>`: a seated player can claim the
-// four-hour bonus or a milestone reward, which credits PostgreSQL and not the
-// seat, and an absolute overwrite at the next checkpoint would erase it. With
-// a delta the reward survives, and with no concurrent credit the resulting
-// wallet equals the live figure exactly.
+// `SET chips = <value from the live state>`: a credit that reaches PostgreSQL
+// and not the seat (a seated player could once claim a lobby reward, until the
+// rewards were removed on 30 Sep 2026; the seat lock keeps every lobby credit
+// off a seated wallet now) would be erased by an absolute overwrite at the
+// next checkpoint. With a delta such a credit survives, and with no concurrent
+// credit the resulting wallet equals the live figure exactly.
 //
 // A player written twice for the same hand (packed, then settled) computes a
 // zero delta the second time, so the money moves once while the outcome row

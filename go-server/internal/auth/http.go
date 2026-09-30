@@ -19,10 +19,9 @@ import (
 // can stub it).
 type UserStore interface {
 	FindByID(ctx context.Context, id string) (*db.User, error)
-	UpsertFromProfile(ctx context.Context, p db.Profile) (*db.User, bool, error)
-	ClaimMilestoneReward(ctx context.Context, userID string) (*db.RewardResult, error)
-	ClaimTimedBonus(ctx context.Context, userID string) (*db.RewardResult, error)
-	ClaimDailyBonus(ctx context.Context, userID string) (*db.RewardResult, error)
+	// SignIn finds or creates the account behind a verified profile; a new
+	// account comes back with what it was welcomed with (db.Users.SignIn).
+	SignIn(ctx context.Context, p db.Profile) (*db.SignIn, error)
 	SetDisplayName(ctx context.Context, userID, displayName string) (*db.User, error)
 	SetActivePicture(ctx context.Context, userID string, pictureID *int64) (*db.User, error)
 	DeleteAccount(ctx context.Context, userID string) error
@@ -83,14 +82,14 @@ type Deps struct {
 	// IsSeated is injected by the app (rooms.GetTableForPlayer(id) != nil) so
 	// the name endpoint can refuse a rename mid-table (routes.js
 	// playerRoutes({isSeated})). Where WhileUnseated is absent (unit tests) it
-	// also stands in for it: both rewards and a chip-priced picture are then
+	// also stands in for it: a Lucky Draw spin and account deletion are then
 	// refused 409 seated on this look alone, and a picture purchase it calls
 	// seated goes to BuyAtTable.
 	IsSeated func(userID string) bool
 	// WhileUnseated runs fn — a wallet change that may only be made in the
-	// lobby: a reward, a chip-priced picture — holding the player's seat lock,
-	// and reports false WITHOUT running it when they are seated, or while a
-	// write from a table they sat at has yet to reach their wallet (app:
+	// lobby: a Lucky Draw spin, a chip-priced picture — holding the player's
+	// seat lock, and reports false WITHOUT running it when they are seated, or
+	// while a write from a table they sat at has yet to reach their wallet (app:
 	// rooms.WhileUnseated; the handlers answer both with 409 seated, since
 	// until that write lands the wallet still belongs to the table). A plain
 	// IsSeated look is not enough where chips
@@ -247,9 +246,6 @@ type BoughtBadge struct {
 //
 //	POST /api/auth/login        → Login
 //	GET  /api/auth/me           → Me            (RequireAuth)
-//	POST /api/rewards/milestone → Milestone     (RequireAuth)
-//	POST /api/rewards/bonus     → Bonus         (RequireAuth)
-//	POST /api/rewards/daily     → Daily         (RequireAuth; Go only)
 //	GET  /api/profiles          → Profiles      (token optional)
 //	POST /api/profile/avatar    → Avatar        (RequireAuth)
 //	POST /api/profile/picture/buy → BuyPicture  (RequireAuth)
@@ -263,6 +259,11 @@ type BoughtBadge struct {
 //	GET  /api/emojis             → Emojis           (token optional; Go only)
 //	POST /api/emojis/buy         → BuyEmoji         (RequireAuth; Go only)
 //	GET  /api/levels             → Levels           (public; Go only)
+//
+// The three lobby rewards — POST /api/rewards/milestone, /bonus and /daily —
+// were removed (owner, 30 Sep 2026: "Remove 24-hour daily reward, 4-hour
+// bonus, and milestone reward"); their paths answer the JSON 404 like any
+// unknown /api path.
 //
 // and, when Deps.Friends is set, Friends V1's eight (friends.go; Go only):
 //
@@ -290,7 +291,7 @@ type BoughtBadge struct {
 // oversized one → 413 with the same envelope (Go-only code, DECISIONS.md §5;
 // Node answered 500 internal_error). A body whose Content-Type is not
 // application/json, or no body at all, is `{}` as body-parser left it (the
-// browser's reward POSTs send neither). Unknown fields are ignored.
+// browser client's bodiless POSTs send neither). Unknown fields are ignored.
 //
 // Order of refusals on an authenticated route: RequireAuth (401) → seated
 // (409) → body (400/413) → validation. Node parsed the body first, app-wide,
@@ -333,9 +334,6 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	}
 	mux.Handle("/api/auth/login", methods(http.MethodPost, h.limited(h.loginLimit, http.HandlerFunc(h.Login))))
 	mux.Handle("/api/auth/me", methods(http.MethodGet, h.RequireAuth(h.Me)))
-	mux.Handle("/api/rewards/milestone", methods(http.MethodPost, wallet(h.Milestone)))
-	mux.Handle("/api/rewards/bonus", methods(http.MethodPost, wallet(h.Bonus)))
-	mux.Handle("/api/rewards/daily", methods(http.MethodPost, wallet(h.Daily)))
 	mux.Handle("/api/purchases/google", methods(http.MethodPost, wallet(h.BuyChips)))
 	mux.Handle("/api/profiles", methods(http.MethodGet, http.HandlerFunc(h.Profiles)))
 	mux.Handle("/api/profile/avatar", methods(http.MethodPost, h.RequireAuth(h.Avatar)))
@@ -494,17 +492,16 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 
 // ---- wire shapes (routes.js) ----
 
-// ErrorResponse is every error body: {error, message} plus, for the reward
-// 409s, the current user and (bonus only) readyAt, and for the app version
-// gate's 426 update_required the store link and the version the app must reach
-// (each absent when there is none).
+// ErrorResponse is every error body: {error, message} plus, for the Lucky
+// Draw's 409 lucky_draw_not_ready, readyAt, and for the app version gate's 426
+// update_required the store link and the version the app must reach (each
+// absent when there is none).
 type ErrorResponse struct {
-	Error          string   `json:"error"`
-	Message        string   `json:"message"`
-	User           *db.User `json:"user,omitempty"`
-	ReadyAt        *int64   `json:"readyAt,omitempty"`
-	StoreURL       string   `json:"storeUrl,omitempty"`
-	MinimumVersion string   `json:"minimumVersion,omitempty"`
+	Error          string `json:"error"`
+	Message        string `json:"message"`
+	ReadyAt        *int64 `json:"readyAt,omitempty"`
+	StoreURL       string `json:"storeUrl,omitempty"`
+	MinimumVersion string `json:"minimumVersion,omitempty"`
 }
 
 // AdmitApp is the app version gate at a signed-in REST door (owner, 28 Sep
@@ -540,13 +537,21 @@ func WriteAppRefusal(w http.ResponseWriter, v appversion.Verdict) {
 	})
 }
 
-// LoginResponse ← POST /api/auth/login: {token, user, isNew, welcomeChips}
-// (welcomeChips = config.Game.WelcomeChips when isNew, else 0).
+// LoginResponse ← POST /api/auth/login: {token, user, isNew, welcomeChips,
+// welcome?}. welcomeChips is the chips the login's new account was given
+// (welcome.chips), 0 for a returning one — kept for every installed app that
+// reads it. welcome (owner, 30 Sep 2026: what a new account is given comes
+// from the welcome_rewards rows) is present ONLY when the login created the
+// account: {chips, diamonds, hammers, missiles, pictures, tablePictures,
+// emojis}, each item as its catalogue route serves it, owned, and every list
+// `[]` rather than null (db.WelcomeGrant). A returning player's answer is
+// byte for byte what it was.
 type LoginResponse struct {
-	Token        string   `json:"token"`
-	User         *db.User `json:"user"`
-	IsNew        bool     `json:"isNew"`
-	WelcomeChips int64    `json:"welcomeChips"`
+	Token        string           `json:"token"`
+	User         *db.User         `json:"user"`
+	IsNew        bool             `json:"isNew"`
+	WelcomeChips int64            `json:"welcomeChips"`
+	Welcome      *db.WelcomeGrant `json:"welcome,omitempty"`
 }
 
 // UserResponse ← GET /api/auth/me, POST /api/profile/avatar, POST /api/profile/name.
@@ -836,13 +841,11 @@ func (n *NameRequest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Reward 409 messages (routes.js).
+// REST refusal messages (routes.js, and the Go-only routes'). The three lobby
+// rewards' — reward_not_available, reward_not_ready and their two seated
+// messages — went with the rewards (owner, 30 Sep 2026).
 const (
-	MsgRewardNotAvailable = "No milestone reward is waiting yet."
-	MsgRewardNotReady     = "The bonus is still recharging."
 	MsgSeatedName         = "You can only change your name in the lobby."
-	MsgSeatedMilestone    = "Collect your milestone reward from the lobby, not while you are at a table."
-	MsgSeatedBonus        = "Collect your reward from the lobby, not while you are at a table."
 	MsgStoreUnavailable   = "The chip store is not open yet."
 	MsgInvalidPurchase    = "That purchase is missing its product or receipt."
 	MsgUnknownProduct     = "That pack is not on sale."

@@ -188,6 +188,7 @@ king-teenpatti/
     │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4); CasinoTableColors (the casino table's, §8.4)
     │   ├── theme/depth.dart      the depth ladder (28 Sep 2026, §8.4): Elevation, Depth/DepthScheme (every shadow and edge light), SurfaceLight, OuterShadow
     │   ├── widgets/glass_components.dart  tapHaptic, PressScale, GlassCard, GlassButton, GlassTextField, GlassThemeSwitcher
+    │   ├── widgets/level_accent.dart  LevelAccent/LevelColours (30 Sep 2026, §8.4 "The Settings drawer"): the open lobby level's colour in the two lobby drawers
     │   ├── state/theme_preference.dart  themeMode read/write (+ legacy darkMode); state/consent.dart  the no-winnings flag
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
     ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/ (synthesised clips),
@@ -415,9 +416,10 @@ and the transactions that DO run have this shape:
   (`chipsWritten` on the hand's contribution record, so it lives in the snapshot and survives a
   restart). It is never `SET chips = <live value>`: a reward credits PostgreSQL without touching the
   Redis seat, and an absolute overwrite at the next checkpoint would erase it.
-- **Rewards and chip-priced picture purchases are lobby-only.** `POST /api/rewards/milestone|bonus|daily`
-  (and since 24 Sep 2026 `POST /api/lucky-draw/spin`, §7.2 — its prize may be chips)
-  return **409 `seated`** before any DB work, matching the rule display name already had, and
+- **Chip prizes and chip-priced picture purchases are lobby-only.** `POST /api/lucky-draw/spin` (since 24 Sep 2026,
+  §7.2 — its prize may be chips; until 30 Sep 2026 the three lobby rewards `POST /api/rewards/milestone|bonus|daily` too,
+  removed that day — below)
+  returns **409 `seated`** before any DB work, matching the rule display name already had, and
   `POST /api/profile/picture/buy` refuses a **COIN** picture to a seated player with the same 409 —
   decided inside the purchase transaction (`db.Pictures.BuyAtTable` → `ErrPictureAtTable`), from the
   row being charged. That closes the concurrent-credit hole at its source; the delta above is the
@@ -428,7 +430,7 @@ and the transactions that DO run have this shape:
   `RoomManager.SetPlayerAvatar` → `Table.SetAvatar`, which updates the seat and emits state).
   **The lobby side is serialised with taking a seat** (13 Sep 2026, after a race that could create chips): every lobby door
   (quickJoin, joinCode, create, the resume auto-join) reads the wallet (`RoomManagerOptions.LoadPlayer`) under the player's
-  seat-lock stripe, and every lobby-only wallet change — a COIN picture, the rewards, and since 24 Sep 2026 `DELETE /api/account`
+  seat-lock stripe, and every lobby-only wallet change — a COIN picture, the Lucky Draw spin (the rewards too, until they went on 30 Sep 2026), and since 24 Sep 2026 `DELETE /api/account`
   (§7.2) — runs inside `RoomManager.WhileUnseated` under the same stripe, as does a Play chip pack (`CreditBoughtChips`: the database credit and the seat top-up together), each
   on a context of its own rather than the request's. A purchase can therefore never land between a join's wallet read and its
   seat. While a table's refused hand-end settle is still retrying (`TableOptions.SettlementOwed` → the manager's `owed` count)
@@ -1089,7 +1091,7 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   the Seen, Blind and Variation cards and every taxing table card carried, from 27 Sep 2026, a corner of the level's mark,
   the badge that sets the rate and the rate paid (`LobbyCardBadge`, which replaced the "20% TAX" pill on the boot's line);
   it went, with its two strings (`cardBadgeSemantics`/`cardRateSemantics`). **The badge is on the player's picture instead**
-  — the top bar's and, the same day ("In settings profile also u need to add badge"), the Settings drawer's 72dp portrait
+  — the top bar's and, the same day ("In settings profile also u need to add badge"), the Settings drawer's portrait (72dp, 90dp since 30 Sep 2026 — owner: "make it large more 25 percent, keep badge size same"; its badge and pencil still sized from 72, `markDiameter`)
   (`widgets/avatar_badge.dart` `AvatarBadge`, laid by `_AvatarWithPip(badge: true)`): the badge that brings the player's
   rate lowest (`User.shownBadge` — Regular for everybody, a Royal badge where one runs) as its own Lottie (`BadgeArt`),
   `AvatarBadge.sizeFor` 0.74 of the picture's diameter, its middle on the rim at the picture's top-right
@@ -1109,7 +1111,8 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   (address to copy, a `mailto:` key). Every string in all five languages. A mission a `player:level` shows completed is
   announced on a bar at the top of every screen for 5 s (§8.4 "The XP mission bar"); a level up that came with one is said on
   that bar, with the winning tax it changed ("Winning tax now 19.71%"), not in the toast.
-- **Also on this branch** (owner, 27 Sep 2026): a new account starts with **10 Lakh chips**, 20 hammers and 1 missile
+- **Also on this branch** (owner, 27 Sep 2026): a new account starts with **10 Lakh chips**, 20 hammers and 1 missile (since 30 Sep 2026
+  the `welcome_rewards` rows, §7.3)
   (`WELCOME_CHIPS` 1000000); **Blind 200 is open up to 20 Lakh** (`ENTRY_CAP_MAX_CHIPS` 2000000), **Blind 5,000 up to 20 Crore**
   (`max=200000000`; "for 5000 keep entry upto 20 Crore"), **Blind and Variation 50,000 up to 200 Crore** (`max=2000000000`; "for
   50000 table keep entry upto 200 Crore" — Seen 50,000 stays open to all); and **the two 10 Lakh tables, Blind and Variation, are
@@ -1245,13 +1248,18 @@ closes its socket after 8 s (§8.1).
 
 ### 7.2 REST (`auth/routes.js` → `internal/auth/http.go` + `handlers.go`)
 `POST /api/auth/login {provider: google|guest, idToken|deviceId, displayName?}`
-→ `{token, user, isNew, welcomeChips}` (**Facebook is switched off for now** — owner, 23 Sep 2026, `94061a2`:
+→ `{token, user, isNew, welcomeChips, welcome?}` — **`welcome`** (30 Sep 2026) only on the login that created the account: `{chips,
+diamonds, hammers, missiles, pictures, tablePictures, emojis}`, what the `welcome_rewards` rows granted (§7.3), each item in its catalogue
+route's shape with `owned:true`; `welcomeChips` is its chips (0 for a returning player) (**Facebook is switched off for now** — owner, 23 Sep 2026, `94061a2`:
 `VerifyFacebook` and its `case` are commented out, so `provider:"facebook"` with an `accessToken` answers 400
 `unknown_provider`, fake path included; the app draws no Facebook button; `docs/social-login-setup.md` §2 says what to
 uncomment); `GET /api/auth/me` (takes off a worn rental that has run out, as
-login and `GET /api/profiles` do — a saved session comes back through here, never through login); `POST /api/rewards/milestone|bonus|daily`
-(**409 `seated` while at a table** — rewards are lobby-only so a seated wallet only ever moves at the
-three checkpoints, §5.1); **`GET /api/profiles`** — the picture catalogue from `profile_pictures`, active rows only, in
+login and `GET /api/profiles` do — a saved session comes back through here, never through login); **the three lobby rewards
+are gone** (owner, 30 Sep 2026: "Remove 24-hour daily reward, 4-hour bonus, and milestone reward") — the milestone (25,000
+chips every 25 hands), the 4-hour bonus (10,000) and the daily bonus (1,00,000 chips + 1 hammer): `POST
+/api/rewards/milestone|bonus|daily` answer the JSON 404 of any unknown `/api/*` route, and the account object carries no
+`rewards` key, which is what hides all three chips in an installed app from before (1.7.0 draws them only when `user.rewards`
+is there); **`GET /api/profiles`** — the picture catalogue from `profile_pictures`, active rows only, in
 `sort_order` then `id`: `{profiles:[{id, name, url, assetFormat, currency, type, cost, durationDays, durationHours, sortOrder, owned, expiresAt}]}` — a rental lasts `durationDays` days plus `durationHours` hours (both 0: for ever; the hours since 14 Sep 2026, owner) — `assetFormat` is IMAGE (jpg/jpeg/png, one loader), SVG, LOTTIE (Lottie JSON/.lottie at the url) or RIVE (.riv binary), how the client renders what `url` serves; `currency` is COIN (chips), DIAMOND (`users.diamond`) or HAMMER (`users.hammer`, owner 14 Sep 2026), the wallet `cost` is paid from. The token is
 **optional**: without one every FREE row reads `owned:true` and every PREMIUM one `owned:false`;
 with one, `owned` also covers the premium pictures that player has bought. A bad token is ignored,
@@ -1631,7 +1639,7 @@ owns `users`.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly thirty-nine, and none of them is game state** (`app_versions` since 28 Sep 2026, the app version gate's configuration, in its own paragraph just before the ledger reasons) (`player_xp_missions` since 28 Sep 2026, each player's one-time XP missions, §6.6) (`user_sessions` since 28 Sep 2026, the sign-in each token must carry, in its own paragraph after the player reports) (Report Player's `player_reports` since 27 Sep 2026, moderation audit, in its own paragraph after the friends graph) (Player stats v2's `player_variation_stats` and
+Tables — **there are exactly forty, and none of them is game state** (`welcome_rewards` since 30 Sep 2026, what a new account is granted, in its own paragraph after the app versions) (`app_versions` since 28 Sep 2026, the app version gate's configuration, in its own paragraph just before the ledger reasons) (`player_xp_missions` since 28 Sep 2026, each player's one-time XP missions, §6.6) (`user_sessions` since 28 Sep 2026, the sign-in each token must carry, in its own paragraph after the player reports) (Report Player's `player_reports` since 27 Sep 2026, moderation audit, in its own paragraph after the friends graph) (Player stats v2's `player_variation_stats` and
 `stats_flushes` since 27 Sep 2026, in the statistics paragraph below) (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph; `player_stats`, `friend_requests` and `friendships` since the same day, Friends V1, §7.2; and eight of levels, badges and the daily XP since 27 Sep 2026 — `player_levels`, `badges`, `user_badges`, `badge_purchases`, `xp_sources`, `xp_settings`, `player_xp`, `player_xp_claims`, §6.6): ten of accounts, money and the picture
 catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`, `user_table_choice` — the paragraph after the
 `users` trigger below; merged 23 Sep 2026) (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
@@ -1641,7 +1649,8 @@ Draw** — `lucky_draws`, `lucky_draw_slots`, `user_lucky_draws` (the paragraph 
 CHECK ≥ 0`, **`diamond INTEGER NOT NULL DEFAULT 9 CHECK ≥ 0`** — the premium currency, nine per new account (owner, 14 Sep 2026; two, and one before that, earlier the same day), never
 ledgered —, **`hammer INTEGER NOT NULL DEFAULT 20 CHECK ≥ 0`** — what a Force Sideshow costs, 20 per account, never ledgered —, **`missile INTEGER NOT NULL DEFAULT 1 CHECK ≥ 0`** — what a missile costs, one per new account, never ledgered —,
 counters, `active_picture_id`, `deleted_at`, and since 22 Sep 2026 **`is_bot BOOLEAN NOT NULL DEFAULT FALSE`** (in the baseline's `CREATE TABLE users` and its guarded block since 23 Sep 2026) — true for every bot the project runs (owner, 27 Sep 2026: "any bot who plays that should be marked is_bot true"; the `bot-play/` fleet alone until then), set at login from the guest DEVICE ID's namespace (`config.BotDevicePrefixes`, env `BOT_DEVICE_PREFIX`, a comma-separated list, default `botplay-,practice-bot-,ramp-bot-`: the Go fleet's `botplay-<6 digits>` (and the Node fleet's before it, `botplay-v1-<n>`, `botplay-v1-<n>-g<gen>` when rotated), `tools/bot.js`'s practice bots `practice-bot-<slot>-<name>` and the ramp test's `ramp-bot-<n>-device-id`; each entry trimmed, an empty one dropped). A **label, never a permission**: nothing in the game reads it, it is absent from every wire struct (`TestMarkingABotDoesNotLeakToTheClient` — a seat that announced itself as a bot would tell a player exactly what the fleet exists not to tell them), and the login **ORs** rather than assigns so a mark is never cleared. Empty prefix marks nobody, never everybody), and since 26 Sep 2026 **`is_active BOOLEAN NOT NULL DEFAULT TRUE`** (column and guarded block, as `is_bot`; §7.2 "A disabled account"),
-**`user_milestones`** (owner, 14 Sep 2026: the rewards each player has collected, moved off `users`, where they were `milestone_claimed` and `next_bonus_at` — `user_id`, `milestone` HANDS_PLAYED|TIMED_BONUS|DAILY_BONUS (TIMED_BONUS in the baseline's CHECK since `V1.0.2__timed_bonus_milestone.sql` was folded into it; production's table, built by go-server/v1.1.0, keeps the two-value CHECK — and refuses every four-hour bonus claim — until a fresh start or the hand ALTER in the baseline's header), PK on the pair, `claimed_up_to`, `next_claim_at`, `times_claimed`, `last_claimed_at`; one row per player per milestone, inserted on the first claim and updated in place after (`db.collectMilestone`), read through two LEFT JOINs in `userFrom`, so no row reads as nothing collected and both bonuses ready),
+**`user_milestones`** (**retired 30 Sep 2026** with the three rewards, §7.2: nothing reads or writes it, and it stays in the
+baseline so a rollback to go-server/v1.12.0 on a database this build made still finds it; owner, 14 Sep 2026: the rewards each player had collected, moved off `users`, where they were `milestone_claimed` and `next_bonus_at` — `user_id`, `milestone` HANDS_PLAYED|TIMED_BONUS|DAILY_BONUS (TIMED_BONUS in the baseline's CHECK since `V1.0.2__timed_bonus_milestone.sql` was folded into it; production's table, built by go-server/v1.1.0, keeps the two-value CHECK — and refuses every four-hour bonus claim — until a fresh start or the hand ALTER in the baseline's header), PK on the pair, `claimed_up_to`, `next_claim_at`, `times_claimed`, `last_claimed_at`; one row per player per milestone, inserted on the first claim and updated in place after (`db.collectMilestone`), read through two LEFT JOINs in `userFrom`, so no row reads as nothing collected and both bonuses ready),
 **`chip_ledger`** (`action_id UNIQUE`, `hand_id`, `delta`, `balance`, `reason`, and since 19 Sep 2026 `game`/`variant` — `'poker'` + the poker category on a poker row, NULL on every Teen Patti row, §6.5; append-only trigger),
 and the picture catalogue added 12 Sep 2026 (owner): **`profile_pictures`** (`name`, `asset_url`
 UNIQUE, `asset_format` IMAGE|SVG|LOTTIE|RIVE, `currency` COIN|DIAMOND|HAMMER, `type` FREE|PREMIUM, `cost` with a CHECK that free is 0 and premium is > 0, `is_active`,
@@ -1788,8 +1797,7 @@ actions it records; a player's history filed and received is the two player inde
 every login (`startSession`). An existing database gains it at its next boot, empty: every account reads 0, which is what every
 token issued before it carries (`handover_boot_test.go` re-creates it under §7).
 
-Timestamps are epoch-ms BIGINT. Rewards: milestone 25,000 / 25 hands (`didChaal` only), timed bonus 10,000 / 4h (`POST /api/rewards/bonus`, `rewards.bonus*`), and beside it the Go-only daily bonus 1,00,000 chips + 1 hammer / 24h (owner, 14 Sep 2026; `POST /api/rewards/daily`, `rewards.daily*`, ledger reason `daily_bonus`) —
-constants in `users.js`. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} ]*$/u` —
+Timestamps are epoch-ms BIGINT. Rewards (removed 30 Sep 2026, §7.2): milestone 25,000 / 25 hands (`didChaal` only), timed bonus 10,000 / 4h, and beside it the Go-only daily bonus 1,00,000 chips + 1 hammer / 24h (owner, 14 Sep 2026) — they were constants in `db/users.go`, never configurable. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} ]*$/u` —
 **`\p{M}` is essential** for Indic vowel signs.
 
 **`users` rows are never deleted** (owner's decision, 10 Sep 2026): trigger `users_no_delete`
@@ -1921,8 +1929,28 @@ not two: per-platform rows carry maintenance too, so `UPDATE app_versions SET st
 and a `WHERE platform = 'ios'` a partial one. It references nothing and nothing references it (so DEPLOY.md §7 changes nothing for it).
 `db/appversions_test.go` (the seed holds no floor, an operator's UPDATE read back and every typo refused by a CHECK, the trigger, one boot
 bringing a database that lacks the table forward with an UPDATE surviving two more boots).
+**The welcome (owner, 30 Sep 2026: "new account will get how much coins, hammers, diamonds, profile_picture, emoji — this data should
+come from database, user might get some or all rewards")** is one table, **`welcome_rewards`** (`V1.0.0`, beside the Lucky Draw's model;
+`db/welcome.go`): `code` UNIQUE (the seed's conflict key), `reward_type` TEXT (an OPEN set the server checks — `CHIPS`, `DIAMOND`,
+`HAMMER`, `MISSILE` with a `reward_value` > 0, and `PROFILE_PICTURE`, `TABLE_PICTURE`, `EMOJI` with `reward_ref_id` = the catalogue row's
+id as text), `is_active`, `sort_order`, timestamps with a touch trigger. **Every new account reads the ACTIVE rows inside its login
+transaction** (no cache: an owner's UPDATE applies to the very next account, no restart): rows of one wallet add up, the `users` row is
+inserted with chips, diamond, hammer and missile set EXPLICITLY to those totals (0 where no row gives any — the column DEFAULTs 9/20/1
+no longer decide a new account's wallets), the `welcome_bonus` ledger row as before, and each picture, table picture or emoji as the
+ownership row a purchase or a Lucky Draw prize writes (the shop's term from now, `purchases` 1), never worn or laid. "Some or all" is
+which rows are active. A row that cannot be granted (unknown type, zero value, a bad, retired or FREE item, an overflow, the same item
+twice) is left out with one WARN `welcome reward left out` and never fails a login. Seeded (`V1.0.1`, THE WELCOME): `diamonds` 9,
+`hammers` 20, `missiles` 1 — the old defaults. **The `chips` row is not seeded**: the server writes it at boot (`app.New`, not
+`-migrate`) from `WELCOME_CHIPS` when no `chips` row exists, so a deployment's first boot carries its `.env`'s welcome into the table
+(production's players see no change), every fresh test and parity schema gets its configured figure, and after that the row decides —
+a boot whose `WELCOME_CHIPS` differs logs one WARN and leaves the row alone. Switch a grant off with `is_active = FALSE`, never DELETE (a
+seeded row, and the chips row, come back at boot). A picture: `INSERT INTO welcome_rewards (code, reward_type, reward_ref_id,
+sort_order) VALUES ('welcome_picture', 'PROFILE_PICTURE', (SELECT id::text FROM profile_pictures WHERE name = 'Lovestruck Cat'), 50)
+ON CONFLICT (code) DO NOTHING;` (`TABLE_PICTURE` from `table_pictures`, `EMOJI` from `emojis`). `session:ready.config.welcomeChips` is
+the active chips rows' sum through a 15 s cache (`db.WelcomeChipsCache`). Bots get it too. `internal/db/welcome_test.go`,
+`internal/app/welcome_test.go`; checked live on the dev server (hammers off, a picture and an emoji on: a new guest got exactly those).
 Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss, table_tax (§6.6: the winner's winning tax, action `<handId>:tax:<userId>`, always negative),
-milestone_reward, timed_bonus, daily_bonus, purchase, picture_purchase, table_picture_purchase, emoji_purchase, lucky_draw, account_deleted, legacy_reconciliation,
+milestone_reward, timed_bonus, daily_bonus (the three retired 30 Sep 2026 — history rows only, never purged), purchase, picture_purchase, table_picture_purchase, emoji_purchase, lucky_draw, account_deleted, legacy_reconciliation,
 test_fixture`. (`lucky_draw` is a Lucky Draw CHIPS prize — a chip source, always positive, action_id
 `lucky:<userId>:<actionId>`.) (`picture_purchase` is a premium profile picture bought with chips — a chip **sink**,
 always a negative delta, action_id `picture:<userId>:<pictureId>`; `table_picture_purchase` is the same for a table picture,
@@ -1972,14 +2000,14 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | `JWT_SECRET` / `JWT_EXPIRES_IN` | dev-only-insecure-secret / 30d | |
 | `GOOGLE_CLIENT_IDS`, `FACEBOOK_APP_ID/SECRET` | empty → 503 | Facebook's pair is read and unused while Facebook sign-in is switched off (23 Sep 2026, §7.2). `GOOGLE_CLIENT_IDS` must name the Web client `265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com`: `prod.sungamestudio.com` answered every Google login 503 `provider_unconfigured` until the owner set it and restarted on 24 Sep 2026 (a dummy-token login then answered 401 `invalid_token`); a login answered 503 there means it is missing again — §12.3 |
 | `AUTH_ALLOW_FAKE_PROVIDERS` | false | |
-| **`REST_LOGIN_RATE_LIMIT`** / **`REST_WALLET_RATE_LIMIT`** / **`REST_RATE_WINDOW_MS`** | 60 / 120 / 60000 | **Go-only (24 Sep 2026).** Per-client-IP fixed-window limits (`config.RESTRateConfig`, `auth/ratelimit.go`): `POST /api/auth/login`, and the doors that move a wallet (rewards, Play purchases, picture and table-picture buys, the missile store, `DELETE /api/account`). Over it: **429** `{error:"rate_limited"}` + `Retry-After`, one WARN `rest rate limited` per IP per window. 0 = that limit off. The IP is the peer's, or nginx's `X-Real-IP` from a loopback peer; a loopback peer with no `X-Real-IP` (bot-play, `tools/`, tests) is never limited. Generous on purpose — CGNAT puts many players behind one IP. |
+| **`REST_LOGIN_RATE_LIMIT`** / **`REST_WALLET_RATE_LIMIT`** / **`REST_RATE_WINDOW_MS`** | 60 / 120 / 60000 | **Go-only (24 Sep 2026).** Per-client-IP fixed-window limits (`config.RESTRateConfig`, `auth/ratelimit.go`): `POST /api/auth/login`, and the doors that move a wallet (Play purchases, picture and table-picture buys, the missile store, `DELETE /api/account`). Over it: **429** `{error:"rate_limited"}` + `Retry-After`, one WARN `rest rate limited` per IP per window. 0 = that limit off. The IP is the peer's, or nginx's `X-Real-IP` from a loopback peer; a loopback peer with no `X-Real-IP` (bot-play, `tools/`, tests) is never limited. Generous on purpose — CGNAT puts many players behind one IP. |
 | **`DATABASE_URL`** | `postgres://postgres:postgres@localhost:5432/gameplay` | |
 | **`PG_SCHEMA`** | `public` | tests use `test_<suite>_<rand>` and drop it after |
 | **`PG_POOL_MAX`** | 10 | |
 | `PG_STATEMENT_TIMEOUT_MS` | 15000 | **Go server only**: Postgres `statement_timeout` per pooled connection so a hung query fails one ledger write instead of freezing a table; 0 = no limit (Node behaviour) |
 | **`LEDGER_PURGE_INTERVAL_MS`** | 300000 (5 min) | **Go server only.** How often the in-process purge goroutine runs (`App.startLedgerPurge`, a `time.NewTicker`, first pass one interval *after* boot — a server restarted more often never purges). **0 is the only way to turn the job off.** |
 | **`LEDGER_PURGE_AFTER_MS`** | 600000 (10 min) | **Go server only.** A `chip_ledger` row is deleted once older than this — but **only** `hand_win`/`hand_loss`/`hand_packed`/`hand_left` (`db.purgeableReasons`, hardcoded in the query): `purchase`, `picture_purchase`, `milestone_reward`, `timed_bonus`, `welcome_bonus` are never purged, since their UNIQUE `action_id` is a standing double-credit guard — nor, since 27 Sep 2026, any row of a hand a player report names (`player_reports.hand_id`, §7.3). Deletion is allowed only inside `PurgeLedger`'s own transaction, which sets `app.ledger_purge`; the append-only trigger refuses every other DELETE and every UPDATE. **Trap: 0 does NOT disable it** — the cutoff becomes `now`, so the next pass takes every purgeable row. Now equal to `RESUME_OFFER_MS`, so a retry at the edge of the resume window can find its `action_id` already gone (was 24h for that margin). |
-| `WELCOME_CHIPS` / `BOOT_AMOUNT` † | 1000000 / 200 | only `BOOT_AMOUNT` is a table key (db: `table_settings.default_boot_amount`). The 10 Lakh welcome (owner, 27 Sep 2026: "every new user will get 1 missile 20 Hammers and 10Lakh coin"; 3 lakh from 14 Sep 2026, 2 lakh before). **Production's `.env` sets `WELCOME_CHIPS` explicitly**, so a new default changes nothing there until that line does |
+| `WELCOME_CHIPS` / `BOOT_AMOUNT` † | 1000000 / 200 | only `BOOT_AMOUNT` is a table key (db: `table_settings.default_boot_amount`). **Since 30 Sep 2026 `WELCOME_CHIPS` only SEEDS the `welcome_rewards` `chips` row** on a deployment's first boot (§7.3); after that the row decides, and a differing value is one WARN; a negative one stops the boot, 0 writes the row switched off. The 10 Lakh welcome (owner, 27 Sep 2026: "every new user will get 1 missile 20 Hammers and 10Lakh coin"; 3 lakh from 14 Sep 2026, 2 lakh before). **Production's `.env` sets `WELCOME_CHIPS` explicitly**, so a new default changes nothing there until that line does |
 | `TABLE_STAKES` † | `200,5000,50000,2000000` | empty = any (tests); db: `table_settings.stakes` (an empty array is any; a non-empty one gains the boot of every active public row it lacks, since a table's own boot is always an allowed stake, §7.3) |
 | **`LOBBY_TABLES`** † | `seen:200:tax=1,blind:200:tax=1,blind:5000:max=200000000:tax=1,blind:50000:max=2000000000:tax=1,blind:2000000:min=500000000:tax=1,variation:50000:max=2000000000:tax=1,variation:2000000:min=500000000:tax=1,seen:50000:pot=50000000:tax=1,three_card_poker:50000,five_card_draw:50000,texas_holdem:50000,omaha:50000` (27 Sep 2026: every Teen Patti table `tax=1`, §6.6; the top Blind and Variation tables at 20 Lakh, 10 Lakh before; Blind 5,000 open to 20 Cr, 5 Cr before; the 50,000 Blind and Variation tables to 200 Cr, 100 Cr before — what the prose below says of 10 Lakh, 5 Cr and 100 Cr is the earlier menu) | the menu; empty = any pair (tests). **`pot=N` is a table's OWN pot cap** (Go only; owner, 19 Sep 2026: a second seen table, boot 50,000, open to all, pot limit 5 Crore — `LobbyTable.MaxPot`, read by `TableRules` and `MenuMaxPot` through `menuPotFor(category, boot)`): it wins over the category's cap (`SEEN_MAX_POT` is 40 boots at 50,000, so every hand there would be dealt into the POT_LIMIT showdown), changes nothing else — the ladder and rounds stay the category's — and a private table never reads it. 5 Crore is 5,00,00,000 = `50000000`; `500000000` is 50 Crore. The new entry is LAST in the list like every later addition; the Flutter lobby files it under Seen by category. Categories are `seen`, `blind`, (Go only, 18 Sep 2026) **`variation`** and (Go only, 19 Sep 2026, §6.5) the four poker ones **`three_card_poker`, `five_card_draw`, `texas_holdem`, `omaha`** — anything else stops the boot. A poker entry's boot is its big blind (Hold'em, Omaha) or ante (3-Card Poker, 5-Card Draw); its `minChips` on the menu is raised to the table's `minBuyIn` (`POKER_MIN_BUYIN_BOOTS` × boot) and each `options.tables[]` entry carries `game`, `smallBlind`, `bigBlind`, `ante`, `minBuyIn`, `holeCards`, `maxDiscards` (omitted on Teen Patti entries). Poker keeps **one table per game, all four at 50,000** (owner, 19 Sep 2026: "in poker category only keep one table 50000 for each gameplay"; it was six entries at 200 and 5,000 earlier that day) — so blinds 25,000/50,000, an ante of 50,000, and a buy-in of **5,00,000** at every poker table, which is MORE than the 3,00,000 welcome: a brand-new account sees the whole Poker category shut until it has won 5 Lakh, and `POKER_MIN_BUYIN_BOOTS` (4 = 2 Lakh) is the one key that changes that without touching the stake. The four default poker entries are LAST; an older Go tag cannot boot on a `.env` that lists one, and an installed app older than the first poker-aware build draws each as a seen table — raise `MIN_CLIENT_BUILD` first. Variation keeps **two tables only, 50,000 and 10 Lakh** (owner, 18 Sep 2026), behind the bands blind's tables of those stakes have; its entries are LAST so the five before them keep their places, and clients are told of the category (`config.categories`) only when it is listed. **Rollout:** an installed app older than the build that knows the category draws that card as a seen table and never shows the picker, so every hand there is a server-chosen Muflis — raise `MIN_CLIENT_BUILD` first. **Production's `.env` sets `LOBBY_TABLES` explicitly**, so the new default changes nothing there until that line does; a Go tag older than this cannot boot on a `.env` that lists `variation:`. Each entry is `category:boot` plus an optional **stack band** — `max=N` shuts the table to a player holding MORE than N, `min=N` to one holding LESS. Exactly the limit is allowed at either end. A band whose min exceeds its max fails at load (it would advertise a table nobody could join). **In db mode** the menu is the active public `table_configs` rows in `sort_order` (§7.3) and this key is ignored; the rollout rule becomes the row's: a table appended to the seed arrives inactive on an existing database, and goes live with `is_active = TRUE` after `MIN_CLIENT_BUILD` — never by a restart. A row with an unknown category is left out with a logged reason, not a stopped boot. |
 | `MAX_PLAYERS_PER_ROOM` / `MIN_PLAYERS_TO_START` † | 5 / 2 | the Teen Patti felt lays out 2..5 places round its table from it (`SeatRing`, §8.4); 5 is still hardcoded in the poker felt's `seatPlaces` and the browser CSS |
@@ -2233,7 +2261,7 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   (`room:state` → table; `room:left/closed/kicked` → lobby). `PopScope(canPop:false)` everywhere.
 - Landscape only, immersive sticky.
 - **One `ChangeNotifier`** — `GameState` — with a `Timer.periodic(1s, notifyListeners)` for the
-  reward countdown. **Any `context.watch<GameState>()` rebuilds every second.**
+  countdowns (the rewards' until 30 Sep 2026; the Lucky Draw's, rentals, grace clocks). **Any `context.watch<GameState>()` rebuilds every second.**
 - `GameConnection`: websocket-only Socket.IO; broadcast `Stream`s; every emit via `emitWithAck`; a
   refusal is `{ok:false, message}` → `notice`. `request()` awaits an ack with an 8s timeout.
   **Every `act()` sends a fresh `actionId` (uuid v4)** for server-side idempotency. The `room:moved`
@@ -2350,6 +2378,13 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   asked again on that device (quit, relaunch, resume included). Keyed per account, not per device: a
   second account on the same phone is asked once for itself. Client-only, nothing goes to the server.
   Not shown over the update screen. Back while it is up = the usual quit question. `test/consent_test.dart`.
+- **The welcome message** (30 Sep 2026; server §7.2/§7.3): a new account's login carries `welcome` (`WelcomeGrant`, `dtos.dart`;
+  `ApiClient.loginGuest`/`loginProvider`), and `welcomeNotice` (`game_state.dart`) says in the player's language exactly what was
+  granted — "Welcome! Added to your account: 10 Lakh chips · 9 diamonds · 20 hammers · 1 missile · 1 picture · 1 emoji", singular and
+  plural right (the wallet words are `priceIn`/`countMissiles`'), "Welcome to King Teen Patti!" for a grant of nothing, the chips alone
+  from an older server's `welcomeChips` — replacing an English-only chips line. The picture and table-picture catalogue loaders drop an
+  answer made under another token (as the emoji loader did), so a cold start's anonymous read landing late can no longer show a granted
+  picture locked. `test/welcome_grant_test.dart`.
 - **The app version gate** (owner, 28 Sep 2026; server side §7.1/§7.2 "The app version gate"; `net/app_version.dart`). The app
   **declares itself** — `appPlatformName()` (`android` | `ios` from `defaultTargetPlatform`, null elsewhere) and pubspec's version
   from `package_info_plus` (read and AWAITED at start, 2 s bound — it used to be fire-and-forget) — as `X-App-Platform` /
@@ -2529,13 +2564,17 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `assets/animations/Coins.json`** (the same day: "use this animation in lobby cards on top left for coin and change
   color acc to card"; `widgets/card_coins.dart` `CardCoins`): a pile of gold coins, the front one spinning and a sparkle
   crossing it, 2 s, 800 units square, in the card's colour — beside every category card's name (where the two-chip
-  `LivelyChipStack` was, as tall as it: `titleSize × 0.62 × 1.22`) and in every table card's badge (where the
-  `SpinningChip` was, `h × 0.72`). The boot row's chip pile and the engine cards' `ChipShuffle` are as they were. Its whole
+  `LivelyChipStack` was: `titleSize × 1.1`, a little taller than the name's capitals — `× 0.62 × 1.22`, the pile's height, until the
+  owner asked for bigger coins on 30 Sep 2026) and in every table card's badge (where the `SpinningChip` was: `h × 0.94`, the
+  most the badge holds — the pile is 0.8 of its width tall and the badge clips; `h × 0.72` before). The boot row's chip pile and the engine cards' `ChipShuffle` are as they were. Its whole
   loop (30–728 × 122–684) fits the box by its width. `test/card_coins_test.dart`. **Every table card's ⓘ key plays the
   owner's `assets/animations/Info icon wave.json`** (the same day: "use this icon for info on top right … and change
   color acc to card type"; `widgets/info_wave.dart` `InfoWave`, `_CardCornerKey.glyph`): an "i" in a ring with waves
-  rippling out, 2 s, 120 units square, in the card's colour; the waves at their widest (46–74) fill 26dp, inside the key's
-  28dp disc and its hairline. The file's "i" (layer `i Outlines`, #ACB6C3) is 2.1:1 on the white card, so by day it is a
+  rippling out, 2 s, 120 units square, in the card's colour; the waves at their widest (4–116) fill 26dp, inside the key's
+  28dp disc and its hairline, the ring round the "i" (34–86) 12dp. The first cut took 46–74 for the waves and drew them four
+  times too large, past the card's edge: `LottieDrawable.draw` fits with `BoxFit.scaleDown` by default, so the test that
+  measured the file drew its 120 units at 120px on a 480px canvas and read a quarter of the art — a measuring draw passes
+  `fit: BoxFit.fill`, and the test now also measures the pixels the widget itself paints. The file's "i" (layer `i Outlines`, #ACB6C3) is 2.1:1 on the white card, so by day it is a
   slate (`infoWaveDayGlyph` #5B6574, 5.9:1) in the card's colour; by night the file's grey (7.4:1). The table info popup
   keeps the plain icon. `test/info_wave_test.dart`; `lobby_click_sound_test` and `table_tax_test` find the key by
   `ValueKey('info-wave')`. The marks are one
@@ -2548,7 +2587,11 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   the motion kept, one colour's callbacks shared and another's not). The table info popup (ⓘ) keeps the plain icons. An animating Lottie rebuilds ITSELF at its
   frame rate (the lottie package's `setState`), so `avatar_badge_test`'s "the tick never rebuilds it" counts rebuilds
   under the badge only. INSIDE
-  a category the rail is a slim `_BackTile` (the category's name over "All games") then that category's `_TableCard`s from
+  a category the rail is a slim `_BackTile` (the category's name over "All games"; its key the owner's `assets/animations/Back
+  Button.json` since 30 Sep 2026 — "use this back button animation for going back instead of using that icon"; `widgets/back_mark.dart`
+  `BackMark` over `FactMark`: a ring and arrow that press, sweep out left and come back in from the right, 1.53 s, 1080 units with the
+  ring at 364–714 filling the 44dp key — the ring is the key's edge, over its well fill — every stroke and fill in the card's display
+  ink (the file's charcoal #2B2B2B vanished by night); `test/back_mark_test.dart`) then that category's `_TableCard`s from
   `GameState.lobbyTablesIn(category)`, **joinable → shut**, each group in the server's order. `GameState.lobbyCategory`
   (null = the front) lives in GameState, not the lobby's State: main.dart's `_BackGuard` closes it before it offers to
   quit (not while the consent panel is up), it survives a visit to a table (leave a Blind table → the Blind tables), it
@@ -2576,10 +2619,16 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   rows (including **Entry**, the table's stack band: "Up to 5 Crore", "50 Crore or more", or "Open to all"),
   shut-table overlay — a padlock and `cappedTitle` when the player has outgrown the table, a rising arrow and
   `lockedTitle` when they have not grown into it, both faded to 0.42 so the stake stays readable;
-  `_TopBar` (owner, 13 Sep 2026, "more letters of the name"): the 4-hour bonus chip takes its own width (capped at
-  `Dim.bonusSlotW − Space.md`) and the profile picture follows straight after it; the name and the balance share one
+  `_TopBar` (owner, 13 Sep 2026, "more letters of the name"): the profile picture opens the bar — the 4-hour bonus chip
+  stood before it until the three lobby rewards were removed (30 Sep 2026, §7.2), and its slot (`Dim.bonusSlotW`, now
+  `Dim.cornerChipW`, the Lucky Draw chip's cap) is the name's. **The picture is a fifth bigger than the bar's own measure** (owner,
+  30 Sep 2026: "In Top Left increase Profile size but don't increase size of badge"): `Dim.avatarD` = `Dim.avatarMarkD` (the old 0.135h,
+  44..64) + the pip's allowance + one pad (58.7dp at 360 tall, 66.5 at 411), drawn through an `OverflowBox` into half of the bar's pad
+  above and below, while the bar (`Dim.topRailH`) is still sized from `avatarMarkD` — a bar grown with the picture took 10dp from the
+  rail of cards and broke its whole-card stops at 732x412 — and the badge and edit mark keep `avatarMarkD`'s size
+  (`_AvatarWithPip.markDiameter`; the badge still centred by `AvatarBadge.centreFor` on the bigger picture's rim); the name and the balance share one
   `Expanded` in which the balance keeps its natural width up to 65% of that room (53% when `tight`, i.e. less than
-  `Breaks.tightBar` 470dp left beside the bonus slot) and scales down past it, and the name takes the rest — it was a
+  `Breaks.tightBar` 470dp for the whole bar — no landscape phone now) and scales down past it, and the name takes the rest — it was a
   `Flexible` beside a `Spacer` and a flex-4 balance, which handed it a sixth of the free space ("Gu…"). On a tight bar
   the Shop key is icon-only (`ShopButton(compact: true)`, tooltip "Shop"). TP_Tall shows "Guest0E00B" whole; TP_Small
   "Guest63…". The balance shows chips then diamonds (gem + count, `_diamondInkOn` — pale blue on dark glass, deep blue on light).
@@ -2587,8 +2636,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   wallets stand in `_WalletPill` (the `_BarActions` pill's own fill and hairline, hugging its figures) with the Shop key
   against its right end; on a tight bar the steps round the avatar and inside the pill are `Space.sm`, which with the
   53% cap keeps the balance's scale where it was and gives the name 4dp more than before the pill (a 640dp phone now
-  shows "Guest0E00B" whole; `test/lobby_polish_test.dart`). The Shop key is struck gold (`AppTheme.goldFace`, #F1D27A →
-  #D4A514 → #B8890F) on a still lift and a restrained gold bloom; its highlight crosses once every 6 s (it swept every
+  shows "Guest0E00B" whole; `test/lobby_polish_test.dart`). The Shop key is an ICE face since 30 Sep 2026 (owner: "The Shop button background colour yellow does not look good with blue icon,
+  change yellow to something else which looks good in day and night mode both"; `ShopFace` in `widgets/buy_chips.dart`): white → pale
+  blue (#FFFFFF → #EAF3FF → #D3E6FF by day, a step dimmer by night, #E2EDFF → #CADFFF → #B6D2FA), a 1.5dp rim in the icon's own blue
+  #1365E8 (0.75 by day — what clears 3:1 on the pale bars — 0.55 by night), "Shop" in #0E4FC0 (≥ 4.69:1 on every stop), a blue bloom
+  where the gold one was; `test/shop_face_test.dart`. It was struck gold (`AppTheme.goldFace`, #F1D27A → #D4A514 → #B8890F), which the
+  blue shopfront clashed with; the struck gold stays Chaal's, the spin key's and the level tags'. On a still lift; its highlight crosses once every 6 s (it swept every
   3.2 s over a breathing bloom) — at the table too, the same widget. **Its glyph is the owner's
   `assets/animations/Shop.json`** (29 Sep 2026: "use this icon for Shop"; `widgets/shop_mark.dart` `ShopMark`, in the
   storefront icon's 19dp box so the key keeps its width): a shopfront that builds itself — walls, awning, door, window —
@@ -2616,30 +2669,20 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (measured with a `TextPainter`, §12.3) — 891x411 ×1.0 and 1280x800 keep it, 891x411 ×1.25 drops it; the tight bar never had it.
   The foot's `LevelKey` stays (the owner did not ask to remove it; it is the level screen's key where the name block is cut
   short). Pictures by hand: `test/lobby_level_bar_shots.dart` (run like table_shots);
-  `_DailyBonusChip` in the bottom-left corner (the daily bonus — 1 lakh chips and 1 hammer every 24 h, a gift glyph, hidden when
-  the server offers no daily bonus, the celebration showing the hammer under the chips; tapped while it is
-  still counting down it opens `openBonusDetails`, as the 4-hour `_BonusChip` does — a popup of the reward, a live countdown and the
-  interval, offering Collect once the wait is over (`_CornerChip.onWaitTap`; the milestone chip has none); owner, 14 Sep
-  2026 — it had briefly replaced the 4-hour `_BonusChip` in the bar, which came back beside it the same day) and `_MilestoneChip` in the bottom-right, both clear
-  of the rail's `band`, and `lobbyNoticeArea` keeps a toast between them; one `endDrawer` for stats/settings. Every
-  `_CornerChip` is a pill of the cards' own surface (`GlassCapsule(surface: GlassSurface.card)`) with its mark in a 28dp
-  disc (`_ChipMark`: gold-lit while the reward can be taken, a quiet well while it is coming), a `cardMuted` title and
-  the figure in the card's ink (gold when ready); the pill's padding is 6 at the mark's end and 14 at the other, so a
-  chip is no wider than it was. No progress ring: the rewards carry the time and the hands LEFT, not the interval, and
-  the brief says not to invent it.
-  **A ready bonus chip pays in glyphs, not words** (owner, 24 Sep 2026: "In daily Bonus button instead of showing text 'collect' show
-  coins icon and instead of text 'Hammer' show icon. Same in case of 4 Hour Bonus show coin icon instead of collect text"): the second
-  line of the 4-hour chip is `[coin] 10,000` and the daily chip's `[coin] 1,00,000  +1 [hammer]` — `_CornerChip.reward`, a
-  `({chips, hammers})` record given instead of `subtitle` (exactly one of the two; the countdown, the hands to go and the milestone's
-  "Collect 25,000" stay words, and the popup keeps its Collect key), drawn by `_rewardLine` with the top bar's own marks — a
-  `PokerChip` in the wallet's gold and `Icons.hardware` in the hammer's copper (`hammerInkOn`), never the chip's champagne `fg`, each the size of the figure's type so it scales with it and never
-  outgrows the line. It is a `Row`, not a `Text.rich` with `WidgetSpan`s: a placeholder that opens a paragraph is centred on a line
-  with no text metrics yet and made the chip 2dp taller than its counting-down twin. "Collect 1,00,000 +1 Hammer" was cut to
-  "Collect 100,000 +..." on a 640dp phone; the glyphs bring the line to 205dp at the 1.25 text ceiling, still over the top bar slot's
-  192, so the daily chip — at the foot, where only the milestone shares its row — has a cap of its own, `Dim.dailyBonusW` (`bonusSlotW`
-  × 1.1; the toast area measures the chip, so it moves aside by itself). `test/bonus_chip_icons_test.dart` pumps the lobby at 640×360
-  ×1.25 in all five languages and holds the word absent, both glyphs present, the figures un-ellipsised (laid-out width = max intrinsic
-  width) and the chip the same height in both states.
+  **The lobby's foot** (since the three rewards went, 30 Sep 2026 — owner: "Remove 24-hour daily reward, 4-hour bonus, and
+  milestone reward"): the Lucky Draw chip alone in the bottom-left corner (`_LuckyDrawChip`, keyed `_luckyChip`) and the
+  level key and Friends in the bottom-right (a Row keyed `_footKeys`), where the daily bonus (`_DailyBonusChip`, beside the
+  Lucky Draw), the milestone chip (`_MilestoneChip`) and, in the top bar, the 4-hour `_BonusChip` stood, with their popup
+  (`openBonusDetails`), their glyph line (`_rewardLine`, `_CornerChip.reward`) and `Dim.dailyBonusW` — all removed, with
+  `bonus_chip_icons_test`, `bonus_details_test` and `daily_bonus_test`. The rail keeps a band clear at its foot the height of
+  the Lucky Draw chip's two lines or a touch target, whichever is taller, and `lobbyNoticeArea` keeps a toast between the two
+  corners; one `endDrawer` for stats/settings. The reward celebration stays, for what lands in a wallet in the lobby — a pack,
+  a Premium Package, a missile trade. A `_CornerChip` is a pill of the cards' own surface (`GlassCapsule(surface:
+  GlassSurface.card)`) with its mark in a 28dp disc (`_ChipMark`: gold-lit while a spin can be taken, a quiet well while it
+  is coming), a `cardMuted` title and the figure in the card's ink (gold when ready), capped at `Dim.cornerChipW`. The top bar's
+  `tight` is measured against the whole bar now, so no landscape phone is tight: the Shop key shows its word and "Guest0E00B" is
+  whole at 640x360 ×1.25 (cut a little at 592x360 ×1.25). `test/lobby_rewards_removed_test.dart` (an account still carrying an old
+  `rewards` object draws none of it; the three foot keys on screen, in their corners and clear of each other; the toast area between them).
 - **Friends V1 — a LOBBY feature** (owner's brief, 26 Sep 2026; server side §7.2/§7.3; `screens/friends_screen.dart`,
   `state/friends_state.dart`, `models/friends.dart`), with ONE table surface since the same evening (**Friends at the
   table**, owner: "in a gametable, if a player clicks other player pod then a drawer from right side will open, where he
@@ -2722,12 +2765,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   presence through `own_seat_drawer.dart` alone. `test/friends_table_test.dart` "the viewer's own drawer" (the record, the
   friends in order with their presence, the 15 s read that stops on close, empty and failing lists, both tabs at 640x360
   ×1.25 in every language, both themes, both felts); pictures `own`/`ownFriends` in `friends_table_shots.dart`. **The key**
-  (`FriendsKey`) is a round 44dp key of the corner chips' card surface just left of the MILESTONE chip in the lobby's foot —
+  (`FriendsKey`) is a round 44dp key of the corner chips' card surface in the lobby's bottom-right corner, beside the level key (just left of the milestone chip until that went, 30 Sep 2026) —
   not in the top bar, where a fourth key would have cut the player's name at text ×1.0 on a 640dp phone (the wallet pill
   takes 53% of a tight bar); the people glyph in a 28dp disc, turning gold with a soft glow and a count badge ("9+" past 9)
   while requests wait; hidden signed out and on a server from before Friends (404). `lobbyNoticeArea` keeps toasts off it
   where 160dp remain, and gives a toast the plain foot (null) while a page or dialog covers the lobby
-  (`ModalRoute.isCurrentOf` on the milestone chip): kept between chips hidden under the Friends page, its toasts stood 156dp
+  (`ModalRoute.isCurrentOf` on the foot keys, `_footKeys` — on the milestone chip until 30 Sep 2026): kept between chips hidden under the Friends page, its toasts stood 156dp
   wide on a 640dp phone and broke over three lines. **The page** (`showFriends`, risen from the foot like the store and the Lucky Draw; gold-edged glass by
   night, the warm card by day): a header with the title, Add Friend and close, then "Your Player ID" — the full UUID, scaled
   to fit and never cut — and Copy ("Copied" for 2 s); on a landscape phone two columns, Friend Requests (Accept / Reject)
@@ -2839,7 +2882,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`topGap` 4dp), comes with the owner's `assets/sound/notification.mp3` (`FeedbackSettings.xpNotification`, full volume, behind the Sound switch, once a bar), stays `hold` **15 s** (owner, 27 Sep 2026: "toast message should remain for 15 seconds"; 5 s before) with a gold line draining along its foot, slides away; its **×** key (`xp-mission-close`, a 24dp disc in a 44dp target at the bar's right end — no Tooltip: the bar stands above the Navigator, with no Overlay; "give a cross button also in toast message") or a tap anywhere on it sends it early, one tap one bar; the next waits
   `between` 180 ms — never two at once. As wide as its words, centred, up to `maxWidthFor(w)`: at a table 0.6 of the safe width
   (260..440dp), clear of the Shop key and the wallet, the keys and the viewer's cards at 592x360–915x412 ×1.0/×1.25 on both felts
-  (it covers the top seats' heads for the 5 s); in the lobby half (260..420dp), clear of the bonus chip and the drawer keys — the
+  (it covers the top seats' heads for the 5 s); in the lobby half (260..420dp), clear of the picture and the drawer keys — the
   top bar has no gap in its middle, so there it lies over the name and the wallet pill, and below about 700dp the Shop key. The
   mission's emoji in a gold-ringed disc with a green tick, the mission in the display ink, "+1 XP" on a gold wash, "24 / 100 XP"
   quiet. The mission and the level up are never set smaller or cut: a long one takes a second line (two at most), so the tallest
@@ -2877,8 +2920,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `test/emoji_overlap_test.dart`, scene `19c-every-seat-emoji`. 18 strings in five languages.
   `test/emoji_{state,store,table}_test.dart`.
 - **The Lucky Draw** (owner, 24 Sep 2026; `screens/lucky_draw_screen.dart`, server side §7.2/§7.3). **The lobby key** is a
-  `_CornerChip` beside the daily bonus in the bottom-left corner (`_LuckyDrawChip`; the two stand in one Row keyed `_dailyChip`, so
-  `lobbyNoticeArea` keeps a toast off both): LUCKY DRAW over "Spin now" while a spin is due (gold, a small drawn wheel —
+  `_CornerChip` alone in the bottom-left corner (`_LuckyDrawChip`, keyed `_luckyChip`, so `lobbyNoticeArea` keeps a toast off it; the
+  daily bonus stood beside it until 30 Sep 2026): LUCKY DRAW over "Spin now" while a spin is due (gold, a small drawn wheel —
   `LuckyWheelGlyph` — turning a third of a turn now and then, as the hourglass breathes), else the wait as `HH:MM:SS` running past 24
   hours (`formatSpinClock`); a tap opens the draw either way. Hidden while `GameState.luckyDraw` is null — no draw open, or a server
   that predates it (404) — which `loadLuckyDraw()` reads at every sign-in and again when the screen opens. **The screen**
@@ -3573,8 +3616,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   padlocked table card goes nowhere and stays quiet. `test/card_click_sound_test.dart`. **Every lobby key and Back**
   (owner, 27 Sep 2026: "This Card click.mp3 sound should be played when i click back button and any button in Lobby
   UI"): the same click, once per tap, through ONE helper, `lobbyClick(context)` (`widgets/glass_components.dart`, beside
-  `tapHaptic`; nothing without a `FeedbackSettings` in scope) — the top bar (the 4-hour bonus chip, the picture, Shop, the
-  record, Settings, Sign out), the foot (the daily bonus, the Lucky Draw, the level key, Friends, the milestone), the back
+  `tapHaptic`; nothing without a `FeedbackSettings` in scope) — the top bar (the picture, Shop, the
+  record, Settings, Sign out), the foot (the Lucky Draw, the level key, Friends), the back
   tile, a table card's ⓘ and rules keys (their own click only: the key wins the tap over the card, which neither clicks
   nor opens), the private card's Create and Join, the reward celebration's close key, and the cards as before. The shared
   widgets take it as a flag — `GlassCapsule(click:)` (every `_CornerChip`, `LevelKey`, `FriendsKey`), `GlassButton(click:)`,
@@ -3584,10 +3627,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   quit — not the quit question's own keys, not under the no-winnings panel, not under a cold start's resume veil (the
   player sees the veil, not the lobby: `!state.resuming`), not at the table or sign-in, and never when a dialog, sheet or
   page is over the lobby (it takes Back itself). Silent: a padlocked table card, a disabled key (Join before 8
-  characters, the milestone still counting hands), the celebration's scrim, the code field and its keyboard Enter, and
+  characters), the celebration's scrim, the code field and its keyboard Enter, and
   the no-winnings panel's *I confirm* (the panel covers the lobby; it is not a lobby key). The tests hear Material's
   tick too (`SystemSound.play` on a mocked platform channel, a sound-on theme): every key that clicks makes no tick. **Not yet extended** (surfaces opened FROM the lobby, their own keys keep Material's tick): the Stats and
-  Settings drawers' rows, the bonus popup, the table-info popup, the rules sheet, the sign-out and quit questions, the
+  Settings drawers' rows, the table-info popup, the rules sheet, the sign-out and quit questions, the
   picture picker, the store, the Lucky Draw page, the level popup, the Friends page. Rapid taps restart the one voice the
   clip has (`_playAsset` stops it and plays again), so each tap clicks and nothing stacks. The seam the tests hear
   through is `FeedbackSettings.playClip` (`@visibleForTesting`), after the Sound switch has decided.
@@ -3616,7 +3659,21 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`versionEnvironmentTag`). The switches are gold when on (`FeedbackSwitchStyle`: `AppTheme.goldFace`'s middle by night under a
   charcoal thumb, its foot by day under a white one; off keeps 3:1) — in the table's menu drawer too, whose row geometry is
   unchanged — and `GlassThemeSwitcher` is a sunk well (`track:`, optional) with the chosen segment in the store's gold wash and
-  champagne edge and the other two in the body ink, not white38 — on the login screen and the table drawer alike. `test/settings_drawer_test.dart` (640x360 ×1.25 in all five
+  champagne edge and the other two in the body ink, not white38 — on the login screen and the table drawer alike. **Inside a Blind or
+  Variation level both lobby drawers take that level's colour** (owner, 30 Sep 2026: "when i open setting while Entering Blind Card,
+  then Setting drawer Shade colour should change acc to card type colour, for seen it is correct, but for blind and variation make it
+  correct"; `widgets/level_accent.dart`): the lobby lays `LevelAccent(palette:)` over its `endDrawer` with the level the room is lit
+  by (the category open, else the engine's palette), and `LevelAccent.of` answers `LevelColours` — or null for the gold levels (the
+  front, Seen, Teen Patti), where everything draws exactly what it drew. Then the ground is the pearl by day and the charcoal by
+  night turned to the level's hue at their own lightness, 1.8× as saturated (`LevelColours.inHue`: Blind's ice and deep blue-charcoal,
+  Variation's lavender and plum), the wells the same stone in that hue, and the gold's roles take the level's accent — a fill
+  (`fill`: the head mark's disc, the switches' track through `FeedbackSwitchStyle.track(accent:)`, the chosen segment's and number
+  format's wash), ink (`ink`: the accent by night, the palette's ink by day), and the hairline (`hairline`, `chosenEdge`) — on the head
+  mark, the head's rule, the portrait's ring and pencil, the number format, the switches and `GlassThemeSwitcher`. The Stats drawer
+  takes the ground, the rule, the portrait's ring and the chosen scope (`_StatsInk._inLevel`: chevron, tick, wash); its money stays
+  gold. Nothing outside the scope (the top bar, the table's drawer, the login screen's switcher) reads it. `test/level_accent_test.dart`
+  (the colours per level and theme, the drawer's ground, mark, ring, switches and chosen appearance inside Blind and Variation in both
+  themes, Seen and the front unchanged, the Stats drawer). `test/settings_drawer_test.dart` (640x360 ×1.25 in all five
   languages: nothing cut short, the head in place at the list's end; the number format row; the switches; the appearance
   control; Sign out and Delete still asking; the keyboard; the ring; the environment tag); pictures by hand,
   `test/settings_shots.dart` (run like table_shots).
@@ -3740,7 +3797,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   - *Spacing* on the cards' own 4dp grid, **`CardSpace`** (4/8/12/16/20/24/32) — **the app-wide `Space` ramp
     (2/4/6/10/14/20/28/40) is untouched**, since every other screen is laid out on it, and a test holds both. Three tiers
     from the side, compact < 240 ≤ regular < 320 ≤ roomy: margin 12/16/20, between blocks 8/8/12, badge to boot 4/4/8,
-    mark to words 12/12/16, above the foot key 4/8/16, either side of a fact rule 4/4/8 (a group card's 4/8/12).
+    mark to words 12/12/16, above the foot key 4/8/16, either side of a fact rule 4/4/8 (a group card's 4/8/12). A category card's name stands TWICE its gap above its
+    line (an engine card's once — it has the most to hold; 16/16/24; owner, 30 Sep 2026: "add some space between 'Seen' and 'Everyone's chips visible'").
   - *The private card* stands its code field and its keys together on its foot (two Spacers had split them), its name
     and line at the top in a `CardColumn` (at ×1.3 the line was cut mid-sentence); the English hint is tracked 2, not the
     code's 6 ("TABLE C…").
@@ -4069,7 +4127,8 @@ HTML comment and its handler commented out while Facebook is switched off (23 Se
 
 ## 10. Requirements index (`Requirements.txt`)
 1 login providers (Google and guest; Facebook switched off for now, 23 Sep 2026) · 2 DB per identity (brief says SQLite; **now Postgres by owner's decision**) ·
-3 ≤5/room · 4 ≥2 to start · 5 3 lakh welcome (2 lakh until 14 Sep 2026; with 9 diamonds, 20 hammers and 1 missile) · 6a–g core play · 7 persistence · 8 room chat ·
+3 ≤5/room · 4 ≥2 to start · 5 3 lakh welcome (2 lakh until 14 Sep 2026; with 9 diamonds, 20 hammers and 1 missile; 10 Lakh since 27 Sep 2026; since 30 Sep 2026 whatever the
+`welcome_rewards` rows say — chips, diamonds, hammers, missiles, pictures, emojis, some or all, §7.3) · 6a–g core play · 7 persistence · 8 room chat ·
 9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 (and, since 18 Sep 2026, a third
 category **Variation** × 50,000 / 10 Lakh (20 Lakh since 27 Sep 2026), hidden stacks, no pot limit, and since 28 Sep 2026 blind's
 betting — raise as far as the chips go, no round cap — §6.4: the first player to act picks Muflis, AK47,
@@ -4077,10 +4136,10 @@ Joker, Hukam, Lowest Joker or Highest Joker for the hand in a server-timed 10 s,
 shows the three categories first and a category's tables inside it, §8.4 — and since 23 Sep 2026 the two engines,
 Teen Patti and Poker, in front of them) ·
 14 Show reveal · 15 pot to last leaver · 16 stats (played = made a chaal) · 17 25k/25 hands ·
-18 4h 10k bonus (and beside it, since 14 Sep 2026, a daily bonus of 1 lakh + 1 hammer every 24h) · 19 Seen: one double, forced showdown (brief 10 moves / code 7 rounds) ·
+18 4h 10k bonus (and beside it, since 14 Sep 2026, a daily bonus of 1 lakh + 1 hammer every 24h; both removed 30 Sep 2026, with 17's milestone, owner) · 19 Seen: one double, forced showdown (brief 10 moves / code 7 rounds) ·
 20 provider avatar · 21 avatar picker (a DB catalogue since 12 Sep 2026: free
 pictures plus premium ones bought with chips, diamonds or (since 14 Sep 2026) hammers; not locked when seated since 13 Sep 2026 — worn at the table, and a diamond or hammer one bought there) · 22 private table · 23 landscape/M3 ·
-24 merge lone rooms · 25 leave confirm · 26 4h bonus top-left (the daily bonus bottom-left) · 27 milestone bottom-right ·
+24 merge lone rooms · 25 leave confirm · 26 4h bonus top-left (the daily bonus bottom-left) · 27 milestone bottom-right (26 and 27 gone with the rewards, 30 Sep 2026) ·
 28 square cards + sweep · 29 display name · 30 entry cap (not on switch; generalised 12 Sep 2026 to a per-table
 **stack band** — `config.LobbyTable.MinChips/MaxChips`, in db mode a row's `min_chips`/`max_chips`, enforced by `assertWithinTableBand` on every LOBBY door into a
 seat (quick-join, join by code, create), shown on every lobby card; a switch or a consolidation move within the pair is exempt, as from the cap —
@@ -4402,7 +4461,7 @@ deploy runbook; `steps.txt` the six-line routine.
 - **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, the founding pair since 23 Sep 2026 —
   `V1.0.0__baseline.sql` all DDL, `V1.0.1__seed.sql` DML — then DML-only seeds since 28 Sep 2026, `V1.0.2__seed-festive-capybara.sql`
   the first — applied in version order, idempotent, run at
-  every start: thirty-nine tables (§7.3) — money, accounts, the app version gate's rows, the sign-in each token must carry, gameplay stats, the friends graph, the player reports, the levels, badges and one-time XP missions, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
+  every start: forty tables (§7.3) — the welcome grant, money, accounts, the app version gate's rows, the sign-in each token must carry, gameplay stats, the friends graph, the player reports, the levels, badges and one-time XP missions, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
   state — §7.3), `TableConfigs.Load`/`ExportTableConfigSQL` (the table catalogue), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table

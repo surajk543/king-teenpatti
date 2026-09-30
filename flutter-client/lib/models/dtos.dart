@@ -244,75 +244,6 @@ const forceSideshowCost = 1;
 /// How many missiles firing one spends. The server charges it.
 const missileCost = 1;
 
-class Rewards {
-  const Rewards({
-    required this.milestoneAvailable,
-    required this.milestoneReward,
-    required this.handsToNextMilestone,
-    required this.bonusReward,
-    required this.bonusReadyAt,
-    required this.bonusAvailable,
-    this.dailyReward = 0,
-    this.dailyHammers = 0,
-    this.dailyReadyAt = 0,
-    this.dailyAvailable = false,
-  });
-
-  final bool milestoneAvailable;
-  final int milestoneReward;
-  final int handsToNextMilestone;
-  final int bonusReward;
-
-  /// Epoch ms the four-hour bonus unlocks; 0 means it is ready now. The server
-  /// calls this `bonusReadyAt`.
-  final int bonusReadyAt;
-
-  /// The server's own verdict, which is what actually gates the claim.
-  final bool bonusAvailable;
-
-  /// The daily bonus beside it (owner, 14 Sep 2026): [dailyReward] chips and
-  /// [dailyHammers] hammers every 24 hours, collected through
-  /// `POST /api/rewards/daily`. A server that sends none of it offers none.
-  final int dailyReward;
-  final int dailyHammers;
-
-  /// Epoch ms the daily bonus unlocks; 0 means it is ready now.
-  final int dailyReadyAt;
-  final bool dailyAvailable;
-
-  bool get bonusReady =>
-      bonusAvailable || bonusReadyAt <= DateTime.now().millisecondsSinceEpoch;
-
-  Duration get untilBonus {
-    final ms = bonusReadyAt - DateTime.now().millisecondsSinceEpoch;
-    return Duration(milliseconds: ms < 0 ? 0 : ms);
-  }
-
-  /// Whether the server offers a daily bonus at all (one that predates it
-  /// sends no reward), and whether it can be collected now.
-  bool get hasDaily => dailyReward > 0;
-  bool get dailyReady =>
-      dailyAvailable || dailyReadyAt <= DateTime.now().millisecondsSinceEpoch;
-
-  Duration get untilDaily {
-    final ms = dailyReadyAt - DateTime.now().millisecondsSinceEpoch;
-    return Duration(milliseconds: ms < 0 ? 0 : ms);
-  }
-
-  factory Rewards.fromJson(Map<String, dynamic> j) => Rewards(
-    milestoneAvailable: j['milestoneAvailable'] == true,
-    milestoneReward: _int(j['milestoneReward']),
-    handsToNextMilestone: _int(j['handsToNextMilestone']),
-    bonusReward: _int(j['bonusReward']),
-    bonusReadyAt: _int(j['bonusReadyAt']),
-    bonusAvailable: j['bonusAvailable'] == true,
-    dailyReward: _int(j['dailyReward']),
-    dailyHammers: _int(j['dailyHammers']),
-    dailyReadyAt: _int(j['dailyReadyAt']),
-    dailyAvailable: j['dailyAvailable'] == true,
-  );
-}
-
 class User {
   const User({
     required this.id,
@@ -333,7 +264,6 @@ class User {
     required this.totalWinnings,
     required this.biggestPot,
     this.stats = const StatsByCategory(),
-    required this.rewards,
     this.playerLevel,
     this.badges = const [],
     this.taxBps,
@@ -449,7 +379,6 @@ class User {
   /// Variation's hands held, and the variations played. The six figures above
   /// are the totals of the three.
   final StatsByCategory stats;
-  final Rewards? rewards;
 
   /// The six totals above as one record — every game together, the Stats
   /// drawer's "All". The account carries no win rate for them, and the
@@ -484,7 +413,6 @@ class User {
     totalWinnings: totalWinnings,
     biggestPot: biggestPot,
     stats: stats,
-    rewards: rewards,
     playerLevel: playerLevel,
     badges: badges,
     taxBps: taxBps,
@@ -512,7 +440,6 @@ class User {
     totalWinnings: totalWinnings,
     biggestPot: biggestPot,
     stats: stats,
-    rewards: rewards,
     playerLevel: standing.playerLevel,
     badges: standing.badges,
     taxBps: standing.taxBps,
@@ -539,7 +466,6 @@ class User {
     totalWinnings: totalWinnings,
     biggestPot: biggestPot,
     stats: stats,
-    rewards: rewards,
     playerLevel: playerLevel,
     badges: badges,
     taxBps: taxBps,
@@ -570,9 +496,6 @@ class User {
     stats: j['stats'] is Map
         ? StatsByCategory.fromJson(Map<String, dynamic>.from(j['stats'] as Map))
         : const StatsByCategory(),
-    rewards: j['rewards'] is Map
-        ? Rewards.fromJson(Map<String, dynamic>.from(j['rewards'] as Map))
-        : null,
     playerLevel: PlayerLevel.maybe(j['playerLevel']),
     badges: PlayerBadge.listOf(j['badges']),
     taxBps: _bpsOrNull(j['taxBps']),
@@ -3549,6 +3472,70 @@ class ProfilePicture {
     // "not owned" — a free picture is only ever sent with owned true.
     owned: j['owned'] == true,
   );
+}
+
+/// What a NEW account was given as it was made (30 Sep 2026): the login's
+/// `welcome` block, which the server writes from its `welcome_rewards` rows
+/// and sends only on the login that created the account. Any figure may be 0
+/// and any list empty — a deployment may grant some of the wallets, all of
+/// them, or none — and the pictures and emojis come as the catalogues' own
+/// rows (`GET /api/profiles`, `/api/table-pictures`, `/api/emojis`), `owned`
+/// resolved for this player.
+///
+/// Read tolerantly: a figure that is not a whole number reads 0 (and a
+/// negative one 0, since nothing is taken at a welcome), a list that is not a
+/// list reads empty, and an entry that is not an object is skipped — so a
+/// broken block says less rather than failing the sign-in.
+class WelcomeGrant {
+  const WelcomeGrant({
+    this.chips = 0,
+    this.diamonds = 0,
+    this.hammers = 0,
+    this.missiles = 0,
+    this.pictures = const [],
+    this.tablePictures = const [],
+    this.emojis = const [],
+  });
+
+  final int chips;
+  final int diamonds;
+  final int hammers;
+  final int missiles;
+  final List<ProfilePicture> pictures;
+  final List<TablePicture> tablePictures;
+  final List<EmojiItem> emojis;
+
+  /// Whether nothing at all was granted.
+  bool get isEmpty =>
+      chips == 0 &&
+      diamonds == 0 &&
+      hammers == 0 &&
+      missiles == 0 &&
+      pictures.isEmpty &&
+      tablePictures.isEmpty &&
+      emojis.isEmpty;
+
+  /// The login's `welcome`, or null when there is none — a returning
+  /// account, or a server from before the welcome grant. Anything but an
+  /// object is none.
+  static WelcomeGrant? fromJson(Object? json) {
+    if (json is! Map) return null;
+    int count(Object? v) => v is num && v > 0 ? v.toInt() : 0;
+    List<T> rows<T>(Object? v, T Function(Map<String, dynamic>) parse) => [
+      if (v is List)
+        for (final e in v)
+          if (e is Map) parse(Map<String, dynamic>.from(e)),
+    ];
+    return WelcomeGrant(
+      chips: count(json['chips']),
+      diamonds: count(json['diamonds']),
+      hammers: count(json['hammers']),
+      missiles: count(json['missiles']),
+      pictures: rows(json['pictures'], ProfilePicture.fromJson),
+      tablePictures: rows(json['tablePictures'], TablePicture.fromJson),
+      emojis: rows(json['emojis'], EmojiItem.fromJson),
+    );
+  }
 }
 
 /// The prize kinds a Lucky Draw slot can hold (owner, 24 Sep 2026), as the

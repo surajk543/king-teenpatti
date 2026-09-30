@@ -77,8 +77,7 @@ const (
 	// XPKindHandsPlayed counts the hands the player PLAYED: made a voluntary
 	// bet — a chaal, raise or show at Teen Patti, any chips beyond the forced
 	// blinds or ante at poker — requirement 16's "played", the rule
-	// player_stats.hands_played and the HANDS_PLAYED milestone count by
-	// (game.SettleEntry.DidChaal).
+	// player_stats.hands_played counts by (game.SettleEntry.DidChaal).
 	XPKindHandsPlayed = "HANDS_PLAYED"
 	// XPKindHandsWon counts the hands the player WON (game.SettleEntry.IsWinner,
 	// player_stats.hands_won's rule): the winner of a Teen Patti hand, a

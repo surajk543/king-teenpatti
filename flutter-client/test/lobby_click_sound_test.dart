@@ -4,9 +4,9 @@
 // FeedbackSettings.cardClick, once per tap — the top bar, the foot, the rail's
 // cards and back tile, a table card's corner keys, the private card's keys,
 // the celebration's close key — and on a system Back the lobby takes. A
-// padlocked table card, a disabled key and a chip that is not a key yet stay
-// quiet, a corner key never also clicks the card it stands on, the Sound
-// switch silences all of it, and the door still sounds as a player sits.
+// padlocked table card and a disabled key stay quiet, a corner key never also
+// clicks the card it stands on, the Sound switch silences all of it, and the
+// door still sounds as a player sits.
 //
 // Heard through FeedbackSettings.playClip, the one place a clip reaches the
 // audio plugin: cardClick and the Sound switch are the real ones.
@@ -44,8 +44,6 @@ class _Heard extends FeedbackSettings {
   }) async => heard.add(asset);
 }
 
-int _at(Duration fromNow) => DateTime.now().add(fromNow).millisecondsSinceEpoch;
-
 Map<String, Object?> _level() => {
   'level': 10,
   'title': 'Rising Star',
@@ -61,7 +59,7 @@ Map<String, Object?> _level() => {
   },
 };
 
-GameState _state({bool bonusReady = false, bool milestoneReady = true}) {
+GameState _state() {
   // Play is never started; the override only keeps the purchase plugin from
   // registering an Android billing client in a unit test.
   debugDefaultTargetPlatformOverride = TargetPlatform.linux;
@@ -91,18 +89,6 @@ GameState _state({bool bonusReady = false, bool milestoneReady = true}) {
       'hammer': 20,
       'missile': 1,
       'playerLevel': _level(),
-      'rewards': {
-        'milestoneAvailable': milestoneReady,
-        'milestoneReward': 25000,
-        'handsToNextMilestone': milestoneReady ? 25 : 4,
-        'bonusReward': 10000,
-        'bonusReadyAt': bonusReady ? 0 : _at(const Duration(hours: 3)),
-        'bonusAvailable': bonusReady,
-        'dailyReward': 100000,
-        'dailyHammers': 1,
-        'dailyReadyAt': _at(const Duration(hours: 20)),
-        'dailyAvailable': false,
-      },
     })
     ..luckyDraw = LuckyDrawState.fromJson({
       'draw': {
@@ -202,22 +188,18 @@ void main() {
     await _pumpLobby(tester, state, sounds);
     final t = state.t;
 
-    // One tap on each key, and exactly one click each: the 4-hour bonus while
-    // it counts down (its popup), the picture, Shop, the record, Settings,
-    // Sign out (its question), the daily bonus while it counts down, the
-    // Lucky Draw, the level, Friends, and the milestone ready to collect.
+    // One tap on each key, and exactly one click each: the picture, Shop,
+    // the record, Settings, Sign out (its question), the Lucky Draw, the
+    // level and Friends.
     final keys = <String, Finder>{
-      'the 4-hour bonus': find.text(t.fourHourBonus),
       'the picture': find.byTooltip(t.yourPicture),
       'Shop': find.byType(ShopButton),
       'the record': find.byTooltip(t.yourRecord),
       'Settings': find.byTooltip(t.settings),
       'Sign out': find.byTooltip(t.signOut),
-      'the daily bonus': find.text(t.dailyBonus),
       'the Lucky Draw': find.text(t.luckyDrawChip),
       'the level key': find.byKey(const ValueKey('level-key')),
       'Friends': find.byType(FriendsKey),
-      'the milestone': find.text(t.milestone),
     };
     for (final MapEntry(key: name, value: finder) in keys.entries) {
       expect(finder, findsOneWidget, reason: name);
@@ -230,20 +212,6 @@ void main() {
     expect(sounds.clicks, keys.length);
     // Nothing but the clicks: a click is the only sound a key makes here.
     expect(sounds.heard.toSet(), {FeedbackSettings.cardClickClip});
-
-    await _tearDown(tester, state);
-  });
-
-  testWidgets('a chip that is not a key yet stays quiet', (tester) async {
-    // The milestone still counting its hands has no tap at all.
-    final state = _state(milestoneReady: false);
-    final sounds = _Heard();
-    addTearDown(sounds.dispose);
-    await _pumpLobby(tester, state, sounds);
-
-    await tester.tap(find.text(state.t.milestone), warnIfMissed: false);
-    await tester.pump();
-    expect(sounds.clicks, 0);
 
     await _tearDown(tester, state);
   });
@@ -302,7 +270,7 @@ void main() {
       ]);
 
       // The back tile, back to the front.
-      await tap(find.byIcon(Icons.arrow_back_rounded), clicks: 1);
+      await tap(find.byKey(const ValueKey('back-mark')), clicks: 1);
       await _settle(tester);
       expect(state.lobbyCategory, isNull);
 
@@ -310,23 +278,23 @@ void main() {
     },
   );
 
-  testWidgets('the celebration closes with a click', (tester) async {
+  testWidgets('the celebration closes with a click, and no Material tick', (
+    tester,
+  ) async {
+    final ticks = _countTicks(tester);
+    // A chip pack just bought in the lobby.
     final state = _state()
-      ..rewardWon = (
-        kind: 'bonus',
-        amount: 10000,
-        readyAt: 0,
-        missiles: 0,
-        hammers: 0,
-      );
+      ..rewardWon = (kind: 'purchase', amount: 100000, missiles: 0, hammers: 0);
     final sounds = _Heard();
     addTearDown(sounds.dispose);
-    await _pumpLobby(tester, state, sounds);
+    await _pumpLobby(tester, state, sounds, materialSound: true);
 
     final before = sounds.clicks;
+    final tick = ticks();
     await tester.tap(find.text(state.t.tapToClose));
     await tester.pump();
     expect(sounds.clicks, before + 1);
+    expect(ticks(), tick);
     expect(state.rewardWon, isNull);
 
     await _tearDown(tester, state);
@@ -336,7 +304,7 @@ void main() {
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({'soundOn': false});
-    final state = _state(bonusReady: true);
+    final state = _state();
     final sounds = _Heard();
     addTearDown(sounds.dispose);
     await sounds.load();
@@ -350,7 +318,7 @@ void main() {
       find.byTooltip(t.settings),
       find.text(t.luckyDrawChip),
       find.byType(FriendsKey),
-      find.text(t.milestone),
+      find.byKey(const ValueKey('level-key')),
     ]) {
       await tester.tap(finder);
       await tester.pump();
@@ -362,7 +330,7 @@ void main() {
     await _settle(tester);
     await tester.tap(find.byKey(const ValueKey('info-wave')).first);
     await _closeAll(tester, state);
-    await tester.tap(find.byIcon(Icons.arrow_back_rounded));
+    await tester.tap(find.byKey(const ValueKey('back-mark')));
     await _settle(tester);
 
     expect(sounds.heard, isEmpty);
@@ -455,7 +423,7 @@ void main() {
     'the theme\'s own feedback on',
     (tester) async {
       final ticks = _countTicks(tester);
-      final state = _state(bonusReady: true);
+      final state = _state();
       final sounds = _Heard();
       addTearDown(sounds.dispose);
       await _pumpLobby(tester, state, sounds, materialSound: true);
@@ -472,29 +440,20 @@ void main() {
         expect(ticks(), tick, reason: '$name plays no Material tick');
       }
 
-      // The top bar and the foot (the 4-hour bonus ready to collect, so its
-      // celebration's close key is tried too).
+      // The top bar and the foot (the celebration's close key has a test of
+      // its own).
       for (final MapEntry(key: name, value: finder) in {
-        'the 4-hour bonus': find.text(t.fourHourBonus),
         'the picture': find.byTooltip(t.yourPicture),
         'Shop': find.byType(ShopButton),
         'the record': find.byTooltip(t.yourRecord),
         'Settings': find.byTooltip(t.settings),
         'Sign out': find.byTooltip(t.signOut),
-        'the daily bonus': find.text(t.dailyBonus),
         'the Lucky Draw': find.text(t.luckyDrawChip),
         'the level key': find.byKey(const ValueKey('level-key')),
         'Friends': find.byType(FriendsKey),
-        'the milestone': find.text(t.milestone),
       }.entries) {
-        state.rewardWon = null;
         await once(name, finder);
         await _closeAll(tester, state);
-        if (state.rewardWon != null) {
-          await _settle(tester);
-          await once('the celebration\'s close', find.text(t.tapToClose));
-          await _settle(tester);
-        }
       }
 
       // The private card's keys, the rail's cards, a corner key, the back
@@ -514,7 +473,7 @@ void main() {
         find.byKey(const ValueKey('rule-book')).first,
       );
       await _closeAll(tester, state);
-      await once('the back tile', find.byIcon(Icons.arrow_back_rounded));
+      await once('the back tile', find.byKey(const ValueKey('back-mark')));
       await _settle(tester);
 
       // The detector hears a tick where one is made: a plain button of the

@@ -13,10 +13,12 @@ import (
 // game.Ledger's doc comment), not a standing fraud guard. 'purchase'
 // ("gplay:<purchaseToken>") must never appear here — its UNIQUE index is what
 // stops a replayed Google Play receipt being credited twice, and a replay can
-// arrive long after any reasonable retention window. 'milestone_reward',
-// 'timed_bonus' and 'welcome_bonus' are excluded for the same reason: their
-// dedup isn't network-retry-bounded, it's "did this reward already fire"
-// bounded, and nothing else in the system re-derives that if the row is gone.
+// arrive long after any reasonable retention window. 'welcome_bonus' is
+// excluded for the same reason: its dedup isn't network-retry-bounded, it's
+// "did this grant already fire" bounded, and nothing else in the system
+// re-derives that if the row is gone. The retired lobby rewards'
+// 'milestone_reward', 'timed_bonus' and 'daily_bonus' rows (removed 30 Sep
+// 2026) are history and stay too: nothing is purged that is not listed here.
 var purgeableReasons = []string{
 	"hand_win",
 	"hand_loss",

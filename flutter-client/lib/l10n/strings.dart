@@ -157,32 +157,17 @@ class Strings {
   /// Where the scope on show does not count a part: which scopes do.
   String get statsHandResultsHint => _('statsHandResultsHint');
   String get statsVariationsHint => _('statsVariationsHint');
-  String get fourHourBonus => _('fourHourBonus');
-  String get dailyBonus => _('dailyBonus');
-  String get milestone => _('milestone');
-  String get collect => _('collect');
 
-  // --- collecting a reward
+  // --- a wallet filled in the lobby: its celebration
   String get rewardCollected => _('rewardCollected');
-  String get rewardComeBack => _('rewardComeBack');
-  String get rewardComeBackDaily => _('rewardComeBackDaily');
-
-  // --- a bonus tapped while it is still counting down
-  String get bonusYouGet => _('bonusYouGet');
-  String get bonusNextIn => _('bonusNextIn');
-  String get bonusReadyNow => _('bonusReadyNow');
-  String get bonusEveryFourHours => _('bonusEveryFourHours');
-  String get bonusEveryDay => _('bonusEveryDay');
-  String get rewardMilestoneAgain => _('rewardMilestoneAgain');
-  String get rewardRefused => _('rewardRefused');
   String get rewardPurchased => _('rewardPurchased');
   String get rewardDiamondsPurchased => _('rewardDiamondsPurchased');
   String get rewardHammersPurchased => _('rewardHammersPurchased');
   String get tapToClose => _('tapToClose');
 
   // --- the Lucky Draw (owner, 24 Sep 2026): a wheel of six prizes the
-  // server spins. The chip's title is capitals as the other corner chips'
-  // are; the screen's is the name as a name.
+  // server spins. The chip's title is capitals, as the lobby's corner chips'
+  // always were; the screen's is the name as a name.
   String get luckyDrawChip => _('luckyDrawChip');
   String get luckyDrawTitle => _('luckyDrawTitle');
   String get luckySpinReady => _('luckySpinReady');
@@ -223,6 +208,31 @@ class Strings {
   /// missile has its own line in every language, as [missilesAdded]'s does.
   String countMissiles(int n) =>
       _(n == 1 ? 'countMissileOne' : 'countMissiles').replaceAll('{n}', '$n');
+
+  // --- the welcome (30 Sep 2026): the toast a new account's sign-in raises,
+  // naming exactly what the server's welcome grant gave it. The wallets are
+  // said by [priceIn] and [countMissiles]; the catalogues' rows are counted.
+
+  /// "Welcome! Added to your account: 10 Lakh chips · 9 diamonds" — [items]
+  /// the grant's own words, joined.
+  String welcomeAdded(String items) =>
+      _('welcomeAdded').replaceAll('{items}', items);
+
+  /// A welcome that granted nothing: no list.
+  String get welcomePlain => _('welcomePlain');
+
+  /// "1 picture", "2 pictures" — profile pictures granted.
+  String countPictures(int n) =>
+      _(n == 1 ? 'countPictureOne' : 'countPictures').replaceAll('{n}', '$n');
+
+  /// "1 table picture", "2 table pictures".
+  String countTablePictures(int n) => _(
+    n == 1 ? 'countTablePictureOne' : 'countTablePictures',
+  ).replaceAll('{n}', '$n');
+
+  /// "1 emoji", "2 emojis".
+  String countEmojis(int n) =>
+      _(n == 1 ? 'countEmojiOne' : 'countEmojis').replaceAll('{n}', '$n');
 
   // --- Friends (owner, 26 Sep 2026): the lobby's key, the page, Add Friend
   // and a player's profile. Nothing here names a wallet.
@@ -513,9 +523,6 @@ class Strings {
   String get posPopular => _('posPopular');
   String get posBestValue => _('posBestValue');
   String get posPremium => _('posPremium');
-  String get comingSoonBody => _('comingSoonBody');
-  String get handsToGo => _('handsToGo');
-  String get handToGo => _('handToGo');
   String get forceSideshowTooLate => _('forceSideshowTooLate');
   String get settings => _('settings');
   String get language => _('language');
@@ -1820,8 +1827,6 @@ class Strings {
       'statsNoVariationGames': 'No variation games played yet',
       'statsHandResultsHint': 'Choose Teen Patti or Variations to see these',
       'statsVariationsHint': 'Choose Variations to see these',
-      'fourHourBonus': '4-HOUR BONUS',
-      'dailyBonus': 'DAILY BONUS',
       'luckyDrawChip': 'LUCKY DRAW',
       'luckyDrawTitle': 'Lucky Draw',
       'luckySpinReady': 'Spin now',
@@ -1850,21 +1855,18 @@ class Strings {
       'luckyNotReady': 'Your next spin is not ready yet.',
       'countMissileOne': '1 missile',
       'countMissiles': '{n} missiles',
-      'milestone': 'MILESTONE',
-      'collect': 'Collect',
+      'welcomeAdded': 'Welcome! Added to your account: {items}',
+      'welcomePlain': 'Welcome to King Teen Patti!',
+      'countPictureOne': '1 picture',
+      'countPictures': '{n} pictures',
+      'countTablePictureOne': '1 table picture',
+      'countTablePictures': '{n} table pictures',
+      'countEmojiOne': '1 emoji',
+      'countEmojis': '{n} emojis',
       'rewardCollected': 'Reward collected!',
-      'rewardComeBack': 'Come again after 4 hours.',
-      'rewardComeBackDaily': 'Come again after 24 hours.',
-      'bonusYouGet': 'You will get',
-      'bonusNextIn': 'Next reward in',
-      'bonusReadyNow': 'Ready to collect now',
-      'bonusEveryFourHours': 'A new bonus every 4 hours.',
-      'bonusEveryDay': 'A new bonus every 24 hours.',
       'rewardPurchased': 'The chips are in your wallet. Good luck.',
       'rewardDiamondsPurchased':
           'The diamonds are in your wallet. Trade them for missiles.',
-      'rewardMilestoneAgain': 'Another 25 hands earns the next one.',
-      'rewardRefused': 'Not ready to collect yet.',
       'tapToClose': 'Tap to close',
       'buyChips': 'Buy chips',
       'shop': 'Shop',
@@ -1965,10 +1967,6 @@ class Strings {
       'posPopular': 'POPULAR',
       'posBestValue': 'BEST VALUE',
       'posPremium': 'PREMIUM',
-      'comingSoonBody':
-          'Buying chips is not open yet. Collect your rewards in the meantime.',
-      'handsToGo': 'hands to go',
-      'handToGo': 'hand to go',
       'forceSideshowTooLate':
           'Too late — that sideshow is no longer open. No hammer was spent.',
       'settings': 'Settings',
@@ -2732,8 +2730,6 @@ class Strings {
       'statsHandResultsHint':
           'इन्हें देखने के लिए तीन पत्ती या वेरिएशन गेम चुनें',
       'statsVariationsHint': 'इन्हें देखने के लिए वेरिएशन गेम चुनें',
-      'fourHourBonus': '4-घंटे का बोनस',
-      'dailyBonus': 'दैनिक बोनस',
       'luckyDrawChip': 'लकी ड्रॉ',
       'luckyDrawTitle': 'लकी ड्रॉ',
       'luckySpinReady': 'अभी घुमाएँ',
@@ -2763,20 +2759,17 @@ class Strings {
       'luckyNotReady': 'आपका अगला स्पिन अभी तैयार नहीं है।',
       'countMissileOne': '1 मिसाइल',
       'countMissiles': '{n} मिसाइलें',
-      'milestone': 'माइलस्टोन',
-      'collect': 'लें',
+      'welcomeAdded': 'स्वागत है! आपके खाते में जोड़ा गया: {items}',
+      'welcomePlain': 'King Teen Patti में आपका स्वागत है!',
+      'countPictureOne': '1 तस्वीर',
+      'countPictures': '{n} तस्वीरें',
+      'countTablePictureOne': '1 टेबल की तस्वीर',
+      'countTablePictures': '{n} टेबल की तस्वीरें',
+      'countEmojiOne': '1 इमोजी',
+      'countEmojis': '{n} इमोजी',
       'rewardCollected': 'इनाम मिल गया!',
-      'rewardComeBack': '4 घंटे बाद फिर आइए।',
-      'rewardComeBackDaily': '24 घंटे बाद फिर आइए।',
-      'bonusYouGet': 'आपको मिलेगा',
-      'bonusNextIn': 'अगला इनाम मिलेगा',
-      'bonusReadyNow': 'अभी लेने के लिए तैयार',
-      'bonusEveryFourHours': 'हर 4 घंटे में नया बोनस।',
-      'bonusEveryDay': 'हर 24 घंटे में नया बोनस।',
       'rewardPurchased': 'चिप्स आपके वॉलेट में हैं। शुभकामनाएँ।',
       'rewardDiamondsPurchased': 'हीरे आपके वॉलेट में हैं। इनसे मिसाइलें लें।',
-      'rewardMilestoneAgain': 'अगले के लिए 25 हाथ और खेलें।',
-      'rewardRefused': 'अभी लेने के लिए तैयार नहीं।',
       'tapToClose': 'बंद करने के लिए टैप करें',
       'buyChips': 'चिप्स खरीदें',
       'shop': 'दुकान',
@@ -2874,10 +2867,6 @@ class Strings {
       'posPopular': 'लोकप्रिय',
       'posBestValue': 'सबसे बढ़िया',
       'posPremium': 'प्रीमियम',
-      'comingSoonBody':
-          'चिप्स खरीदना अभी शुरू नहीं हुआ है। तब तक अपने इनाम लेते रहें।',
-      'handsToGo': 'हाथ बाकी',
-      'handToGo': 'हाथ बाकी',
       'forceSideshowTooLate':
           'देर हो गई — अब वह साइडशो नहीं हो सकता। कोई हथौड़ा खर्च नहीं हुआ।',
       'settings': 'सेटिंग्स',
@@ -3628,8 +3617,6 @@ class Strings {
       'statsNoVariationGames': 'এখনও কোনো ভেরিয়েশন গেম খেলা হয়নি',
       'statsHandResultsHint': 'দেখতে তিন পাত্তি বা ভেরিয়েশন গেম বেছে নিন',
       'statsVariationsHint': 'দেখতে ভেরিয়েশন গেম বেছে নিন',
-      'fourHourBonus': '4-ঘণ্টার বোনাস',
-      'dailyBonus': 'দৈনিক বোনাস',
       'luckyDrawChip': 'লাকি ড্র',
       'luckyDrawTitle': 'লাকি ড্র',
       'luckySpinReady': 'এখনই ঘোরান',
@@ -3658,21 +3645,18 @@ class Strings {
       'luckyNotReady': 'আপনার পরের স্পিন এখনও তৈরি নয়।',
       'countMissileOne': '1টি মিসাইল',
       'countMissiles': '{n}টি মিসাইল',
-      'milestone': 'মাইলস্টোন',
-      'collect': 'নিন',
+      'welcomeAdded': 'স্বাগতম! আপনার অ্যাকাউন্টে যোগ হয়েছে: {items}',
+      'welcomePlain': 'King Teen Patti-তে আপনাকে স্বাগতম!',
+      'countPictureOne': '1টি ছবি',
+      'countPictures': '{n}টি ছবি',
+      'countTablePictureOne': '1টি টেবিলের ছবি',
+      'countTablePictures': '{n}টি টেবিলের ছবি',
+      'countEmojiOne': '1টি ইমোজি',
+      'countEmojis': '{n}টি ইমোজি',
       'rewardCollected': 'পুরস্কার সংগ্রহ হয়েছে!',
-      'rewardComeBack': '৪ ঘণ্টা পরে আবার আসুন।',
-      'rewardComeBackDaily': '২৪ ঘণ্টা পরে আবার আসুন।',
-      'bonusYouGet': 'আপনি পাবেন',
-      'bonusNextIn': 'পরের পুরস্কার পাবেন',
-      'bonusReadyNow': 'এখনই নেওয়া যাবে',
-      'bonusEveryFourHours': 'প্রতি ৪ ঘণ্টায় নতুন বোনাস।',
-      'bonusEveryDay': 'প্রতি ২৪ ঘণ্টায় নতুন বোনাস।',
       'rewardPurchased': 'চিপ আপনার ওয়ালেটে আছে। শুভকামনা।',
       'rewardDiamondsPurchased':
           'হীরে আপনার ওয়ালেটে আছে। এগুলো দিয়ে মিসাইল নিন।',
-      'rewardMilestoneAgain': 'পরেরটির জন্য আরও ২৫ হাত।',
-      'rewardRefused': 'এখনও নেওয়ার জন্য প্রস্তুত নয়।',
       'tapToClose': 'বন্ধ করতে ট্যাপ করুন',
       'buyChips': 'চিপ কিনুন',
       'shop': 'দোকান',
@@ -3769,10 +3753,6 @@ class Strings {
       'posPopular': 'জনপ্রিয়',
       'posBestValue': 'সেরা মূল্য',
       'posPremium': 'প্রিমিয়াম',
-      'comingSoonBody':
-          'চিপ কেনা এখনও চালু হয়নি। ততক্ষণ আপনার পুরস্কার নিতে থাকুন।',
-      'handsToGo': 'হাত বাকি',
-      'handToGo': 'হাত বাকি',
       'forceSideshowTooLate':
           'দেরি হয়ে গেছে — সেই সাইডশো আর সম্ভব নয়। কোনো হাতুড়ি খরচ হয়নি।',
       'settings': 'সেটিংস',
@@ -4523,8 +4503,6 @@ class Strings {
       'statsNoVariationGames': 'હજી સુધી કોઈ વેરિએશન ગેમ રમી નથી',
       'statsHandResultsHint': 'જોવા માટે તીન પત્તી અથવા વેરિએશન ગેમ પસંદ કરો',
       'statsVariationsHint': 'જોવા માટે વેરિએશન ગેમ પસંદ કરો',
-      'fourHourBonus': '4-કલાકનું બોનસ',
-      'dailyBonus': 'દૈનિક બોનસ',
       'luckyDrawChip': 'લકી ડ્રો',
       'luckyDrawTitle': 'લકી ડ્રો',
       'luckySpinReady': 'હમણાં ફેરવો',
@@ -4553,20 +4531,17 @@ class Strings {
       'luckyNotReady': 'તમારો આગલો સ્પિન હજી તૈયાર નથી.',
       'countMissileOne': '1 મિસાઇલ',
       'countMissiles': '{n} મિસાઇલ',
-      'milestone': 'માઇલસ્ટોન',
-      'collect': 'લો',
+      'welcomeAdded': 'સ્વાગત છે! તમારા ખાતામાં ઉમેરાયું: {items}',
+      'welcomePlain': 'King Teen Patti માં આપનું સ્વાગત છે!',
+      'countPictureOne': '1 ફોટો',
+      'countPictures': '{n} ફોટા',
+      'countTablePictureOne': '1 ટેબલનો ફોટો',
+      'countTablePictures': '{n} ટેબલના ફોટા',
+      'countEmojiOne': '1 ઇમોજી',
+      'countEmojis': '{n} ઇમોજી',
       'rewardCollected': 'ઇનામ મળી ગયું!',
-      'rewardComeBack': '4 કલાક પછી ફરી આવો.',
-      'rewardComeBackDaily': '24 કલાક પછી ફરી આવો.',
-      'bonusYouGet': 'તમને મળશે',
-      'bonusNextIn': 'આગલું ઇનામ મળશે',
-      'bonusReadyNow': 'હવે લઈ શકો છો',
-      'bonusEveryFourHours': 'દર 4 કલાકે નવું બોનસ.',
-      'bonusEveryDay': 'દર 24 કલાકે નવું બોનસ.',
       'rewardPurchased': 'ચિપ્સ તમારા વૉલેટમાં છે. શુભકામના.',
       'rewardDiamondsPurchased': 'હીરા તમારા વૉલેટમાં છે. તેનાથી મિસાઇલ લો.',
-      'rewardMilestoneAgain': 'આગલા માટે વધુ 25 હાથ.',
-      'rewardRefused': 'હજી લેવા માટે તૈયાર નથી.',
       'tapToClose': 'બંધ કરવા ટૅપ કરો',
       'buyChips': 'ચિપ્સ ખરીદો',
       'shop': 'દુકાન',
@@ -4665,10 +4640,6 @@ class Strings {
       'posPopular': 'લોકપ્રિય',
       'posBestValue': 'સૌથી સારું',
       'posPremium': 'પ્રીમિયમ',
-      'comingSoonBody':
-          'ચિપ્સ ખરીદવાનું હજી શરૂ થયું નથી. ત્યાં સુધી તમારાં ઇનામ લેતા રહો.',
-      'handsToGo': 'હાથ બાકી',
-      'handToGo': 'હાથ બાકી',
       'forceSideshowTooLate':
           'મોડું થઈ ગયું — હવે એ સાઇડશો શક્ય નથી. કોઈ હથોડી વપરાઈ નથી.',
       'settings': 'સેટિંગ્સ',
@@ -5414,8 +5385,6 @@ class Strings {
       'statsNoVariationGames': 'ਅਜੇ ਤੱਕ ਕੋਈ ਵੇਰੀਏਸ਼ਨ ਗੇਮ ਨਹੀਂ ਖੇਡੀ',
       'statsHandResultsHint': 'ਦੇਖਣ ਲਈ ਤੀਨ ਪੱਤੀ ਜਾਂ ਵੇਰੀਏਸ਼ਨ ਗੇਮਾਂ ਚੁਣੋ',
       'statsVariationsHint': 'ਦੇਖਣ ਲਈ ਵੇਰੀਏਸ਼ਨ ਗੇਮਾਂ ਚੁਣੋ',
-      'fourHourBonus': '4-ਘੰਟੇ ਦਾ ਬੋਨਸ',
-      'dailyBonus': 'ਰੋਜ਼ਾਨਾ ਬੋਨਸ',
       'luckyDrawChip': 'ਲੱਕੀ ਡਰਾਅ',
       'luckyDrawTitle': 'ਲੱਕੀ ਡਰਾਅ',
       'luckySpinReady': 'ਹੁਣੇ ਘੁਮਾਓ',
@@ -5445,21 +5414,18 @@ class Strings {
       'luckyNotReady': 'ਤੁਹਾਡਾ ਅਗਲਾ ਸਪਿਨ ਹਾਲੇ ਤਿਆਰ ਨਹੀਂ ਹੈ।',
       'countMissileOne': '1 ਮਿਜ਼ਾਈਲ',
       'countMissiles': '{n} ਮਿਜ਼ਾਈਲਾਂ',
-      'milestone': 'ਮਾਈਲਸਟੋਨ',
-      'collect': 'ਲਓ',
+      'welcomeAdded': 'ਜੀ ਆਇਆਂ ਨੂੰ! ਤੁਹਾਡੇ ਖਾਤੇ ਵਿੱਚ ਜੋੜਿਆ ਗਿਆ: {items}',
+      'welcomePlain': 'King Teen Patti ਵਿੱਚ ਜੀ ਆਇਆਂ ਨੂੰ!',
+      'countPictureOne': '1 ਤਸਵੀਰ',
+      'countPictures': '{n} ਤਸਵੀਰਾਂ',
+      'countTablePictureOne': '1 ਟੇਬਲ ਦੀ ਤਸਵੀਰ',
+      'countTablePictures': '{n} ਟੇਬਲ ਦੀਆਂ ਤਸਵੀਰਾਂ',
+      'countEmojiOne': '1 ਇਮੋਜੀ',
+      'countEmojis': '{n} ਇਮੋਜੀ',
       'rewardCollected': 'ਇਨਾਮ ਮਿਲ ਗਿਆ!',
-      'rewardComeBack': '4 ਘੰਟੇ ਬਾਅਦ ਫਿਰ ਆਓ।',
-      'rewardComeBackDaily': '24 ਘੰਟੇ ਬਾਅਦ ਫਿਰ ਆਓ।',
-      'bonusYouGet': 'ਤੁਹਾਨੂੰ ਮਿਲੇਗਾ',
-      'bonusNextIn': 'ਅਗਲਾ ਇਨਾਮ ਮਿਲੇਗਾ',
-      'bonusReadyNow': 'ਹੁਣੇ ਲੈ ਸਕਦੇ ਹੋ',
-      'bonusEveryFourHours': 'ਹਰ 4 ਘੰਟੇ ਬਾਅਦ ਨਵਾਂ ਬੋਨਸ।',
-      'bonusEveryDay': 'ਹਰ 24 ਘੰਟੇ ਬਾਅਦ ਨਵਾਂ ਬੋਨਸ।',
       'rewardPurchased': 'ਚਿੱਪਾਂ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਸ਼ੁਭਕਾਮਨਾਵਾਂ।',
       'rewardDiamondsPurchased':
           'ਹੀਰੇ ਤੁਹਾਡੇ ਵਾਲਿਟ ਵਿੱਚ ਹਨ। ਇਨ੍ਹਾਂ ਨਾਲ ਮਿਜ਼ਾਈਲਾਂ ਲਓ।',
-      'rewardMilestoneAgain': 'ਅਗਲੇ ਲਈ ਹੋਰ 25 ਹੱਥ।',
-      'rewardRefused': 'ਹਾਲੇ ਲੈਣ ਲਈ ਤਿਆਰ ਨਹੀਂ।',
       'tapToClose': 'ਬੰਦ ਕਰਨ ਲਈ ਟੈਪ ਕਰੋ',
       'buyChips': 'ਚਿਪਸ ਖਰੀਦੋ',
       'shop': 'ਦੁਕਾਨ',
@@ -5558,10 +5524,6 @@ class Strings {
       'posPopular': 'ਹਰਮਨ ਪਿਆਰਾ',
       'posBestValue': 'ਵਧੀਆ ਮੁੱਲ',
       'posPremium': 'ਪ੍ਰੀਮੀਅਮ',
-      'comingSoonBody':
-          'ਚਿਪਸ ਖਰੀਦਣਾ ਅਜੇ ਸ਼ੁਰੂ ਨਹੀਂ ਹੋਇਆ। ਉਦੋਂ ਤੱਕ ਆਪਣੇ ਇਨਾਮ ਲੈਂਦੇ ਰਹੋ।',
-      'handsToGo': 'ਹੱਥ ਬਾਕੀ',
-      'handToGo': 'ਹੱਥ ਬਾਕੀ',
       'forceSideshowTooLate':
           'ਦੇਰ ਹੋ ਗਈ — ਹੁਣ ਉਹ ਸਾਈਡਸ਼ੋ ਨਹੀਂ ਹੋ ਸਕਦਾ। ਕੋਈ ਹਥੌੜਾ ਖਰਚ ਨਹੀਂ ਹੋਇਆ।',
       'settings': 'ਸੈਟਿੰਗਾਂ',

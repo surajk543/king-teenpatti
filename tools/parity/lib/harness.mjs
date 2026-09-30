@@ -169,7 +169,7 @@ export const http = async (method, path, { body, token, headers = {}, raw = fals
 
 export const login = (body) => http('POST', '/api/auth/login', { body });
 
-/** Logs a guest in and returns the response body ({token, user, isNew, welcomeChips}). */
+/** Logs a guest in and returns the response body ({token, user, isNew, welcomeChips} and, for a new account, welcome). */
 export const guestLogin = async (deviceId, displayName) => {
   const { status, body } = await login({ provider: 'guest', deviceId, displayName });
   assert.equal(status, 200, `guest login ${deviceId} failed: ${JSON.stringify(body)}`);

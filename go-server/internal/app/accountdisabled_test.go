@@ -74,9 +74,9 @@ func TestADisabledAccountIsTurnedAwayAtEveryDoor(t *testing.T) {
 	bearer := func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+token) }
 	res, body := get(t, a.Handler(), http.MethodGet, "/api/auth/me", bearer)
 	assertDisabled(t, "GET /api/auth/me", res.StatusCode, body)
-	answer := postJSON(ts.URL, token, "/api/rewards/daily", map[string]any{})
+	answer := postJSON(ts.URL, token, "/api/lucky-draw/spin", map[string]any{"actionId": "spin-disabled-1"})
 	if answer.err != nil || answer.status != http.StatusForbidden || answer.body["error"] != auth.CodeAccountDisabled {
-		t.Errorf("POST /api/rewards/daily: %d %v %v", answer.status, answer.body, answer.err)
+		t.Errorf("POST /api/lucky-draw/spin: %d %v %v", answer.status, answer.body, answer.err)
 	}
 
 	// The login is refused before the row is touched.

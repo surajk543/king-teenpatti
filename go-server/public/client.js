@@ -47,7 +47,6 @@
     /** Pictures bundled with the game, for the profile picker. */
     profiles: [],
     showdownTimer: null,
-    rewardToast: null,
     /** Interval driving the "starting game in N" countdown. */
     startTimer: null,
   };
@@ -57,9 +56,6 @@
     // The rotate hint (and the landscape layout) only apply at the table.
     document.body.classList.toggle('at-table', screenId === 'table');
     document.body.classList.toggle('at-lobby', screenId === 'lobby');
-    // The corner rewards are lobby furniture; they would clash with the chat
-    // button and the bet controls at a table.
-    showCornerRewards(screenId === 'lobby');
     if (screenId === 'table') lockLandscape();
   };
 
@@ -774,92 +770,6 @@
     return div;
   }
 
-  // --------------------------------------------------------------- rewards
-
-  /**
-   * Formats the bonus countdown. Seconds are always shown (requirement 26), so
-   * the timer visibly ticks rather than sitting on the same minute for a while.
-   */
-  function formatCountdown(ms) {
-    const total = Math.max(0, Math.ceil(ms / 1000));
-    const hours = Math.floor(total / 3600);
-    const minutes = Math.floor((total % 3600) / 60);
-    const seconds = total % 60;
-
-    if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-    if (minutes > 0) return `${minutes}m ${seconds}s`;
-    return `${seconds}s`;
-  }
-
-  /**
-   * Renders both rewards. The milestone unlocks every 25 hands played; the
-   * bonus recharges over 4 hours, and its unlock time comes from the server so
-   * the countdown cannot be skipped by reloading.
-   */
-  function renderRewards(user) {
-    const rewards = user?.rewards;
-    if (!rewards) return;
-
-    // Bottom-right: the milestone every 25 hands played (requirement 27).
-    const milestoneReady = rewards.milestoneAvailable;
-    const milestone = $('milestoneCorner');
-    milestone.classList.toggle('ready', milestoneReady);
-    milestone.disabled = !milestoneReady;
-    $('milestoneMeta').textContent = milestoneReady
-      ? `Collect ${rewards.milestoneReward.toLocaleString()}`
-      : `${rewards.handsToNextMilestone} hand${rewards.handsToNextMilestone === 1 ? '' : 's'} to go`;
-
-    // Top-left: the 4-hour bonus, counting down in seconds (requirement 26).
-    const bonusReady = Date.now() >= rewards.bonusReadyAt;
-    const bonus = $('bonusCorner');
-    bonus.classList.toggle('ready', bonusReady);
-    bonus.disabled = !bonusReady;
-    $('bonusMeta').textContent = bonusReady
-      ? `Collect ${rewards.bonusReward.toLocaleString()}`
-      : formatCountdown(rewards.bonusReadyAt - Date.now());
-  }
-
-  /** The corner rewards belong to the lobby, not to a live table. */
-  function showCornerRewards(visible) {
-    $('bonusCorner').hidden = !visible;
-    $('milestoneCorner').hidden = !visible;
-    if (!visible) $('rewardMsg').hidden = true;
-  }
-
-  const rewardMessage = (text) => {
-    const box = $('rewardMsg');
-    box.textContent = text;
-    box.hidden = !text;
-
-    clearTimeout(state.rewardToast);
-    if (text) state.rewardToast = setTimeout(() => { box.hidden = true; }, 4000);
-  };
-
-  async function claimReward(path) {
-    const response = await fetch(path, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${state.token}` },
-    });
-    const data = await response.json();
-
-    if (!response.ok) {
-      rewardMessage(data.message ?? 'That reward is not available yet.');
-      if (data.user) applyUser(data.user);
-      return;
-    }
-
-    applyUser(data.user);
-    rewardMessage(`Collected ${data.amount.toLocaleString()} chips.`);
-  }
-
-  $('milestoneCorner').onclick = () => claimReward('/api/rewards/milestone');
-  $('bonusCorner').onclick = () => claimReward('/api/rewards/bonus');
-
-  // The bonus countdown ticks locally between server updates.
-  setInterval(() => {
-    if (!$('lobby').hidden && state.user) renderRewards(state.user);
-  }, 500);
-
   // -------------------------------------------------------- profile picture
 
   /** Re-reads the signed-in account so the lobby shows current chips and stats. */
@@ -894,7 +804,6 @@
     avatar.src = user.avatarUrl || '/profiles/default.svg';
     avatar.onerror = () => { avatar.onerror = null; avatar.src = '/profiles/default.svg'; };
     renderStats(user);
-    renderRewards(user);
     renderAvatarGrid();
 
     // Requirement 21: the picture is locked while seated, because it is

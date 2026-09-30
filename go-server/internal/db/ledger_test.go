@@ -161,9 +161,11 @@ func TestAPackerIsWrittenTwiceAndChargedOnce(t *testing.T) {
 	f.reconcile()
 }
 
-// A DELTA, NEVER AN ABSOLUTE: a reward credited between two checkpoints
-// survives the next one. This is the hole an absolute overwrite would open.
-func TestARewardBetweenCheckpointsSurvives(t *testing.T) {
+// A DELTA, NEVER AN ABSOLUTE: a credit to the wallet alone between two
+// checkpoints survives the next one. This is the hole an absolute overwrite
+// would open. (It was the four-hour bonus here until the lobby rewards were
+// removed on 30 Sep 2026; a fixture credit stands in for any such writer.)
+func TestACreditBetweenCheckpointsSurvives(t *testing.T) {
 	f := newFixture(t)
 	a := f.user("A")
 	room, hand := "room-reward", "hand-reward"
@@ -171,14 +173,15 @@ func TestARewardBetweenCheckpointsSurvives(t *testing.T) {
 	if _, err := f.pack(room, hand, a, -400); err != nil {
 		t.Fatal(err)
 	}
-	// The four-hour bonus lands (the REST handler refuses this while seated;
-	// the money path must not depend on that gate).
-	if _, err := f.users.ClaimTimedBonus(f.ctx, a.ID); err != nil {
+	// A credit lands on the wallet and not the seat (the REST doors refuse
+	// every lobby credit while seated; the money path must not depend on that
+	// gate).
+	if _, err := f.users.ApplyChipDelta(f.ctx, a.ID, 10000, game.LedgerReasonTestFixture, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	withReward := f.chips(a.ID)
-	if withReward <= welcome-400 {
-		t.Fatalf("the reward did not land: %d", withReward)
+	if withReward != welcome-400+10000 {
+		t.Fatalf("the credit did not land: %d", withReward)
 	}
 
 	if _, err := f.ledger.Settle(f.ctx, game.SettleRequest{RoomID: room, HandID: hand, Entries: []game.SettleEntry{
@@ -187,7 +190,7 @@ func TestARewardBetweenCheckpointsSurvives(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := f.chips(a.ID); got != withReward {
-		t.Fatalf("the checkpoint erased the reward: %d, want %d", got, withReward)
+		t.Fatalf("the checkpoint erased the credit: %d, want %d", got, withReward)
 	}
 	f.reconcile()
 }

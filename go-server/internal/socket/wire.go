@@ -356,7 +356,7 @@ type PublicGameConfig struct {
 	MinPlayers         int   `json:"minPlayers"`
 	BootAmount         int64 `json:"bootAmount"`
 	TurnTimeoutMs      int64 `json:"turnTimeoutMs"`
-	WelcomeChips       int64 `json:"welcomeChips"`
+	WelcomeChips       int64 `json:"welcomeChips"` // what the next new account would get in chips (welcome_rewards)
 	MaxBetRounds       int   `json:"maxBetRounds"` // the GENERIC default (20), not a table's
 	SideshowTimeoutMs  int64 `json:"sideshowTimeoutMs"`
 	SideshowMinPlayers int   `json:"sideshowMinPlayers"`

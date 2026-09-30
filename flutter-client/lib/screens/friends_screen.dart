@@ -70,14 +70,16 @@ Future<void> showFriends(BuildContext context) {
 
 // ----------------------------------------------------------------- the key
 
-/// The lobby's way to Friends: a round key in the lobby's foot, beside the
-/// milestone, with the people glyph and a gold count of the requests waiting.
+/// The lobby's way to Friends: a round key in the lobby's bottom-right corner,
+/// beside the level key, with the people glyph and a gold count of the
+/// requests waiting.
 ///
 /// In the foot rather than among the top bar's keys, which is where the brief
 /// put it first: on a 640dp phone at text x1.25 a fourth key there takes its
 /// width from the player's name, already cut to "Guest…" (the lobby tests
-/// measured it). Round and wordless for the same reason — the foot has its
-/// rewards on both sides — with its name in its tooltip and its semantics.
+/// measured it). Round and wordless, as it was beside the milestone chip that
+/// stood in the corner until 30 Sep 2026, with its name in its tooltip and its
+/// semantics.
 ///
 /// While it is on screen the lobby is, so it is also what tells [FriendsState]
 /// the lobby shows: the count is read when it appears and every

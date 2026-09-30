@@ -373,9 +373,10 @@ func TestDeletingAnAccountRemovesItsStatisticsAndAFlushBringsNoneBack(t *testing
 	}
 }
 
-// The HANDS_PLAYED milestone is judged on hands_played summed over every
-// bucket.
-func TestTheMilestoneReadsTheSumOfHandsPlayed(t *testing.T) {
+// The account's career hands played is hands_played summed over every bucket
+// (it was what the HANDS_PLAYED milestone was judged on, until the lobby
+// rewards were removed on 30 Sep 2026; the sum stands on its own).
+func TestTheCareerHandsPlayedIsTheSumOverTheBuckets(t *testing.T) {
 	f := newFixture(t)
 	p := f.user("Grinder")
 	var hands []game.HandStats
@@ -387,16 +388,12 @@ func TestTheMilestoneReadsTheSumOfHandsPlayed(t *testing.T) {
 		hands = append(hands, game.HandStats{UserID: p.ID, Bucket: game.StatsPoker, Played: 1, Lost: 1})
 	}
 	f.flushHands("24", hands...)
-	if r := f.find(p.ID).Rewards; r.MilestoneAvailable || r.HandsToNextMilestone != 1 {
-		t.Fatalf("at 24 across the buckets: %+v", r)
+	if u := f.find(p.ID); u.HandsPlayed != 24 || u.HandsLost != 24 {
+		t.Fatalf("at 24 across the buckets: played %d lost %d", u.HandsPlayed, u.HandsLost)
 	}
 	f.flushHands("25", game.HandStats{UserID: p.ID, Bucket: game.StatsPoker, Played: 1, Won: 1, Winnings: 10})
-	if r := f.find(p.ID).Rewards; !r.MilestoneAvailable || r.MilestoneAt != 25 {
-		t.Fatalf("at 25 across the buckets: %+v", r)
-	}
-	res, err := f.users.ClaimMilestoneReward(f.ctx, p.ID)
-	if err != nil || !res.Claimed || res.Milestone != 25 {
-		t.Fatalf("the claim: %+v %v", res, err)
+	if u := f.find(p.ID); u.HandsPlayed != 25 || u.HandsWon != 1 {
+		t.Fatalf("at 25 across the buckets: played %d won %d", u.HandsPlayed, u.HandsWon)
 	}
 	f.reconcile()
 }

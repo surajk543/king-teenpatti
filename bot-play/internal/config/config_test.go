@@ -95,7 +95,6 @@ func TestDefaultFillsEveryDocumentedDefault(t *testing.T) {
 		{"reconnect.base_delay", c.Reconnect.BaseDelay, time.Second},
 		{"reconnect.max_delay", c.Reconnect.MaxDelay, 30 * time.Second},
 		{"reconnect.max_attempts", c.Reconnect.MaxAttempts, 0},
-		{"bankroll.collect_bonus", c.Bankroll.CollectBonus, true},
 		{"bankroll.dev_replenish", c.Bankroll.DevReplenish, false},
 		{"debug.addr", c.Debug.Addr, ""},
 		{"debug.show_cards", c.Debug.ShowCards, false},
@@ -339,7 +338,6 @@ interaction:
 reconnect:
   max_attempts: 5
 bankroll:
-  collect_bonus: false
   dev_replenish: true
 debug:
   addr: 127.0.0.1:9101
@@ -376,7 +374,7 @@ log:
 		!reflect.DeepEqual(in.Probabilities, map[string][2]float64{"win": {0.1, 0.3}}) {
 		t.Errorf("interaction: %+v", in)
 	}
-	if c.Reconnect.MaxAttempts != 5 || c.Bankroll.CollectBonus || !c.Bankroll.DevReplenish {
+	if c.Reconnect.MaxAttempts != 5 || !c.Bankroll.DevReplenish {
 		t.Errorf("reconnect/bankroll: %+v %+v", c.Reconnect, c.Bankroll)
 	}
 	if c.Debug.Addr != "127.0.0.1:9101" || !c.Debug.ShowCards || c.Metrics.Addr != "0.0.0.0:9100" ||
@@ -404,6 +402,9 @@ func TestUnknownKeysAreRefusedByName(t *testing.T) {
 	loadErr(t, "sesion:\n  min_duration: 5m\n", nil, "sesion (line 1)", "unknown key", "the top level")
 	loadErr(t, "log:\n  level: info\n  colour: true\n", nil, "log.colour (line 3)")
 	loadErr(t, "bots: {count: 3, count: 4}\n", nil, "bots.count", "twice")
+	// The lobby rewards are gone from the game server (30 Sep 2026), and the
+	// key that collected them with it.
+	loadErr(t, "bankroll:\n  collect_bonus: true\n", nil, "bankroll.collect_bonus (line 2)", "unknown key")
 }
 
 func TestTwoSpellingsOfOneSettingAreRefused(t *testing.T) {

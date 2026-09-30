@@ -208,7 +208,7 @@ func TestSignedInRESTRefusesAnUnsupportedVersion(t *testing.T) {
 	}
 	// Every signed-in door, wallet ones included.
 	for _, door := range []struct{ method, path string }{
-		{http.MethodPost, "/api/rewards/daily"}, {http.MethodPost, "/api/profile/name"},
+		{http.MethodPost, "/api/lucky-draw/spin"}, {http.MethodPost, "/api/profile/name"},
 		{http.MethodGet, "/api/lucky-draw"}, {http.MethodGet, "/api/friends"}, {http.MethodGet, "/api/rooms"},
 		{http.MethodDelete, "/api/account"},
 	} {

@@ -87,10 +87,12 @@ func ReadJSONBody(r *http.Request, v any) error {
 }
 
 // Login is POST /api/auth/login (routes.js 61-80; requirements 1, 2, 5, 7):
-// VerifyLogin → UpsertFromProfile (which starts a new session, replacing any
-// device signed in before) → Deps.SignedIn → log `account created` or `login`
-// {userId, provider} → 200 {token, user, isNew, welcomeChips} with
-// welcomeChips = config.Game.WelcomeChips when isNew, else 0.
+// VerifyLogin → SignIn (which starts a new session, replacing any device
+// signed in before, and welcomes a new account from the welcome_rewards rows)
+// → Deps.SignedIn → log `account created` or `login` {userId, provider} → 200
+// {token, user, isNew, welcomeChips, welcome?}: welcomeChips the chips the new
+// account was given (0 for a returning one), welcome what it was given, only
+// when isNew (LoginResponse).
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	// The answer carries a session token: never kept by a cache (24 Sep 2026).
 	w.Header().Set("Cache-Control", "no-store")
@@ -109,7 +111,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
-	user, isNew, err := h.deps.Users.UpsertFromProfile(r.Context(), *profile)
+	signIn, err := h.deps.Users.SignIn(r.Context(), *profile)
 	if errors.Is(err, db.ErrAccountDisabled) {
 		// A verified identity whose account support has switched off
 		// (users.is_active; owner, 26 Sep 2026): 403 account_disabled, which
@@ -124,6 +126,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, err)
 		return
 	}
+	user, isNew := signIn.User, signIn.IsNew
 
 	// A premium picture is a rental, and this is where one is noticed to have
 	// run out: the player is coming back, so compare what they are wearing with
@@ -143,7 +146,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// One signed-in device per account (owner, 28 Sep 2026): the login has
-	// replaced every earlier session (UpsertFromProfile counted this one), so
+	// replaced every earlier session (SignIn counted this one), so
 	// a device still connected on one of them is told and let go now. Before
 	// the answer is written, so this login's own socket cannot yet exist.
 	if h.deps.SignedIn != nil {
@@ -156,11 +159,17 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 		h.deps.Logger.Info(msg, "userId", user.ID, "provider", user.Provider)
 	}
-	var welcome int64
+	resp := LoginResponse{Token: token, User: user, IsNew: isNew}
 	if isNew {
-		welcome = h.deps.Config.Game.WelcomeChips
+		// What the account was given; a store that reported none gave
+		// nothing, and the answer still says so in full.
+		resp.Welcome = signIn.Welcome
+		if resp.Welcome == nil {
+			resp.Welcome = db.NewWelcomeGrant()
+		}
+		resp.WelcomeChips = resp.Welcome.Chips
 	}
-	WriteJSON(w, http.StatusOK, LoginResponse{Token: token, User: user, IsNew: isNew, WelcomeChips: welcome})
+	WriteJSON(w, http.StatusOK, resp)
 }
 
 // Me is GET /api/auth/me: {user} re-read from the store by RequireAuth on
@@ -279,105 +288,6 @@ func jsParseInt(s string) int {
 	return sign * n
 }
 
-// Milestone is POST /api/rewards/milestone (requirement 17). Order: seated →
-// 409 {error:"seated"}; claimed → 200 {claimed:true, amount, milestone, user}
-// and log `milestone reward claimed` {userId, milestone}; not claimed → 409
-// {error:"reward_not_available", message, user}. The body is ignored.
-//
-// The seated check is not a UI nicety. It is what makes the money model's
-// invariant true: A SEATED PLAYER'S WALLET IN POSTGRESQL CANNOT CHANGE EXCEPT
-// AT THE THREE CHECKPOINTS (pack, leave/switch, hand end). A reward credited
-// mid-hand would be a fourth writer of the same row, and the seat would never
-// learn of it. Both shipped clients already offer rewards in the lobby only.
-// The Table still computes its checkpoints as a DELTA rather than an absolute
-// (see the Ledger doc), so a future fourth writer could not silently erase a
-// credit either — defence in depth, not redundancy.
-//
-// The check and the claim run together under the player's seat lock
-// (Deps.WhileUnseated). Checked on its own, a claim could commit after a join
-// had read the wallet and before it reserved the seat: no chips are made that
-// way — the delta absorbs the difference — but the seat would start without a
-// credit the wallet has, which is exactly the fourth writer ruled out above.
-// The claim runs on the context the lock hands it, not the request's: a client
-// giving up while the claim's COMMIT was on the wire would otherwise end the
-// call — and release the lock — before the outcome was known.
-func (h *Handler) Milestone(w http.ResponseWriter, r *http.Request, user *db.User) {
-	var result *db.RewardResult
-	var err error
-	if !h.whileUnseated(r.Context(), user.ID, func(ctx context.Context) { result, err = h.deps.Users.ClaimMilestoneReward(ctx, user.ID) }) {
-		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedMilestone})
-		return
-	}
-	if err != nil {
-		h.writeError(w, r, err)
-		return
-	}
-	if !result.Claimed {
-		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeRewardNotAvailable, Message: MsgRewardNotAvailable, User: result.User})
-		return
-	}
-	if h.deps.Logger != nil {
-		h.deps.Logger.Info("milestone reward claimed", "userId", user.ID, "milestone", result.Milestone)
-	}
-	WriteJSON(w, http.StatusOK, result)
-}
-
-// Bonus is POST /api/rewards/bonus (requirement 18). Order: seated → 409
-// {error:"seated"}; claimed → 200 {claimed:true, amount, readyAt, user} and
-// log `timed bonus claimed` {userId}; not ready → 409
-// {error:"reward_not_ready", message, readyAt, user}. The body is ignored.
-// The seated check, and the lock it is taken under, exist for the reasons given
-// on Milestone.
-func (h *Handler) Bonus(w http.ResponseWriter, r *http.Request, user *db.User) {
-	var result *db.RewardResult
-	var err error
-	if !h.whileUnseated(r.Context(), user.ID, func(ctx context.Context) { result, err = h.deps.Users.ClaimTimedBonus(ctx, user.ID) }) {
-		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedBonus})
-		return
-	}
-	if err != nil {
-		h.writeError(w, r, err)
-		return
-	}
-	if !result.Claimed {
-		readyAt := result.ReadyAt
-		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeRewardNotReady, Message: MsgRewardNotReady, ReadyAt: &readyAt, User: result.User})
-		return
-	}
-	if h.deps.Logger != nil {
-		h.deps.Logger.Info("timed bonus claimed", "userId", user.ID)
-	}
-	WriteJSON(w, http.StatusOK, result)
-}
-
-// Daily is POST /api/rewards/daily, the daily bonus beside the four-hour one
-// (owner, 14 Sep 2026; Go only): 1,00,000 chips and a hammer every 24 hours.
-// Its order and answers are Bonus's — seated → 409 {error:"seated"}; claimed →
-// 200 {claimed:true, amount, readyAt, user} and log `daily bonus claimed`
-// {userId}; not ready → 409 {error:"reward_not_ready", message, readyAt, user}
-// — and so are its seated check and lock, for the reasons given on Milestone.
-func (h *Handler) Daily(w http.ResponseWriter, r *http.Request, user *db.User) {
-	var result *db.RewardResult
-	var err error
-	if !h.whileUnseated(r.Context(), user.ID, func(ctx context.Context) { result, err = h.deps.Users.ClaimDailyBonus(ctx, user.ID) }) {
-		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeSeated, Message: MsgSeatedBonus})
-		return
-	}
-	if err != nil {
-		h.writeError(w, r, err)
-		return
-	}
-	if !result.Claimed {
-		readyAt := result.ReadyAt
-		WriteJSON(w, http.StatusConflict, ErrorResponse{Error: CodeRewardNotReady, Message: MsgRewardNotReady, ReadyAt: &readyAt, User: result.User})
-		return
-	}
-	if h.deps.Logger != nil {
-		h.deps.Logger.Info("daily bonus claimed", "userId", user.ID)
-	}
-	WriteJSON(w, http.StatusOK, result)
-}
-
 // BuyChips is POST /api/purchases/google {productId, purchaseToken}.
 //
 // It serves chip, diamond and hammer packs and premium packages alike: the
@@ -399,8 +309,9 @@ func (h *Handler) Daily(w http.ResponseWriter, r *http.Request, user *db.User) {
 // the player did buy those chips and the app should finish the Play
 // transaction rather than ask again.
 //
-// Note what is deliberately absent: any seated check. Rewards are refused at a
-// table to keep the money model's invariant, but refusing a PAID purchase
+// Note what is deliberately absent: any seated check. A Lucky Draw spin and a
+// chip-priced picture are refused at a table to keep the money model's
+// invariant (whileUnseated), but refusing a PAID purchase
 // because someone is sitting down would be indefensible — running out of chips
 // mid-hand is exactly when they buy. The delta write at the next checkpoint
 // (internal/game/ledger.go) is what keeps the books straight instead.
@@ -624,7 +535,7 @@ func (h *Handler) Avatar(w http.ResponseWriter, r *http.Request, user *db.User) 
 // 50,000; losing them clamped the wallet at zero and paid the winner chips that
 // did not exist. At a table the purchase runs without the lock, because
 // BuyAtTable never charges anything a seat holds. The lobby purchase runs on
-// the context the lock hands it; Milestone says why never the request's.
+// the context the lock hands it; whileUnseated says why never the request's.
 //
 // Buying does NOT put the picture on. It is a separate POST to
 // /api/profile/avatar, so the two refusals stay separate and a player who buys
@@ -812,8 +723,8 @@ func (h *Handler) LuckyDraw(w http.ResponseWriter, r *http.Request, user *db.Use
 // granting nothing — the retry a lost answer calls for.
 //
 // Lobby-only, and under the player's seat lock (Deps.WhileUnseated), for the
-// reasons Milestone gives: a CHIPS prize moves a wallet, and a seated player's
-// wallet moves only at the three checkpoints (CLAUDE.md §5.1).
+// reasons whileUnseated gives: a CHIPS prize moves a wallet, and a seated
+// player's wallet moves only at the three checkpoints (CLAUDE.md §5.1).
 func (h *Handler) SpinLuckyDraw(w http.ResponseWriter, r *http.Request, user *db.User) {
 	if h.deps.LuckyDraws == nil {
 		WriteJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: CodeLuckyDrawUnavailable, Message: MsgLuckyDrawUnavailable})
@@ -1219,7 +1130,7 @@ func (h *Handler) Name(w http.ResponseWriter, r *http.Request, user *db.User) {
 // whether they asked for one or not.
 //
 // Order of refusals: RequireAuth (401) → seated (409). The seated check is
-// the same rule the avatar, name and reward endpoints follow, and here it is
+// the same rule the name endpoint and the Lucky Draw follow, and here it is
 // load-bearing rather than tidy: a seated player's chips are partly in a pot
 // and partly on the table, and PostgreSQL is only brought up to date at the
 // three checkpoints (CLAUDE.md §5.1). Emptying the wallet from underneath a
@@ -1237,7 +1148,7 @@ func (h *Handler) Name(w http.ResponseWriter, r *http.Request, user *db.User) {
 // seating a deleted account with the chips account_deleted had just removed,
 // and a delete while a refused hand-end settle was still retrying (owed) let
 // the late settle land on an emptied wallet. Under the lock every one of those
-// is 409 seated, as a reward or a chip-priced picture is. Once deleted, the
+// is 409 seated, as a Lucky Draw spin or a chip-priced picture is. Once deleted, the
 // player's sockets are ended (Deps.AccountDeleted), so a session with no
 // account behind it does not linger.
 func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request, user *db.User) {
@@ -1267,6 +1178,22 @@ func (h *Handler) isSeated(userID string) bool {
 // ran: under Deps.WhileUnseated when the app provides it, on the context that
 // lock hands out; else after an isSeated look with no lock, on ctx cut loose
 // from the request's cancellation (unit tests, which have no seats to race).
+//
+// The seated refusal is not a UI nicety. It is what makes the money model's
+// invariant true: A SEATED PLAYER'S WALLET IN POSTGRESQL CANNOT CHANGE EXCEPT
+// AT THE THREE CHECKPOINTS (pack, leave/switch, hand end). A lobby credit or
+// debit made mid-hand would be a fourth writer of the same row, and the seat
+// would never learn of it. The Table still computes its checkpoints as a DELTA
+// rather than an absolute (see the Ledger doc), so a fourth writer could not
+// silently erase a credit either — defence in depth, not redundancy.
+//
+// The check and the change run together under the player's seat lock.
+// Checked on its own, a change could commit after a join had read the wallet
+// and before it reserved the seat: the seat would start from a wallet that is
+// no longer there. fn runs on the context the lock hands it, not the
+// request's: a client giving up while its COMMIT was on the wire would
+// otherwise end the call — and release the lock — before the outcome was
+// known.
 func (h *Handler) whileUnseated(ctx context.Context, userID string, fn func(ctx context.Context)) bool {
 	if h.deps.WhileUnseated != nil {
 		return h.deps.WhileUnseated(userID, fn)

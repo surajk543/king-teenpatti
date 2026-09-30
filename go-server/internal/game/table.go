@@ -96,9 +96,10 @@ const (
 // settleMaxAttempts and settleRetryMaxDelay live in actor.go with the Settler.
 
 // reservedActionIDSeparator is the character every server-generated
-// chip_ledger.action_id (BootActionID, SettleActionID, the users store's
-// milestone id) is built around. A client-supplied actionId containing it is
-// discarded in favour of a fresh uuid — see chargeToPot.
+// chip_ledger.action_id (BootActionID, SettleActionID, a picture purchase's
+// "picture:<userId>:<pictureId>:<n>") is built around. A client-supplied
+// actionId containing it is discarded in favour of a fresh uuid — see
+// chargeToPot.
 const reservedActionIDSeparator = ':'
 
 // TableOptions builds a Table.
@@ -316,9 +317,10 @@ type contribution struct {
 	// outcome. It starts at the seat's chips when the hand was dealt, BEFORE
 	// the boot came out, because nothing is written at the deal.
 	//
-	// A delta, never an absolute: a seated player can claim the four-hour
-	// bonus or a milestone reward, which credits the wallet and not the seat,
-	// and `SET chips = <live figure>` would erase it.
+	// A delta, never an absolute: a credit that reaches the wallet and not
+	// the seat — the lobby rewards could, until they were removed (30 Sep
+	// 2026); the seat lock now keeps every lobby credit off a seated wallet —
+	// would be erased by `SET chips = <live figure>`.
 	chipsWritten int64
 	// leftUncounted marks a leaver whose hand_left checkpoint the ledger
 	// REFUSED in this life of the hand (Table.checkpoint): that write recorded
@@ -768,8 +770,8 @@ func (t *Table) RemovePlayer(userID, reason string) (*SeatInfo, error) {
 //
 // The delicate part is chipsWritten, and getting it wrong doubles the money.
 //
-// Rewards deliberately move the wallet and NOT the seat, which is why every
-// checkpoint writes `chips - chipsWritten` and never an absolute. A purchase
+// Every checkpoint writes `chips - chipsWritten` and never an absolute (see
+// chipsWritten), so a credit to the wallet alone survives it. A purchase
 // moves BOTH, so both sides of that subtraction have to move with it: the
 // stack gains the chips, and chipsWritten gains them too, because PostgreSQL
 // already has them. Advance only the stack and the next checkpoint writes the
@@ -2111,12 +2113,12 @@ func (t *Table) sideshowBlockedReason(s *seat) string {
 func (t *Table) chargeToPot(s *seat, amount int64, actionID, reason string) error {
 	// A client id is an opaque idempotency token. The ledger's own action ids
 	// ("<handId>:settle:<userId>", "<handId>:packed:<userId>",
-	// "<handId>:left:<userId>", "<userId>:milestone:<n>") are the only
-	// colon-separated ones, and a client must never be able to occupy one of
-	// those keys ahead of the server — a bet carrying another player's
-	// "<userId>:milestone:25" would make that player's milestone claim fail
-	// on the UNIQUE index. The socket layer applies the same rule; this is
-	// the last line.
+	// "<handId>:left:<userId>", "picture:<userId>:<pictureId>:<n>") are the
+	// only colon-separated ones, and a client must never be able to occupy
+	// one of those keys ahead of the server — a bet carrying another player's
+	// "picture:<userId>:7:1" would make that player's first purchase of
+	// picture 7 fail on the UNIQUE index. The socket layer applies the same
+	// rule; this is the last line.
 	if actionID == "" || strings.ContainsRune(actionID, reservedActionIDSeparator) {
 		actionID = util.UUID()
 	}

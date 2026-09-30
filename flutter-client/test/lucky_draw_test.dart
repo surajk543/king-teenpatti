@@ -106,22 +106,6 @@ Map<String, dynamic> _userJson({int chips = 300000, int hammer = 20}) => {
   'diamond': 9,
   'hammer': hammer,
   'missile': 1,
-  'rewards': {
-    'milestoneAvailable': false,
-    'milestoneReward': 25000,
-    'handsToNextMilestone': 4,
-    'bonusReward': 10000,
-    'bonusReadyAt': DateTime.now()
-        .add(const Duration(hours: 3))
-        .millisecondsSinceEpoch,
-    'bonusAvailable': false,
-    'dailyReward': 100000,
-    'dailyHammers': 1,
-    'dailyReadyAt': DateTime.now()
-        .add(const Duration(hours: 20))
-        .millisecondsSinceEpoch,
-    'dailyAvailable': false,
-  },
 };
 
 /// What POST /api/lucky-draw/spin answers for a spin landing on [slot].
@@ -987,7 +971,7 @@ void main() {
         await _openDraw(tester, state);
         final key = find.byType(LuckyGoldKey);
         expect(key, findsOneWidget);
-        // The Shop key's and the table's Chaal face, with its press-down.
+        // The table's Chaal face, with its press-down.
         final face = tester.widget<Ink>(
           find.descendant(of: key, matching: find.byType(Ink)),
         );

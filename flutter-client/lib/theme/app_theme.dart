@@ -128,9 +128,12 @@ class Breaks {
   /// 411 and above is not.
   static const double shortHeight = 380;
 
-  /// The lobby top bar folds its provider pill below this much *remaining*
-  /// width — not below this much screen width. At the reward slot's own size
-  /// that is 448dp on a 640 screen (fold) and 624dp on an 891 one (don't).
+  /// The lobby top bar folds its provider pill (and sets the Shop key's word
+  /// aside, and its steps closer) below this much width for its row — not
+  /// below this much screen width. The row was what the 4-hour bonus's slot
+  /// left until the owner took the bonus away (30 Sep 2026): 448dp on a 640
+  /// screen (fold) and 624dp on an 891 one (don't). It is the whole bar now,
+  /// so no landscape phone folds.
   static const double tightBar = 470;
 
   static bool isCompact(double w) => w < compact;
@@ -216,9 +219,24 @@ class Dim {
   /// Bigger than it used to be (0.105, clamped 36..48) because it is the
   /// player's own face and the one picture they have chosen — at 43dp on a
   /// Pixel it was the smallest thing in a bar full of numbers, and a catalogue
-  /// worth paying chips for deserves to be legible.
+  /// worth paying chips for deserves to be legible. Bigger again on 30 Sep
+  /// 2026 (owner: "In Top Left increase Profile size but don't increase size
+  /// of badge", then "a little bit more"): the bar's allowance for the edit
+  /// mark and one and a half pads more, about a quarter bigger, while the bar
+  /// grows by one pad ([topRailH]) — a whole pad above the picture ("Keep some
+  /// space above the profile picture"), half a pad under it. The badge and the
+  /// edit mark keep their size ([avatarMarkD]). (A bar grown by the picture's
+  /// whole growth took more from the rail of cards than it can spare: at
+  /// 732x412 it no longer stopped on whole cards.)
+  /// 360 -> 61.8 | 411 -> 70.0 | 800 -> 83.0
+  static double avatarD(double h) =>
+      avatarMarkD(h) + avatarPip + 1.5 * topRailPad(h);
+
+  /// The picture the top bar is sized from ([topRailH]), and its badge and
+  /// edit mark: the avatar's size until it grew (30 Sep 2026), so the bar,
+  /// the badge and the mark stayed as they were.
   /// 360 -> 48.6 | 411 -> 55.5 | 800 -> 64.0
-  static double avatarD(double h) => (h * 0.135).clamp(44.0, 64.0);
+  static double avatarMarkD(double h) => (h * 0.135).clamp(44.0, 64.0);
 
   /// The edit pip hangs off the avatar's corner and has to be paid for.
   static const double avatarPip = 4;
@@ -226,27 +244,19 @@ class Dim {
   /// 360 -> 6.1 | 411 -> 7.0 | 800 -> 10.0
   static double topRailPad(double h) => (h * 0.017).clamp(5.0, 10.0);
 
-  /// Derived from the avatar it carries, pip included.
-  /// 360 -> 64.8 | 411 -> 73.5 | 800 -> 88.0
+  /// Derived from the avatar's measure ([avatarMarkD]), pip included, and one
+  /// pad more (30 Sep 2026): the bigger picture ([avatarD]) keeps a whole pad
+  /// above it (owner: "Keep some space above the profile picture") and stands
+  /// half a pad from the foot.
+  /// 360 -> 71.0 | 411 -> 80.5 | 800 -> 98.0
   static double topRailH(double h) =>
-      avatarD(h) + avatarPip + 2 * topRailPad(h);
+      avatarMarkD(h) + avatarPip + 3 * topRailPad(h);
 
-  /// The reward chip's slot in the top bar.
+  /// The widest a corner chip at the lobby's foot (the Lucky Draw's) may be,
+  /// so its two lines ellipsise rather than run off the screen. It was the
+  /// top bar's slot for the 4-hour bonus until that went (30 Sep 2026).
   /// 640 -> 192.0 | 891 -> 267.3 | 1280 -> 300.0
-  static double bonusSlotW(double w) => (w * 0.30).clamp(180.0, 300.0);
-
-  /// The daily bonus chip's cap at the lobby's foot. Not the top bar's slot:
-  /// it stands in a corner nothing but the milestone shares, and once ready it
-  /// pays two currencies to the 4-hour chip's one — a coin, the lakh, "+1"
-  /// and the hammer (owner, 24 Sep 2026) need 205 on a 640dp phone at the
-  /// 1.25 text ceiling, where the slot's 192 cut the lakh to "1,00,0…".
-  /// 640 -> 211.2 | 891 -> 294.0 | 1280 -> 330.0
-  static double dailyBonusW(double w) => bonusSlotW(w) * 1.1;
-
-  /// What the top bar's row actually has left — the number to hand
-  /// [Breaks.isTightBar], never the raw screen width.
-  /// 640 -> 448.0 | 891 -> 623.7 | 1280 -> 980.0
-  static double topBarContentW(double w) => w - bonusSlotW(w);
+  static double cornerChipW(double w) => (w * 0.30).clamp(180.0, 300.0);
 
   /// 640 -> 260.0 | 891 -> 356.4 | 1280 -> 380.0
   static double drawerW(double w) => (w * 0.40).clamp(260.0, 380.0);

@@ -198,22 +198,6 @@ Map<String, dynamic> _user() => {
   'diamond': 9,
   'hammer': 20,
   'missile': 1,
-  'rewards': {
-    'milestoneAvailable': false,
-    'milestoneReward': 25000,
-    'handsToNextMilestone': 4,
-    'bonusReward': 10000,
-    'bonusReadyAt': DateTime.now()
-        .add(const Duration(hours: 3))
-        .millisecondsSinceEpoch,
-    'bonusAvailable': false,
-    'dailyReward': 100000,
-    'dailyHammers': 1,
-    'dailyReadyAt': DateTime.now()
-        .add(const Duration(hours: 20))
-        .millisecondsSinceEpoch,
-    'dailyAvailable': false,
-  },
 };
 
 Map<String, dynamic> _draw(_Journey journey) => {

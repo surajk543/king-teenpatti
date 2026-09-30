@@ -2760,9 +2760,15 @@ class GameState extends ChangeNotifier {
       await prefs.setString('token', r.token);
       await loadConsent(prefs);
 
-      if (r.isNew && r.welcomeChips > 0) {
-        notice =
-            'Welcome! ${formatChips(r.welcomeChips)} chips added to your account.';
+      // A new account is told what it was given, in its own language; a
+      // returning one hears nothing.
+      if (r.isNew) {
+        final welcome = welcomeNotice(
+          t,
+          r.welcome,
+          welcomeChips: r.welcomeChips,
+        );
+        if (welcome != null) notice = welcome;
       }
 
       _conn.connect(r.token);
@@ -2824,9 +2830,15 @@ class GameState extends ChangeNotifier {
       await prefs.setString('token', r.token);
       await loadConsent(prefs);
 
-      if (r.isNew && r.welcomeChips > 0) {
-        notice =
-            'Welcome! ${formatChips(r.welcomeChips)} chips added to your account.';
+      // A new account is told what it was given, in its own language; a
+      // returning one hears nothing.
+      if (r.isNew) {
+        final welcome = welcomeNotice(
+          t,
+          r.welcome,
+          welcomeChips: r.welcomeChips,
+        );
+        if (welcome != null) notice = welcome;
       }
 
       _conn.connect(r.token);
@@ -2975,9 +2987,8 @@ class GameState extends ChangeNotifier {
   /// How long after leaving a table the account is read once more: the
   /// server's stats flusher (Player stats v2) moves a finished hand's counters
   /// into PostgreSQL up to STATS_FLUSH_MS (10 s) after the hand, so the read
-  /// the lobby makes at once can miss the last hand — in the Stats drawer and
-  /// in the milestone chip's count. One more read just after the flush
-  /// catches it up.
+  /// the lobby makes at once can miss the last hand in the Stats drawer. One
+  /// more read just after the flush catches it up.
   static const statsCatchUpAfter = Duration(seconds: 11);
   Timer? _statsCatchUp;
 
@@ -3015,8 +3026,15 @@ class GameState extends ChangeNotifier {
     // reason: `owned` is per viewer, anonymous at start and this player's
     // once there is a token.
     unawaited(_loadEmojis());
+    // Ownership is per viewer: an answer to a request made under another
+    // token — the anonymous one a cold start sends, overtaken by the sign-in's
+    // — is about somebody else and must not overwrite this one's (a picture
+    // the welcome grant gave would read locked). The emojis already do this.
+    final token = _token;
     try {
-      pictures = await _api.profilePictures(_token);
+      final got = await _api.profilePictures(token);
+      if (_token != token) return;
+      pictures = got;
       // Pull the faces down as soon as we know what they are, so the picker
       // opens on pictures rather than on fifteen placeholders. Not awaited:
       // the list renders either way, and a picture that is not down yet fills
@@ -3135,8 +3153,12 @@ class GameState extends ChangeNotifier {
   /// the store's tiles show day and night side by side, and the felt needs
   /// whichever the theme wants the moment a table is joined.
   Future<void> _loadTablePictures() async {
+    // As the faces are: an answer under another token is dropped.
+    final token = _token;
     try {
-      tablePictures = await _api.tablePictures(_token);
+      final got = await _api.tablePictures(token);
+      if (_token != token) return;
+      tablePictures = got;
       PictureCache.warm(
         tablePictures
             .expand((p) => [p.dayUrl, p.nightUrl])
@@ -3825,16 +3847,18 @@ class GameState extends ChangeNotifier {
     return PictureBuyResult.refused;
   }
 
-  /// The reward just collected, while its celebration is on screen. Null the
-  /// rest of the time. `readyAt` is epoch ms for the timed bonus and 0 for the
-  /// milestone, which has no clock.
+  /// What just landed in a wallet in the lobby, while its celebration is on
+  /// screen: a chip pack (`purchase`), a diamond or hammer pack, a Premium
+  /// Package (`premium`), a missile trade (`missiles`). Null the rest of the
+  /// time. (The lobby's three rewards — the 4-hour and daily bonuses and the
+  /// milestone — celebrated here too until the owner took them away,
+  /// 30 Sep 2026.)
   ///
   /// `amount` is the headline figure. `missiles` and `hammers` are what a
   /// Premium Package (kind `premium`, owner 14 Sep 2026) brought with its
   /// chips, shown under that figure; every other kind carries 0 or repeats
   /// its own count there.
-  ({String kind, int amount, int readyAt, int missiles, int hammers})?
-  rewardWon;
+  ({String kind, int amount, int missiles, int hammers})? rewardWon;
 
   /// Closes the celebration. The overlay calls this when the player dismisses
   /// it or its own timer runs out.
@@ -4006,7 +4030,6 @@ class GameState extends ChangeNotifier {
         rewardWon = (
           kind: 'premium',
           amount: chips,
-          readyAt: 0,
           missiles: missiles,
           hammers: hammers,
         );
@@ -4014,56 +4037,10 @@ class GameState extends ChangeNotifier {
       return;
     }
     rewardWon = hammers > 0
-        ? (
-            kind: 'hammers',
-            amount: hammers,
-            readyAt: 0,
-            missiles: 0,
-            hammers: hammers,
-          )
+        ? (kind: 'hammers', amount: hammers, missiles: 0, hammers: hammers)
         : diamonds > 0
-        ? (
-            kind: 'diamonds',
-            amount: diamonds,
-            readyAt: 0,
-            missiles: 0,
-            hammers: 0,
-          )
-        : (
-            kind: 'purchase',
-            amount: chips,
-            readyAt: 0,
-            missiles: 0,
-            hammers: 0,
-          );
-  }
-
-  Future<void> claimReward(String kind) async {
-    final token = _token;
-    if (token == null) return;
-    try {
-      final r = await _api.claimReward(token, kind);
-      if (r.user != null) user = r.user;
-      // Success is `claimed`, not a non-zero amount read from a field the
-      // server does not send. A refusal keeps the server's own wording, which
-      // is already specific ("Come back later", "You are at a table").
-      if (r.claimed) {
-        rewardWon = (
-          kind: kind,
-          amount: r.amount,
-          readyAt: r.readyAt,
-          missiles: 0,
-          // The daily bonus pays a hammer beside its chips (owner, 14 Sep
-          // 2026), and the celebration shows it under them.
-          hammers: kind == 'daily' ? (user?.rewards?.dailyHammers ?? 0) : 0,
-        );
-      } else {
-        notice = r.message.isEmpty ? t.rewardRefused : r.message;
-      }
-    } on ApiException catch (e) {
-      notice = e.message;
-    }
-    notifyListeners();
+        ? (kind: 'diamonds', amount: diamonds, missiles: 0, hammers: 0)
+        : (kind: 'purchase', amount: chips, missiles: 0, hammers: 0);
   }
 
   /// The three-way appearance setting: follow the system, dark glass, or
@@ -4611,7 +4588,6 @@ class GameState extends ChangeNotifier {
           rewardWon = (
             kind: 'missiles',
             amount: r.missiles,
-            readyAt: 0,
             missiles: r.missiles,
             hammers: 0,
           );
@@ -5068,6 +5044,36 @@ enum NumberSystem {
   );
 }
 
+/// The toast a NEW account's sign-in raises (30 Sep 2026): what the server's
+/// welcome grant gave it, in the player's language, and nothing it did not —
+/// "Welcome! Added to your account: 10 Lakh chips · 9 diamonds · 20 hammers ·
+/// 1 missile · 1 picture · 2 emojis". A grant of nothing is a plain welcome.
+/// A server from before the grant sends no `welcome`, only `welcomeChips`: its
+/// chips alone, or no toast at all when it gave none (as before). The caller
+/// asks only for a new account; a returning one hears nothing.
+String? welcomeNotice(Strings t, WelcomeGrant? grant, {int welcomeChips = 0}) {
+  if (grant == null) {
+    if (welcomeChips <= 0) return null;
+    return t.welcomeAdded(
+      t.priceIn(PictureCurrency.coin, formatChips(welcomeChips)),
+    );
+  }
+  final items = [
+    if (grant.chips > 0)
+      t.priceIn(PictureCurrency.coin, formatChips(grant.chips)),
+    if (grant.diamonds > 0)
+      t.priceIn(PictureCurrency.diamond, formatChips(grant.diamonds)),
+    if (grant.hammers > 0)
+      t.priceIn(PictureCurrency.hammer, '${grant.hammers}'),
+    if (grant.missiles > 0) t.countMissiles(grant.missiles),
+    if (grant.pictures.isNotEmpty) t.countPictures(grant.pictures.length),
+    if (grant.tablePictures.isNotEmpty)
+      t.countTablePictures(grant.tablePictures.length),
+    if (grant.emojis.isNotEmpty) t.countEmojis(grant.emojis.length),
+  ];
+  return items.isEmpty ? t.welcomePlain : t.welcomeAdded(items.join(' · '));
+}
+
 /// The system money is written in, and the words for its units.
 ///
 /// Module-level rather than threaded through every call: [formatChips] is used
@@ -5152,9 +5158,9 @@ String formatTaxRate(int bps) {
 }
 
 /// "3h 59m 54s" — with its units in the player's language when [t] is given
-/// (the lobby's bonus chip read "3h 54m 9s" under a Hindi or Bengali label).
-/// Seconds are always shown (requirement 26), so the timer visibly ticks
-/// instead of resting on a minute.
+/// (a countdown read "3h 54m 9s" under a Hindi or Bengali label once).
+/// Seconds are always shown, so the timer visibly ticks instead of resting on
+/// a minute.
 String formatCountdown(Duration d, [Strings? t]) {
   final hu = t?.unitHourShort ?? 'h';
   final mu = t?.unitMinuteShort ?? 'm';

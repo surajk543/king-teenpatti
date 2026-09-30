@@ -94,8 +94,7 @@ type loginRequest struct {
 	DisplayName string `json:"displayName,omitempty"`
 }
 
-// userAnswer is {user} (GET /api/auth/me, POST /api/profile/avatar) and the
-// user of POST /api/rewards/bonus's {claimed, amount, readyAt, user}.
+// userAnswer is {user} (GET /api/auth/me, POST /api/profile/avatar).
 type userAnswer struct {
 	User *protocol.User `json:"user"`
 }
@@ -134,24 +133,6 @@ func (a *HTTPAPI) Tables(ctx context.Context) (protocol.Catalogue, error) {
 // Me is GET /api/auth/me.
 func (a *HTTPAPI) Me(ctx context.Context, token string) (protocol.User, error) {
 	return a.user(ctx, http.MethodGet, "/api/auth/me", token, nil)
-}
-
-// CollectBonus collects the lobby's timed rewards any player may: the daily
-// bonus (POST /api/rewards/daily, every 24 h) and the 4-hour bonus (POST
-// /api/rewards/bonus), whichever are due, and returns the account after the
-// last one taken. Only when neither is taken is the server's refusal (409
-// reward_not_ready, seated, …) returned, as an *protocol.APIError.
-func (a *HTTPAPI) CollectBonus(ctx context.Context, token string) (protocol.User, error) {
-	daily, dailyErr := a.user(ctx, http.MethodPost, "/api/rewards/daily", token, struct{}{})
-	timed, timedErr := a.user(ctx, http.MethodPost, "/api/rewards/bonus", token, struct{}{})
-	switch {
-	case timedErr == nil:
-		return timed, nil
-	case dailyErr == nil:
-		return daily, nil
-	default:
-		return protocol.User{}, timedErr
-	}
 }
 
 // FreePictureIDs reads GET /api/profiles and keeps FREE, non-RIVE rows, in

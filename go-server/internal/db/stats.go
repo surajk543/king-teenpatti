@@ -81,8 +81,8 @@ func (s *StatsSheet) line(bucket game.StatsBucket) *StatsLine {
 
 // Totals is the whole career: every bucket's counters summed, the biggest pot
 // the largest. It is what the user object's six top-level counters carry
-// (handsPlayed … biggestPot, unchanged in name and meaning), what a friend's
-// profile totals, and what the HANDS_PLAYED milestone is judged on.
+// (handsPlayed … biggestPot, unchanged in name and meaning) and what a
+// friend's profile totals.
 func (s StatsSheet) Totals() StatsLine {
 	var t StatsLine
 	for _, l := range []StatsLine{s.TeenPatti, s.Variation, s.Poker} {

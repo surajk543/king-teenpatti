@@ -204,7 +204,6 @@ func (d *decoder) schema() section {
 		"interaction": group(interaction),
 		"reconnect":   group(reconnect),
 		"bankroll": group(section{
-			"collect_bonus": leaf(flag(&c.Bankroll.CollectBonus)),
 			"dev_replenish": leaf(flag(&c.Bankroll.DevReplenish)),
 		}),
 		"debug": group(section{

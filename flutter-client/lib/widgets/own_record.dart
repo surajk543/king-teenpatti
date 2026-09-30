@@ -11,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
 import 'avatar.dart';
 import 'glass_components.dart';
+import 'level_accent.dart';
 import 'level_art.dart';
 import 'player_profile.dart' show EvenGrid, HandIcon, countText;
 import 'premium_surface.dart';
@@ -85,6 +86,7 @@ class _StatsInk {
     required this.cellBorder,
     required this.rule,
     required this.gold,
+    required this.chosen,
     required this.chosenGold,
     required this.ring,
     required this.quietFill,
@@ -121,6 +123,7 @@ class _StatsInk {
     cellBorder: _stone.withValues(alpha: 0),
     rule: Colors.white.withValues(alpha: 0.07),
     gold: AppTheme.goldOnDark,
+    chosen: AppTheme.goldOnDark,
     chosenGold: AppTheme.goldOnDark,
     ring: AppTheme.goldBright.withValues(alpha: 0.85),
     quietFill: Colors.white.withValues(alpha: 0.06),
@@ -152,6 +155,7 @@ class _StatsInk {
     cellBorder: _stone.withValues(alpha: 0.7),
     rule: const Color(0xFFE6E0D4),
     gold: AppTheme.goldOnLight,
+    chosen: AppTheme.goldOnLight,
     // The chosen scope's name is 13.5dp, not large text, and on its gold
     // wash the money gold measured 4.27:1; the deep gold holds 4.6 there.
     chosenGold: AppTheme.goldDeep,
@@ -167,10 +171,44 @@ class _StatsInk {
 
   factory _StatsInk.of(BuildContext context) {
     final day = GlassColors.of(context).dayShare;
-    if (day <= 0) return _night;
-    if (day >= 1) return _day;
-    return _StatsInk.lerp(_night, _day, day);
+    final ink = day <= 0
+        ? _night
+        : day >= 1
+        ? _day
+        : _StatsInk.lerp(_night, _day, day);
+    final level = LevelAccent.of(context);
+    return level == null ? ink : ink._inLevel(level);
   }
+
+  /// This set inside a Blind or Variation level of the lobby ([LevelAccent],
+  /// owner, 30 Sep 2026): the portrait's ring and the chosen scope — its
+  /// chevron, tick, name, wash and open edge — in the level's colour, as the
+  /// drawer's ground is. Money stays gold: gold is what money is written in.
+  _StatsInk _inLevel(LevelColours level) => _StatsInk(
+    day: day,
+    primary: primary,
+    secondary: secondary,
+    muted: muted,
+    cardFill: cardFill,
+    cardBorder: cardBorder,
+    cardShadow: cardShadow,
+    moneyFill: moneyFill,
+    moneyBorder: moneyBorder,
+    cellFill: cellFill,
+    cellBorder: cellBorder,
+    rule: rule,
+    gold: gold,
+    chosen: level.ink,
+    chosenGold: level.ink,
+    ring: level.fill.withValues(alpha: ring.a),
+    quietFill: quietFill,
+    trigger: trigger,
+    triggerOpen: triggerOpen,
+    triggerEdgeOpen: level.hairline(live: true),
+    menuBody: menuBody,
+    menuShadow: menuShadow,
+    chosenWash: level.fill.withValues(alpha: chosenWash.a),
+  );
 
   factory _StatsInk.lerp(_StatsInk a, _StatsInk b, double t) {
     Color c(Color x, Color y) => Color.lerp(x, y, t) ?? x;
@@ -188,6 +226,7 @@ class _StatsInk {
       cellBorder: c(a.cellBorder, b.cellBorder),
       rule: c(a.rule, b.rule),
       gold: c(a.gold, b.gold),
+      chosen: c(a.chosen, b.chosen),
       chosenGold: c(a.chosenGold, b.chosenGold),
       ring: c(a.ring, b.ring),
       quietFill: c(a.quietFill, b.quietFill),
@@ -215,8 +254,12 @@ class _StatsInk {
   final Color cellBorder;
   final Color rule;
 
-  /// The lobby's gold for money and the chosen scope — never for a count.
+  /// The lobby's gold for money — never for a count.
   final Color gold;
+
+  /// The chosen scope's chevron and tick: the gold, or the lobby level's
+  /// colour inside a Blind or Variation level.
+  final Color chosen;
 
   /// The chosen scope's name in the open menu: the gold, deepened by day.
   final Color chosenGold;
@@ -1479,7 +1522,7 @@ class _StatsScopeSelectorState extends State<StatsScopeSelector>
                     child: Icon(
                       Icons.expand_more_rounded,
                       size: 18,
-                      color: ink.gold,
+                      color: ink.chosen,
                     ),
                   ),
                 ],
@@ -1673,7 +1716,7 @@ class _ScopeOption extends StatelessWidget {
                 SizedBox(
                   width: 24,
                   child: on
-                      ? Icon(Icons.check_rounded, size: 16, color: ink.gold)
+                      ? Icon(Icons.check_rounded, size: 16, color: ink.chosen)
                       : null,
                 ),
                 const SizedBox(width: Space.xs),
