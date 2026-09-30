@@ -1395,13 +1395,13 @@ SELECT
 FROM reward_programs rp
 CROSS JOIN (
     VALUES
-        (1, 'CHIPS',   10000::BIGINT, NULL::TEXT),
-        (2, 'CHIPS',   20000::BIGINT, NULL::TEXT),
-        (3, 'CHIPS',   30000::BIGINT, NULL::TEXT),
-        (4, 'CHIPS',   40000::BIGINT, NULL::TEXT),
-        (5, 'CHIPS',   50000::BIGINT, NULL::TEXT),
-        (6, 'CHIPS',   60000::BIGINT, NULL::TEXT),
-        (7, 'HAMMER',     1::BIGINT, NULL::TEXT)
+        (1, 'CHIPS',   20000::BIGINT, NULL::TEXT),
+        (2, 'CHIPS',   40000::BIGINT, NULL::TEXT),
+        (3, 'CHIPS',   80000::BIGINT, NULL::TEXT),
+        (4, 'CHIPS',   160000::BIGINT, NULL::TEXT),
+        (5, 'CHIPS',   320000::BIGINT, NULL::TEXT),
+        (6, 'CHIPS',   640000::BIGINT, NULL::TEXT),
+        (7, 'HAMMER',     5::BIGINT, NULL::TEXT)
 ) AS v(day_number, reward_type, reward_value, reward_ref_id)
 WHERE rp.code = 'WEEKLY_LOGIN'
 ON CONFLICT (program_id, day_number) DO NOTHING;

@@ -2007,8 +2007,9 @@ retry and a second process all grant a day once (`TestTwoRequestsAtOnceGrantADay
 grant). Independent programs: each claims on its own, a refusal of one never touches another. A program outside its window, or in a
 zone the server cannot load, is left out with one WARN (`reward program left out`); a day whose catalogue item is retired, gone or FREE is
 left out too (`reward program day left out`) and neither shown nor granted. **Seeded**: `WEEKLY_LOGIN` (the owner's own list, edited into
-the seed by the owner on 30 Sep 2026: Day 1 10,000 chips · 2 20,000 · 3 30,000 · 4 40,000 · 5 50,000 · 6 60,000 · 7 1 hammer — until that
-evening chips, hammers and diamonds alternating), and `MONTHLY_LOGIN`, `WEEKLY_CALENDAR` and `MONTHLY_CALENDAR` as programs WITHOUT
+the seed by the owner on 30 Sep 2026 and raised the same evening: Day 1 20,000 chips · 2 40,000 · 3 80,000 · 4 1.6 Lakh · 5 3.2 Lakh ·
+6 6.4 Lakh · 7 5 hammers — 10,000–60,000 and one hammer for a few hours, and before that chips, hammers and diamonds alternating; a
+database that ran an earlier seed keeps its figures until an `UPDATE reward_program_rewards`, the seed being `ON CONFLICT DO NOTHING`), and `MONTHLY_LOGIN`, `WEEKLY_CALENDAR` and `MONTHLY_CALENDAR` as programs WITHOUT
 days and INACTIVE (`is_active = FALSE`: the owner commented their day lists out of the seed the same day; a program with no days would be
 left out of the wire and grant nothing, so each waits for its `reward_program_rewards` rows and an `UPDATE … SET is_active = TRUE` — the
 seed's header shows the shape; the Go tests build the example day lists they need themselves, `exampleDays` in

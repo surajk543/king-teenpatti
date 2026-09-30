@@ -866,9 +866,10 @@ func TestTheSeededProgramsAreTheOwnersWeeklyLoginAndThreeWaiting(t *testing.T) {
 		}
 		return strings.Join(parts, " ")
 	}
-	// The owner's own days (30 Sep 2026): chips rising to the sixth day, a
-	// hammer on the seventh.
-	if got := kinds(weekly); got != "1:CHIPS=10000 2:CHIPS=20000 3:CHIPS=30000 4:CHIPS=40000 5:CHIPS=50000 6:CHIPS=60000 7:HAMMER=1" {
+	// The owner's own days (30 Sep 2026, raised the same evening from
+	// 10,000–60,000 and one hammer): chips doubling from 20,000 to 6.4 Lakh
+	// on the sixth day, five hammers on the seventh.
+	if got := kinds(weekly); got != "1:CHIPS=20000 2:CHIPS=40000 3:CHIPS=80000 4:CHIPS=160000 5:CHIPS=320000 6:CHIPS=640000 7:HAMMER=5" {
 		t.Fatalf("WEEKLY_LOGIN's days: %s", got)
 	}
 	if weekly.CurrentDay != 1 || weekly.DayOfPeriod != 1 || weekly.PeriodDays != 7 {
@@ -890,7 +891,7 @@ func TestTheSeededProgramsAreTheOwnersWeeklyLoginAndThreeWaiting(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, key := range []string{`"program":{"id":`, `"code":"WEEKLY_LOGIN"`, `"mode":"LOGIN_STREAK"`, `"periodType":"WEEKLY"`,
-		`"periodStart":`, `"periodEnd":`, `"currentDay":1`, `"claimedToday":false`, `"rewards":[{"day":1,"rewardType":"CHIPS","rewardValue":10000,"rewardRefId":null,"claimed":false}`} {
+		`"periodStart":`, `"periodEnd":`, `"currentDay":1`, `"claimedToday":false`, `"rewards":[{"day":1,"rewardType":"CHIPS","rewardValue":20000,"rewardRefId":null,"claimed":false}`} {
 		if !strings.Contains(string(body), key) {
 			t.Fatalf("the wire lacks %s:\n%s", key, body)
 		}
