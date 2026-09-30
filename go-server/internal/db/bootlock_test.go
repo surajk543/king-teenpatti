@@ -62,10 +62,12 @@ func TestABootSurvivesALongReaderHoldingTheTables(t *testing.T) {
 	// they are missing — and each player's missions, nor to the app version
 	// gate's rows (app_versions, 28 Sep 2026: its trigger is created only when
 	// missing), nor to what a new account is given (welcome_rewards, 30 Sep
-	// 2026: its trigger too).
+	// 2026: its trigger too), nor to the reward programs' three (30 Sep 2026:
+	// two configuration tables with a trigger each, and the claims with a
+	// guarded unique index).
 	for _, table := range []string{"table_engines", "table_categories", "table_settings", "table_configs", "emojis", "user_emojis",
 		"player_stats", "player_variation_stats", "stats_flushes", "friend_requests", "friendships", "player_reports", "user_sessions",
-		"xp_sources", "player_xp_missions", "app_versions", "welcome_rewards"} {
+		"xp_sources", "player_xp_missions", "app_versions", "welcome_rewards", "reward_programs", "reward_program_rewards", "user_reward_claims"} {
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM `+table+` LIMIT 1`); err != nil {
 			t.Fatalf("read %s: %v", table, err)
 		}

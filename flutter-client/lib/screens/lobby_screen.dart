@@ -47,6 +47,7 @@ import '../widgets/table_ground.dart';
 import '../widgets/table_tax.dart';
 import 'friends_screen.dart';
 import 'lucky_draw_screen.dart';
+import 'reward_programs_screen.dart';
 
 /// The lobby: every choice is a card on one horizontal rail, so a phone held in
 /// landscape never has to scroll down — swipe sideways instead.
@@ -568,15 +569,22 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ),
                 ],
               ),
-              // The Lucky Draw in the bottom-left corner (owner, 24 Sep 2026).
-              // The daily bonus stood beside it until the owner took the
-              // lobby's three rewards away (30 Sep 2026: "Remove 24-hour daily
-              // reward, 4-hour bonus, and milestone reward"). Keyed so a lobby
-              // toast can stand clear of it (lobbyNoticeArea).
+              // The Lucky Draw in the bottom-left corner (owner, 24 Sep 2026),
+              // and beside it the reward programs' chip (30 Sep 2026: the
+              // login streaks and calendar rewards), where the daily bonus
+              // stood until the owner took the lobby's three rewards away
+              // (30 Sep 2026: "Remove 24-hour daily reward, 4-hour bonus, and
+              // milestone reward"). Keyed so a lobby toast can stand clear of
+              // both (lobbyNoticeArea).
               Positioned(
                 bottom: Space.md,
                 left: Space.md,
-                child: _LuckyDrawChip(key: _luckyChip),
+                child: Row(
+                  key: _luckyChip,
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: const [_LuckyDrawChip(), _RewardsChip()],
+                ),
               ),
               // The level key and Friends in the bottom-right corner, where
               // the milestone chip stood until 30 Sep 2026. The rail of tables
@@ -838,17 +846,24 @@ class _RewardCelebrationState extends State<_RewardCelebration>
     final theme = Theme.of(context);
     final text = theme.textTheme;
     final state = context.watch<GameState>();
-    final won = state.rewardWon;
+    // A reward program's claim (30 Sep 2026: the login streaks and calendar
+    // rewards) is celebrated here too, listing what the server says it gave.
+    final grants = state.rewardsGranted;
+    final won = grants != null ? null : state.rewardWon;
     final t = state.t;
 
-    if (won == null) {
+    if (won == null && grants == null) {
       _shownFor = null;
       return const SizedBox.shrink();
     }
-    if (_shownFor != won.amount) {
-      _shownFor = won.amount;
+    final shownKey = won?.amount ?? _grantsKey(grants!);
+    if (_shownFor != shownKey) {
+      _shownFor = shownKey;
       _in.forward(from: 0);
     }
+    final VoidCallback dismiss = grants != null
+        ? state.dismissRewardsGranted
+        : state.dismissReward;
 
     final size = MediaQuery.sizeOf(context);
     // Height is the scarce axis, so the panel's own padding and its hero chip
@@ -859,27 +874,27 @@ class _RewardCelebrationState extends State<_RewardCelebration>
     // A Premium Package has a line more to show — the missiles and hammers
     // under its chips — and on a 360dp phone at the 1.25 text ceiling that
     // line is paid for by a smaller hero chip and a tighter gap under it.
-    final premium = won.kind == 'premium';
+    final premium = won?.kind == 'premium';
     // A hammer pack has that line too, for its hammers.
-    final wallets = premium || won.hammers > 0;
+    final wallets = premium || (won?.hammers ?? 0) > 0;
     final chip = (size.height * 0.16).clamp(40.0, 68.0) * (wallets ? 0.75 : 1);
 
-    final blurb = switch (won.kind) {
+    final blurb = switch (won?.kind) {
       'premium' => t.rewardPremiumPurchased,
       'diamonds' => t.rewardDiamondsPurchased,
       'hammers' => t.rewardHammersPurchased,
-      'missiles' => t.rewardMissilesTraded(won.amount),
+      'missiles' => t.rewardMissilesTraded(won?.amount ?? 0),
       _ => t.rewardPurchased,
     };
     // The ink of the soft wallet that filled, or null for chips — which keep
     // the spinning chip and the gold.
-    final softInk = switch (won.kind) {
+    final softInk = switch (won?.kind) {
       'diamonds' => diamondInkOn(theme.brightness),
       'hammers' => hammerInkOn(theme.brightness),
       'missiles' => missileInkOn(theme.brightness),
       _ => null,
     };
-    final softIcon = switch (won.kind) {
+    final softIcon = switch (won?.kind) {
       'hammers' => Icons.hardware,
       'missiles' => missileIcon,
       _ => Icons.diamond,
@@ -887,7 +902,7 @@ class _RewardCelebrationState extends State<_RewardCelebration>
 
     return Positioned.fill(
       child: GestureDetector(
-        onTap: state.dismissReward,
+        onTap: dismiss,
         child: ColoredBox(
           color: theme.colorScheme.scrim.withValues(alpha: 0.70),
           child: Stack(
@@ -895,7 +910,7 @@ class _RewardCelebrationState extends State<_RewardCelebration>
             children: [
               // Seeded on the amount so the burst pattern is fixed while the
               // banner is up and different for the next reward.
-              Fireworks(seed: won.amount, bursts: 7),
+              Fireworks(seed: shownKey, bursts: 7),
               Center(
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
@@ -920,93 +935,110 @@ class _RewardCelebrationState extends State<_RewardCelebration>
                       radius: Radii.lg,
                       child: Padding(
                         padding: EdgeInsets.fromLTRB(padH, padV, padH, padV),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // A gem for diamonds, a hammer for hammers, the
-                            // spinning chip for chips: the hero says which
-                            // wallet just filled.
-                            softInk != null
-                                ? Icon(softIcon, size: chip, color: softInk)
-                                : SpinningChip(
-                                    colour: AppTheme.gold,
-                                    size: chip,
-                                    turn: const Duration(milliseconds: 900),
-                                    rest: const Duration(milliseconds: 260),
-                                  ),
-                            SizedBox(height: wallets ? Space.md : Space.lg),
-                            Text(
-                              t.rewardCollected,
-                              textAlign: TextAlign.center,
-                              style: AppTheme.label(text.titleMedium!),
-                            ),
-                            const SizedBox(height: Space.sm),
-                            Text(
-                              '+ ${formatChips(won.amount)}',
-                              style: AppTheme.money(
-                                text.headlineMedium!,
-                                colour: softInk ?? _goldInk(theme.brightness),
-                              ),
-                            ),
-                            // A Premium Package's chips are the headline; the
-                            // missiles and hammers that came with them follow,
-                            // each in its wallet's mark and ink.
-                            if (wallets) ...[
-                              const SizedBox(height: Space.xs),
-                              Wrap(
-                                alignment: WrapAlignment.center,
-                                spacing: Space.lg,
-                                runSpacing: Space.xs,
+                        child: grants != null
+                            ? _GrantsSummary(
+                                grants: grants,
+                                t: t,
+                                heroSize: chip,
+                                onClose: dismiss,
+                              )
+                            : Column(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  for (final (icon, ink, label) in [
-                                    if (premium)
-                                      (
-                                        missileIcon,
-                                        missileInkOn(theme.brightness),
-                                        t.plusMissiles(won.missiles),
-                                      ),
-                                    (
-                                      Icons.hardware,
-                                      hammerInkOn(theme.brightness),
-                                      t.plusHammers(won.hammers),
-                                    ),
-                                  ])
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(icon, size: 20, color: ink),
-                                        const SizedBox(width: Space.xs),
-                                        Text(
-                                          label,
-                                          style: AppTheme.money(
-                                            text.titleMedium!,
-                                            colour: ink,
+                                  // A gem for diamonds, a hammer for hammers, the
+                                  // spinning chip for chips: the hero says which
+                                  // wallet just filled.
+                                  softInk != null
+                                      ? Icon(
+                                          softIcon,
+                                          size: chip,
+                                          color: softInk,
+                                        )
+                                      : SpinningChip(
+                                          colour: AppTheme.gold,
+                                          size: chip,
+                                          turn: const Duration(
+                                            milliseconds: 900,
+                                          ),
+                                          rest: const Duration(
+                                            milliseconds: 260,
                                           ),
                                         ),
+                                  SizedBox(
+                                    height: wallets ? Space.md : Space.lg,
+                                  ),
+                                  Text(
+                                    t.rewardCollected,
+                                    textAlign: TextAlign.center,
+                                    style: AppTheme.label(text.titleMedium!),
+                                  ),
+                                  const SizedBox(height: Space.sm),
+                                  Text(
+                                    '+ ${formatChips(won!.amount)}',
+                                    style: AppTheme.money(
+                                      text.headlineMedium!,
+                                      colour:
+                                          softInk ?? _goldInk(theme.brightness),
+                                    ),
+                                  ),
+                                  // A Premium Package's chips are the headline; the
+                                  // missiles and hammers that came with them follow,
+                                  // each in its wallet's mark and ink.
+                                  if (wallets) ...[
+                                    const SizedBox(height: Space.xs),
+                                    Wrap(
+                                      alignment: WrapAlignment.center,
+                                      spacing: Space.lg,
+                                      runSpacing: Space.xs,
+                                      children: [
+                                        for (final (icon, ink, label) in [
+                                          if (premium)
+                                            (
+                                              missileIcon,
+                                              missileInkOn(theme.brightness),
+                                              t.plusMissiles(won.missiles),
+                                            ),
+                                          (
+                                            Icons.hardware,
+                                            hammerInkOn(theme.brightness),
+                                            t.plusHammers(won.hammers),
+                                          ),
+                                        ])
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(icon, size: 20, color: ink),
+                                              const SizedBox(width: Space.xs),
+                                              Text(
+                                                label,
+                                                style: AppTheme.money(
+                                                  text.titleMedium!,
+                                                  colour: ink,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                       ],
                                     ),
+                                  ],
+                                  const SizedBox(height: Space.md),
+                                  Text(
+                                    blurb,
+                                    textAlign: TextAlign.center,
+                                    style: text.bodyMedium?.copyWith(
+                                      color: theme.colorScheme.onSurface
+                                          .withValues(alpha: AppTheme.inkMed),
+                                    ),
+                                  ),
+                                  const SizedBox(height: Space.lg),
+                                  GlassButton(
+                                    style: GlassButtonStyle.primary,
+                                    onPressed: dismiss,
+                                    click: true,
+                                    label: t.tapToClose,
+                                  ),
                                 ],
                               ),
-                            ],
-                            const SizedBox(height: Space.md),
-                            Text(
-                              blurb,
-                              textAlign: TextAlign.center,
-                              style: text.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurface.withValues(
-                                  alpha: AppTheme.inkMed,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: Space.lg),
-                            GlassButton(
-                              style: GlassButtonStyle.primary,
-                              onPressed: state.dismissReward,
-                              click: true,
-                              label: t.tapToClose,
-                            ),
-                          ],
-                        ),
                       ),
                     ),
                   ),
@@ -1015,6 +1047,127 @@ class _RewardCelebrationState extends State<_RewardCelebration>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// A key for one claim's grants, so a second claim's celebration re-runs
+  /// the entrance: the first grant's moment, which the server stamps.
+  static int _grantsKey(List<RewardGrant> grants) =>
+      grants.length * 1000003 + grants.first.claimedAt % 1000003;
+}
+
+/// The celebration's content after a reward program's claim: a gift over
+/// "Daily rewards collected!", one line per reward the server gave — its mark
+/// in its wallet's ink, "+ 10,000 chips", "Clapping Hands emoji" — and the
+/// programs and days they came from. Set down to fit the screen: the list
+/// scrolls before anything is cut.
+class _GrantsSummary extends StatelessWidget {
+  const _GrantsSummary({
+    required this.grants,
+    required this.t,
+    required this.heroSize,
+    required this.onClose,
+  });
+
+  final List<RewardGrant> grants;
+  final Strings t;
+  final double heroSize;
+  final VoidCallback onClose;
+
+  /// "+ 10,000 chips" for a wallet, an item by its name, "(already yours)"
+  /// after an item the player had.
+  String _line(RewardGrant g) {
+    final label = rewardPrizeLabel(t, g.prize);
+    final line = g.prize.isWallet ? '+ $label' : label;
+    return g.alreadyOwned ? '$line (${t.rewardAlreadyOwned})' : line;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final text = theme.textTheme;
+    final b = theme.brightness;
+    final quiet = theme.colorScheme.onSurface.withValues(
+      alpha: AppTheme.inkMed,
+    );
+    final origins = grants
+        .map(
+          (g) =>
+              '${t.rewardProgramName(g.programCode, g.programName)} · '
+              '${t.rewardDay(g.day)}',
+        )
+        .join('   ');
+    final size = MediaQuery.sizeOf(context);
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: size.height * 0.82),
+      child: Column(
+        key: const ValueKey('rewards-celebration'),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.card_giftcard_rounded,
+            size: heroSize * 0.8,
+            color: _goldInk(b),
+          ),
+          const SizedBox(height: Space.md),
+          Text(
+            t.rewardsCollectedTitle,
+            textAlign: TextAlign.center,
+            style: AppTheme.label(text.titleMedium!),
+          ),
+          const SizedBox(height: Space.sm),
+          Flexible(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final g in grants)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: Space.xxs),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            rewardPrizeIcon(g.prize),
+                            size: 20,
+                            color: rewardPrizeInk(g.prize, b),
+                          ),
+                          const SizedBox(width: Space.xs),
+                          Flexible(
+                            child: Text(
+                              _line(g),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTheme.money(
+                                text.titleSmall!,
+                                colour: rewardPrizeInk(g.prize, b),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: Space.sm),
+          Text(
+            origins,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: text.bodySmall?.copyWith(color: quiet),
+          ),
+          const SizedBox(height: Space.lg),
+          GlassButton(
+            style: GlassButtonStyle.primary,
+            onPressed: onClose,
+            click: true,
+            label: t.tapToClose,
+          ),
+        ],
       ),
     );
   }
@@ -5919,7 +6072,7 @@ class _PressableState extends State<_Pressable> {
 /// — its prizes are worth a look while the wait runs. Absent when the server
 /// offers no draw (none open, or a server that predates it).
 class _LuckyDrawChip extends StatelessWidget {
-  const _LuckyDrawChip({super.key});
+  const _LuckyDrawChip();
 
   @override
   Widget build(BuildContext context) {
@@ -5962,10 +6115,92 @@ class _LuckyDrawChip extends StatelessWidget {
   }
 }
 
-/// On the Lucky Draw chip in the lobby's bottom-left corner, so
-/// [lobbyNoticeArea] can keep a toast off it.
+/// The reward programs (owner, 30 Sep 2026) beside the Lucky Draw in the
+/// lobby's bottom-left corner: the login streaks and the calendar rewards
+/// the server runs. Its second line is what stands — "Collect now" while a
+/// program's today waits, else the longest login streak ("3 day streak"), or
+/// "Collected today" — and a tap opens the rewards screen, claiming first
+/// when something waits. Absent when the server describes no program (none
+/// running, or a server that predates them).
 ///
-/// Measured rather than worked out: the chip is as wide as its two lines of
+/// It is also where the lobby CLAIMS: the moment the lobby is up — its
+/// resume wait over, so a held seat is not asked at — today's rewards are
+/// claimed once, and the celebration follows what the server says it gave.
+/// A reconnect claims again from session:ready; the server grants once a
+/// day whoever asks.
+class _RewardsChip extends StatefulWidget {
+  const _RewardsChip();
+
+  @override
+  State<_RewardsChip> createState() => _RewardsChipState();
+}
+
+class _RewardsChipState extends State<_RewardsChip> {
+  bool _asked = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<GameState>();
+    final t = state.t;
+    if (state.user == null) return const SizedBox.shrink();
+    if (!_asked && !state.resuming) {
+      _asked = true;
+      final gameState = context.read<GameState>();
+      scheduleMicrotask(() => unawaited(gameState.claimRewardPrograms()));
+    }
+    final programs = state.rewardPrograms;
+    if (programs == null || programs.isEmpty) {
+      // While the first claim is out, the chip's room is kept, unseen, as the
+      // Lucky Draw's is: a toast raised at sign-in is placed the moment it
+      // appears (lobbyNoticeArea).
+      if (!state.rewardClaimPending && !state.rewardProgramsLoading) {
+        return const SizedBox.shrink();
+      }
+      return Padding(
+        padding: const EdgeInsets.only(left: Space.sm),
+        child: Visibility.maintain(
+          visible: false,
+          child: _CornerChip(
+            icon: Icons.card_giftcard_rounded,
+            title: t.rewardsChip,
+            subtitle: t.rewardsCollect,
+            enabled: false,
+            onTap: () {},
+          ),
+        ),
+      );
+    }
+    final due = programs.any((p) => !p.claimedToday);
+    var streak = 0;
+    for (final p in programs) {
+      if (p.program.isStreak) streak = math.max(streak, p.claimedDays);
+    }
+    final subtitle = due
+        ? t.rewardsCollect
+        : streak > 0
+        ? t.streakDays(streak)
+        : t.rewardsCollected;
+    return Padding(
+      padding: const EdgeInsets.only(left: Space.sm),
+      child: KeyedSubtree(
+        key: const ValueKey('rewards-chip'),
+        child: _CornerChip(
+          icon: Icons.card_giftcard_rounded,
+          title: t.rewardsChip,
+          subtitle: subtitle,
+          enabled: due,
+          onTap: () => showRewardPrograms(context),
+          onWaitTap: () => showRewardPrograms(context),
+        ),
+      ),
+    );
+  }
+}
+
+/// On the foot's left-hand chips — the Lucky Draw and the rewards — so
+/// [lobbyNoticeArea] can keep a toast off them.
+///
+/// Measured rather than worked out: each chip is as wide as its two lines of
 /// text in the player's language, which nothing outside it knows.
 final _luckyChip = GlobalKey(debugLabel: 'lucky draw chip');
 

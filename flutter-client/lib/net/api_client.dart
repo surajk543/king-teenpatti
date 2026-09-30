@@ -613,6 +613,38 @@ class ApiClient {
     return LuckySpin.fromJson(_decode(r));
   }
 
+  /// The reward programs (owner, 30 Sep 2026): `GET /api/reward-programs` —
+  /// every login streak and calendar reward running now, as it stands for
+  /// this player. Null on a server that predates them (404) or runs none
+  /// (503): the lobby then shows no rewards.
+  Future<List<RewardProgramState>?> rewardPrograms(String token) async {
+    final r = await http.get(
+      _uri('/api/reward-programs'),
+      headers: _headers(token),
+    );
+    if (r.statusCode == 404 || r.statusCode == 503) return null;
+    return rewardProgramsFromJson(_decode(r)['programs']);
+  }
+
+  /// Today's claim of every reward program: `POST /api/reward-programs/claim`.
+  ///
+  /// The server works out each program's day and reward, grants it once a
+  /// day and records it; the answer's `granted` is what THIS call gave —
+  /// empty when today was already claimed, which is what every later call
+  /// of the day gets — so the app celebrates exactly that and never twice.
+  /// Nothing is sent: nothing a client says decides a reward. Null on a
+  /// server that predates the programs; a claim at a table throws an
+  /// [ApiException] with code `seated` (409).
+  Future<RewardClaimResult?> claimRewardPrograms(String token) async {
+    final r = await http.post(
+      _uri('/api/reward-programs/claim'),
+      headers: _headers(token),
+      body: '{}',
+    );
+    if (r.statusCode == 404 || r.statusCode == 503) return null;
+    return RewardClaimResult.fromJson(_decode(r));
+  }
+
   // --------------------------------------------------------------- friends
   //
   // Friends V1 (owner, 26 Sep 2026): eight routes, every one signed in. A

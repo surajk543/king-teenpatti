@@ -36,6 +36,11 @@ import (
 	"syscall"
 	"time"
 
+	// The IANA time zone database, embedded: a reward program is dated in its
+	// own zone (reward_programs.timezone — Asia/Kolkata, say), and a static
+	// binary must be able to load it on a host with no zoneinfo package.
+	_ "time/tzdata"
+
 	"github.com/joho/godotenv"
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/app"

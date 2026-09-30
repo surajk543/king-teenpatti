@@ -287,6 +287,7 @@ func New(opts Options) (*App, error) {
 	hammers := db.NewHammers(opts.DB, a.metrics, clock.Now)
 	missiles := db.NewMissiles(opts.DB, users, a.metrics, clock.Now)
 	luckyDraws := db.NewLuckyDraws(opts.DB, users, clock.Now, logger)
+	rewardPrograms := db.NewRewardPrograms(opts.DB, users, clock.Now, logger)
 	friends := db.NewFriends(opts.DB, clock.Now)
 	tokens := auth.NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, clock.Now)
 	verifier := auth.NewVerifier(cfg)
@@ -533,6 +534,10 @@ func New(opts Options) (*App, error) {
 		// The Lucky Draw (owner, 24 Sep 2026): a spin runs under the seat lock
 		// below, as a chip-priced picture does — its prize may be chips.
 		LuckyDraws: luckyDraws,
+		// The reward programs (owner, 30 Sep 2026): the login streaks and
+		// calendar rewards, claimed under the same seat lock for the same
+		// reason — a day's reward may be chips.
+		RewardPrograms: rewardPrograms,
 		// Friends V1 (owner, 26 Sep 2026): the social graph in PostgreSQL,
 		// and each friend's presence read from the live store — kt:online
 		// and the seats' playing records — in one batch per answer.

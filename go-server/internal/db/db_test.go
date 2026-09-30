@@ -699,8 +699,11 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	// token must carry, one signed-in device per account), player_xp_missions
 	// (28 Sep 2026: each player's one-time missions), app_versions (28 Sep
 	// 2026: the app version gate's configuration, a row per platform), and
-	// welcome_rewards (30 Sep 2026: what a new account is given) — forty, and
-	// no game state (the baseline's header).
+	// welcome_rewards (30 Sep 2026: what a new account is given), and the
+	// reward programs' three (30 Sep 2026: reward_programs and
+	// reward_program_rewards, the login streaks' and calendars'
+	// configuration, and user_reward_claims, every reward granted) —
+	// forty-three, and no game state (the baseline's header).
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
 	if err != nil {
@@ -721,8 +724,8 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	want := []string{"app_versions", "badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends",
 		"lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends",
 		"player_levels", "player_reports", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims", "player_xp_missions",
-		"profile_pictures", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
-		"user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_sessions", "user_table_choice", "user_table_pictures", "users",
+		"profile_pictures", "reward_program_rewards", "reward_programs", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
+		"user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_reward_claims", "user_sessions", "user_table_choice", "user_table_pictures", "users",
 		"welcome_rewards", "xp_settings", "xp_sources"}
 	if strings.Join(tables, ",") != strings.Join(want, ",") {
 		t.Fatalf("schema %s has tables\n %v\nwant\n %v", f.d.Schema, tables, want)

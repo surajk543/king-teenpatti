@@ -145,6 +145,10 @@ type Deps struct {
 	// LuckyDraws is the Lucky Draw (owner, 24 Sep 2026). Nil → both of its
 	// endpoints answer 503 lucky_draw_unavailable.
 	LuckyDraws LuckyDrawStore
+	// RewardPrograms are the login streaks and calendar rewards (owner,
+	// 30 Sep 2026; rewardprograms.go). Nil → both of their endpoints answer
+	// 503 reward_programs_unavailable.
+	RewardPrograms RewardProgramStore
 	// Friends is the social graph (Friends V1, owner 26 Sep 2026; friends.go).
 	// Nil → its eight routes are not mounted (unknown /api paths answer the
 	// JSON 404).
@@ -256,6 +260,8 @@ type BoughtBadge struct {
 //	POST /api/table-pictures/buy → BuyTablePicture  (RequireAuth; Go only)
 //	GET  /api/lucky-draw         → LuckyDraw        (RequireAuth; Go only)
 //	POST /api/lucky-draw/spin    → SpinLuckyDraw    (RequireAuth; Go only)
+//	GET  /api/reward-programs       → RewardPrograms      (RequireAuth; Go only)
+//	POST /api/reward-programs/claim → ClaimRewardPrograms (RequireAuth, wallet limiter; Go only)
 //	GET  /api/emojis             → Emojis           (token optional; Go only)
 //	POST /api/emojis/buy         → BuyEmoji         (RequireAuth; Go only)
 //	GET  /api/levels             → Levels           (public; Go only)
@@ -346,6 +352,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/table-pictures/buy", methods(http.MethodPost, wallet(h.BuyTablePicture)))
 	mux.Handle("/api/lucky-draw", methods(http.MethodGet, h.RequireAuth(h.LuckyDraw)))
 	mux.Handle("/api/lucky-draw/spin", methods(http.MethodPost, wallet(h.SpinLuckyDraw)))
+	mux.Handle("/api/reward-programs", methods(http.MethodGet, h.RequireAuth(h.RewardPrograms)))
+	mux.Handle("/api/reward-programs/claim", methods(http.MethodPost, wallet(h.ClaimRewardPrograms)))
 	mux.Handle("/api/emojis", methods(http.MethodGet, http.HandlerFunc(h.Emojis)))
 	mux.Handle("/api/emojis/buy", methods(http.MethodPost, wallet(h.BuyEmoji)))
 	mux.Handle("/api/levels", methods(http.MethodGet, http.HandlerFunc(h.Levels)))
@@ -883,7 +891,10 @@ const (
 	MsgLuckyDrawUnavailable = "The Lucky Draw is closed right now."
 	MsgLuckyDrawNotReady    = "Your next Lucky Draw spin is not ready yet."
 	MsgSeatedLuckyDraw      = "Spin the Lucky Draw from the lobby, not while you are at a table."
-	MsgInvalidActionID      = "A spin needs an action id of 1 to 64 characters"
+	// The reward programs (owner, 30 Sep 2026).
+	MsgRewardProgramsUnavailable = "Rewards are not available right now."
+	MsgSeatedRewardPrograms      = "Collect your rewards from the lobby, not while you are at a table."
+	MsgInvalidActionID           = "A spin needs an action id of 1 to 64 characters"
 	// MsgNotEnoughDiamondsFormat is fmt.Sprintf'd with the pack's diamonds.
 	// It is always plural: the cheapest pack in db.MissilePacks costs 10
 	// diamonds, so none costs a single diamond.

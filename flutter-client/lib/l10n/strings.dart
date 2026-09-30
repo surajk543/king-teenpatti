@@ -182,6 +182,97 @@ class Strings {
 
   /// "One free spin every 3 days." — [time] written by [rentalTerm].
   String luckyEvery(String time) => _('luckyEvery').replaceAll('{time}', time);
+
+  // --- the reward programs (owner, 30 Sep 2026): the login streaks and the
+  // calendar rewards — the lobby's corner chip, their screen and the
+  // celebration of a claim. The server names a program (its `name`); the app
+  // names the four it knows in the player's language (rewardProgramName).
+
+  /// The lobby chip's title.
+  String get rewardsChip => _('rewardsChip');
+
+  /// The screen's title.
+  String get rewardsTitle => _('rewardsTitle');
+
+  /// The chip's second line while a reward waits to be collected, and once
+  /// every program's today is collected.
+  String get rewardsCollect => _('rewardsCollect');
+  String get rewardsCollected => _('rewardsCollected');
+
+  /// The celebration's title over what a claim gave.
+  String get rewardsCollectedTitle => _('rewardsCollectedTitle');
+
+  /// "3 day streak" — a login streak's headline. One day has its own line.
+  String streakDays(int n) =>
+      _(n == 1 ? 'streakDayOne' : 'streakDays').replaceAll('{n}', '$n');
+
+  /// A streak's headline while its run has not begun.
+  String get streakStart => _('streakStart');
+
+  /// "Day 10 reward" — a calendar's headline: today's place in the period.
+  String calendarDayReward(int n) =>
+      _('calendarDayReward').replaceAll('{n}', '$n');
+
+  /// The mode tag on a program's panel.
+  String get rewardModeStreak => _('rewardModeStreak');
+  String get rewardModeCalendar => _('rewardModeCalendar');
+
+  /// What each mode means, under the panel's head.
+  String get rewardStreakHint => _('rewardStreakHint');
+  String get rewardStreakHintNoReset => _('rewardStreakHintNoReset');
+  String get rewardCalendarWeekHint => _('rewardCalendarWeekHint');
+  String get rewardCalendarMonthHint => _('rewardCalendarMonthHint');
+
+  /// "Next reward" — the panel's foot, before what the next day gives.
+  String get rewardNext => _('rewardNext');
+
+  /// "Day 3" on a streak's tile.
+  String rewardDay(int n) => _('rewardDay').replaceAll('{n}', '$n');
+  String get rewardToday => _('rewardToday');
+
+  /// A tile's state, for a screen reader.
+  String get rewardTileClaimed => _('rewardTileClaimed');
+  String get rewardTileLocked => _('rewardTileLocked');
+  String get rewardTileMissed => _('rewardTileMissed');
+
+  /// The screen with no program running, or none it could read.
+  String get rewardNone => _('rewardNone');
+  String get rewardLoadFailed => _('rewardLoadFailed');
+
+  /// A claim refused at a table.
+  String get rewardLobbyOnly => _('rewardLobbyOnly');
+
+  /// A day that gives nothing.
+  String get rewardNothing => _('rewardNothing');
+
+  /// After an item the player already had: "(already yours)".
+  String get rewardAlreadyOwned => _('rewardAlreadyOwned');
+
+  /// An item reward named: "Clapping Hands emoji", "Royal Ace badge · 7 days".
+  String rewardEmojiName(String name) =>
+      _('rewardEmojiName').replaceAll('{name}', name);
+  String rewardPictureName(String name) =>
+      _('rewardPictureName').replaceAll('{name}', name);
+  String rewardTablePictureName(String name) =>
+      _('rewardTablePictureName').replaceAll('{name}', name);
+  String rewardBadgeName(String name) =>
+      _('rewardBadgeName').replaceAll('{name}', name);
+  String rewardBadgeDays(String name, int days) => _(
+    'rewardBadgeDays',
+  ).replaceAll('{name}', name).replaceAll('{n}', '$days');
+
+  /// The four seeded programs in the player's language; any other program
+  /// by the name the server gave it.
+  String rewardProgramName(String code, String fallback) => switch (code) {
+    'WEEKLY_LOGIN' => _('rewardProgramWeeklyLogin'),
+    'MONTHLY_LOGIN' => _('rewardProgramMonthlyLogin'),
+    'WEEKLY_CALENDAR' => _('rewardProgramWeeklyCalendar'),
+    'MONTHLY_CALENDAR' => _('rewardProgramMonthlyCalendar'),
+    _ => fallback,
+  };
+
+  /// A weekday's short name, 1 Monday … 7 Sunday.
+  String weekdayShort(int iso) => _('weekday${iso.clamp(1, 7)}');
   String get luckyPrizes => _('luckyPrizes');
   String get luckyNoPrize => _('luckyNoPrize');
   String get luckyCongrats => _('luckyCongrats');
@@ -1836,6 +1927,52 @@ class Strings {
       'luckyFreeSpin': 'FREE SPIN',
       'luckyNextFreeSpin': 'NEXT FREE SPIN',
       'luckyEvery': 'One free spin every {time}.',
+      'rewardsChip': 'REWARDS',
+      'rewardsTitle': 'Daily Rewards',
+      'rewardsCollect': 'Collect now',
+      'rewardsCollected': 'Collected today',
+      'rewardsCollectedTitle': 'Daily rewards collected!',
+      'streakDayOne': '1 day streak',
+      'streakDays': '{n} day streak',
+      'streakStart': 'Start your streak today',
+      'calendarDayReward': 'Day {n} reward',
+      'rewardModeStreak': 'LOGIN STREAK',
+      'rewardModeCalendar': 'CALENDAR',
+      'rewardStreakHint':
+          'Log in every day to climb the ladder. Miss a day and the streak starts again from Day 1.',
+      'rewardStreakHintNoReset':
+          'Log in every day to climb the ladder. A missed day is simply skipped.',
+      'rewardCalendarWeekHint':
+          'One reward for each day of the week. A missed day is missed; the rest still wait for you.',
+      'rewardCalendarMonthHint':
+          'One reward for each day of the month. A missed day is missed; the rest still wait for you.',
+      'rewardNext': 'Next reward',
+      'rewardDay': 'Day {n}',
+      'rewardToday': 'Today',
+      'rewardTileClaimed': 'Collected',
+      'rewardTileLocked': 'Locked',
+      'rewardTileMissed': 'Missed',
+      'rewardNone': 'No rewards are running right now.',
+      'rewardLoadFailed': 'Could not load the rewards.',
+      'rewardLobbyOnly': 'Collect your rewards from the lobby, not at a table.',
+      'rewardNothing': 'No reward',
+      'rewardAlreadyOwned': 'already yours',
+      'rewardEmojiName': '{name} emoji',
+      'rewardPictureName': '{name} picture',
+      'rewardTablePictureName': '{name} table picture',
+      'rewardBadgeName': '{name} badge',
+      'rewardBadgeDays': '{name} badge · {n} days',
+      'rewardProgramWeeklyLogin': 'Weekly Login Streak',
+      'rewardProgramMonthlyLogin': 'Monthly Login Streak',
+      'rewardProgramWeeklyCalendar': 'Weekly Calendar Rewards',
+      'rewardProgramMonthlyCalendar': 'Monthly Calendar Rewards',
+      'weekday1': 'Mon',
+      'weekday2': 'Tue',
+      'weekday3': 'Wed',
+      'weekday4': 'Thu',
+      'weekday5': 'Fri',
+      'weekday6': 'Sat',
+      'weekday7': 'Sun',
       'luckyPrizes': 'PRIZES ON THE WHEEL',
       'luckyNoPrize': 'No prize',
       'luckyCongrats': 'Congratulations!',
@@ -2739,6 +2876,52 @@ class Strings {
       'luckyFreeSpin': 'मुफ़्त स्पिन',
       'luckyNextFreeSpin': 'अगला मुफ़्त स्पिन',
       'luckyEvery': 'हर {time} में एक मुफ़्त स्पिन।',
+      'rewardsChip': 'रिवॉर्ड',
+      'rewardsTitle': 'दैनिक रिवॉर्ड',
+      'rewardsCollect': 'अभी लें',
+      'rewardsCollected': 'आज ले लिया',
+      'rewardsCollectedTitle': 'दैनिक रिवॉर्ड मिल गए!',
+      'streakDayOne': '1 दिन की स्ट्रीक',
+      'streakDays': '{n} दिन की स्ट्रीक',
+      'streakStart': 'आज अपनी स्ट्रीक शुरू करें',
+      'calendarDayReward': 'दिन {n} का रिवॉर्ड',
+      'rewardModeStreak': 'लॉगिन स्ट्रीक',
+      'rewardModeCalendar': 'कैलेंडर',
+      'rewardStreakHint':
+          'सीढ़ी चढ़ने के लिए हर दिन लॉगिन करें। एक दिन छूटा तो स्ट्रीक फिर दिन 1 से शुरू होगी।',
+      'rewardStreakHintNoReset':
+          'सीढ़ी चढ़ने के लिए हर दिन लॉगिन करें। छूटा हुआ दिन बस छूट जाता है।',
+      'rewardCalendarWeekHint':
+          'हफ़्ते के हर दिन का एक रिवॉर्ड। छूटा दिन छूट गया; बाकी आपका इंतज़ार करते हैं।',
+      'rewardCalendarMonthHint':
+          'महीने के हर दिन का एक रिवॉर्ड। छूटा दिन छूट गया; बाकी आपका इंतज़ार करते हैं।',
+      'rewardNext': 'अगला रिवॉर्ड',
+      'rewardDay': 'दिन {n}',
+      'rewardToday': 'आज',
+      'rewardTileClaimed': 'मिल गया',
+      'rewardTileLocked': 'लॉक',
+      'rewardTileMissed': 'छूट गया',
+      'rewardNone': 'अभी कोई रिवॉर्ड नहीं चल रहा।',
+      'rewardLoadFailed': 'रिवॉर्ड लोड नहीं हो सके।',
+      'rewardLobbyOnly': 'रिवॉर्ड लॉबी से लें, टेबल पर नहीं।',
+      'rewardNothing': 'कोई रिवॉर्ड नहीं',
+      'rewardAlreadyOwned': 'पहले से आपका',
+      'rewardEmojiName': '{name} इमोजी',
+      'rewardPictureName': '{name} तस्वीर',
+      'rewardTablePictureName': '{name} टेबल तस्वीर',
+      'rewardBadgeName': '{name} बैज',
+      'rewardBadgeDays': '{name} बैज · {n} दिन',
+      'rewardProgramWeeklyLogin': 'साप्ताहिक लॉगिन स्ट्रीक',
+      'rewardProgramMonthlyLogin': 'मासिक लॉगिन स्ट्रीक',
+      'rewardProgramWeeklyCalendar': 'साप्ताहिक कैलेंडर रिवॉर्ड',
+      'rewardProgramMonthlyCalendar': 'मासिक कैलेंडर रिवॉर्ड',
+      'weekday1': 'सोम',
+      'weekday2': 'मंगल',
+      'weekday3': 'बुध',
+      'weekday4': 'गुरु',
+      'weekday5': 'शुक्र',
+      'weekday6': 'शनि',
+      'weekday7': 'रवि',
       'luckyPrizes': 'पहिये पर इनाम',
       'luckyNoPrize': 'कोई इनाम नहीं',
       'luckyCongrats': 'बधाई हो!',
@@ -3626,6 +3809,52 @@ class Strings {
       'luckyFreeSpin': 'ফ্রি স্পিন',
       'luckyNextFreeSpin': 'পরের ফ্রি স্পিন',
       'luckyEvery': '{time} পরপর একটি ফ্রি স্পিন।',
+      'rewardsChip': 'রিওয়ার্ড',
+      'rewardsTitle': 'দৈনিক রিওয়ার্ড',
+      'rewardsCollect': 'এখনই নিন',
+      'rewardsCollected': 'আজ নেওয়া হয়েছে',
+      'rewardsCollectedTitle': 'দৈনিক রিওয়ার্ড পাওয়া গেছে!',
+      'streakDayOne': '1 দিনের স্ট্রিক',
+      'streakDays': '{n} দিনের স্ট্রিক',
+      'streakStart': 'আজই আপনার স্ট্রিক শুরু করুন',
+      'calendarDayReward': 'দিন {n}-এর রিওয়ার্ড',
+      'rewardModeStreak': 'লগইন স্ট্রিক',
+      'rewardModeCalendar': 'ক্যালেন্ডার',
+      'rewardStreakHint':
+          'ধাপে ধাপে উঠতে প্রতিদিন লগইন করুন। একদিন বাদ গেলে স্ট্রিক আবার দিন 1 থেকে শুরু হবে।',
+      'rewardStreakHintNoReset':
+          'ধাপে ধাপে উঠতে প্রতিদিন লগইন করুন। বাদ যাওয়া দিন শুধু বাদই যায়।',
+      'rewardCalendarWeekHint':
+          'সপ্তাহের প্রতিটি দিনের একটি রিওয়ার্ড। বাদ যাওয়া দিন বাদ; বাকিগুলো আপনার অপেক্ষায়।',
+      'rewardCalendarMonthHint':
+          'মাসের প্রতিটি দিনের একটি রিওয়ার্ড। বাদ যাওয়া দিন বাদ; বাকিগুলো আপনার অপেক্ষায়।',
+      'rewardNext': 'পরের রিওয়ার্ড',
+      'rewardDay': 'দিন {n}',
+      'rewardToday': 'আজ',
+      'rewardTileClaimed': 'পাওয়া গেছে',
+      'rewardTileLocked': 'লক',
+      'rewardTileMissed': 'বাদ গেছে',
+      'rewardNone': 'এখন কোনো রিওয়ার্ড চলছে না।',
+      'rewardLoadFailed': 'রিওয়ার্ড লোড করা যায়নি।',
+      'rewardLobbyOnly': 'রিওয়ার্ড লবি থেকে নিন, টেবিলে নয়।',
+      'rewardNothing': 'কোনো রিওয়ার্ড নেই',
+      'rewardAlreadyOwned': 'আগে থেকেই আপনার',
+      'rewardEmojiName': '{name} ইমোজি',
+      'rewardPictureName': '{name} ছবি',
+      'rewardTablePictureName': '{name} টেবিল ছবি',
+      'rewardBadgeName': '{name} ব্যাজ',
+      'rewardBadgeDays': '{name} ব্যাজ · {n} দিন',
+      'rewardProgramWeeklyLogin': 'সাপ্তাহিক লগইন স্ট্রিক',
+      'rewardProgramMonthlyLogin': 'মাসিক লগইন স্ট্রিক',
+      'rewardProgramWeeklyCalendar': 'সাপ্তাহিক ক্যালেন্ডার রিওয়ার্ড',
+      'rewardProgramMonthlyCalendar': 'মাসিক ক্যালেন্ডার রিওয়ার্ড',
+      'weekday1': 'সোম',
+      'weekday2': 'মঙ্গল',
+      'weekday3': 'বুধ',
+      'weekday4': 'বৃহঃ',
+      'weekday5': 'শুক্র',
+      'weekday6': 'শনি',
+      'weekday7': 'রবি',
       'luckyPrizes': 'চাকার পুরস্কার',
       'luckyNoPrize': 'কোনো পুরস্কার নেই',
       'luckyCongrats': 'অভিনন্দন!',
@@ -4512,6 +4741,52 @@ class Strings {
       'luckyFreeSpin': 'મફત સ્પિન',
       'luckyNextFreeSpin': 'આગલો મફત સ્પિન',
       'luckyEvery': 'દર {time} પછી એક મફત સ્પિન.',
+      'rewardsChip': 'રિવોર્ડ',
+      'rewardsTitle': 'દૈનિક રિવોર્ડ',
+      'rewardsCollect': 'હમણાં લો',
+      'rewardsCollected': 'આજે લઈ લીધું',
+      'rewardsCollectedTitle': 'દૈનિક રિવોર્ડ મળી ગયા!',
+      'streakDayOne': '1 દિવસની સ્ટ્રીક',
+      'streakDays': '{n} દિવસની સ્ટ્રીક',
+      'streakStart': 'આજે તમારી સ્ટ્રીક શરૂ કરો',
+      'calendarDayReward': 'દિવસ {n}નો રિવોર્ડ',
+      'rewardModeStreak': 'લોગિન સ્ટ્રીક',
+      'rewardModeCalendar': 'કૅલેન્ડર',
+      'rewardStreakHint':
+          'સીડી ચડવા દરરોજ લોગિન કરો. એક દિવસ ચૂક્યા તો સ્ટ્રીક ફરી દિવસ 1થી શરૂ થશે.',
+      'rewardStreakHintNoReset':
+          'સીડી ચડવા દરરોજ લોગિન કરો. ચૂકેલો દિવસ બસ ચૂકી જાય છે.',
+      'rewardCalendarWeekHint':
+          'અઠવાડિયાના દરેક દિવસનો એક રિવોર્ડ. ચૂકેલો દિવસ ચૂકી ગયો; બાકીના તમારી રાહ જુએ છે.',
+      'rewardCalendarMonthHint':
+          'મહિનાના દરેક દિવસનો એક રિવોર્ડ. ચૂકેલો દિવસ ચૂકી ગયો; બાકીના તમારી રાહ જુએ છે.',
+      'rewardNext': 'આગલો રિવોર્ડ',
+      'rewardDay': 'દિવસ {n}',
+      'rewardToday': 'આજે',
+      'rewardTileClaimed': 'મળી ગયો',
+      'rewardTileLocked': 'લૉક',
+      'rewardTileMissed': 'ચૂકી ગયો',
+      'rewardNone': 'હમણાં કોઈ રિવોર્ડ ચાલતો નથી.',
+      'rewardLoadFailed': 'રિવોર્ડ લોડ થઈ શક્યા નહીં.',
+      'rewardLobbyOnly': 'રિવોર્ડ લોબીમાંથી લો, ટેબલ પર નહીં.',
+      'rewardNothing': 'કોઈ રિવોર્ડ નહીં',
+      'rewardAlreadyOwned': 'પહેલેથી તમારું',
+      'rewardEmojiName': '{name} ઇમોજી',
+      'rewardPictureName': '{name} ચિત્ર',
+      'rewardTablePictureName': '{name} ટેબલ ચિત્ર',
+      'rewardBadgeName': '{name} બેજ',
+      'rewardBadgeDays': '{name} બેજ · {n} દિવસ',
+      'rewardProgramWeeklyLogin': 'સાપ્તાહિક લોગિન સ્ટ્રીક',
+      'rewardProgramMonthlyLogin': 'માસિક લોગિન સ્ટ્રીક',
+      'rewardProgramWeeklyCalendar': 'સાપ્તાહિક કૅલેન્ડર રિવોર્ડ',
+      'rewardProgramMonthlyCalendar': 'માસિક કૅલેન્ડર રિવોર્ડ',
+      'weekday1': 'સોમ',
+      'weekday2': 'મંગળ',
+      'weekday3': 'બુધ',
+      'weekday4': 'ગુરુ',
+      'weekday5': 'શુક્ર',
+      'weekday6': 'શનિ',
+      'weekday7': 'રવિ',
       'luckyPrizes': 'ચક્ર પરના ઇનામ',
       'luckyNoPrize': 'કોઈ ઇનામ નથી',
       'luckyCongrats': 'અભિનંદન!',
@@ -5394,6 +5669,52 @@ class Strings {
       'luckyFreeSpin': 'ਮੁਫ਼ਤ ਸਪਿਨ',
       'luckyNextFreeSpin': 'ਅਗਲਾ ਮੁਫ਼ਤ ਸਪਿਨ',
       'luckyEvery': 'ਹਰ {time} ਬਾਅਦ ਇੱਕ ਮੁਫ਼ਤ ਸਪਿਨ।',
+      'rewardsChip': 'ਰਿਵਾਰਡ',
+      'rewardsTitle': 'ਰੋਜ਼ਾਨਾ ਰਿਵਾਰਡ',
+      'rewardsCollect': 'ਹੁਣੇ ਲਓ',
+      'rewardsCollected': 'ਅੱਜ ਲੈ ਲਿਆ',
+      'rewardsCollectedTitle': 'ਰੋਜ਼ਾਨਾ ਰਿਵਾਰਡ ਮਿਲ ਗਏ!',
+      'streakDayOne': '1 ਦਿਨ ਦੀ ਸਟ੍ਰੀਕ',
+      'streakDays': '{n} ਦਿਨ ਦੀ ਸਟ੍ਰੀਕ',
+      'streakStart': 'ਅੱਜ ਆਪਣੀ ਸਟ੍ਰੀਕ ਸ਼ੁਰੂ ਕਰੋ',
+      'calendarDayReward': 'ਦਿਨ {n} ਦਾ ਰਿਵਾਰਡ',
+      'rewardModeStreak': 'ਲਾਗਇਨ ਸਟ੍ਰੀਕ',
+      'rewardModeCalendar': 'ਕੈਲੰਡਰ',
+      'rewardStreakHint':
+          'ਪੌੜੀ ਚੜ੍ਹਨ ਲਈ ਹਰ ਰੋਜ਼ ਲਾਗਇਨ ਕਰੋ। ਇੱਕ ਦਿਨ ਛੁੱਟਿਆ ਤਾਂ ਸਟ੍ਰੀਕ ਫਿਰ ਦਿਨ 1 ਤੋਂ ਸ਼ੁਰੂ ਹੋਵੇਗੀ।',
+      'rewardStreakHintNoReset':
+          'ਪੌੜੀ ਚੜ੍ਹਨ ਲਈ ਹਰ ਰੋਜ਼ ਲਾਗਇਨ ਕਰੋ। ਛੁੱਟਿਆ ਦਿਨ ਬਸ ਛੁੱਟ ਜਾਂਦਾ ਹੈ।',
+      'rewardCalendarWeekHint':
+          'ਹਫ਼ਤੇ ਦੇ ਹਰ ਦਿਨ ਦਾ ਇੱਕ ਰਿਵਾਰਡ। ਛੁੱਟਿਆ ਦਿਨ ਛੁੱਟ ਗਿਆ; ਬਾਕੀ ਤੁਹਾਡੀ ਉਡੀਕ ਕਰਦੇ ਹਨ।',
+      'rewardCalendarMonthHint':
+          'ਮਹੀਨੇ ਦੇ ਹਰ ਦਿਨ ਦਾ ਇੱਕ ਰਿਵਾਰਡ। ਛੁੱਟਿਆ ਦਿਨ ਛੁੱਟ ਗਿਆ; ਬਾਕੀ ਤੁਹਾਡੀ ਉਡੀਕ ਕਰਦੇ ਹਨ।',
+      'rewardNext': 'ਅਗਲਾ ਰਿਵਾਰਡ',
+      'rewardDay': 'ਦਿਨ {n}',
+      'rewardToday': 'ਅੱਜ',
+      'rewardTileClaimed': 'ਮਿਲ ਗਿਆ',
+      'rewardTileLocked': 'ਲਾਕ',
+      'rewardTileMissed': 'ਛੁੱਟ ਗਿਆ',
+      'rewardNone': 'ਹੁਣ ਕੋਈ ਰਿਵਾਰਡ ਨਹੀਂ ਚੱਲ ਰਿਹਾ।',
+      'rewardLoadFailed': 'ਰਿਵਾਰਡ ਲੋਡ ਨਹੀਂ ਹੋ ਸਕੇ।',
+      'rewardLobbyOnly': 'ਰਿਵਾਰਡ ਲਾਬੀ ਤੋਂ ਲਓ, ਟੇਬਲ ’ਤੇ ਨਹੀਂ।',
+      'rewardNothing': 'ਕੋਈ ਰਿਵਾਰਡ ਨਹੀਂ',
+      'rewardAlreadyOwned': 'ਪਹਿਲਾਂ ਹੀ ਤੁਹਾਡਾ',
+      'rewardEmojiName': '{name} ਇਮੋਜੀ',
+      'rewardPictureName': '{name} ਤਸਵੀਰ',
+      'rewardTablePictureName': '{name} ਟੇਬਲ ਤਸਵੀਰ',
+      'rewardBadgeName': '{name} ਬੈਜ',
+      'rewardBadgeDays': '{name} ਬੈਜ · {n} ਦਿਨ',
+      'rewardProgramWeeklyLogin': 'ਹਫ਼ਤਾਵਾਰੀ ਲਾਗਇਨ ਸਟ੍ਰੀਕ',
+      'rewardProgramMonthlyLogin': 'ਮਾਸਿਕ ਲਾਗਇਨ ਸਟ੍ਰੀਕ',
+      'rewardProgramWeeklyCalendar': 'ਹਫ਼ਤਾਵਾਰੀ ਕੈਲੰਡਰ ਰਿਵਾਰਡ',
+      'rewardProgramMonthlyCalendar': 'ਮਾਸਿਕ ਕੈਲੰਡਰ ਰਿਵਾਰਡ',
+      'weekday1': 'ਸੋਮ',
+      'weekday2': 'ਮੰਗਲ',
+      'weekday3': 'ਬੁੱਧ',
+      'weekday4': 'ਵੀਰ',
+      'weekday5': 'ਸ਼ੁੱਕਰ',
+      'weekday6': 'ਸ਼ਨੀ',
+      'weekday7': 'ਐਤ',
       'luckyPrizes': 'ਪਹੀਏ ਦੇ ਇਨਾਮ',
       'luckyNoPrize': 'ਕੋਈ ਇਨਾਮ ਨਹੀਂ',
       'luckyCongrats': 'ਵਧਾਈਆਂ!',

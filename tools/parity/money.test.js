@@ -52,6 +52,10 @@ const REASONS = new Set([
   // The winning tax a hand's winner pays at a table that taxes its winners
   // (owner, 26 Sep 2026): a chip sink, beside that hand's hand_win row.
   'table_tax',
+  // A reward program's chips — a login streak's or a calendar's day (owner,
+  // 30 Sep 2026): a chip source, like the Lucky Draw, under the claim's key
+  // reward:<user>:<program>:<date>.
+  'reward_program',
 ]);
 const CHECKPOINT_REASONS = new Set(['hand_win', 'hand_loss', 'hand_packed', 'hand_left']);
 
@@ -91,7 +95,10 @@ test('every ledger row has a known reason, a balance that follows the running to
       assert.equal(row.action_id, `${row.hand_id}:${verb}:${row.user_id}`,
         'every checkpoint action id is server-minted — no client id ever reaches the ledger');
     }
-    if (['welcome_bonus', ...RETIRED_REWARD_REASONS, 'lucky_draw'].includes(row.reason)) assert.ok(row.delta > 0);
+    if (['welcome_bonus', ...RETIRED_REWARD_REASONS, 'lucky_draw', 'reward_program'].includes(row.reason)) assert.ok(row.delta > 0);
+    if (row.reason === 'reward_program') {
+      assert.ok(row.action_id?.startsWith(`reward:${row.user_id}:`), 'a reward program row carries the claim\'s own key');
+    }
     // The winning tax (owner, 26 Sep 2026): only ever takes chips, names its
     // hand, and carries the server's own id for it.
     if (row.reason === 'table_tax') {
@@ -284,13 +291,17 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   // short cache, never by a table. welcome_rewards (30 Sep 2026) is what a new
   // account is given — chips, diamonds, hammers, missiles, a picture, a table
   // picture, an emoji — configuration the login that creates an account reads,
-  // never a table.
+  // never a table. reward_programs and reward_program_rewards (30 Sep 2026)
+  // are the login streaks' and calendar rewards' configuration, and
+  // user_reward_claims every day of them granted — an audit, as the Lucky
+  // Draw's spins are.
   assert.deepEqual(tables, [
     'app_versions', 'badge_purchases', 'badges', 'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships',
     'hammer_purchases', 'hammer_spends', 'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends',
     'player_levels', 'player_reports', 'player_stats', 'player_variation_stats', 'player_xp', 'player_xp_claims', 'player_xp_missions', 'profile_pictures',
+    'reward_program_rewards', 'reward_programs',
     'stats_flushes', 'table_categories', 'table_configs', 'table_engines', 'table_pictures', 'table_settings',
-    'user_badges', 'user_emojis', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures', 'user_sessions', 'user_table_choice',
+    'user_badges', 'user_emojis', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures', 'user_reward_claims', 'user_sessions', 'user_table_choice',
     'user_table_pictures', 'users', 'welcome_rewards', 'xp_settings', 'xp_sources',
   ], `the schema must hold money, audit, accounts, the picture catalogues and table configuration only, got ${tables.join(', ')}`);
   // Configuration, by construction: no column of the four — nor of the level

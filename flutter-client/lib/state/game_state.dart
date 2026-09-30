@@ -1631,6 +1631,12 @@ class GameState extends ChangeNotifier {
         // that failed on the network, or a purchase finished while the app was
         // closed, lands now. The server is idempotent on the purchase token.
         unawaited(purchases.redeliver());
+        // The reward programs (owner, 30 Sep 2026): every session in the
+        // lobby claims today's rewards — once a day a program, which the
+        // server decides — so a phone that only reconnected across midnight
+        // misses no day. A cold start claims once its lobby is up
+        // (_RewardsChip); at a table the lobby asks when the player is back.
+        if (room == null && !resuming) unawaited(claimRewardPrograms());
         _snapshotSinceSession = false;
         if (!resuming && room != null) {
           final offer = s.resume;
@@ -2927,6 +2933,10 @@ class GameState extends ChangeNotifier {
     user = null;
     luckyDraw = null;
     luckyDrawFailed = false;
+    rewardPrograms = null;
+    rewardProgramsFailed = false;
+    rewardsGranted = null;
+    _rewardsClaimedAt = null;
     consentPending = false;
     // The next player on this phone never sees this one's friends.
     friends.reset();
@@ -3398,6 +3408,10 @@ class GameState extends ChangeNotifier {
     user = null;
     luckyDraw = null;
     luckyDrawFailed = false;
+    rewardPrograms = null;
+    rewardProgramsFailed = false;
+    rewardsGranted = null;
+    _rewardsClaimedAt = null;
     friends.reset();
     reports.reset();
     xpMissions.clear();
@@ -4719,6 +4733,116 @@ class GameState extends ChangeNotifier {
       luckySpinPending = false;
       notifyListeners();
     }
+  }
+
+  // --------------------------------------------------------- reward programs
+
+  /// The reward programs (owner, 30 Sep 2026) as this player stands in
+  /// them: the login streaks and the calendar rewards the server runs, each
+  /// with its days and which are claimed. Null while the server has
+  /// described none — none running, or a server that predates them — and
+  /// then the lobby shows no rewards.
+  List<RewardProgramState>? rewardPrograms;
+
+  /// True while [loadRewardPrograms] is asking.
+  bool rewardProgramsLoading = false;
+
+  /// True when the last read failed — the network, a refusal — rather than
+  /// being told there are none; the screen offers Try again.
+  bool rewardProgramsFailed = false;
+
+  /// True from the moment a claim is sent until the server has answered it.
+  bool rewardClaimPending = false;
+
+  /// What the last claim gave, while its celebration is on screen; null the
+  /// rest of the time. Only a claim's answer sets it — the server says
+  /// whether anything was granted — so reopening the app never shows a
+  /// reward twice.
+  List<RewardGrant>? rewardsGranted;
+
+  /// When the last claim was answered, so a session start and the lobby
+  /// appearing moments apart ask once. The server is idempotent either way.
+  DateTime? _rewardsClaimedAt;
+
+  /// How long a claim is trusted before the lobby asks again.
+  static const rewardClaimEvery = Duration(seconds: 30);
+
+  /// Reads the reward programs again without claiming anything (the
+  /// screen's Try again).
+  Future<void> loadRewardPrograms() async {
+    final token = _token;
+    if (token == null) return;
+    rewardProgramsLoading = true;
+    notifyListeners();
+    try {
+      final programs = await _api.rewardPrograms(token);
+      // Signed out, or somebody else signed in, while it was asked.
+      if (_token != token) return;
+      rewardPrograms = programs;
+      rewardProgramsFailed = false;
+    } catch (_) {
+      if (_token == token) rewardProgramsFailed = true;
+    } finally {
+      rewardProgramsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Claims today's reward of every program the server runs — once a day
+  /// a program, which the SERVER decides — and celebrates what it gave.
+  /// Called whenever the lobby appears and at every `session:ready` in the
+  /// lobby; a call within [rewardClaimEvery] of the last answer is skipped
+  /// unless [force]d (the rewards screen opening). Nothing is asked at a
+  /// table: a reward may be chips, which only the lobby may credit, and the
+  /// lobby asks again when the player is back in it.
+  Future<void> claimRewardPrograms({bool force = false}) async {
+    final token = _token;
+    if (token == null || rewardClaimPending || room != null) return;
+    final last = _rewardsClaimedAt;
+    if (!force &&
+        last != null &&
+        DateTime.now().difference(last) < rewardClaimEvery) {
+      return;
+    }
+    rewardClaimPending = true;
+    notifyListeners();
+    try {
+      final r = await _api.claimRewardPrograms(token);
+      if (_token != token) return;
+      if (r == null) {
+        // An older server, or none running: nothing to show.
+        rewardPrograms = null;
+        rewardProgramsFailed = false;
+        return;
+      }
+      _rewardsClaimedAt = DateTime.now();
+      rewardPrograms = r.programs;
+      rewardProgramsFailed = false;
+      if (r.user != null) user = r.user;
+      if (r.granted.isNotEmpty) {
+        rewardsGranted = r.granted;
+        // An item won is owned now: the shelves re-read who owns what.
+        if (r.granted.any((g) => g.prize.isItem && !g.alreadyOwned)) {
+          unawaited(_loadPictures());
+        }
+      }
+    } on ApiException catch (e) {
+      // At a table by the server's reckoning: the lobby will ask again.
+      if (e.code == 'seated') return;
+      if (rewardPrograms == null) rewardProgramsFailed = true;
+    } catch (_) {
+      if (rewardPrograms == null) rewardProgramsFailed = true;
+    } finally {
+      rewardClaimPending = false;
+      notifyListeners();
+    }
+  }
+
+  /// Closes the rewards celebration.
+  void dismissRewardsGranted() {
+    if (rewardsGranted == null) return;
+    rewardsGranted = null;
+    notifyListeners();
   }
 
   void answerSideshow(bool accept) => _conn.respondToSideshow(accept);

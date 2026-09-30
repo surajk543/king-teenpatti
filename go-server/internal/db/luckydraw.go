@@ -656,92 +656,17 @@ func (l *LuckyDraws) replay(ctx context.Context, q queryer, userID, key, actionI
 
 // grantLuckyPrize gives the player the prize, inside the spin's transaction and
 // under its wallet lock, and reports whether a picture prize was one they
-// already had:
-//
-//   - CHIPS: the wallet and a chip_ledger row (reason lucky_draw, action_id the
-//     spin's key), so SUM(chip_ledger.delta) == users.chips still holds — the
-//     invariant every chip movement keeps (CLAUDE.md §5.1).
-//   - DIAMOND, HAMMER, MISSILE: a delta on the users column, never ledgered, as
-//     a hammer pack's hammers and a missile trade are; the spin's own row is
-//     the receipt.
-//   - NO_REWARD: nothing; the spin's row is all there is.
-//   - PROFILE_PICTURE, TABLE_PICTURE: the ownership row a purchase would write,
-//     for the term the shop would sell it for, counted from now — and NOT put
-//     on: which picture a player wears, or lays on their table, stays their
-//     choice. A picture already theirs (free, or bought and running) is left
-//     exactly as it is: no second row — the key forbids one — and no longer
-//     rental. A lapsed rental is renewed in place. `purchases` is not raised: a
-//     prize is not a purchase, and a later purchase's ledger key only has to be
-//     one the pair has not used.
+// already had. It is grantReward (grant.go) — the one grant path every reward
+// given outside a hand takes, the reward programs' days included — with the
+// spin's key as the ledger's action_id and lucky_draw as its reason: CHIPS
+// through chip_ledger, DIAMOND, HAMMER and MISSILE as deltas with no ledger
+// row, NO_REWARD nothing, a picture as the ownership row a purchase would
+// write and never put on (a picture already theirs is left as it is, a lapsed
+// rental renewed). A prize the draw does not know never reaches here: slots
+// leaves it out.
 func grantLuckyPrize(ctx context.Context, tx pgx.Tx, userID, key string, chips int64, prize *LuckyDrawReward, at int64) (bool, error) {
-	amount := func() int64 {
-		if prize.Value == nil {
-			return 0
-		}
-		return *prize.Value
-	}
-	switch prize.Type {
-	case LuckyRewardNone:
-		return false, nil
-	case LuckyRewardChips:
-		balance := chips + amount()
-		if _, err := tx.Exec(ctx,
-			`UPDATE users SET chips = $2, updated_at = $3 WHERE id = $1`, userID, balance, at); err != nil {
-			return false, err
-		}
-		return false, appendLedger(ctx, tx, userID, "", key, amount(), balance, game.LedgerReasonLuckyDraw, at)
-	case LuckyRewardDiamond:
-		_, err := tx.Exec(ctx, `UPDATE users SET diamond = diamond + $2, updated_at = $3 WHERE id = $1`, userID, amount(), at)
-		return false, err
-	case LuckyRewardHammer:
-		_, err := tx.Exec(ctx, `UPDATE users SET hammer = hammer + $2, updated_at = $3 WHERE id = $1`, userID, amount(), at)
-		return false, err
-	case LuckyRewardMissile:
-		_, err := tx.Exec(ctx, `UPDATE users SET missile = missile + $2, updated_at = $3 WHERE id = $1`, userID, amount(), at)
-		return false, err
-	case LuckyRewardProfilePicture:
-		pic := prize.Picture
-		if pic == nil {
-			return false, fmt.Errorf("lucky draw: profile picture prize with no picture")
-		}
-		if pic.Free() || pic.Owned {
-			return true, nil
-		}
-		expiresAt := rentalEnd(pic.DurationDays, pic.DurationHours, at)
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO user_profile_pictures (user_id, profile_picture_id, acquired_at, expires_at, purchases)
-			 VALUES ($1, $2, $3, $4, 1)
-			 ON CONFLICT (user_id, profile_picture_id) DO UPDATE
-			    SET acquired_at = EXCLUDED.acquired_at,
-			        expires_at  = EXCLUDED.expires_at`,
-			userID, pic.ID, at, expiresAt); err != nil {
-			return false, err
-		}
-		pic.Owned, pic.ExpiresAt = true, expiresAt
-		return false, nil
-	case LuckyRewardTablePicture:
-		pic := prize.TablePicture
-		if pic == nil {
-			return false, fmt.Errorf("lucky draw: table picture prize with no picture")
-		}
-		if pic.Free() || pic.Owned {
-			return true, nil
-		}
-		expiresAt := rentalEnd(pic.DurationDays, pic.DurationHours, at)
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO user_table_pictures (user_id, table_picture_id, acquired_at, expires_at, purchases)
-			 VALUES ($1, $2, $3, $4, 1)
-			 ON CONFLICT (user_id, table_picture_id) DO UPDATE
-			    SET acquired_at = EXCLUDED.acquired_at,
-			        expires_at  = EXCLUDED.expires_at`,
-			userID, pic.ID, at, expiresAt); err != nil {
-			return false, err
-		}
-		pic.Owned, pic.ExpiresAt = true, expiresAt
-		return false, nil
-	}
-	// Unreachable: slots leaves out every prize it does not know.
-	return false, fmt.Errorf("lucky draw: cannot grant a %q prize", prize.Type)
+	g := &Grant{Type: prize.Type, Value: prize.Value, Picture: prize.Picture, TablePicture: prize.TablePicture}
+	return grantReward(ctx, tx, userID, key, chips, g, at, game.LedgerReasonLuckyDraw)
 }
 
 // rentalEnd is when a rental of days and hours taken at `at` runs out, or 0
