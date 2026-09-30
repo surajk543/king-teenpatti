@@ -3810,7 +3810,11 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   media.audio_flinger` (the system's own clicks are pid 1000's), and its frame count is the clip's length (the missile
   187,776 at 44.1 kHz, the hammer 94,464 at 48 kHz on TP_Small). The emulator's own output reached the host silent here, so a
   host recording is no check.
-  `assets/sfx/` holds the synthesised clips (tick, coins, alarm, door, win); **`assets/sound/see card sound.mp3`** is the
+  **Chips going into the pot** (a Chaal, a raise, a boot — `TurnBuzzer`'s `potGrew`) play the platform's own click, not
+  `sfx/coins.wav` (owner, 1 Oct 2026: "1.3.0 frontend version we were using sound on button chaal, i want same sound on chaal
+  button now" — 1.3.0's debug builds fell back to that click; the fixed context played the coins instead), behind the Sound switch;
+  `test/pot_click_sound_test.dart`.
+  `assets/sfx/` holds the synthesised clips (tick, coins — no longer played, alarm, door, win); **`assets/sound/see card sound.mp3`** is the
   owner's recording (26 Sep 2026: "this sound should be played when player see cards — when I see card then also and
   someone also see card then also"), played at full volume by `cards()` whenever a player dealt into the hand turns from
   blind to seen — the viewer or anybody else, by a tap on See cards or by the reveal the fourth blind bet forces (the

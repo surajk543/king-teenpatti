@@ -292,13 +292,18 @@ class FeedbackSettings extends ChangeNotifier {
     if (_vibrate) HapticFeedback.selectionClick();
   }
 
-  /// Chips have gone into the pot.
+  /// Chips have gone into the pot — a Chaal, a raise, a boot, anybody's.
   ///
-  /// Same limitation as [cards]: the tick stands in for a coin until there is
-  /// a clip to play. The haptic is what actually distinguishes it — a light
-  /// impact, the weight of something landing rather than being pressed.
+  /// The platform's own click (owner, 1 Oct 2026: "1.3.0 frontend version we
+  /// were using sound on button chaal, i want same sound on chaal button
+  /// now"). 1.3.0 asked for `sfx/coins.wav` here, but its audio context threw
+  /// in a debug build and every clip fell back to this click, which is what a
+  /// Chaal sounded like on the emulators; once the context was fixed (29 Sep
+  /// 2026) the synthesised coins played instead. Behind the Sound switch, as
+  /// a clip would be; the haptic — a light impact, the weight of something
+  /// landing — is unchanged.
   void potGrew() {
-    unawaited(_play('coins'));
+    if (_sound) SystemSound.play(SystemSoundType.click);
     if (_vibrate) HapticFeedback.lightImpact();
   }
 
