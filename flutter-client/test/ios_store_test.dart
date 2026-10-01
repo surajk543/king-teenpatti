@@ -11,7 +11,6 @@
 // Sign in with Apple: offered on iOS only, beside Google; the identity token
 // goes to the server as `idToken` under provider `apple`, with the name Apple
 // hands the app once.
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
