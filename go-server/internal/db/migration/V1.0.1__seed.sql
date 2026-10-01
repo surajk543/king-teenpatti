@@ -278,108 +278,225 @@
 -- because lh3 only serves images. A changed file needs a new URL: the phones
 -- keep a downloaded picture for as long as its URL stays the same.
 
+-- THE MOVE TO R2 (owner, 1 Oct 2026: "upload the artifacts in R2 cloudflare …
+-- update the dml with cloudstorage s3 url instead of gdrive … in database store
+-- the location of these uploaded assets"). Every picture below was on Google
+-- Drive; tools/r2/migrate_drive_assets.py copied each file byte for byte into
+-- the PRIVATE R2 bucket (tools/r2/drive-to-r2.tsv is the record: Drive URL,
+-- key, size, sha256), and each row below names its LOCATION there, the URL
+-- the database stores and every route hands out. No phone opens a location as
+-- it stands: the app asks POST /api/assets/sign for a link valid ten minutes,
+-- downloads the file once and keeps it under the location (internal/assets).
+--
+-- A database seeded before the move holds the Drive URL, and asset_url is the
+-- conflict key: the INSERT would add every picture a second time. So a row
+-- still at its exact Drive URL is moved onto its location first — never an
+-- owner's own URL, never a location another row already has — and the INSERT
+-- finds it there. Festive Capybara's row (V1.0.2__seed-festive-capybara.sql)
+-- is moved here too: this file runs first. On a fresh database, and on every
+-- boot after the first, it finds nothing to do.
+UPDATE profile_pictures AS t
+   SET asset_url = m.location,
+       updated_at = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+  FROM (VALUES
+    ('https://lh3.googleusercontent.com/d/1cMAxBlDvKxPpPyOKffLsjM0RDxPUdC-_=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/bear.png'),
+    ('https://lh3.googleusercontent.com/d/1fTFvJGmCOaFF-mCm_4XAdyjaRFw3Sf9a=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/cat.png'),
+    ('https://lh3.googleusercontent.com/d/1hZ2iw1UkqHJN18MLUhRTZGbgLBm-7dBS=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/dog.png'),
+    ('https://lh3.googleusercontent.com/d/1JNMYRv7JtMkfkhEebxLIpTEx4TVMIV-7=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/frog.png'),
+    ('https://lh3.googleusercontent.com/d/16v7Hh1ZknhM79ZR0KvelT48J4h2T-wyd=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/horse.png'),
+    ('https://lh3.googleusercontent.com/d/1eRCQHZY-GJc5I2skndx6eyegFhTDCXoH=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/koala.png'),
+    ('https://lh3.googleusercontent.com/d/1NJDPIyXjEDEj4nRYEu1KTUjGDNQGqAfg=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/monkey.png'),
+    ('https://lh3.googleusercontent.com/d/11MRH75SHIbZJzeK_tkQp6Gt6Z5GFJlaH=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/penguin.png'),
+    ('https://lh3.googleusercontent.com/d/1wIdpZ7RMytoy9rhpA411lZFz7CbjdyM3=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/rabbit.png'),
+    ('https://lh3.googleusercontent.com/d/1qBwGLPAEBr2y5Y2_EVCAd0jQWDeCcUOW=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/fox.png'),
+    ('https://lh3.googleusercontent.com/d/125zcjmHrYFGg0jMFm0zqpRg_G8VNSr5L=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/owl.png'),
+    ('https://lh3.googleusercontent.com/d/1weXwu_K_35tQHYg92C4tIB9TwM7mBDab=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/lion.png'),
+    ('https://lh3.googleusercontent.com/d/1L-focNnL0yNJueAArM-YfHE9kX0VZv3T=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/tiger.png'),
+    ('https://lh3.googleusercontent.com/d/1zCySFnbUMtnBjv1g_u9nruHZM5PIdnt_=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/panda.png'),
+    ('https://lh3.googleusercontent.com/d/1LB0wQaR_rq3bYk9oN5P6RWsEm5-oIXae=s256',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/wolf.png'),
+    ('https://drive.google.com/uc?export=download&id=1_xsklNtmysOICReADfzAHTmGWXtap0P8',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/love-sheep.json'),
+    ('https://drive.google.com/uc?export=download&id=1sr5MD9P1lK9Whg5qezYMGVz9P7aM5h6F',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/love-birds.json'),
+    ('https://drive.google.com/uc?export=download&id=1bVCZfGy671tAjUHdPIscUFbuSPpeX15o',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/error-404.json'),
+    ('https://drive.google.com/uc?export=download&id=1ZyY6jy3Bm7QYVs3-GWfzFfCjlY95yeaP',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/anima-bot.json'),
+    ('https://drive.google.com/uc?export=download&id=1TNa5MuHshDXimN4ItUUQBB4VrW8xfmFH',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/orange-ballerina.json'),
+    ('https://drive.google.com/uc?export=download&id=1HdjPRNx4vPO3EI-_U1Z1UQa8mprLdRNM',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/toucan-flying.json'),
+    ('https://drive.google.com/uc?export=download&id=1msaoUAeJipCWCy0q8TABPKxWc8ExLMjm',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/live-chatbot.json'),
+    ('https://drive.google.com/uc?export=download&id=1PmclJnzKyczYNi3YSIxAStPWLI60f3-8',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/paper-plane.json'),
+    ('https://drive.google.com/uc?export=download&id=1FfiTWCqv_r0_wllt9GXKDhwVKxSZ823V',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/bouncing-dots.json'),
+    ('https://drive.google.com/uc?export=download&id=16CuzIvYWioJW4xTyI4ukYVkHWnJFLyt-',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/monarch-butterfly.json'),
+    ('https://drive.google.com/uc?export=download&id=1KOKAFftNzGhnG6ISbnb7ylz1uTf87Er3',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/lovestruck-cat.json'),
+    ('https://drive.google.com/uc?export=download&id=1hYp8vPfH07C7JeJlmJZI5JyazvRd7Qbg',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/galloping-horse.json'),
+    ('https://drive.google.com/uc?export=download&id=1uchuXzcjzIq6_WKIp2jHVkJ2D4AGxH8g',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/gamer-raccoon.json'),
+    ('https://drive.google.com/uc?export=download&id=15UkZwIjVdEquW_smNseUStfciYikMH37',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/cool-cat.json'),
+    ('https://drive.google.com/uc?export=download&id=1awnG6ysbh0QRWXQpDN-5yIsTj0IXFJbO',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/shooting-game.json'),
+    ('https://drive.google.com/uc?export=download&id=1JRg3ayCimSPi3SsJNSRFj53S65BdMzpY',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/spider.json'),
+    ('https://drive.google.com/uc?export=download&id=10vbKXtV7-ZT8Gf-m7giwWNbi0nP67juF',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/swirling-dots.json'),
+    ('https://drive.google.com/uc?export=download&id=1cal_8xZS9Tz4TCDt1leTtG36mqZhH98Q',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/sporty-avocado.json'),
+    ('https://drive.google.com/uc?export=download&id=1sWLmx0skXzrQ6d_ZitT_OTZMmSd_c6LA',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/blazing-fire.json'),
+    ('https://drive.google.com/uc?export=download&id=1Mw_0tq2l_2FN3c7X_sDvrV_nZqIsafVM',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/love-and-kiss.json'),
+    ('https://drive.google.com/uc?export=download&id=19mQ9PjStBJUoFyThaSe97fEcfzARw_Ar',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/butterfly-flapping.json'),
+    ('https://drive.google.com/uc?export=download&id=1vg1xUlnF0vLAYh-w8F4dHRUsQ1sTPTgB',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/waving-tiger-cub.json'),
+    ('https://drive.google.com/uc?export=download&id=11oXU9B5LeWF9OMEcCYihLkKcrj0Zl4Gn',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/indian-flag.json'),
+    ('https://drive.google.com/uc?export=download&id=1oDAJP-qC9GNxt6tW6WLMldl0EV6YtcWn',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/jolly-king.json'),
+    ('https://drive.google.com/uc?export=download&id=1PXnoJzPxQtn7v5JkjUVemUNdbA4gSa73',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/jolly-queen.json'),
+    ('https://drive.google.com/uc?export=download&id=1rpYEPGB5MqjPq-V-1wKPP0waPy3iYGxq',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/bodybuilder.json'),
+    ('https://drive.google.com/uc?export=download&id=1j_sD1jKZZwbgTOquWLhRS96gqJ8xS67c',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/butterfly.json'),
+    ('https://drive.google.com/uc?export=download&id=1i5EKv2S01ARvRaZT2l3fIvQyhMOu4sFd',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/dog-dancing.json'),
+    ('https://drive.google.com/uc?export=download&id=1vBB46I0BL-58G03kwqwf5EGpqUxq2vpQ',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/dance.json'),
+    ('https://drive.google.com/uc?export=download&id=13Zw4aYOI2tF1ULv_HBpc7ovS7VKHQd6m',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/cockroach.json'),
+    ('https://drive.google.com/uc?export=download&id=188lHqjAKW9TcuSVGcBqn9TxU8pHsfWpX',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/festive-capybara.json')
+  ) AS m (drive_url, location)
+ WHERE t.asset_url = m.drive_url
+   AND NOT EXISTS (SELECT 1 FROM profile_pictures q WHERE q.asset_url = m.location);
+
 INSERT INTO profile_pictures (name, asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order, created_at, updated_at)
 SELECT name, asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order,
        (EXTRACT(EPOCH FROM now()) * 1000)::bigint,
        (EXTRACT(EPOCH FROM now()) * 1000)::bigint
   FROM (VALUES
     -- Free: everyone may wear these.
-    ('Bear',     'https://lh3.googleusercontent.com/d/1cMAxBlDvKxPpPyOKffLsjM0RDxPUdC-_=s256',
+    ('Bear',     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/bear.png',
      'IMAGE',  'COIN',    'FREE', 0::bigint, 0, 0, TRUE, 10),
-    ('Cat',      'https://lh3.googleusercontent.com/d/1fTFvJGmCOaFF-mCm_4XAdyjaRFw3Sf9a=s256',
+    ('Cat',      'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/cat.png',
      'IMAGE',  'COIN',    'FREE', 0::bigint, 0, 0, TRUE, 20),
     -- The animals priced in chips.
-    ('Dog',      'https://lh3.googleusercontent.com/d/1hZ2iw1UkqHJN18MLUhRTZGbgLBm-7dBS=s256',
+    ('Dog',      'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/dog.png',
      'IMAGE',  'COIN',    'PREMIUM', 25000::bigint, 3, 0, TRUE, 30),
-    ('Frog',     'https://lh3.googleusercontent.com/d/1JNMYRv7JtMkfkhEebxLIpTEx4TVMIV-7=s256',
+    ('Frog',     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/frog.png',
      'IMAGE',  'COIN',    'PREMIUM', 25000::bigint, 3, 0, TRUE, 40),
-    ('Horse',    'https://lh3.googleusercontent.com/d/16v7Hh1ZknhM79ZR0KvelT48J4h2T-wyd=s256',
+    ('Horse',    'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/horse.png',
      'IMAGE',  'COIN',    'PREMIUM', 50000::bigint, 4, 0, TRUE, 50),
-    ('Koala',    'https://lh3.googleusercontent.com/d/1eRCQHZY-GJc5I2skndx6eyegFhTDCXoH=s256',
+    ('Koala',    'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/koala.png',
      'IMAGE',  'COIN',    'PREMIUM', 50000::bigint, 4, 0, TRUE, 60),
-    ('Monkey',   'https://lh3.googleusercontent.com/d/1NJDPIyXjEDEj4nRYEu1KTUjGDNQGqAfg=s256',
+    ('Monkey',   'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/monkey.png',
      'IMAGE',  'COIN',    'PREMIUM', 50000::bigint, 4, 0, TRUE, 70),
-    ('Penguin',  'https://lh3.googleusercontent.com/d/11MRH75SHIbZJzeK_tkQp6Gt6Z5GFJlaH=s256',
+    ('Penguin',  'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/penguin.png',
      'IMAGE',  'COIN',    'PREMIUM', 50000::bigint, 4, 0, TRUE, 80),
-    ('Rabbit',   'https://lh3.googleusercontent.com/d/1wIdpZ7RMytoy9rhpA411lZFz7CbjdyM3=s256',
+    ('Rabbit',   'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/rabbit.png',
      'IMAGE',  'COIN',    'PREMIUM', 50000::bigint, 4, 0, TRUE, 90),
-    ('Fox',      'https://lh3.googleusercontent.com/d/1qBwGLPAEBr2y5Y2_EVCAd0jQWDeCcUOW=s256',
+    ('Fox',      'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/fox.png',
      'IMAGE',  'COIN',    'PREMIUM', 100000::bigint, 5, 0, TRUE, 100),
-    ('Owl',      'https://lh3.googleusercontent.com/d/125zcjmHrYFGg0jMFm0zqpRg_G8VNSr5L=s256',
+    ('Owl',      'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/owl.png',
      'IMAGE',  'COIN',    'PREMIUM', 100000::bigint, 5, 0, TRUE, 110),
-    ('Lion',     'https://lh3.googleusercontent.com/d/1weXwu_K_35tQHYg92C4tIB9TwM7mBDab=s256',
+    ('Lion',     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/lion.png',
      'IMAGE',  'COIN',    'PREMIUM', 100000::bigint, 5, 0, TRUE, 120),
-    ('Tiger',    'https://lh3.googleusercontent.com/d/1L-focNnL0yNJueAArM-YfHE9kX0VZv3T=s256',
+    ('Tiger',    'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/tiger.png',
      'IMAGE',  'COIN',    'PREMIUM', 100000::bigint, 5, 0, TRUE, 130),
-    ('Panda',    'https://lh3.googleusercontent.com/d/1zCySFnbUMtnBjv1g_u9nruHZM5PIdnt_=s256',
+    ('Panda',    'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/panda.png',
      'IMAGE',  'COIN',    'PREMIUM', 200000::bigint, 7, 0, TRUE, 140),
-    ('Wolf',     'https://lh3.googleusercontent.com/d/1LB0wQaR_rq3bYk9oN5P6RWsEm5-oIXae=s256',
+    ('Wolf',     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/wolf.png',
      'IMAGE',  'COIN',    'PREMIUM', 200000::bigint, 7, 0, TRUE, 150),
     -- The animated pictures priced in chips.
-    ('Love Sheep',         'https://drive.google.com/uc?export=download&id=1_xsklNtmysOICReADfzAHTmGWXtap0P8',
+    ('Love Sheep',         'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/love-sheep.json',
      'LOTTIE', 'COIN',    'PREMIUM', 1000000::bigint, 0, 1, TRUE, 160),
-    ('Love Birds',         'https://drive.google.com/uc?export=download&id=1sr5MD9P1lK9Whg5qezYMGVz9P7aM5h6F',
+    ('Love Birds',         'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/love-birds.json',
      'LOTTIE', 'COIN',    'PREMIUM', 3000000::bigint, 0, 3, TRUE, 170),
-    ('Error 404',          'https://drive.google.com/uc?export=download&id=1bVCZfGy671tAjUHdPIscUFbuSPpeX15o',
+    ('Error 404',          'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/error-404.json',
      'LOTTIE', 'COIN',    'PREMIUM', 10000000::bigint, 10, 0, TRUE, 180),
-    ('Anima Bot',          'https://drive.google.com/uc?export=download&id=1ZyY6jy3Bm7QYVs3-GWfzFfCjlY95yeaP',
+    ('Anima Bot',          'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/anima-bot.json',
      'LOTTIE', 'COIN',    'PREMIUM', 10000000::bigint, 5, 0, TRUE, 190),
     -- The animated pictures priced in hammers.
-    ('Orange Ballerina',   'https://drive.google.com/uc?export=download&id=1TNa5MuHshDXimN4ItUUQBB4VrW8xfmFH',
+    ('Orange Ballerina',   'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/orange-ballerina.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 10, 0, TRUE, 200),
-    ('Toucan Flying',      'https://drive.google.com/uc?export=download&id=1HdjPRNx4vPO3EI-_U1Z1UQa8mprLdRNM',
+    ('Toucan Flying',      'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/toucan-flying.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 30::bigint, 30, 0, TRUE, 210),
-    ('Live Chatbot',       'https://drive.google.com/uc?export=download&id=1msaoUAeJipCWCy0q8TABPKxWc8ExLMjm',
+    ('Live Chatbot',       'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/live-chatbot.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 10, 0, TRUE, 220),
-    ('Paper Plane',        'https://drive.google.com/uc?export=download&id=1PmclJnzKyczYNi3YSIxAStPWLI60f3-8',
+    ('Paper Plane',        'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/paper-plane.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 10, 0, TRUE, 230),
-    ('Bouncing Dots',      'https://drive.google.com/uc?export=download&id=1FfiTWCqv_r0_wllt9GXKDhwVKxSZ823V',
+    ('Bouncing Dots',      'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/bouncing-dots.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 10, 0, TRUE, 240),
-    ('Monarch Butterfly',  'https://drive.google.com/uc?export=download&id=16CuzIvYWioJW4xTyI4ukYVkHWnJFLyt-',
+    ('Monarch Butterfly',  'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/monarch-butterfly.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 40::bigint, 40, 0, TRUE, 250),
-    ('Lovestruck Cat',     'https://drive.google.com/uc?export=download&id=1KOKAFftNzGhnG6ISbnb7ylz1uTf87Er3',
+    ('Lovestruck Cat',     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/lovestruck-cat.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 50::bigint, 50, 0, TRUE, 260),
-    ('Galloping Horse',    'https://drive.google.com/uc?export=download&id=1hYp8vPfH07C7JeJlmJZI5JyazvRd7Qbg',
+    ('Galloping Horse',    'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/galloping-horse.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 10, 0, TRUE, 270),
-    ('Gamer Raccoon',      'https://drive.google.com/uc?export=download&id=1uchuXzcjzIq6_WKIp2jHVkJ2D4AGxH8g',
+    ('Gamer Raccoon',      'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/gamer-raccoon.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 60::bigint, 60, 0, TRUE, 280),
-    ('Cool Cat',           'https://drive.google.com/uc?export=download&id=15UkZwIjVdEquW_smNseUStfciYikMH37',
+    ('Cool Cat',           'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/cool-cat.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 100::bigint, 100, 0, TRUE, 290),
-    ('Shooting Game',      'https://drive.google.com/uc?export=download&id=1awnG6ysbh0QRWXQpDN-5yIsTj0IXFJbO',
+    ('Shooting Game',      'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/shooting-game.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 80::bigint, 80, 0, TRUE, 300),
-    ('Spider',             'https://drive.google.com/uc?export=download&id=1JRg3ayCimSPi3SsJNSRFj53S65BdMzpY',
+    ('Spider',             'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/spider.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 80::bigint, 80, 0, TRUE, 310),
-    ('Swirling Dots',      'https://drive.google.com/uc?export=download&id=10vbKXtV7-ZT8Gf-m7giwWNbi0nP67juF',
+    ('Swirling Dots',      'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/swirling-dots.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 30::bigint, 50, 0, TRUE, 320),
-    ('Sporty Avocado',     'https://drive.google.com/uc?export=download&id=1cal_8xZS9Tz4TCDt1leTtG36mqZhH98Q',
+    ('Sporty Avocado',     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/sporty-avocado.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 90::bigint, 90, 0, TRUE, 330),
-    ('Blazing Fire',       'https://drive.google.com/uc?export=download&id=1sWLmx0skXzrQ6d_ZitT_OTZMmSd_c6LA',
+    ('Blazing Fire',       'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/blazing-fire.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 10, 0, TRUE, 340),
-    ('Love and Kiss',      'https://drive.google.com/uc?export=download&id=1Mw_0tq2l_2FN3c7X_sDvrV_nZqIsafVM',
+    ('Love and Kiss',      'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/love-and-kiss.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 25::bigint, 10, 0, TRUE, 350),
     -- The animated pictures priced in diamonds.
-    ('Butterfly Flapping', 'https://drive.google.com/uc?export=download&id=19mQ9PjStBJUoFyThaSe97fEcfzARw_Ar',
+    ('Butterfly Flapping', 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/butterfly-flapping.json',
      'LOTTIE', 'DIAMOND', 'PREMIUM', 4::bigint, 100, 0, TRUE, 360),
-    ('Waving Tiger Cub',   'https://drive.google.com/uc?export=download&id=1vg1xUlnF0vLAYh-w8F4dHRUsQ1sTPTgB',
+    ('Waving Tiger Cub',   'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/waving-tiger-cub.json',
      'LOTTIE', 'DIAMOND', 'PREMIUM', 3::bigint, 100, 0, TRUE, 370),
-    ('Indian Flag',        'https://drive.google.com/uc?export=download&id=11oXU9B5LeWF9OMEcCYihLkKcrj0Zl4Gn',
+    ('Indian Flag',        'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/indian-flag.json',
      'LOTTIE', 'DIAMOND', 'PREMIUM', 5::bigint, 100, 0, TRUE, 380),
-    ('Jolly King',         'https://drive.google.com/uc?export=download&id=1oDAJP-qC9GNxt6tW6WLMldl0EV6YtcWn',
+    ('Jolly King',         'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/jolly-king.json',
      'LOTTIE', 'DIAMOND', 'PREMIUM', 5::bigint, 100, 0, TRUE, 390),
-    ('Jolly Queen',        'https://drive.google.com/uc?export=download&id=1PXnoJzPxQtn7v5JkjUVemUNdbA4gSa73',
+    ('Jolly Queen',        'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/jolly-queen.json',
      'LOTTIE', 'DIAMOND', 'PREMIUM', 5::bigint, 100, 0, TRUE, 400),
     -- Appended after launch (owner, 14 Sep 2026). At the end, so the ids an
     -- empty database gives the rows above stay the ones the header lists;
     -- sort_order files each among its currency's pictures.
-    ('Bodybuilder',        'https://drive.google.com/uc?export=download&id=1rpYEPGB5MqjPq-V-1wKPP0waPy3iYGxq',
+    ('Bodybuilder',        'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/bodybuilder.json',
      'LOTTIE', 'COIN',    'PREMIUM', 500000000::bigint, 50, 0, TRUE, 195),
-    ('Butterfly',          'https://drive.google.com/uc?export=download&id=1j_sD1jKZZwbgTOquWLhRS96gqJ8xS67c',
+    ('Butterfly',          'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/butterfly.json',
      'LOTTIE', 'COIN',    'PREMIUM', 1000000000::bigint, 100, 0, TRUE, 197),
-    ('Dog Dancing',        'https://drive.google.com/uc?export=download&id=1i5EKv2S01ARvRaZT2l3fIvQyhMOu4sFd',
+    ('Dog Dancing',        'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/dog-dancing.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 30::bigint, 30, 0, TRUE, 352),
-    ('Dance',              'https://drive.google.com/uc?export=download&id=1vBB46I0BL-58G03kwqwf5EGpqUxq2vpQ',
+    ('Dance',              'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/dance.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 20::bigint, 10, 0, TRUE, 354),
-    ('Cockroach',          'https://drive.google.com/uc?export=download&id=13Zw4aYOI2tF1ULv_HBpc7ovS7VKHQd6m',
+    ('Cockroach',          'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/cockroach.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 10::bigint, 15, 0, TRUE, 356)
   ) AS seed(name, asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order)
     ON CONFLICT (asset_url) DO NOTHING;
@@ -512,31 +629,71 @@ UPDATE table_pictures
  WHERE name = 'Thank You'
    AND day_asset_url = 'https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4';
 
+-- THE MOVE TO R2 (owner, 1 Oct 2026; THE PICTURES says why): a row still at
+-- its Drive files is moved onto their R2 locations before the INSERT, which
+-- would otherwise add it again (day_asset_url is the conflict key). After
+-- Thank You's own move above, which runs first, so a database that ran the
+-- earliest seed is brought to the Drive day file and then to R2.
+UPDATE table_pictures AS t
+   SET day_asset_url = m.location,
+       updated_at = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+  FROM (VALUES
+    ('https://drive.google.com/uc?export=download&id=1r26ntLyDxKVbu7NAcsAQ3P3Sh8qF-oN-',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/lines-background-day.json'),
+    ('https://drive.google.com/uc?export=download&id=1SZ9uuV6AuJB5vYqjMmbRq0Qi7ILr7O3_',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/background-pattern-day.json'),
+    ('https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/welcome.json'),
+    ('https://drive.google.com/uc?export=download&id=19egvyPjBfCFbtEna7cL-_U1kQLVra6e8',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/thank-you-day.json'),
+    ('https://drive.google.com/uc?export=download&id=1Hx3AHsY2-8by89WIsxbPxpM64zL7kZps',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/circle-background-pattern.json')
+  ) AS m (drive_url, location)
+ WHERE t.day_asset_url = m.drive_url
+   AND NOT EXISTS (SELECT 1 FROM table_pictures q WHERE q.day_asset_url = m.location);
+
+UPDATE table_pictures AS t
+   SET night_asset_url = m.location,
+       updated_at = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+  FROM (VALUES
+    ('https://drive.google.com/uc?export=download&id=1Hx3AHsY2-8by89WIsxbPxpM64zL7kZps',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/circle-background-pattern.json'),
+    ('https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/thank-you-night.json'),
+    ('https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/welcome.json'),
+    ('https://drive.google.com/uc?export=download&id=1jysl9afLqlbeIO1SS8ypASb1TQkUFl2C',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/background-pattern-night.json'),
+    ('https://drive.google.com/uc?export=download&id=1mBnzYABRNRvP7aaEOk2JrBdQC7Lw--fB',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/lines-background-night.json')
+  ) AS m (drive_url, location)
+ WHERE t.night_asset_url = m.drive_url;
+
 INSERT INTO table_pictures (name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order, created_at, updated_at)
 SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order,
        (EXTRACT(EPOCH FROM now()) * 1000)::bigint,
        (EXTRACT(EPOCH FROM now()) * 1000)::bigint
   FROM (VALUES
     ('Lines Background',
-     'https://drive.google.com/uc?export=download&id=1r26ntLyDxKVbu7NAcsAQ3P3Sh8qF-oN-',
-     'https://drive.google.com/uc?export=download&id=1mBnzYABRNRvP7aaEOk2JrBdQC7Lw--fB',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/lines-background-day.json',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/lines-background-night.json',
      'LOTTIE', 'COIN', 'PREMIUM', 100000::bigint,  7, 0, TRUE, 75),
     ('Background Pattern',
-     'https://drive.google.com/uc?export=download&id=1SZ9uuV6AuJB5vYqjMmbRq0Qi7ILr7O3_',
-     'https://drive.google.com/uc?export=download&id=1jysl9afLqlbeIO1SS8ypASb1TQkUFl2C',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/background-pattern-day.json',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/background-pattern-night.json',
      'LOTTIE', 'COIN', 'PREMIUM', 500000::bigint, 7, 0, TRUE, 80),
     ('Welcome',
-     'https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy',
-     'https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/welcome.json',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/welcome.json',
      'LOTTIE', 'COIN', 'PREMIUM', 150000::bigint, 7, 0, TRUE, 85),
     ('Thank You',
-     'https://drive.google.com/uc?export=download&id=19egvyPjBfCFbtEna7cL-_U1kQLVra6e8',
-     'https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/thank-you-day.json',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/thank-you-night.json',
      'LOTTIE', 'COIN', 'PREMIUM', 3000000::bigint, 7, 0, TRUE, 90),
     -- Appended 24 Sep 2026 (owner); opaque, so one file serves both themes.
     ('Circle Background Pattern',
-     'https://drive.google.com/uc?export=download&id=1Hx3AHsY2-8by89WIsxbPxpM64zL7kZps',
-     'https://drive.google.com/uc?export=download&id=1Hx3AHsY2-8by89WIsxbPxpM64zL7kZps',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/circle-background-pattern.json',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/table_pictures/circle-background-pattern.json',
      'LOTTIE', 'COIN', 'PREMIUM', 300000::bigint, 7, 0, TRUE, 95)
   ) AS seed(name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order)
     ON CONFLICT (day_asset_url) DO NOTHING;
@@ -866,67 +1023,116 @@ ON CONFLICT (lucky_draw_id, slot_number) DO NOTHING;
 --
 -- None has a 3D layer, an expression, an embedded image or a text layer —
 -- what a phone's Lottie player cannot draw (CLAUDE.md §12.3).
+-- THE MOVE TO R2 (owner, 1 Oct 2026; THE PICTURES says why): an emoji still at
+-- its Drive URL is moved onto its R2 location before the INSERT, which would
+-- otherwise add it again (asset_url is the conflict key).
+UPDATE emojis AS t
+   SET asset_url = m.location,
+       updated_at = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+  FROM (VALUES
+    ('https://drive.google.com/uc?export=download&id=19CkeJfl8J9knw0tLoxgruKFaGwnsP3jh',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/angry.json'),
+    ('https://drive.google.com/uc?export=download&id=1HZej1y15g4FhGKjNPbR2WOqFdDXn-r5l',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/dollar.json'),
+    ('https://drive.google.com/uc?export=download&id=1iTOgg_JZRXvY9f9IRPaAR9UyEt4q7f4S',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/crying.json'),
+    ('https://drive.google.com/uc?export=download&id=1qpBgQTwXWMvrHqQLAA6wT1EIsNb9zakr',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/hi-face.json'),
+    ('https://drive.google.com/uc?export=download&id=1_wnZ9Tmiy7qnK7EzmK5hpSPZCOTxvjlc',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/clapping-hands.json'),
+    ('https://drive.google.com/uc?export=download&id=141HlEZZxoRuIzAaN16emiNO7UZ7RWYNn',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/cowboy-hat-face.json'),
+    ('https://drive.google.com/uc?export=download&id=199f59nq4Vx0FImGvbAv4X2LJnkyUQ67f',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/muscle.json'),
+    ('https://drive.google.com/uc?export=download&id=1Y3WEnboXZskv6vItBQ_E1WZoC9aIUh8D',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/plane-face.json'),
+    ('https://drive.google.com/uc?export=download&id=1lLryjoIf2KNGqZFGxGX8vGThozJM0vw-',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/knife.json'),
+    ('https://drive.google.com/uc?export=download&id=1bC-1hqYUblHCjiTvAd6OT8xHYYbj9sKC',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/sleeping.json'),
+    ('https://drive.google.com/uc?export=download&id=1MwoBkG2OIUbHVwu_Jrp4d1VjsJyPb9Y7',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/squinting-face-with-tongue.json'),
+    ('https://drive.google.com/uc?export=download&id=1NbIZ7Uix45KCEencp5cvX6aDisiEfhqi',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/crying-face.json'),
+    ('https://drive.google.com/uc?export=download&id=1C_zU11KCYX8vaGC04TQgC68cE2TYXHWt',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/enraged-face.json'),
+    ('https://drive.google.com/uc?export=download&id=1kvwY307kfud4L9SjaZCLzO0mLOZ9pRYR',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/chill-face.json'),
+    ('https://drive.google.com/uc?export=download&id=1K7mIif6FpaHl06j1VFkPB8awW21zz-wf',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/face-blowing-a-kiss.json'),
+    ('https://drive.google.com/uc?export=download&id=1oLtnFWg0dd75cuPebF5i0IHuynRnJlp2',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/kiss-face.json'),
+    ('https://drive.google.com/uc?export=download&id=1YnSphiJ7STpuHng9ACqPjwxWFSD4ex6t',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/ok.json'),
+    ('https://drive.google.com/uc?export=download&id=1MWQZiwQMIqDtJcfqBEaB7PcgQ0Py4x8t',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/no-face.json'),
+    ('https://drive.google.com/uc?export=download&id=1htRt4pDieoOmUJtBPf-FtXb5OK7nPyz8',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/tongue-face.json')
+  ) AS m (drive_url, location)
+ WHERE t.asset_url = m.drive_url
+   AND NOT EXISTS (SELECT 1 FROM emojis q WHERE q.asset_url = m.location);
+
 INSERT INTO emojis (name, asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order, created_at, updated_at)
 SELECT name, asset_url, 'LOTTIE', currency, type, cost, duration_days, 0, TRUE, sort_order,
        (EXTRACT(EPOCH FROM now()) * 1000)::bigint,
        (EXTRACT(EPOCH FROM now()) * 1000)::bigint
   FROM (VALUES
     ('Angry',
-     'https://drive.google.com/uc?export=download&id=19CkeJfl8J9knw0tLoxgruKFaGwnsP3jh',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/angry.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 10),
     ('Dollar',
-     'https://drive.google.com/uc?export=download&id=1HZej1y15g4FhGKjNPbR2WOqFdDXn-r5l',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/dollar.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 20),
     ('Crying',
-     'https://drive.google.com/uc?export=download&id=1iTOgg_JZRXvY9f9IRPaAR9UyEt4q7f4S',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/crying.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 30),
     ('Hi Face',
-     'https://drive.google.com/uc?export=download&id=1qpBgQTwXWMvrHqQLAA6wT1EIsNb9zakr',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/hi-face.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 40),
     ('Clapping Hands',
-     'https://drive.google.com/uc?export=download&id=1_wnZ9Tmiy7qnK7EzmK5hpSPZCOTxvjlc',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/clapping-hands.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 50),
     ('Cowboy Hat Face',
-     'https://drive.google.com/uc?export=download&id=141HlEZZxoRuIzAaN16emiNO7UZ7RWYNn',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/cowboy-hat-face.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 60),
     ('Muscle',
-     'https://drive.google.com/uc?export=download&id=199f59nq4Vx0FImGvbAv4X2LJnkyUQ67f',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/muscle.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 70),
     ('Plane Face',
-     'https://drive.google.com/uc?export=download&id=1Y3WEnboXZskv6vItBQ_E1WZoC9aIUh8D',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/plane-face.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 80),
     ('Knife',
-     'https://drive.google.com/uc?export=download&id=1lLryjoIf2KNGqZFGxGX8vGThozJM0vw-',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/knife.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 90),
     ('Sleeping',
-     'https://drive.google.com/uc?export=download&id=1bC-1hqYUblHCjiTvAd6OT8xHYYbj9sKC',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/sleeping.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 100),
     ('Squinting Face with Tongue',
-     'https://drive.google.com/uc?export=download&id=1MwoBkG2OIUbHVwu_Jrp4d1VjsJyPb9Y7',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/squinting-face-with-tongue.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 110),
     ('Crying Face',
-     'https://drive.google.com/uc?export=download&id=1NbIZ7Uix45KCEencp5cvX6aDisiEfhqi',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/crying-face.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 120),
     ('Enraged Face',
-     'https://drive.google.com/uc?export=download&id=1C_zU11KCYX8vaGC04TQgC68cE2TYXHWt',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/enraged-face.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 130),
     ('Chill Face',
-     'https://drive.google.com/uc?export=download&id=1kvwY307kfud4L9SjaZCLzO0mLOZ9pRYR',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/chill-face.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 140),
     ('Face Blowing a Kiss',
-     'https://drive.google.com/uc?export=download&id=1K7mIif6FpaHl06j1VFkPB8awW21zz-wf',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/face-blowing-a-kiss.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 150),
     ('Kiss Face',
-     'https://drive.google.com/uc?export=download&id=1oLtnFWg0dd75cuPebF5i0IHuynRnJlp2',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/kiss-face.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 160),
     ('Ok',
-     'https://drive.google.com/uc?export=download&id=1YnSphiJ7STpuHng9ACqPjwxWFSD4ex6t',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/ok.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 170),
     ('No Face',
-     'https://drive.google.com/uc?export=download&id=1MWQZiwQMIqDtJcfqBEaB7PcgQ0Py4x8t',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/no-face.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 180),
     ('Tongue Face',
-     'https://drive.google.com/uc?export=download&id=1htRt4pDieoOmUJtBPf-FtXb5OK7nPyz8',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/emojis/tongue-face.json',
      'HAMMER', 'PREMIUM', 5::bigint, 30, 190)
   ) AS v(name, asset_url, currency, type, cost, duration_days, sort_order)
 ON CONFLICT (asset_url) DO NOTHING;
@@ -1016,7 +1222,10 @@ VALUES
 -- this list later reaches every database at its next boot — while an owner's
 -- own URL, or '' for a level deliberately shown with none, is never touched.
 --
--- Every level but Level 1 is the owner's Drive upload as given, each checked
+-- Every level's file is in the R2 bucket since 1 Oct 2026 (THE PICTURES' move
+-- to R2): the owner's Drive uploads, and the six this server used to serve
+-- from public/levels/ (Levels 1, 20, 22, 25, 32 and 41), copied byte for byte.
+-- Every level but those six is the owner's upload as given, each checked
 -- for what a phone cannot play (CLAUDE.md §12.3): no 3D, no image or font
 -- fetched from elsewhere (Player's three WebP images and Expert's six glyphs
 -- are in their files), and no expression a phone would miss — Contender's
@@ -1025,66 +1234,66 @@ VALUES
 -- Level 1's upload (350x350, 4 s) swings its leaves with two
 -- loopOut('pingpong') expressions over frames 0–20 of 101, which the phones'
 -- player does not run (CLAUDE.md §12.3): they would sway for 0.8 s and hold
--- still for the other 3.2 s of every loop. So Level 1 is served from this
--- server as the copy tools/lottie/bake_loop_expressions.py wrote, the loop
--- written out as keyframes (public/levels/, served in production like
--- profiles/); its "Kleaner" overshoot, which no phone runs either, is left as
--- it is.
+-- still for the other 3.2 s of every loop. So Level 1 is the copy
+-- tools/lottie/bake_loop_expressions.py wrote, the loop written out as
+-- keyframes (go-server/public/levels/newbie.json, which this server served
+-- until the move to R2); its "Kleaner" overshoot, which no phone runs either,
+-- is left as it is.
 UPDATE player_levels AS l
    SET asset_url    = v.url,
        asset_format = 'LOTTIE',
        updated_at   = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
   FROM (VALUES
-         (1, '/levels/newbie.json'),
-         (2, 'https://drive.google.com/uc?export=download&id=1X5ONeIYMh2Q6348MsQGU9YO1Ut9j0RjR'),
-         (3, 'https://drive.google.com/uc?export=download&id=1046FnHvyBeXHRzuQAyflU-Z994XLMuZG'),
-         (4, 'https://drive.google.com/uc?export=download&id=1UteuLgAVMFKBXSDGtMs_7LCJKixrZhP8'),
-         (5, 'https://drive.google.com/uc?export=download&id=1o0Ch-l1nosmMomDocrKO061DnCAIOOcR'),
-         (6, 'https://drive.google.com/uc?export=download&id=1JBH14iM0z78skBTliTzYlU1aHl3-c6S2'),
-         (7, 'https://drive.google.com/uc?export=download&id=16LUCeHS--xT7pWcup9xWLOzI7slpIDba'),
-         (8, 'https://drive.google.com/uc?export=download&id=1DVOEYt6eBhpjhfYqNI-0XTzAXmWsDg7c'),
-         (9, 'https://drive.google.com/uc?export=download&id=1-oNEE7AIBgDltplByb_hUT4TjyNU4TQ8'),
-         (10, 'https://drive.google.com/uc?export=download&id=11E2kIWN-I3d1Df_ZiikOlbfJVR8bCkkd'),
-         (11, 'https://drive.google.com/uc?export=download&id=1uPdZgu0zaHe3Cxev7RxRFe5bdDFJ9uax'),
-         (12, 'https://drive.google.com/uc?export=download&id=1v7t6TppF5xMO1tHiZaUiM0Vk_hWDtpru'),
-         (13, 'https://drive.google.com/uc?export=download&id=1p-DiB6Ywhwg9nu1o22MoObJU4dp5pQa2'),
-         (14, 'https://drive.google.com/uc?export=download&id=12TiIf1ghpANIC9CTpHN7-DPgSjqCekN7'),
-         (15, 'https://drive.google.com/uc?export=download&id=1KbguHCl0hnDNPiD5mC4WBUqfjoNqrXHO'),
-         (16, 'https://drive.google.com/uc?export=download&id=1St9AZX05qFedF40zf0rZhQ6ATFTkCytQ'),
-         (17, 'https://drive.google.com/uc?export=download&id=1ec87R_lGM3EZHXAVIhjt0eYDslLzKk95'),
-         (18, 'https://drive.google.com/uc?export=download&id=1fq3eVEu739XZBBN5Jkt_m4TLc_P5zIUK'),
-         (19, 'https://drive.google.com/uc?export=download&id=1_agD2lEmfPN-sQcgm853aqwG9ujd0R2K'),
-         (20, '/levels/high-roller.json'),
-         (21, 'https://drive.google.com/uc?export=download&id=1UNCYMfWQ1FNKW_4skDQefTTPvP7lr_ja'),
-         (22, '/levels/royal-ace.json'),
-         (23, 'https://drive.google.com/uc?export=download&id=1SkpRRudplWyT7IKEpOAucp0UPrrQG9iZ'),
-         (24, 'https://drive.google.com/uc?export=download&id=1tStW2xVARGhsutKETNaJna5gj4opBSAv'),
-         (25, '/levels/supreme-ace.json'),
-         (26, 'https://drive.google.com/uc?export=download&id=1_aeUxyPcY8y8vjS5XCGle2GVJ58H1W_S'),
-         (27, 'https://drive.google.com/uc?export=download&id=1JJf7FXDtLbABcU6QV4dDC3AjTaB42d9G'),
-         (28, 'https://drive.google.com/uc?export=download&id=1waubm1JDH69aO-Wi_SJ2NPU2LuhAmLul'),
-         (29, 'https://drive.google.com/uc?export=download&id=1IQv0oHWum_kyAvvuNLhvV6UsiEdf7u8S'),
-         (30, 'https://drive.google.com/uc?export=download&id=1NVhpS0i9DiahWamLqOsqlCPh9FpJEgqZ'),
-         (31, 'https://drive.google.com/uc?export=download&id=1t5mpo6BYOrECuoRAsPTgAmwTJEGSwH9Z'),
-         (32, '/levels/royal-titan.json'),
-         (33, 'https://drive.google.com/uc?export=download&id=1wLDxV_GkYrhpyLDDSP9cC7zUi4Hh9Cnz'),
-         (34, 'https://drive.google.com/uc?export=download&id=1J0cl9aGb3Gvhgbov49FCyPjtuo7W96az'),
-         (35, 'https://drive.google.com/uc?export=download&id=1gvFRTrz1C_faOiIZUoe8y8adVdCyXM57'),
-         (36, 'https://drive.google.com/uc?export=download&id=1SqX6So-jtLzeOpoqdXzdIGJgquZXZiJk'),
-         (37, 'https://drive.google.com/uc?export=download&id=1Ngplvi2rKX0rjFxzXOR4ODx9L38UQDHE'),
-         (38, 'https://drive.google.com/uc?export=download&id=1AoW8XeczJTYOC3Q0H8DjCXVwbudMoGcP'),
-         (39, 'https://drive.google.com/uc?export=download&id=1jaEC17ASGxNDJAyyulBVhO0NBVmI_iAa'),
-         (40, 'https://drive.google.com/uc?export=download&id=15go9POUg8_3nsjz6xPHmZqxzYxnMNcu7'),
-         (41, '/levels/overlord.json'),
-         (42, 'https://drive.google.com/uc?export=download&id=1eZF7faadc4hjZ-lUxGMggz99gT03tGEM'),
-         (43, 'https://drive.google.com/uc?export=download&id=1W6PhSsxNDQbxLwWiFHhOfc0INgw-exov'),
-         (44, 'https://drive.google.com/uc?export=download&id=1kF5cZ7xd6k6QEklwo0BGee6NteAdvXBM'),
-         (45, 'https://drive.google.com/uc?export=download&id=1Mt08RZaAuazPJORoXaWkBBvdpOzGX1qU'),
-         (46, 'https://drive.google.com/uc?export=download&id=1vN8VIjlRK6NOKTlQ_7YBZIQMDGelamjM'),
-         (47, 'https://drive.google.com/uc?export=download&id=1xcnpkXAsum0i6DwbrK5AhAC4qbXB9adX'),
-         (48, 'https://drive.google.com/uc?export=download&id=1W33Jv1LFLAvh_0wmKOWh9ktpUK5aFzQX'),
-         (49, 'https://drive.google.com/uc?export=download&id=11X5XK7q6HExMJZ-zUPoxZW9vYFDD5B3r'),
-         (50, 'https://drive.google.com/uc?export=download&id=1IyDWBxn-9lcQeZVkTQQY1gzE3zTBuZdA')
+         (1, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/01-newbie.json'),
+         (2, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/02-rookie.json'),
+         (3, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/03-beginner.json'),
+         (4, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/04-player.json'),
+         (5, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/05-regular.json'),
+         (6, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/06-challenger.json'),
+         (7, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/07-skilled.json'),
+         (8, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/08-contender.json'),
+         (9, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/09-fighter.json'),
+         (10, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/10-rising-star.json'),
+         (11, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/11-pro-player.json'),
+         (12, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/12-veteran.json'),
+         (13, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/13-expert.json'),
+         (14, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/14-specialist.json'),
+         (15, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/15-ace.json'),
+         (16, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/16-elite.json'),
+         (17, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/17-master.json'),
+         (18, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/18-grand-master.json'),
+         (19, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/19-champion.json'),
+         (20, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/20-high-roller.json'),
+         (21, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/21-royal.json'),
+         (22, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/22-royal-ace.json'),
+         (23, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/23-royal-master.json'),
+         (24, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/24-supreme.json'),
+         (25, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/25-supreme-ace.json'),
+         (26, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/26-legend.json'),
+         (27, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/27-legendary.json'),
+         (28, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/28-grand-legend.json'),
+         (29, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/29-immortal.json'),
+         (30, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/30-titan.json'),
+         (31, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/31-elite-titan.json'),
+         (32, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/32-royal-titan.json'),
+         (33, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/33-emperor.json'),
+         (34, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/34-royal-emperor.json'),
+         (35, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/35-supreme-emperor.json'),
+         (36, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/36-king.json'),
+         (37, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/37-grand-king.json'),
+         (38, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/38-royal-king.json'),
+         (39, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/39-supreme-king.json'),
+         (40, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/40-master-king.json'),
+         (41, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/41-overlord.json'),
+         (42, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/42-grand-overlord.json'),
+         (43, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/43-royal-overlord.json'),
+         (44, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/44-supreme-overlord.json'),
+         (45, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/45-mythic.json'),
+         (46, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/46-mythic-king.json'),
+         (47, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/47-immortal-king.json'),
+         (48, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/48-legendary-king.json'),
+         (49, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/49-supreme-legend.json'),
+         (50, 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/50-king-of-kings.json')
        ) AS v (level, url)
  WHERE l.level = v.level
    AND l.asset_url IS NULL;
@@ -1100,6 +1309,120 @@ UPDATE player_levels
        updated_at   = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
  WHERE level = 20
    AND asset_url = 'https://drive.google.com/uc?export=download&id=1ABHkYZ0N3O_BDBI1UpBfoVvWilXPTnxf';
+
+-- THE MOVE TO R2 (owner, 1 Oct 2026; THE PICTURES says why; "upload this also
+-- /levels/royal-titan.json"): a level whose art is still a Drive file the fill
+-- above once wrote, or one of the six paths this server served from
+-- public/levels/, is moved onto its R2 location — exactly that URL, so an
+-- owner's own art, or '' for none, is never touched, and a database filled
+-- afresh finds nothing to do. After Level 20's move above, so a database still
+-- on its first upload is taken to the served file and then to R2.
+UPDATE player_levels AS t
+   SET asset_url = m.location,
+       updated_at = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+  FROM (VALUES
+    ('https://drive.google.com/uc?export=download&id=1X5ONeIYMh2Q6348MsQGU9YO1Ut9j0RjR',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/02-rookie.json'),
+    ('https://drive.google.com/uc?export=download&id=1046FnHvyBeXHRzuQAyflU-Z994XLMuZG',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/03-beginner.json'),
+    ('https://drive.google.com/uc?export=download&id=1UteuLgAVMFKBXSDGtMs_7LCJKixrZhP8',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/04-player.json'),
+    ('https://drive.google.com/uc?export=download&id=1o0Ch-l1nosmMomDocrKO061DnCAIOOcR',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/05-regular.json'),
+    ('https://drive.google.com/uc?export=download&id=1JBH14iM0z78skBTliTzYlU1aHl3-c6S2',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/06-challenger.json'),
+    ('https://drive.google.com/uc?export=download&id=16LUCeHS--xT7pWcup9xWLOzI7slpIDba',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/07-skilled.json'),
+    ('https://drive.google.com/uc?export=download&id=1DVOEYt6eBhpjhfYqNI-0XTzAXmWsDg7c',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/08-contender.json'),
+    ('https://drive.google.com/uc?export=download&id=1-oNEE7AIBgDltplByb_hUT4TjyNU4TQ8',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/09-fighter.json'),
+    ('https://drive.google.com/uc?export=download&id=11E2kIWN-I3d1Df_ZiikOlbfJVR8bCkkd',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/10-rising-star.json'),
+    ('https://drive.google.com/uc?export=download&id=1uPdZgu0zaHe3Cxev7RxRFe5bdDFJ9uax',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/11-pro-player.json'),
+    ('https://drive.google.com/uc?export=download&id=1v7t6TppF5xMO1tHiZaUiM0Vk_hWDtpru',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/12-veteran.json'),
+    ('https://drive.google.com/uc?export=download&id=1p-DiB6Ywhwg9nu1o22MoObJU4dp5pQa2',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/13-expert.json'),
+    ('https://drive.google.com/uc?export=download&id=12TiIf1ghpANIC9CTpHN7-DPgSjqCekN7',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/14-specialist.json'),
+    ('https://drive.google.com/uc?export=download&id=1KbguHCl0hnDNPiD5mC4WBUqfjoNqrXHO',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/15-ace.json'),
+    ('https://drive.google.com/uc?export=download&id=1St9AZX05qFedF40zf0rZhQ6ATFTkCytQ',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/16-elite.json'),
+    ('https://drive.google.com/uc?export=download&id=1ec87R_lGM3EZHXAVIhjt0eYDslLzKk95',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/17-master.json'),
+    ('https://drive.google.com/uc?export=download&id=1fq3eVEu739XZBBN5Jkt_m4TLc_P5zIUK',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/18-grand-master.json'),
+    ('https://drive.google.com/uc?export=download&id=1_agD2lEmfPN-sQcgm853aqwG9ujd0R2K',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/19-champion.json'),
+    ('https://drive.google.com/uc?export=download&id=1UNCYMfWQ1FNKW_4skDQefTTPvP7lr_ja',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/21-royal.json'),
+    ('https://drive.google.com/uc?export=download&id=1SkpRRudplWyT7IKEpOAucp0UPrrQG9iZ',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/23-royal-master.json'),
+    ('https://drive.google.com/uc?export=download&id=1tStW2xVARGhsutKETNaJna5gj4opBSAv',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/24-supreme.json'),
+    ('https://drive.google.com/uc?export=download&id=1_aeUxyPcY8y8vjS5XCGle2GVJ58H1W_S',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/26-legend.json'),
+    ('https://drive.google.com/uc?export=download&id=1JJf7FXDtLbABcU6QV4dDC3AjTaB42d9G',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/27-legendary.json'),
+    ('https://drive.google.com/uc?export=download&id=1waubm1JDH69aO-Wi_SJ2NPU2LuhAmLul',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/28-grand-legend.json'),
+    ('https://drive.google.com/uc?export=download&id=1IQv0oHWum_kyAvvuNLhvV6UsiEdf7u8S',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/29-immortal.json'),
+    ('https://drive.google.com/uc?export=download&id=1NVhpS0i9DiahWamLqOsqlCPh9FpJEgqZ',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/30-titan.json'),
+    ('https://drive.google.com/uc?export=download&id=1t5mpo6BYOrECuoRAsPTgAmwTJEGSwH9Z',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/31-elite-titan.json'),
+    ('https://drive.google.com/uc?export=download&id=1wLDxV_GkYrhpyLDDSP9cC7zUi4Hh9Cnz',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/33-emperor.json'),
+    ('https://drive.google.com/uc?export=download&id=1J0cl9aGb3Gvhgbov49FCyPjtuo7W96az',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/34-royal-emperor.json'),
+    ('https://drive.google.com/uc?export=download&id=1gvFRTrz1C_faOiIZUoe8y8adVdCyXM57',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/35-supreme-emperor.json'),
+    ('https://drive.google.com/uc?export=download&id=1SqX6So-jtLzeOpoqdXzdIGJgquZXZiJk',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/36-king.json'),
+    ('https://drive.google.com/uc?export=download&id=1Ngplvi2rKX0rjFxzXOR4ODx9L38UQDHE',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/37-grand-king.json'),
+    ('https://drive.google.com/uc?export=download&id=1AoW8XeczJTYOC3Q0H8DjCXVwbudMoGcP',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/38-royal-king.json'),
+    ('https://drive.google.com/uc?export=download&id=1jaEC17ASGxNDJAyyulBVhO0NBVmI_iAa',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/39-supreme-king.json'),
+    ('https://drive.google.com/uc?export=download&id=15go9POUg8_3nsjz6xPHmZqxzYxnMNcu7',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/40-master-king.json'),
+    ('https://drive.google.com/uc?export=download&id=1eZF7faadc4hjZ-lUxGMggz99gT03tGEM',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/42-grand-overlord.json'),
+    ('https://drive.google.com/uc?export=download&id=1W6PhSsxNDQbxLwWiFHhOfc0INgw-exov',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/43-royal-overlord.json'),
+    ('https://drive.google.com/uc?export=download&id=1kF5cZ7xd6k6QEklwo0BGee6NteAdvXBM',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/44-supreme-overlord.json'),
+    ('https://drive.google.com/uc?export=download&id=1Mt08RZaAuazPJORoXaWkBBvdpOzGX1qU',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/45-mythic.json'),
+    ('https://drive.google.com/uc?export=download&id=1vN8VIjlRK6NOKTlQ_7YBZIQMDGelamjM',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/46-mythic-king.json'),
+    ('https://drive.google.com/uc?export=download&id=1xcnpkXAsum0i6DwbrK5AhAC4qbXB9adX',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/47-immortal-king.json'),
+    ('https://drive.google.com/uc?export=download&id=1W33Jv1LFLAvh_0wmKOWh9ktpUK5aFzQX',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/48-legendary-king.json'),
+    ('https://drive.google.com/uc?export=download&id=11X5XK7q6HExMJZ-zUPoxZW9vYFDD5B3r',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/49-supreme-legend.json'),
+    ('https://drive.google.com/uc?export=download&id=1IyDWBxn-9lcQeZVkTQQY1gzE3zTBuZdA',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/50-king-of-kings.json'),
+    ('/levels/newbie.json',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/01-newbie.json'),
+    ('/levels/high-roller.json',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/20-high-roller.json'),
+    ('/levels/royal-ace.json',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/22-royal-ace.json'),
+    ('/levels/supreme-ace.json',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/25-supreme-ace.json'),
+    ('/levels/royal-titan.json',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/32-royal-titan.json'),
+    ('/levels/overlord.json',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/levels/41-overlord.json')
+  ) AS m (drive_url, location)
+ WHERE t.asset_url = m.drive_url;
 
 -- The badges (owner, 27 Sep 2026: "Vip is not a level, it is badge, User can
 -- hold multiple badges"; then "add validity column in badges so that when it
@@ -1136,23 +1459,47 @@ UPDATE player_levels
 -- (owner, 27 Sep 2026: "change price to match"): ₹500 to ₹4,500, where the
 -- first list said ₹499 to ₹4,499 — the product ids keep that list's figures,
 -- since Play never renames a product.
+-- THE MOVE TO R2 (owner, 1 Oct 2026; THE PICTURES says why): a badge whose art
+-- is still its Drive file is moved onto its R2 location — exactly that URL, so
+-- an owner's own art is never touched.
+UPDATE badges AS t
+   SET asset_url = m.location,
+       updated_at = (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+  FROM (VALUES
+    ('https://drive.google.com/uc?export=download&id=1zz4gVBpw579xeR1LLn3dBd3Os3cG8jQT',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/regular.json'),
+    ('https://drive.google.com/uc?export=download&id=1lwt8uXauqnX77WEb73xZAbTz_TR-rJKm',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/royal-ace.json'),
+    ('https://drive.google.com/uc?export=download&id=1Frs4uv6oAkxK9YgHhh52Rwi_kCRpngNU',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/royal-king.json'),
+    ('https://drive.google.com/uc?export=download&id=1ifJxiC6l59fQ1i-RulfLn2SzJfw5sgiJ',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/royal-master.json'),
+    ('https://drive.google.com/uc?export=download&id=1gBUNiLrdoSqkL29UEKCI7DjqAr8wZiSd',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/royal-emperor.json'),
+    ('https://drive.google.com/uc?export=download&id=1kn5KJLW96mcMaXLygpvM_sIxPA7L1Ov-',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/royal-legend.json'),
+    ('https://drive.google.com/uc?export=download&id=1A1ckgYQjocbcYfeJsOKFNO8hCrCDCWNI',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/royal-king-of-kings.json')
+  ) AS m (drive_url, location)
+ WHERE t.asset_url = m.drive_url;
+
 INSERT INTO badges (code, title, icon, tax_bps, validity_days, price_inr, play_product_id,
                     asset_url, asset_format, is_default, is_active, sort_order)
 VALUES
   ('REGULAR',   'Regular',   '',    2000, 0,    0,    NULL,
-   'https://drive.google.com/uc?export=download&id=1zz4gVBpw579xeR1LLn3dBd3Os3cG8jQT', 'LOTTIE', TRUE, TRUE, 10),
+   'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/regular.json', 'LOTTIE', TRUE, TRUE, 10),
   ('ROYAL_ACE',           'Royal Ace',           '', 0, 7,  500,  'badge_royal_ace_499',
-   'https://drive.google.com/uc?export=download&id=1lwt8uXauqnX77WEb73xZAbTz_TR-rJKm', 'LOTTIE', FALSE, TRUE, 20),
+   'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/royal-ace.json', 'LOTTIE', FALSE, TRUE, 20),
   ('ROYAL_KING',          'Royal King',          '', 0, 15, 1000,  'badge_royal_king_999',
-   'https://drive.google.com/uc?export=download&id=1Frs4uv6oAkxK9YgHhh52Rwi_kCRpngNU', 'LOTTIE', FALSE, TRUE, 30),
+   'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/royal-king.json', 'LOTTIE', FALSE, TRUE, 30),
   ('ROYAL_MASTER',        'Royal Master',        '', 0, 30, 1800, 'badge_royal_master_1799',
-   'https://drive.google.com/uc?export=download&id=1ifJxiC6l59fQ1i-RulfLn2SzJfw5sgiJ', 'LOTTIE', FALSE, TRUE, 40),
+   'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/royal-master.json', 'LOTTIE', FALSE, TRUE, 40),
   ('ROYAL_EMPEROR',       'Royal Emperor',       '', 0, 45, 2500, 'badge_royal_emperor_2499',
-   'https://drive.google.com/uc?export=download&id=1gBUNiLrdoSqkL29UEKCI7DjqAr8wZiSd', 'LOTTIE', FALSE, TRUE, 50),
+   'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/royal-emperor.json', 'LOTTIE', FALSE, TRUE, 50),
   ('ROYAL_LEGEND',        'Royal Legend',        '', 0, 60, 3300, 'badge_royal_legend_3299',
-   'https://drive.google.com/uc?export=download&id=1kn5KJLW96mcMaXLygpvM_sIxPA7L1Ov-', 'LOTTIE', FALSE, TRUE, 60),
+   'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/royal-legend.json', 'LOTTIE', FALSE, TRUE, 60),
   ('ROYAL_KING_OF_KINGS', 'Royal King of Kings', '', 0, 90, 4500, 'badge_royal_king_of_kings_4499',
-   'https://drive.google.com/uc?export=download&id=1A1ckgYQjocbcYfeJsOKFNO8hCrCDCWNI', 'LOTTIE', FALSE, TRUE, 70)
+   'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/badges/royal-king-of-kings.json', 'LOTTIE', FALSE, TRUE, 70)
     ON CONFLICT (code) DO NOTHING;
 
 -- The daily XP (owner, 27 Sep 2026: "Daily XP user can get store this info in

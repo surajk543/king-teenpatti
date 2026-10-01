@@ -52,8 +52,8 @@ func (f *fixture) laid(userID string) int64 {
 	return f.scalar(`SELECT COALESCE((SELECT table_picture_id FROM user_table_choice WHERE user_id = $1), 0)`, userID)
 }
 
-// The seed (V1.0.1__seed.sql, THE TABLE PICTURES) holds the owner's own art: four
-// Lotties hosted on Drive, all rented for chips — Lines Background (re-priced
+// The seed (V1.0.1__seed.sql, THE TABLE PICTURES) holds the owner's own art: five
+// Lotties in the R2 bucket (on Google Drive until 1 Oct 2026), all rented for chips — Lines Background (re-priced
 // from hammers on 16 Sep 2026) and Background Pattern, each in a day file and
 // a night file, Welcome, whose rainbow is its own night file, and Thank You,
 // whose gold upload is the night file and whose day file is the same Lottie
@@ -65,18 +65,18 @@ func TestTheSeededTablePicturesAreTheOwnersOwn(t *testing.T) {
 		t.Fatal(err)
 	}
 	const (
-		day   = "https://drive.google.com/uc?export=download&id=1r26ntLyDxKVbu7NAcsAQ3P3Sh8qF-oN-"
-		night = "https://drive.google.com/uc?export=download&id=1mBnzYABRNRvP7aaEOk2JrBdQC7Lw--fB"
+		day   = seededAssets + "table_pictures/lines-background-day.json"
+		night = seededAssets + "table_pictures/lines-background-night.json"
 	)
 	const (
-		patternDay   = "https://drive.google.com/uc?export=download&id=1SZ9uuV6AuJB5vYqjMmbRq0Qi7ILr7O3_"
-		patternNight = "https://drive.google.com/uc?export=download&id=1jysl9afLqlbeIO1SS8ypASb1TQkUFl2C"
+		patternDay   = seededAssets + "table_pictures/background-pattern-day.json"
+		patternNight = seededAssets + "table_pictures/background-pattern-night.json"
 	)
 	const (
-		welcome     = "https://drive.google.com/uc?export=download&id=1iEyjVt07WkoblcgnX-DdWlqYp-Hsc3Wy"
-		thankYou    = "https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4"
-		thankYouDay = "https://drive.google.com/uc?export=download&id=19egvyPjBfCFbtEna7cL-_U1kQLVra6e8"
-		circles     = "https://drive.google.com/uc?export=download&id=1Hx3AHsY2-8by89WIsxbPxpM64zL7kZps"
+		welcome     = seededAssets + "table_pictures/welcome.json"
+		thankYou    = seededAssets + "table_pictures/thank-you-night.json"
+		thankYouDay = seededAssets + "table_pictures/thank-you-day.json"
+		circles     = seededAssets + "table_pictures/circle-background-pattern.json"
 	)
 	if len(pictures) != 5 {
 		t.Fatalf("the seed lists %d table pictures, want 5", len(pictures))
@@ -118,16 +118,15 @@ func TestTheSeededTablePicturesAreTheOwnersOwn(t *testing.T) {
 // a few hours). day_asset_url is the seed's conflict key, so on a database
 // that ran that seed the changed row would not conflict and the next boot
 // would add a second Thank You — the guarded UPDATE the seed carries moves the
-// old row onto the day file before the INSERT. A boot is every script run
-// again in order, which is what this does.
+// old row onto the day file before the INSERT. Since the move to R2 (1 Oct
+// 2026) the boot then carries both files on to their R2 locations. A boot is
+// every script run again in order, which is what this does.
 func TestABootMovesAThankYouSeededWithOneFileOntoItsDayFile(t *testing.T) {
 	f := newFixture(t)
-	const (
-		thankYou    = "https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4"
-		thankYouDay = "https://drive.google.com/uc?export=download&id=19egvyPjBfCFbtEna7cL-_U1kQLVra6e8"
-	)
-	// The row as the earlier seed left it.
-	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE table_pictures SET day_asset_url = $1 WHERE name = 'Thank You'`, thankYou); err != nil {
+	const driveUpload = "https://drive.google.com/uc?export=download&id=1Iowysv9_-BE4qont-qLkZRi3XhfF6uc4"
+	// The row as the earliest seed left it: the upload as both files.
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE table_pictures SET day_asset_url = $1, night_asset_url = $1 WHERE name = 'Thank You'`,
+		driveUpload); err != nil {
 		t.Fatal(err)
 	}
 	before := f.scalar(`SELECT id FROM table_pictures WHERE name = 'Thank You'`)
@@ -144,8 +143,10 @@ func TestABootMovesAThankYouSeededWithOneFileOntoItsDayFile(t *testing.T) {
 		t.Fatalf("after the boot the seed lists %d table pictures, want 5 — a second Thank You?", len(pictures))
 	}
 	thanks := pictures[3]
-	if thanks.Name != "Thank You" || thanks.ID != before || thanks.DayURL != thankYouDay || thanks.NightURL != thankYou {
-		t.Fatalf("after the boot Thank You = %+v, want row %d moved onto the day file", thanks, before)
+	if thanks.Name != "Thank You" || thanks.ID != before ||
+		thanks.DayURL != seededAssets+"table_pictures/thank-you-day.json" ||
+		thanks.NightURL != seededAssets+"table_pictures/thank-you-night.json" {
+		t.Fatalf("after the boot Thank You = %+v, want row %d moved onto the day file and both files on R2", thanks, before)
 	}
 }
 

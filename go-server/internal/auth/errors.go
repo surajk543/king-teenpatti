@@ -72,6 +72,9 @@ const (
 	CodeInvalidActionID      = "invalid_action_id"      // 400: a spin's actionId empty or over 64 characters
 	// The reward programs (owner, 30 Sep 2026; rewardprograms.go).
 	CodeRewardProgramsUnavailable = "reward_programs_unavailable" // 503: the server runs no reward programs (no store wired)
+	// The catalogue's art in R2 (owner, 1 Oct 2026; assets.go).
+	CodeAssetsUnavailable = "assets_unavailable" // 503: the server has no R2 keys to sign with
+	CodeTooManyAssets     = "too_many_assets"    // 400: more than MaxSignedAssets URLs in one request
 	// The app version gate (owner, 28 Sep 2026; Go only; appversion): every
 	// signed-in route, and the socket handshake as a connect_error.
 	CodeUpdateRequired = "update_required" // 426: the app build is below its platform's minimum_version

@@ -134,6 +134,10 @@ type Config struct {
 	// mean the store endpoint refuses every request — a server with no way to
 	// verify a receipt must never credit one.
 	Play PlayConfig
+	// Assets is the Cloudflare R2 bucket the catalogue's art is stored in
+	// (owner, 1 Oct 2026) and the key pair the server presigns its URLs with
+	// (internal/assets).
+	Assets AssetsConfig
 
 	// LogLevel is LOG_LEVEL (info). Node's util/logger.js reads it directly.
 	LogLevel string
@@ -625,6 +629,47 @@ type PlayConfig struct {
 	Credentials string
 }
 
+// AssetsConfig is where the catalogue's art lives (owner, 1 Oct 2026: "upload
+// the artifacts in R2 cloudflare … Flutter client app with these assets with
+// signed url"): the profile pictures, table pictures, emojis, badges and level
+// art the seed names are in a PRIVATE R2 bucket, the database stores each
+// file's R2 URL, and the server hands a phone that URL presigned
+// (internal/assets, db.DB.SignAssetURLs). All four keys set, or none: with
+// none the server hands the stored URLs out as they are — fine for a
+// development database, but no phone can open an R2 one — and Validate
+// refuses to start a production server without them.
+type AssetsConfig struct {
+	// R2AccountID is R2_ACCOUNT_ID: the Cloudflare account's id, the first
+	// label of the bucket's S3 endpoint (<account>.r2.cloudflarestorage.com).
+	R2AccountID string
+	// R2AccessKeyID / R2SecretAccessKey are R2_ACCESS_KEY_ID and
+	// R2_SECRET_ACCESS_KEY: an R2 API token's S3 credentials, with read
+	// access to the bucket.
+	R2AccessKeyID     string
+	R2SecretAccessKey string
+	// R2Bucket is R2_BUCKET_NAME.
+	R2Bucket string
+}
+
+// Configured reports whether all four R2 keys are set.
+func (a AssetsConfig) Configured() bool { return len(a.Missing()) == 0 }
+
+// Missing names the R2 keys that are not set, in their usual order.
+func (a AssetsConfig) Missing() []string {
+	var out []string
+	for _, k := range []struct{ name, value string }{
+		{"R2_ACCOUNT_ID", a.R2AccountID},
+		{"R2_ACCESS_KEY_ID", a.R2AccessKeyID},
+		{"R2_SECRET_ACCESS_KEY", a.R2SecretAccessKey},
+		{"R2_BUCKET_NAME", a.R2Bucket},
+	} {
+		if strings.TrimSpace(k.value) == "" {
+			out = append(out, k.name)
+		}
+	}
+	return out
+}
+
 type ChatConfig struct {
 	MaxHistory int           // CHAT_MAX_HISTORY 100 messages kept per room
 	MaxLength  int           // CHAT_MAX_LENGTH 140 characters (Flutter allows 200; 141–200 are cut here)
@@ -1031,6 +1076,10 @@ func FromEnv(lookup Lookup) (*Config, error) {
 	c.Play.Package = r.str("GOOGLE_PLAY_PACKAGE", c.Play.Package)
 	c.Play.CredentialsFile = r.str("GOOGLE_PLAY_CREDENTIALS_FILE", c.Play.CredentialsFile)
 	c.Play.Credentials = r.str("GOOGLE_PLAY_CREDENTIALS", c.Play.Credentials)
+	c.Assets.R2AccountID = r.str("R2_ACCOUNT_ID", c.Assets.R2AccountID)
+	c.Assets.R2AccessKeyID = r.str("R2_ACCESS_KEY_ID", c.Assets.R2AccessKeyID)
+	c.Assets.R2SecretAccessKey = r.str("R2_SECRET_ACCESS_KEY", c.Assets.R2SecretAccessKey)
+	c.Assets.R2Bucket = r.str("R2_BUCKET_NAME", c.Assets.R2Bucket)
 
 	c.LogLevel = r.str("LOG_LEVEL", c.LogLevel)
 	c.PublicDir = r.str("PUBLIC_DIR", c.PublicDir)
@@ -1131,7 +1180,16 @@ var schemaPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // included. Node compared against the default alone, so a set-but-empty
 // secret booted and signed every session with an empty HMAC key, which anyone
 // can forge a token for any user id with.
+//
+// Go only (1 Oct 2026): the four R2 keys are set together or not at all, and
+// production needs them — the catalogue's art is in a private R2 bucket, so a
+// server that cannot sign its URLs would hand every phone pictures it cannot
+// open. A production .env without them fails the boot, which ops/deploy.sh
+// answers by keeping (or rolling back to) the build that was running.
 func (c *Config) Validate() error {
+	if missing := c.Assets.Missing(); len(missing) > 0 && len(missing) < 4 {
+		return fmt.Errorf("%s must be set with the other R2 keys", strings.Join(missing, ", "))
+	}
 	if c.Env == EnvProduction {
 		if c.JWT.Secret == DefaultJWTSecret {
 			return fmt.Errorf("JWT_SECRET must be set in production")
@@ -1141,6 +1199,9 @@ func (c *Config) Validate() error {
 		}
 		if c.AllowFakeProviders {
 			return fmt.Errorf("AUTH_ALLOW_FAKE_PROVIDERS must be false in production")
+		}
+		if !c.Assets.Configured() {
+			return fmt.Errorf("R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET_NAME must be set in production")
 		}
 	}
 	if !schemaPattern.MatchString(c.DB.Schema) {

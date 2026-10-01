@@ -1292,6 +1292,15 @@ class GameState extends ChangeNotifier {
   /// rather than a flicker on a fast network.
   static const minSplash = Duration(milliseconds: 1400);
 
+  /// Signs catalogue locations for the picture cache (POST /api/assets/sign)
+  /// with this session's token. Signed out, nothing is signed: the files wait
+  /// for a session, as the routes that name them do.
+  Future<SignedAssets> _signAssets(List<String> locations) async {
+    final token = _token;
+    if (token == null) return SignedAssets.none;
+    return _api.signAssets(token, locations);
+  }
+
   Future<void> start() async {
     final splashShownAt = DateTime.now();
     _startPurchases();
@@ -1317,6 +1326,9 @@ class GameState extends ChangeNotifier {
     restoreCachedMenu(prefs);
 
     _wire();
+    // The catalogue's art is in a private bucket (owner, 1 Oct 2026): the
+    // picture cache asks the server to sign each file it does not have yet.
+    PictureCache.signer = _signAssets;
     unawaited(_loadPictures());
 
     // Asked alongside the rest of startup rather than before it: the check is

@@ -8,6 +8,9 @@ package db_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,60 +94,61 @@ var ownersLevels = []struct {
 
 // ownersLevelArt is each level's art as the owner has given it so far (29 Sep
 // 2026: "Instead of using icons use lottie animations json for showing player
-// Level"): Level 1 served by this server as the copy with its loopOut()
-// written out, the rest the owner's Drive uploads. A level not here has none
-// yet (asset_url NULL).
+// Level"), every file in the R2 bucket since 1 Oct 2026: the owner's uploads,
+// moved from Google Drive, and the six this server used to serve from
+// public/levels/ (Level 1's with its loopOut() written out, and five more
+// reworked copies). A level not here has none yet (asset_url NULL).
 var ownersLevelArt = map[int]string{
-	1:  "/levels/newbie.json",
-	2:  "https://drive.google.com/uc?export=download&id=1X5ONeIYMh2Q6348MsQGU9YO1Ut9j0RjR",
-	3:  "https://drive.google.com/uc?export=download&id=1046FnHvyBeXHRzuQAyflU-Z994XLMuZG",
-	4:  "https://drive.google.com/uc?export=download&id=1UteuLgAVMFKBXSDGtMs_7LCJKixrZhP8",
-	5:  "https://drive.google.com/uc?export=download&id=1o0Ch-l1nosmMomDocrKO061DnCAIOOcR",
-	6:  "https://drive.google.com/uc?export=download&id=1JBH14iM0z78skBTliTzYlU1aHl3-c6S2",
-	7:  "https://drive.google.com/uc?export=download&id=16LUCeHS--xT7pWcup9xWLOzI7slpIDba",
-	8:  "https://drive.google.com/uc?export=download&id=1DVOEYt6eBhpjhfYqNI-0XTzAXmWsDg7c",
-	9:  "https://drive.google.com/uc?export=download&id=1-oNEE7AIBgDltplByb_hUT4TjyNU4TQ8",
-	10: "https://drive.google.com/uc?export=download&id=11E2kIWN-I3d1Df_ZiikOlbfJVR8bCkkd",
-	11: "https://drive.google.com/uc?export=download&id=1uPdZgu0zaHe3Cxev7RxRFe5bdDFJ9uax",
-	12: "https://drive.google.com/uc?export=download&id=1v7t6TppF5xMO1tHiZaUiM0Vk_hWDtpru",
-	13: "https://drive.google.com/uc?export=download&id=1p-DiB6Ywhwg9nu1o22MoObJU4dp5pQa2",
-	14: "https://drive.google.com/uc?export=download&id=12TiIf1ghpANIC9CTpHN7-DPgSjqCekN7",
-	15: "https://drive.google.com/uc?export=download&id=1KbguHCl0hnDNPiD5mC4WBUqfjoNqrXHO",
-	16: "https://drive.google.com/uc?export=download&id=1St9AZX05qFedF40zf0rZhQ6ATFTkCytQ",
-	17: "https://drive.google.com/uc?export=download&id=1ec87R_lGM3EZHXAVIhjt0eYDslLzKk95",
-	18: "https://drive.google.com/uc?export=download&id=1fq3eVEu739XZBBN5Jkt_m4TLc_P5zIUK",
-	19: "https://drive.google.com/uc?export=download&id=1_agD2lEmfPN-sQcgm853aqwG9ujd0R2K",
-	20: "/levels/high-roller.json",
-	21: "https://drive.google.com/uc?export=download&id=1UNCYMfWQ1FNKW_4skDQefTTPvP7lr_ja",
-	22: "/levels/royal-ace.json",
-	23: "https://drive.google.com/uc?export=download&id=1SkpRRudplWyT7IKEpOAucp0UPrrQG9iZ",
-	24: "https://drive.google.com/uc?export=download&id=1tStW2xVARGhsutKETNaJna5gj4opBSAv",
-	25: "/levels/supreme-ace.json",
-	26: "https://drive.google.com/uc?export=download&id=1_aeUxyPcY8y8vjS5XCGle2GVJ58H1W_S",
-	27: "https://drive.google.com/uc?export=download&id=1JJf7FXDtLbABcU6QV4dDC3AjTaB42d9G",
-	28: "https://drive.google.com/uc?export=download&id=1waubm1JDH69aO-Wi_SJ2NPU2LuhAmLul",
-	29: "https://drive.google.com/uc?export=download&id=1IQv0oHWum_kyAvvuNLhvV6UsiEdf7u8S",
-	30: "https://drive.google.com/uc?export=download&id=1NVhpS0i9DiahWamLqOsqlCPh9FpJEgqZ",
-	31: "https://drive.google.com/uc?export=download&id=1t5mpo6BYOrECuoRAsPTgAmwTJEGSwH9Z",
-	32: "/levels/royal-titan.json",
-	33: "https://drive.google.com/uc?export=download&id=1wLDxV_GkYrhpyLDDSP9cC7zUi4Hh9Cnz",
-	34: "https://drive.google.com/uc?export=download&id=1J0cl9aGb3Gvhgbov49FCyPjtuo7W96az",
-	35: "https://drive.google.com/uc?export=download&id=1gvFRTrz1C_faOiIZUoe8y8adVdCyXM57",
-	36: "https://drive.google.com/uc?export=download&id=1SqX6So-jtLzeOpoqdXzdIGJgquZXZiJk",
-	37: "https://drive.google.com/uc?export=download&id=1Ngplvi2rKX0rjFxzXOR4ODx9L38UQDHE",
-	38: "https://drive.google.com/uc?export=download&id=1AoW8XeczJTYOC3Q0H8DjCXVwbudMoGcP",
-	39: "https://drive.google.com/uc?export=download&id=1jaEC17ASGxNDJAyyulBVhO0NBVmI_iAa",
-	40: "https://drive.google.com/uc?export=download&id=15go9POUg8_3nsjz6xPHmZqxzYxnMNcu7",
-	41: "/levels/overlord.json",
-	42: "https://drive.google.com/uc?export=download&id=1eZF7faadc4hjZ-lUxGMggz99gT03tGEM",
-	43: "https://drive.google.com/uc?export=download&id=1W6PhSsxNDQbxLwWiFHhOfc0INgw-exov",
-	44: "https://drive.google.com/uc?export=download&id=1kF5cZ7xd6k6QEklwo0BGee6NteAdvXBM",
-	45: "https://drive.google.com/uc?export=download&id=1Mt08RZaAuazPJORoXaWkBBvdpOzGX1qU",
-	46: "https://drive.google.com/uc?export=download&id=1vN8VIjlRK6NOKTlQ_7YBZIQMDGelamjM",
-	47: "https://drive.google.com/uc?export=download&id=1xcnpkXAsum0i6DwbrK5AhAC4qbXB9adX",
-	48: "https://drive.google.com/uc?export=download&id=1W33Jv1LFLAvh_0wmKOWh9ktpUK5aFzQX",
-	49: "https://drive.google.com/uc?export=download&id=11X5XK7q6HExMJZ-zUPoxZW9vYFDD5B3r",
-	50: "https://drive.google.com/uc?export=download&id=1IyDWBxn-9lcQeZVkTQQY1gzE3zTBuZdA",
+	1:  seededAssets + "levels/01-newbie.json",
+	2:  seededAssets + "levels/02-rookie.json",
+	3:  seededAssets + "levels/03-beginner.json",
+	4:  seededAssets + "levels/04-player.json",
+	5:  seededAssets + "levels/05-regular.json",
+	6:  seededAssets + "levels/06-challenger.json",
+	7:  seededAssets + "levels/07-skilled.json",
+	8:  seededAssets + "levels/08-contender.json",
+	9:  seededAssets + "levels/09-fighter.json",
+	10: seededAssets + "levels/10-rising-star.json",
+	11: seededAssets + "levels/11-pro-player.json",
+	12: seededAssets + "levels/12-veteran.json",
+	13: seededAssets + "levels/13-expert.json",
+	14: seededAssets + "levels/14-specialist.json",
+	15: seededAssets + "levels/15-ace.json",
+	16: seededAssets + "levels/16-elite.json",
+	17: seededAssets + "levels/17-master.json",
+	18: seededAssets + "levels/18-grand-master.json",
+	19: seededAssets + "levels/19-champion.json",
+	20: seededAssets + "levels/20-high-roller.json",
+	21: seededAssets + "levels/21-royal.json",
+	22: seededAssets + "levels/22-royal-ace.json",
+	23: seededAssets + "levels/23-royal-master.json",
+	24: seededAssets + "levels/24-supreme.json",
+	25: seededAssets + "levels/25-supreme-ace.json",
+	26: seededAssets + "levels/26-legend.json",
+	27: seededAssets + "levels/27-legendary.json",
+	28: seededAssets + "levels/28-grand-legend.json",
+	29: seededAssets + "levels/29-immortal.json",
+	30: seededAssets + "levels/30-titan.json",
+	31: seededAssets + "levels/31-elite-titan.json",
+	32: seededAssets + "levels/32-royal-titan.json",
+	33: seededAssets + "levels/33-emperor.json",
+	34: seededAssets + "levels/34-royal-emperor.json",
+	35: seededAssets + "levels/35-supreme-emperor.json",
+	36: seededAssets + "levels/36-king.json",
+	37: seededAssets + "levels/37-grand-king.json",
+	38: seededAssets + "levels/38-royal-king.json",
+	39: seededAssets + "levels/39-supreme-king.json",
+	40: seededAssets + "levels/40-master-king.json",
+	41: seededAssets + "levels/41-overlord.json",
+	42: seededAssets + "levels/42-grand-overlord.json",
+	43: seededAssets + "levels/43-royal-overlord.json",
+	44: seededAssets + "levels/44-supreme-overlord.json",
+	45: seededAssets + "levels/45-mythic.json",
+	46: seededAssets + "levels/46-mythic-king.json",
+	47: seededAssets + "levels/47-immortal-king.json",
+	48: seededAssets + "levels/48-legendary-king.json",
+	49: seededAssets + "levels/49-supreme-legend.json",
+	50: seededAssets + "levels/50-king-of-kings.json",
 }
 
 // TestTheSeededLevelsAreTheOwnersTable: a fresh database holds the owner's
@@ -263,7 +267,7 @@ func TestTheSeededBadgesAreTheOwners(t *testing.T) {
 		if price != nil {
 			rupees = fmt.Sprintf("₹%d", *price)
 		}
-		asset = strings.TrimPrefix(asset, "https://drive.google.com/uc?export=download&id=")
+		asset = strings.TrimPrefix(asset, seededAssets)
 		got = append(got, fmt.Sprintf("%s/%s/%+q/%s/%dd/%s/%q/%s:%s/default=%v/active=%v",
 			code, title, icon, rate, days, rupees, product, format, asset, def, active))
 	}
@@ -272,17 +276,17 @@ func TestTheSeededBadgesAreTheOwners(t *testing.T) {
 	}
 	// The Royal badges the store lists (owner, 27 Sep 2026: "for badges use
 	// this entry, not vips entry"): 0% for 7 to 90 days at ₹500 to ₹4,500 (Play's own prices),
-	// each with the owner's Lottie on Drive, and each sold in the app under
+	// each with the owner's Lottie in the R2 bucket, and each sold in the app under
 	// the Play product the owner created for it. The store does not list
 	// Regular, everyone's by default, and it has no product.
 	want := []string{
-		`REGULAR/Regular/""/2000/0d/₹0/""/LOTTIE:1zz4gVBpw579xeR1LLn3dBd3Os3cG8jQT/default=true/active=true`,
-		`ROYAL_ACE/Royal Ace/""/0/7d/₹500/"badge_royal_ace_499"/LOTTIE:1lwt8uXauqnX77WEb73xZAbTz_TR-rJKm/default=false/active=true`,
-		`ROYAL_KING/Royal King/""/0/15d/₹1000/"badge_royal_king_999"/LOTTIE:1Frs4uv6oAkxK9YgHhh52Rwi_kCRpngNU/default=false/active=true`,
-		`ROYAL_MASTER/Royal Master/""/0/30d/₹1800/"badge_royal_master_1799"/LOTTIE:1ifJxiC6l59fQ1i-RulfLn2SzJfw5sgiJ/default=false/active=true`,
-		`ROYAL_EMPEROR/Royal Emperor/""/0/45d/₹2500/"badge_royal_emperor_2499"/LOTTIE:1gBUNiLrdoSqkL29UEKCI7DjqAr8wZiSd/default=false/active=true`,
-		`ROYAL_LEGEND/Royal Legend/""/0/60d/₹3300/"badge_royal_legend_3299"/LOTTIE:1kn5KJLW96mcMaXLygpvM_sIxPA7L1Ov-/default=false/active=true`,
-		`ROYAL_KING_OF_KINGS/Royal King of Kings/""/0/90d/₹4500/"badge_royal_king_of_kings_4499"/LOTTIE:1A1ckgYQjocbcYfeJsOKFNO8hCrCDCWNI/default=false/active=true`,
+		`REGULAR/Regular/""/2000/0d/₹0/""/LOTTIE:badges/regular.json/default=true/active=true`,
+		`ROYAL_ACE/Royal Ace/""/0/7d/₹500/"badge_royal_ace_499"/LOTTIE:badges/royal-ace.json/default=false/active=true`,
+		`ROYAL_KING/Royal King/""/0/15d/₹1000/"badge_royal_king_999"/LOTTIE:badges/royal-king.json/default=false/active=true`,
+		`ROYAL_MASTER/Royal Master/""/0/30d/₹1800/"badge_royal_master_1799"/LOTTIE:badges/royal-master.json/default=false/active=true`,
+		`ROYAL_EMPEROR/Royal Emperor/""/0/45d/₹2500/"badge_royal_emperor_2499"/LOTTIE:badges/royal-emperor.json/default=false/active=true`,
+		`ROYAL_LEGEND/Royal Legend/""/0/60d/₹3300/"badge_royal_legend_3299"/LOTTIE:badges/royal-legend.json/default=false/active=true`,
+		`ROYAL_KING_OF_KINGS/Royal King of Kings/""/0/90d/₹4500/"badge_royal_king_of_kings_4499"/LOTTIE:badges/royal-king-of-kings.json/default=false/active=true`,
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("badges:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -429,47 +433,40 @@ func TestTheLevelArtFillsWhatIsMissingAndKeepsAnOwnersOwn(t *testing.T) {
 	}
 }
 
-// TestTheLevelArtServedHereIsInThePublicDir: a level's art named by a path
-// (Level 1's, /levels/newbie.json) is a file this server serves from its
-// public dir — in production too, where ROOT_REDIRECT hides only the top
-// level — and a Lottie a phone can play all the way through: no loopOut()
-// left in it (CLAUDE.md §12.3).
-func TestLevel20sFirstArtIsMovedOntoItsReplacementAndNothingElse(t *testing.T) {
-	f := newFixture(t)
-	// A database that took the first list: Level 20 on its 4.1 MB upload.
-	// Level 21 on an owner's own URL stays whatever it is.
-	for _, q := range []string{
-		`UPDATE player_levels SET asset_url = 'https://drive.google.com/uc?export=download&id=1ABHkYZ0N3O_BDBI1UpBfoVvWilXPTnxf' WHERE level = 20`,
-		`UPDATE player_levels SET asset_url = 'https://owner.test/royal.json' WHERE level = 21`,
-	} {
-		if _, err := f.d.Pool.Exec(f.ctx, q); err != nil {
-			t.Fatal(err)
-		}
-	}
-	d, err := db.Open(f.ctx, db.Options{URL: testURL(), Schema: f.d.Schema, PoolMax: 2})
-	if err != nil {
-		t.Fatalf("the boot: %v", err)
-	}
-	t.Cleanup(d.Close)
-	if got := levelOn(t, d, 20); got.AssetURL != "/levels/high-roller.json" || got.AssetFormat != "LOTTIE" {
-		t.Errorf("level 20 after a boot: %q %q, want the served replacement", got.AssetURL, got.AssetFormat)
-	}
-	if got := levelOn(t, d, 21).AssetURL; got != "https://owner.test/royal.json" {
-		t.Errorf("level 21 after a boot: %q, want the owner's own kept", got)
-	}
-}
-
+// TestTheLevelArtServedHereIsInThePublicDir: the six levels' art this server
+// used to serve (public/levels/: Level 1's with its loop baked, and five more
+// reworked copies) are Lotties a phone can play all the way through — no
+// loopOut() left in them (CLAUDE.md §12.3) — and since the move to R2 (1 Oct
+// 2026) each is in the bucket byte for byte: the move's record names its key
+// with the file's own sha256, and the seed names that key.
 func TestTheLevelArtServedHereIsInThePublicDir(t *testing.T) {
-	for level, url := range ownersLevelArt {
-		if !strings.HasPrefix(url, "/") {
-			continue
-		}
-		if strings.Count(url, "/") < 2 {
-			t.Errorf("level %d's art %s sits at the top of the public dir, which production hides", level, url)
-		}
-		raw, err := os.ReadFile(filepath.Join("..", "..", "public", filepath.FromSlash(url)))
+	record := map[string][2]string{} // source path → key, sha256
+	f, err := os.Open(filepath.Join("..", "..", "..", "tools", "r2", "drive-to-r2.tsv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	r := csv.NewReader(f)
+	r.Comma = '\t'
+	rows, err := r.ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows[1:] {
+		record[row[2]] = [2]string{row[3], row[5]}
+	}
+	files, err := filepath.Glob(filepath.Join("..", "..", "public", "levels", "*.json"))
+	if err != nil || len(files) != 6 {
+		t.Fatalf("public/levels holds %d Lotties (%v), want the six", len(files), err)
+	}
+	seeded := map[string]bool{}
+	for _, url := range ownersLevelArt {
+		seeded[url] = true
+	}
+	for _, file := range files {
+		raw, err := os.ReadFile(file)
 		if err != nil {
-			t.Fatalf("level %d's art: %v", level, err)
+			t.Fatal(err)
 		}
 		var lottie struct {
 			V      string            `json:"v"`
@@ -477,10 +474,20 @@ func TestTheLevelArtServedHereIsInThePublicDir(t *testing.T) {
 			Layers []json.RawMessage `json:"layers"`
 		}
 		if err := json.Unmarshal(raw, &lottie); err != nil || lottie.V == "" || lottie.W <= 0 || len(lottie.Layers) == 0 {
-			t.Errorf("level %d's art %s is not a Lottie: %v", level, url, err)
+			t.Errorf("%s is not a Lottie: %v", file, err)
 		}
 		if strings.Contains(string(raw), "loopOut") {
-			t.Errorf("level %d's art %s still loops with loopOut(), which a phone does not run", level, url)
+			t.Errorf("%s still loops with loopOut(), which a phone does not run", file)
+		}
+		path := "/levels/" + filepath.Base(file)
+		moved, ok := record[path]
+		sum := sha256.Sum256(raw)
+		if !ok || moved[1] != hex.EncodeToString(sum[:]) {
+			t.Errorf("%s: the move recorded %v, want its key and sha256 %x", path, moved, sum)
+			continue
+		}
+		if !seeded[seededAssets+moved[0]] {
+			t.Errorf("%s was moved to %s, which no level names", path, moved[0])
 		}
 	}
 }
@@ -1260,7 +1267,7 @@ func TestTheLadderIsEveryLevelAndBadgeWithTheSourcesAndTheCap(t *testing.T) {
 		"ROYAL_EMPEROR:0:45:false:2500:badge_royal_emperor_2499:LOTTIE,ROYAL_LEGEND:0:60:false:3300:badge_royal_legend_3299:LOTTIE,ROYAL_KING_OF_KINGS:0:90:false:4500:badge_royal_king_of_kings_4499:LOTTIE" {
 		t.Errorf("badges = %s", got)
 	}
-	if url := ladder.Badges[1].AssetURL; url != "https://drive.google.com/uc?export=download&id=1lwt8uXauqnX77WEb73xZAbTz_TR-rJKm" {
+	if url := ladder.Badges[1].AssetURL; url != seededAssets+"badges/royal-ace.json" {
 		t.Errorf("Royal Ace's Lottie is %q", url)
 	}
 	var codes []string

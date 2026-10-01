@@ -47,41 +47,42 @@ func withoutSeededEmojis(t *testing.T, f *fixture) {
 
 // The seed is the owner's own art (26 Sep 2026: "use this Lottie emoji,
 // validity 30 days, cost 5 Hammer", then six more at "same price same
-// validity"): nineteen Drive-hosted Lotties at 5 hammers for 30 days each, in
-// the order they were given and owned by nobody.
+// validity"): nineteen Lotties at 5 hammers for 30 days each, in the order
+// they were given and owned by nobody — in the R2 bucket since 1 Oct 2026,
+// on Google Drive before.
 func TestTheSeededEmojisAreTheOwnersNineteenAtFiveHammersForThirtyDays(t *testing.T) {
 	f := newFixture(t)
 	listed, err := f.emojiStore().List(f.ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []struct{ name, driveID string }{
-		{"Angry", "19CkeJfl8J9knw0tLoxgruKFaGwnsP3jh"},
-		{"Dollar", "1HZej1y15g4FhGKjNPbR2WOqFdDXn-r5l"},
-		{"Crying", "1iTOgg_JZRXvY9f9IRPaAR9UyEt4q7f4S"},
-		{"Hi Face", "1qpBgQTwXWMvrHqQLAA6wT1EIsNb9zakr"},
-		{"Clapping Hands", "1_wnZ9Tmiy7qnK7EzmK5hpSPZCOTxvjlc"},
-		{"Cowboy Hat Face", "141HlEZZxoRuIzAaN16emiNO7UZ7RWYNn"},
-		{"Muscle", "199f59nq4Vx0FImGvbAv4X2LJnkyUQ67f"},
-		{"Plane Face", "1Y3WEnboXZskv6vItBQ_E1WZoC9aIUh8D"},
-		{"Knife", "1lLryjoIf2KNGqZFGxGX8vGThozJM0vw-"},
-		{"Sleeping", "1bC-1hqYUblHCjiTvAd6OT8xHYYbj9sKC"},
-		{"Squinting Face with Tongue", "1MwoBkG2OIUbHVwu_Jrp4d1VjsJyPb9Y7"},
-		{"Crying Face", "1NbIZ7Uix45KCEencp5cvX6aDisiEfhqi"},
-		{"Enraged Face", "1C_zU11KCYX8vaGC04TQgC68cE2TYXHWt"},
-		{"Chill Face", "1kvwY307kfud4L9SjaZCLzO0mLOZ9pRYR"},
-		{"Face Blowing a Kiss", "1K7mIif6FpaHl06j1VFkPB8awW21zz-wf"},
-		{"Kiss Face", "1oLtnFWg0dd75cuPebF5i0IHuynRnJlp2"},
-		{"Ok", "1YnSphiJ7STpuHng9ACqPjwxWFSD4ex6t"},
-		{"No Face", "1MWQZiwQMIqDtJcfqBEaB7PcgQ0Py4x8t"},
-		{"Tongue Face", "1htRt4pDieoOmUJtBPf-FtXb5OK7nPyz8"},
+	want := []struct{ name, key string }{
+		{"Angry", "emojis/angry.json"},
+		{"Dollar", "emojis/dollar.json"},
+		{"Crying", "emojis/crying.json"},
+		{"Hi Face", "emojis/hi-face.json"},
+		{"Clapping Hands", "emojis/clapping-hands.json"},
+		{"Cowboy Hat Face", "emojis/cowboy-hat-face.json"},
+		{"Muscle", "emojis/muscle.json"},
+		{"Plane Face", "emojis/plane-face.json"},
+		{"Knife", "emojis/knife.json"},
+		{"Sleeping", "emojis/sleeping.json"},
+		{"Squinting Face with Tongue", "emojis/squinting-face-with-tongue.json"},
+		{"Crying Face", "emojis/crying-face.json"},
+		{"Enraged Face", "emojis/enraged-face.json"},
+		{"Chill Face", "emojis/chill-face.json"},
+		{"Face Blowing a Kiss", "emojis/face-blowing-a-kiss.json"},
+		{"Kiss Face", "emojis/kiss-face.json"},
+		{"Ok", "emojis/ok.json"},
+		{"No Face", "emojis/no-face.json"},
+		{"Tongue Face", "emojis/tongue-face.json"},
 	}
 	if len(listed) != len(want) {
 		t.Fatalf("the seeded catalogue holds %d emojis, want %d: %+v", len(listed), len(want), listed)
 	}
 	for i, w := range want {
 		e := listed[i]
-		if e.Name != w.name || e.URL != "https://drive.google.com/uc?export=download&id="+w.driveID ||
+		if e.Name != w.name || e.URL != seededAssets+w.key ||
 			e.AssetFormat != db.EmojiFormatLottie || e.Currency != db.PictureCurrencyHammer || e.Type != db.PicturePremium ||
 			e.Cost != 5 || e.DurationDays != 30 || e.DurationHours != 0 || e.SortOrder != (i+1)*10 || e.Owned || e.ExpiresAt != 0 {
 			t.Errorf("seeded emoji %d = %+v, want %s at 5 hammers for 30 days", i, e, w.name)

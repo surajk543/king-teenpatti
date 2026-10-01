@@ -6,6 +6,7 @@ import '../models/dtos.dart';
 import '../models/friends.dart';
 import '../models/report.dart';
 import 'app_version.dart';
+import 'picture_cache.dart';
 
 /// Thrown when the server refuses a request. The message is the server's own,
 /// so it is safe to put in front of the player.
@@ -413,6 +414,35 @@ class ApiClient {
       charged: j['charged'] == true,
       spent: (j['spent'] as num?)?.toInt() ?? 0,
     );
+  }
+
+  /// Signs catalogue art for a download (owner, 1 Oct 2026): `POST
+  /// /api/assets/sign` with the LOCATIONS the phone does not have yet, exactly
+  /// as the routes handed them out (`isAssetLocation`). The answer maps each
+  /// one the server signed — a file some catalogue row stores — to a URL
+  /// valid for ten minutes, and says when they stop working; one it would not
+  /// sign is absent. A refusal or a network failure throws, and the picture
+  /// cache takes either as "not now".
+  Future<SignedAssets> signAssets(String token, List<String> locations) async {
+    final r = await http
+        .post(
+          _uri('/api/assets/sign'),
+          headers: _headers(token),
+          body: jsonEncode({'urls': locations}),
+        )
+        .timeout(const Duration(seconds: 12));
+    final j = _decode(r);
+    final urls = <String, String>{};
+    final signed = j['urls'];
+    if (signed is Map) {
+      signed.forEach((location, url) {
+        if (location is String && url is String && url.isNotEmpty) {
+          urls[location] = url;
+        }
+      });
+    }
+    final expiresAt = (j['expiresAt'] as num?)?.toInt() ?? 0;
+    return SignedAssets(urls, DateTime.fromMillisecondsSinceEpoch(expiresAt));
   }
 
   /// The level ladder (owner, 27 Sep 2026): `GET /api/levels`, public — every
