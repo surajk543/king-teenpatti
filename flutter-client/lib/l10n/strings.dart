@@ -289,6 +289,60 @@ class Strings {
   String get todaysRewardTitle => _('todaysRewardTitle');
   String get continueKey => _('continueKey');
   String get weeklyFinal => _('weeklyFinal');
+
+  // --- the reward programs' progression (owner, 1 Oct 2026): a program's
+  // cycle and its dates, what a missed day does (RESET, SEQUENTIAL, BREAK), a
+  // cycle broken or completed, when the next one starts, and the refusals of
+  // a claim that names one program. The server decides every one of them;
+  // these only say it.
+
+  /// The short word on a day's tile that can be collected now.
+  String get rewardTileCollect => _('rewardTileCollect');
+
+  /// The lobby chip's second line when every program still to collect has
+  /// broken its cycle.
+  String get rewardBrokenShort => _('rewardBrokenShort');
+
+  /// A program's headline once its cycle is broken, and once it is complete.
+  String get rewardBrokenTitle => _('rewardBrokenTitle');
+  String get rewardAllCollected => _('rewardAllCollected');
+
+  /// What a BREAK program means, under the panel's head.
+  String get rewardBreakHint => _('rewardBreakHint');
+
+  /// "You missed Day 3." — a broken cycle's first line.
+  String rewardMissedDay(int n) => _('rewardMissedDay').replaceAll('{n}', '$n');
+
+  /// "New rewards start Monday." — [when] the next period's weekday for a
+  /// week, its date for a month.
+  String rewardNewCycleStarts(String when) =>
+      _('rewardNewCycleStarts').replaceAll('{when}', when);
+
+  /// "Next weekly rewards in 3d 8h" / "Next monthly rewards in 12d 4h".
+  String rewardNextCycleIn({required bool weekly, required String time}) => _(
+    weekly ? 'rewardNextWeekIn' : 'rewardNextMonthIn',
+  ).replaceAll('{time}', time);
+
+  /// A claim of one program the server refused: the program is gone, not
+  /// running now, its cycle broken, or every reward of it collected.
+  String get rewardProgramGone => _('rewardProgramGone');
+  String get rewardProgramNotRunning => _('rewardProgramNotRunning');
+  String get rewardCycleBrokenNotice => _('rewardCycleBrokenNotice');
+  String get rewardCycleCompletedNotice => _('rewardCycleCompletedNotice');
+
+  /// A month's short name, 1 January … 12 December.
+  String monthShort(int month) => _('month${month.clamp(1, 12)}');
+
+  /// A calendar date as a label, "Oct 5" / "5 अक्तू॰" — the day and the
+  /// month in this language's order; [date] is read as a date, never
+  /// converted between zones.
+  String dateShort(DateTime date) => _('dateDayMonth')
+      .replaceAll('{day}', '${date.day}')
+      .replaceAll('{month}', monthShort(date.month));
+
+  /// A weekday's whole name, 1 Monday … 7 Sunday — in a sentence, where the
+  /// short name would read clipped.
+  String weekdayFull(int iso) => _('weekdayFull${iso.clamp(1, 7)}');
   String get luckyPrizes => _('luckyPrizes');
   String get luckyNoPrize => _('luckyNoPrize');
   String get luckyCongrats => _('luckyCongrats');
@@ -2023,6 +2077,41 @@ class Strings {
       'weekday5': 'Fri',
       'weekday6': 'Sat',
       'weekday7': 'Sun',
+      'rewardTileCollect': 'Collect',
+      'rewardBrokenShort': 'Streak broken',
+      'rewardBrokenTitle': 'Reward streak broken',
+      'rewardAllCollected': 'All rewards collected',
+      'rewardBreakHint': 'Collect every day — miss one and this cycle ends.',
+      'rewardMissedDay': 'You missed Day {n}.',
+      'rewardNewCycleStarts': 'New rewards start {when}.',
+      'rewardNextWeekIn': 'Next weekly rewards in {time}',
+      'rewardNextMonthIn': 'Next monthly rewards in {time}',
+      'rewardProgramGone': 'This reward is no longer running.',
+      'rewardProgramNotRunning': 'This reward is not running right now.',
+      'rewardCycleBrokenNotice':
+          'A day was missed, so this cycle has ended. New rewards start with the next one.',
+      'rewardCycleCompletedNotice':
+          'You have collected every reward of this cycle.',
+      'month1': 'Jan',
+      'month2': 'Feb',
+      'month3': 'Mar',
+      'month4': 'Apr',
+      'month5': 'May',
+      'month6': 'Jun',
+      'month7': 'Jul',
+      'month8': 'Aug',
+      'month9': 'Sep',
+      'month10': 'Oct',
+      'month11': 'Nov',
+      'month12': 'Dec',
+      'dateDayMonth': '{month} {day}',
+      'weekdayFull1': 'Monday',
+      'weekdayFull2': 'Tuesday',
+      'weekdayFull3': 'Wednesday',
+      'weekdayFull4': 'Thursday',
+      'weekdayFull5': 'Friday',
+      'weekdayFull6': 'Saturday',
+      'weekdayFull7': 'Sunday',
       'luckyPrizes': 'PRIZES ON THE WHEEL',
       'luckyNoPrize': 'No prize',
       'luckyCongrats': 'Congratulations!',
@@ -2990,6 +3079,41 @@ class Strings {
       'weekday5': 'शुक्र',
       'weekday6': 'शनि',
       'weekday7': 'रवि',
+      'rewardTileCollect': 'लें',
+      'rewardBrokenShort': 'स्ट्रीक टूट गई',
+      'rewardBrokenTitle': 'रिवॉर्ड स्ट्रीक टूट गई',
+      'rewardAllCollected': 'सारे रिवॉर्ड मिल गए',
+      'rewardBreakHint':
+          'हर दिन रिवॉर्ड लें — एक दिन छूटा तो यह चक्र खत्म हो जाएगा।',
+      'rewardMissedDay': 'आपसे दिन {n} छूट गया।',
+      'rewardNewCycleStarts': 'नए रिवॉर्ड {when} से शुरू होंगे।',
+      'rewardNextWeekIn': 'अगले साप्ताहिक रिवॉर्ड {time} में',
+      'rewardNextMonthIn': 'अगले मासिक रिवॉर्ड {time} में',
+      'rewardProgramGone': 'यह रिवॉर्ड अब नहीं चल रहा।',
+      'rewardProgramNotRunning': 'यह रिवॉर्ड अभी नहीं चल रहा।',
+      'rewardCycleBrokenNotice':
+          'एक दिन छूट गया, इसलिए यह चक्र खत्म हो गया। नए रिवॉर्ड अगले चक्र से मिलेंगे।',
+      'rewardCycleCompletedNotice': 'आपने इस चक्र के सारे रिवॉर्ड ले लिए हैं।',
+      'month1': 'जन॰',
+      'month2': 'फ़र॰',
+      'month3': 'मार्च',
+      'month4': 'अप्रैल',
+      'month5': 'मई',
+      'month6': 'जून',
+      'month7': 'जुल॰',
+      'month8': 'अग॰',
+      'month9': 'सित॰',
+      'month10': 'अक्तू॰',
+      'month11': 'नव॰',
+      'month12': 'दिस॰',
+      'dateDayMonth': '{day} {month}',
+      'weekdayFull1': 'सोमवार',
+      'weekdayFull2': 'मंगलवार',
+      'weekdayFull3': 'बुधवार',
+      'weekdayFull4': 'गुरुवार',
+      'weekdayFull5': 'शुक्रवार',
+      'weekdayFull6': 'शनिवार',
+      'weekdayFull7': 'रविवार',
       'luckyPrizes': 'पहिये पर इनाम',
       'luckyNoPrize': 'कोई इनाम नहीं',
       'luckyCongrats': 'बधाई हो!',
@@ -3940,6 +4064,42 @@ class Strings {
       'weekday5': 'শুক্র',
       'weekday6': 'শনি',
       'weekday7': 'রবি',
+      'rewardTileCollect': 'নিন',
+      'rewardBrokenShort': 'স্ট্রিক ভেঙে গেছে',
+      'rewardBrokenTitle': 'রিওয়ার্ড স্ট্রিক ভেঙে গেছে',
+      'rewardAllCollected': 'সব রিওয়ার্ড পাওয়া গেছে',
+      'rewardBreakHint':
+          'প্রতিদিন রিওয়ার্ড নিন — একদিন বাদ গেলে এই চক্র শেষ হয়ে যাবে।',
+      'rewardMissedDay': 'আপনার দিন {n} বাদ গেছে।',
+      'rewardNewCycleStarts': 'নতুন রিওয়ার্ড {when} থেকে শুরু হবে।',
+      'rewardNextWeekIn': 'পরের সাপ্তাহিক রিওয়ার্ড {time} পরে',
+      'rewardNextMonthIn': 'পরের মাসিক রিওয়ার্ড {time} পরে',
+      'rewardProgramGone': 'এই রিওয়ার্ড আর চলছে না।',
+      'rewardProgramNotRunning': 'এই রিওয়ার্ড এখন চলছে না।',
+      'rewardCycleBrokenNotice':
+          'একদিন বাদ যাওয়ায় এই চক্র শেষ হয়ে গেছে। নতুন রিওয়ার্ড পরের চক্র থেকে পাবেন।',
+      'rewardCycleCompletedNotice':
+          'আপনি এই চক্রের সব রিওয়ার্ড নিয়ে নিয়েছেন।',
+      'month1': 'জানু',
+      'month2': 'ফেব',
+      'month3': 'মার্চ',
+      'month4': 'এপ্রি',
+      'month5': 'মে',
+      'month6': 'জুন',
+      'month7': 'জুল',
+      'month8': 'আগ',
+      'month9': 'সেপ',
+      'month10': 'অক্টো',
+      'month11': 'নভে',
+      'month12': 'ডিসে',
+      'dateDayMonth': '{day} {month}',
+      'weekdayFull1': 'সোমবার',
+      'weekdayFull2': 'মঙ্গলবার',
+      'weekdayFull3': 'বুধবার',
+      'weekdayFull4': 'বৃহস্পতিবার',
+      'weekdayFull5': 'শুক্রবার',
+      'weekdayFull6': 'শনিবার',
+      'weekdayFull7': 'রবিবার',
       'luckyPrizes': 'চাকার পুরস্কার',
       'luckyNoPrize': 'কোনো পুরস্কার নেই',
       'luckyCongrats': 'অভিনন্দন!',
@@ -4889,6 +5049,41 @@ class Strings {
       'weekday5': 'શુક્ર',
       'weekday6': 'શનિ',
       'weekday7': 'રવિ',
+      'rewardTileCollect': 'લો',
+      'rewardBrokenShort': 'સ્ટ્રીક તૂટી ગઈ',
+      'rewardBrokenTitle': 'રિવોર્ડ સ્ટ્રીક તૂટી ગઈ',
+      'rewardAllCollected': 'બધા રિવોર્ડ મળી ગયા',
+      'rewardBreakHint':
+          'દરરોજ રિવોર્ડ લો — એક દિવસ ચૂક્યા તો આ ચક્ર પૂરું થઈ જશે.',
+      'rewardMissedDay': 'તમારો દિવસ {n} ચૂકી ગયો.',
+      'rewardNewCycleStarts': 'નવા રિવોર્ડ {when}થી શરૂ થશે.',
+      'rewardNextWeekIn': 'આગલા સાપ્તાહિક રિવોર્ડ {time} પછી',
+      'rewardNextMonthIn': 'આગલા માસિક રિવોર્ડ {time} પછી',
+      'rewardProgramGone': 'આ રિવોર્ડ હવે ચાલતો નથી.',
+      'rewardProgramNotRunning': 'આ રિવોર્ડ અત્યારે ચાલતો નથી.',
+      'rewardCycleBrokenNotice':
+          'એક દિવસ ચૂકી જવાથી આ ચક્ર પૂરું થયું. નવા રિવોર્ડ આગલા ચક્રથી મળશે.',
+      'rewardCycleCompletedNotice': 'તમે આ ચક્રના બધા રિવોર્ડ લઈ લીધા છે.',
+      'month1': 'જાન્યુ',
+      'month2': 'ફેબ્રુ',
+      'month3': 'માર્ચ',
+      'month4': 'એપ્રિલ',
+      'month5': 'મે',
+      'month6': 'જૂન',
+      'month7': 'જુલાઈ',
+      'month8': 'ઑગસ્ટ',
+      'month9': 'સપ્ટે',
+      'month10': 'ઑક્ટો',
+      'month11': 'નવે',
+      'month12': 'ડિસે',
+      'dateDayMonth': '{day} {month}',
+      'weekdayFull1': 'સોમવાર',
+      'weekdayFull2': 'મંગળવાર',
+      'weekdayFull3': 'બુધવાર',
+      'weekdayFull4': 'ગુરુવાર',
+      'weekdayFull5': 'શુક્રવાર',
+      'weekdayFull6': 'શનિવાર',
+      'weekdayFull7': 'રવિવાર',
       'luckyPrizes': 'ચક્ર પરના ઇનામ',
       'luckyNoPrize': 'કોઈ ઇનામ નથી',
       'luckyCongrats': 'અભિનંદન!',
@@ -5834,6 +6029,41 @@ class Strings {
       'weekday5': 'ਸ਼ੁੱਕਰ',
       'weekday6': 'ਸ਼ਨੀ',
       'weekday7': 'ਐਤ',
+      'rewardTileCollect': 'ਲਓ',
+      'rewardBrokenShort': 'ਸਟ੍ਰੀਕ ਟੁੱਟ ਗਈ',
+      'rewardBrokenTitle': 'ਰਿਵਾਰਡ ਸਟ੍ਰੀਕ ਟੁੱਟ ਗਈ',
+      'rewardAllCollected': 'ਸਾਰੇ ਰਿਵਾਰਡ ਮਿਲ ਗਏ',
+      'rewardBreakHint':
+          'ਹਰ ਰੋਜ਼ ਰਿਵਾਰਡ ਲਓ — ਇੱਕ ਦਿਨ ਛੁੱਟਿਆ ਤਾਂ ਇਹ ਚੱਕਰ ਖਤਮ ਹੋ ਜਾਵੇਗਾ।',
+      'rewardMissedDay': 'ਤੁਹਾਡਾ ਦਿਨ {n} ਛੁੱਟ ਗਿਆ।',
+      'rewardNewCycleStarts': 'ਨਵੇਂ ਰਿਵਾਰਡ {when} ਤੋਂ ਸ਼ੁਰੂ ਹੋਣਗੇ।',
+      'rewardNextWeekIn': 'ਅਗਲੇ ਹਫ਼ਤਾਵਾਰੀ ਰਿਵਾਰਡ {time} ਵਿੱਚ',
+      'rewardNextMonthIn': 'ਅਗਲੇ ਮਾਸਿਕ ਰਿਵਾਰਡ {time} ਵਿੱਚ',
+      'rewardProgramGone': 'ਇਹ ਰਿਵਾਰਡ ਹੁਣ ਨਹੀਂ ਚੱਲ ਰਿਹਾ।',
+      'rewardProgramNotRunning': 'ਇਹ ਰਿਵਾਰਡ ਇਸ ਵੇਲੇ ਨਹੀਂ ਚੱਲ ਰਿਹਾ।',
+      'rewardCycleBrokenNotice':
+          'ਇੱਕ ਦਿਨ ਛੁੱਟ ਜਾਣ ਕਰਕੇ ਇਹ ਚੱਕਰ ਖਤਮ ਹੋ ਗਿਆ। ਨਵੇਂ ਰਿਵਾਰਡ ਅਗਲੇ ਚੱਕਰ ਤੋਂ ਮਿਲਣਗੇ।',
+      'rewardCycleCompletedNotice': 'ਤੁਸੀਂ ਇਸ ਚੱਕਰ ਦੇ ਸਾਰੇ ਰਿਵਾਰਡ ਲੈ ਲਏ ਹਨ।',
+      'month1': 'ਜਨ',
+      'month2': 'ਫ਼ਰ',
+      'month3': 'ਮਾਰਚ',
+      'month4': 'ਅਪ੍ਰੈ',
+      'month5': 'ਮਈ',
+      'month6': 'ਜੂਨ',
+      'month7': 'ਜੁਲਾ',
+      'month8': 'ਅਗ',
+      'month9': 'ਸਤੰ',
+      'month10': 'ਅਕਤੂ',
+      'month11': 'ਨਵੰ',
+      'month12': 'ਦਸੰ',
+      'dateDayMonth': '{day} {month}',
+      'weekdayFull1': 'ਸੋਮਵਾਰ',
+      'weekdayFull2': 'ਮੰਗਲਵਾਰ',
+      'weekdayFull3': 'ਬੁੱਧਵਾਰ',
+      'weekdayFull4': 'ਵੀਰਵਾਰ',
+      'weekdayFull5': 'ਸ਼ੁੱਕਰਵਾਰ',
+      'weekdayFull6': 'ਸ਼ਨਿੱਚਰਵਾਰ',
+      'weekdayFull7': 'ਐਤਵਾਰ',
       'luckyPrizes': 'ਪਹੀਏ ਦੇ ਇਨਾਮ',
       'luckyNoPrize': 'ਕੋਈ ਇਨਾਮ ਨਹੀਂ',
       'luckyCongrats': 'ਵਧਾਈਆਂ!',

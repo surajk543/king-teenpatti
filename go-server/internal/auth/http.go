@@ -907,6 +907,10 @@ const (
 	// The reward programs (owner, 30 Sep 2026).
 	MsgRewardProgramsUnavailable = "Rewards are not available right now."
 	MsgSeatedRewardPrograms      = "Collect your rewards from the lobby, not while you are at a table."
+	MsgRewardProgramNotFound     = "That reward is not available."
+	MsgRewardProgramNotRunning   = "That reward is not running right now."
+	MsgRewardCycleBroken         = "This reward cycle is broken. New rewards start with the next cycle."
+	MsgRewardCycleCompleted      = "Every reward of this cycle is collected. New rewards start with the next cycle."
 	// The catalogue's art in R2 (owner, 1 Oct 2026).
 	MsgAssetsUnavailable = "Pictures are not available right now."
 	MsgTooManyAssets     = "Ask for at most 200 pictures at a time."

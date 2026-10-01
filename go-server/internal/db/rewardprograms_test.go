@@ -183,7 +183,7 @@ func (f *fixture) claimDays(userID, code string) []int {
 func claimAt(t *testing.T, store *db.RewardPrograms, clock *luckyClock, userID string, at time.Time) *db.RewardClaimOutcome {
 	t.Helper()
 	clock.set(at)
-	out, err := store.Claim(context.Background(), userID)
+	out, err := store.Claim(context.Background(), userID, "")
 	if err != nil {
 		t.Fatalf("claim at %s: %v", at.Format(time.RFC3339), err)
 	}
@@ -635,7 +635,7 @@ func TestTwoRequestsAtOnceGrantADaysRewardOnce(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			out, err := store.Claim(context.Background(), u.ID)
+			out, err := store.Claim(context.Background(), u.ID, "")
 			if err != nil {
 				errs <- err
 				return
@@ -689,11 +689,11 @@ func TestAClaimKeepsWhatItGaveWhenTheDayIsRepointed(t *testing.T) {
 	if value := f.scalar(`SELECT reward_value FROM user_reward_claims WHERE user_id = $1`, u.ID); value != day1 {
 		t.Fatalf("the claim now says %d", value)
 	}
-	states, err := store.State(f.ctx, u.ID)
+	view, err := store.State(f.ctx, u.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := stateOf(t, states, weeklyLogin)
+	s := stateOf(t, view.Programs, weeklyLogin)
 	if s.Rewards[0].RewardType != db.RewardEmoji || !s.Rewards[0].Claimed {
 		t.Fatalf("the day as it now stands: %+v", s.Rewards[0])
 	}
@@ -834,10 +834,11 @@ func TestAProgramInAZoneTheServerCannotLoadIsLeftOut(t *testing.T) {
 	f := newFixture(t)
 	f.program("MARS", db.RewardModeCalendar, db.RewardPeriodWeekly, "Mars/Olympus", 1, false)
 	u := f.user("martian")
-	states, err := f.rewardStore(nil).State(f.ctx, u.ID)
+	view, err := f.rewardStore(nil).State(f.ctx, u.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	states := view.Programs
 	for _, s := range states {
 		if s.Program.Code == "MARS" {
 			t.Fatal("a program in an unknown zone was served")
@@ -854,10 +855,11 @@ func TestTheSeededProgramsAreTheOwnersWeeklyLoginAndThreeWaiting(t *testing.T) {
 	u := f.user("reader")
 	clock := &luckyClock{}
 	clock.set(utcAt(2026, time.October, 5, 9))
-	states, err := f.rewardStore(clock.Now).State(f.ctx, u.ID)
+	view, err := f.rewardStore(clock.Now).State(f.ctx, u.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	states := view.Programs
 	// One program runs: the owner's weekly login streak.
 	if len(states) != 1 {
 		t.Fatalf("%d programs run, want the weekly login alone: %+v", len(states), states)
@@ -892,7 +894,8 @@ func TestTheSeededProgramsAreTheOwnersWeeklyLoginAndThreeWaiting(t *testing.T) {
 		t.Fatalf("Monday's weekly streak: %+v", weekly)
 	}
 	// The other three are seeded, inactive, with no days: switched on with an
-	// UPDATE once their days are.
+	// UPDATE once their days are. (The progression brief's two are their own
+	// test: TestTheProgressionBriefsProgramsAreSeededWaiting.)
 	for _, code := range []string{monthlyLogin, weeklyCalendar, monthlyCalendar} {
 		if active := f.text(`SELECT is_active::text FROM reward_programs WHERE code = $1`, code); active != "false" {
 			t.Fatalf("%s is_active %q, want false", code, active)
@@ -907,7 +910,13 @@ func TestTheSeededProgramsAreTheOwnersWeeklyLoginAndThreeWaiting(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, key := range []string{`"program":{"id":`, `"code":"WEEKLY_LOGIN"`, `"mode":"LOGIN_STREAK"`, `"periodType":"WEEKLY"`,
-		`"periodStart":`, `"periodEnd":`, `"currentDay":1`, `"claimedToday":false`, `"rewards":[{"day":1,"rewardType":"CHIPS","rewardValue":20000,"rewardRefId":null,"claimed":false}`} {
+		`"periodStart":`, `"periodEnd":`, `"currentDay":1`, `"claimedToday":false`,
+		`"rewards":[{"day":1,"rewardType":"CHIPS","rewardValue":20000,"rewardRefId":null,"claimed":false,"state":"AVAILABLE"}`,
+		// The progression types (1 Oct 2026): what a missed day does, the
+		// standing, and the cycle with the next one's countdown.
+		`"progressionType":"RESET"`, `"resetOnMissedDay":true`, `"status":"ACTIVE"`, `"canClaim":true`, `"nextDay":1`,
+		`"period":{"startAt":1791158400000,"endAt":1791763200000,"startDate":"2026-10-05","endDate":"2026-10-11"}`,
+		`"nextPeriod":{"startAt":1791763200000,"startDate":"2026-10-12","startsInMs":572400000}`} {
 		if !strings.Contains(string(body), key) {
 			t.Fatalf("the wire lacks %s:\n%s", key, body)
 		}

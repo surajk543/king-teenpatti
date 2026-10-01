@@ -132,7 +132,7 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 			}
 		}
 	}
-	// Thirteen, deliberately, in the file's order: the four of 22–26 Sep 2026,
+	// Fourteen, deliberately, in the file's order: the four of 22–26 Sep 2026,
 	// since 28 Sep 2026 the one-time missions' three on xp_sources —
 	// mission_type (whose DEFAULT keeps every source a database already has
 	// DAILY), target and scope — which a database already holding the daily
@@ -140,8 +140,10 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	// player_levels, asset_url and asset_format, and since 1 Oct 2026 is_listed
 	// on the four catalogues a player browses — profile_pictures,
 	// table_pictures, emojis and badges — whose DEFAULT keeps every row an
-	// older database has on the shelves. Each is a MISSING column a boot adds;
-	// none changes a column that is already there.
+	// older database has on the shelves — and since 1 Oct 2026 the reward
+	// programs' progression_type, whose block also gives every program it
+	// finds the progression it already had, once. Each is a MISSING column a
+	// boot adds; none changes a column that is already there.
 	wantAlters := []string{
 		"EXECUTE 'ALTER TABLE profile_pictures ADD COLUMN is_listed BOOLEAN NOT NULL DEFAULT TRUE';",
 		"EXECUTE 'ALTER TABLE users ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE';",
@@ -156,13 +158,14 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 		"EXECUTE 'ALTER TABLE xp_sources ADD COLUMN mission_type TEXT NOT NULL DEFAULT ''DAILY'' CHECK (mission_type IN (''DAILY'', ''ONE_TIME''))';",
 		"EXECUTE 'ALTER TABLE xp_sources ADD COLUMN target INTEGER CHECK (target >= 1)';",
 		"EXECUTE 'ALTER TABLE xp_sources ADD COLUMN scope TEXT';",
+		"EXECUTE 'ALTER TABLE reward_programs ADD COLUMN progression_type TEXT NOT NULL DEFAULT ''SEQUENTIAL'' CHECK (progression_type IN (''RESET'', ''SEQUENTIAL'', ''BREAK''))';",
 	}
 	if strings.Join(alters, "\n") != strings.Join(wantAlters, "\n") {
-		t.Errorf("the baseline brings forward exactly profile_pictures/table_pictures/emojis/badges.is_listed, users.is_bot, users.is_active, chip_ledger.game/.variant, xp_sources.mission_type/.target/.scope and player_levels.asset_url/.asset_format, got:\n%s", strings.Join(alters, "\n"))
+		t.Errorf("the baseline brings forward exactly profile_pictures/table_pictures/emojis/badges.is_listed, users.is_bot, users.is_active, chip_ledger.game/.variant, xp_sources.mission_type/.target/.scope, player_levels.asset_url/.asset_format and reward_programs.progression_type, got:\n%s", strings.Join(alters, "\n"))
 	}
 	for _, want := range []string{"column_name = 'is_bot'", "column_name = 'is_active'", "column_name = 'game'", "column_name = 'variant'",
 		"column_name = 'mission_type'", "column_name = 'target'", "column_name = 'scope'",
-		"column_name = 'asset_url'", "column_name = 'asset_format'"} {
+		"column_name = 'asset_url'", "column_name = 'asset_format'", "column_name = 'progression_type'"} {
 		if !strings.Contains(baseline, want) {
 			t.Errorf("%s lacks the lookup %q", migrations[0].File, want)
 		}
@@ -720,8 +723,9 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	// welcome_rewards (30 Sep 2026: what a new account is given), and the
 	// reward programs' three (30 Sep 2026: reward_programs and
 	// reward_program_rewards, the login streaks' and calendars'
-	// configuration, and user_reward_claims, every reward granted) —
-	// forty-three, and no game state (the baseline's header).
+	// configuration, and user_reward_claims, every reward granted), and
+	// user_reward_progress (1 Oct 2026: each player's standing in a program's
+	// period) — forty-four, and no game state (the baseline's header).
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
 	if err != nil {
@@ -743,7 +747,7 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 		"lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends",
 		"player_levels", "player_reports", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims", "player_xp_missions",
 		"profile_pictures", "reward_program_rewards", "reward_programs", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
-		"user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_reward_claims", "user_sessions", "user_table_choice", "user_table_pictures", "users",
+		"user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_reward_claims", "user_reward_progress", "user_sessions", "user_table_choice", "user_table_pictures", "users",
 		"welcome_rewards", "xp_settings", "xp_sources"}
 	if strings.Join(tables, ",") != strings.Join(want, ",") {
 		t.Fatalf("schema %s has tables\n %v\nwant\n %v", f.d.Schema, tables, want)

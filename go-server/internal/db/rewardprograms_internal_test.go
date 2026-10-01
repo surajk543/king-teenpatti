@@ -128,44 +128,49 @@ func TestAWeekAcrossADaylightSavingChangeIsStillSevenDays(t *testing.T) {
 func TestTheStreakIsReadFromTheLatestClaimNeverTheHighestDay(t *testing.T) {
 	d := func(day int) civilDate { return civilDate{2026, time.October, day} }
 	claim := func(day, number int) claimRow { return claimRow{Date: d(day), Day: number} }
-	today := d(9) // Friday
+	period, _ := periodOf(RewardPeriodWeekly, 1, time.UTC, at("UTC", 2026, time.October, 9, 12)) // Friday
 	for _, c := range []struct {
 		name         string
 		claims       []claimRow // newest first
-		reset        bool
+		progression  string
 		wantDay      int
 		wantClaimed  bool
 		wantRun      int
 		wantAfterMax bool
 	}{
-		{"no claim yet", nil, true, 1, false, 0, false},
-		{"claimed today", []claimRow{claim(9, 3), claim(8, 2), claim(7, 1)}, true, 3, true, 3, false},
-		{"claimed yesterday", []claimRow{claim(8, 2), claim(7, 1)}, true, 3, false, 2, false},
-		{"a day missed, resetting", []claimRow{claim(7, 3), claim(6, 2), claim(5, 1)}, true, 1, false, 0, true},
-		{"a day missed, not resetting", []claimRow{claim(7, 3), claim(6, 2), claim(5, 1)}, false, 4, false, 3, false},
-		{"back to day 1 after a miss, then today", []claimRow{claim(9, 1), claim(7, 3), claim(6, 2), claim(5, 1)}, true, 1, true, 1, true},
+		{"no claim yet", nil, RewardProgressionReset, 1, false, 0, false},
+		{"claimed today", []claimRow{claim(9, 3), claim(8, 2), claim(7, 1)}, RewardProgressionReset, 3, true, 3, false},
+		{"claimed yesterday", []claimRow{claim(8, 2), claim(7, 1)}, RewardProgressionReset, 3, false, 2, false},
+		{"a day missed, resetting", []claimRow{claim(7, 3), claim(6, 2), claim(5, 1)}, RewardProgressionReset, 1, false, 0, true},
+		{"a day missed, sequential", []claimRow{claim(7, 3), claim(6, 2), claim(5, 1)}, RewardProgressionSequential, 4, false, 3, false},
+		{"back to day 1 after a miss, then today", []claimRow{claim(9, 1), claim(7, 3), claim(6, 2), claim(5, 1)}, RewardProgressionReset, 1, true, 1, true},
 	} {
-		day, claimed, run := streakAt(c.claims, today, c.reset)
-		if day != c.wantDay || claimed != c.wantClaimed || run != c.wantRun {
-			t.Errorf("%s: day %d claimed %v run %d, want %d %v %d", c.name, day, claimed, run, c.wantDay, c.wantClaimed, c.wantRun)
+		rules := rewardRules{Mode: RewardModeLoginStreak, Progression: c.progression, FirstDay: period.Start, LastDay: period.End}
+		p := progressAt(rules, period, c.claims)
+		if p.CurrentDay != c.wantDay || p.ClaimedToday != c.wantClaimed || p.RunDays != c.wantRun {
+			t.Errorf("%s: day %d claimed %v run %d, want %d %v %d", c.name, p.CurrentDay, p.ClaimedToday, p.RunDays, c.wantDay, c.wantClaimed, c.wantRun)
 		}
-		if c.wantAfterMax && day == 3 {
-			t.Errorf("%s: MAX(day_number) would say 3; the streak is %d", c.name, day)
+		if c.wantAfterMax && p.CurrentDay == 3 {
+			t.Errorf("%s: MAX(day_number) would say 3; the streak is %d", c.name, p.CurrentDay)
 		}
 	}
 }
 
-func TestACalendarDayIsItsPositionAndNothingResets(t *testing.T) {
+func TestASequentialCalendarDayIsItsPositionAndAMissedDateIsMissed(t *testing.T) {
 	utc := time.UTC
 	period, _ := periodOf(RewardPeriodWeekly, 1, utc, at("UTC", 2026, time.October, 8, 9)) // Thursday
+	rules := rewardRules{Mode: RewardModeCalendar, Progression: RewardProgressionSequential, FirstDay: period.Start, LastDay: period.End}
 	claims := []claimRow{{Date: civilDate{2026, time.October, 6}, Day: 2}, {Date: civilDate{2026, time.October, 5}, Day: 1}}
-	day, claimedToday, claimed := calendarAt(claims, period)
-	if day != 4 || claimedToday || len(claimed) != 2 || !claimed[1] || !claimed[2] || claimed[3] {
-		t.Fatalf("Thursday after Mon and Tue: day %d claimedToday %v claimed %v", day, claimedToday, claimed)
+	p := progressAt(rules, period, claims)
+	if p.CurrentDay != 4 || p.ClaimedToday || !p.CanClaim || len(p.Claimed) != 2 || !p.Claimed[1] || !p.Claimed[2] || p.Claimed[3] {
+		t.Fatalf("Thursday after Mon and Tue: %+v", p)
+	}
+	if got := dayStateOf(rules, period, p, 3); got != RewardDayMissed {
+		t.Fatalf("Wednesday, gone by unclaimed: %s", got)
 	}
 	claims = append([]claimRow{{Date: civilDate{2026, time.October, 8}, Day: 4}}, claims...)
-	if day, claimedToday, claimed = calendarAt(claims, period); day != 4 || !claimedToday || !claimed[4] {
-		t.Fatalf("Thursday claimed: day %d claimedToday %v claimed %v", day, claimedToday, claimed)
+	if p = progressAt(rules, period, claims); p.CurrentDay != 4 || !p.ClaimedToday || !p.Claimed[4] || p.Status != RewardStatusActive || p.NextDay != 5 {
+		t.Fatalf("Thursday claimed: %+v", p)
 	}
 }
 

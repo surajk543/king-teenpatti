@@ -6315,15 +6315,26 @@ class _RewardsChipState extends State<_RewardsChip> {
         ),
       );
     }
-    final due = programs.any((p) => !p.claimedToday);
+    // Collectable by the server's verdict (canClaimToday), never worked out
+    // here: a broken or completed cycle waits for nothing.
+    final due = programs.any((p) => p.canClaimToday);
     var streak = 0;
     for (final p in programs) {
-      if (p.program.isStreak) streak = math.max(streak, p.claimedDays);
+      // A broken run is no streak.
+      if (p.program.isStreak && !p.isBroken) {
+        streak = math.max(streak, p.claimedDays);
+      }
     }
+    // Every program still to collect today has broken its cycle: say so
+    // rather than "Collected today".
+    final waiting = programs.where((p) => !p.claimedToday);
+    final broken = waiting.isNotEmpty && waiting.every((p) => p.isBroken);
     final subtitle = due
         ? t.rewardsCollect
         : streak > 0
         ? t.streakDays(streak)
+        : broken
+        ? t.rewardBrokenShort
         : t.rewardsCollected;
     // A tap: the weekly login popup while its day waits (the owner's
     // calendar, the same one that pops at sign-in), else the rewards screen.

@@ -8,7 +8,12 @@ import 'package:provider/provider.dart';
 import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../screens/reward_programs_screen.dart'
-    show rewardPrizeIcon, rewardPrizeInk, rewardPrizeLabel, rewardPrizeShort;
+    show
+        rewardPrizeIcon,
+        rewardPrizeInk,
+        rewardPrizeLabel,
+        rewardPrizeShort,
+        rewardProgramHint;
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/depth.dart';
@@ -203,16 +208,27 @@ class WeeklyCalendarGeometry {
 enum WeeklyDayState { claimed, current, next, locked, finalDay }
 
 /// Which state day [day] is in for the program [s] ([collected] the day just
-/// collected, which the state may not say yet).
+/// collected, which the state may not say yet). Collected and collectable
+/// are the server's word wherever it sends one (`rewards[].state`); a day is
+/// drawn as today's to collect only while the server says a claim can be
+/// made ([RewardProgramState.canClaimToday]).
 WeeklyDayState weeklyDayStateOf(
   RewardProgramState s,
   int day, {
   int? collected,
 }) {
-  if (collected == day || day <= s.claimedDays) return WeeklyDayState.claimed;
-  if (day == s.currentDay && !s.claimedToday) return WeeklyDayState.current;
+  if (collected == day) return WeeklyDayState.claimed;
+  final server = s.rewardFor(day)?.state;
+  if (server == RewardDayState.claimed ||
+      (server == null && day <= s.claimedDays)) {
+    return WeeklyDayState.claimed;
+  }
+  if (server == RewardDayState.available ||
+      (server == null && day == s.currentDay && s.canClaimToday)) {
+    return WeeklyDayState.current;
+  }
   if (day == 7) return WeeklyDayState.finalDay;
-  if (day == s.currentDay + 1) return WeeklyDayState.next;
+  if (s.isActive && day == s.currentDay + 1) return WeeklyDayState.next;
   return WeeklyDayState.locked;
 }
 
@@ -1162,9 +1178,7 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
       ],
     );
     final hint = Text(
-      shown.program.resetOnMissedDay
-          ? t.rewardStreakHint
-          : t.rewardStreakHintNoReset,
+      rewardProgramHint(t, shown.program),
       maxLines: 3,
       overflow: TextOverflow.ellipsis,
       style: text.bodySmall?.copyWith(color: quiet),
@@ -1207,7 +1221,9 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
             prize: nextPrize,
             text: rewardPrizeLabel(t, nextPrize).toUpperCase(),
           );
-    final key = done
+    // Collect only while the server says today can be collected: a cycle
+    // that broke, or ended, meanwhile is put away with Continue instead.
+    final key = done || !shown.canClaimToday
         ? LuckyGoldKey(
             key: const ValueKey('weekly-login-done'),
             label: t.continueKey,

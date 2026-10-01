@@ -273,6 +273,245 @@ List<Map<String, Object?>> twoGrants() => [
   ),
 ];
 
+// ------------------------------------------------- the progression engine
+//
+// The keys a server with the progression engine (1 Oct 2026) adds to every
+// program — `progressionType`, `status`, `canClaim`, `nextDay`, `period`,
+// `nextPeriod` and each day's `state` — and the answer's `serverTime`. Every
+// builder above leaves them out: that is an older server, which the app must
+// still read exactly as it always did.
+
+/// The week of Monday 5 October 2026, and the Monday after it.
+const weekStart = '2026-10-05';
+const weekEnd = '2026-10-11';
+const nextMonday = '2026-10-12';
+
+/// Thursday 8 October: the day after the week's Wednesday.
+const thursday = '2026-10-08';
+
+/// 3 days and 8 hours, and half an hour more so a pump does not land on the
+/// hour: the mock's "Starts in 3d 8h".
+const threeDaysEightHours = ((3 * 24 + 8) * 60 + 30) * 60 * 1000;
+
+/// The answer's own clock (the server's), epoch ms: Wednesday 7 October.
+const progressionServerTime = 1791331200000;
+
+Map<String, Object?> periodJson({
+  String start = weekStart,
+  String end = weekEnd,
+}) => {
+  'startAt': 1791158400000,
+  'endAt': 1791763200000,
+  'startDate': start,
+  'endDate': end,
+};
+
+Map<String, Object?> nextPeriodJson({
+  String start = nextMonday,
+  int? startsInMs = threeDaysEightHours,
+}) => {'startAt': 1791763200000, 'startDate': start, 'startsInMs': ?startsInMs};
+
+/// A weekly program as the progression engine describes it: the owner's
+/// seven WEEKLY_LOGIN rewards, each day's [states] (Day 1 first, all seven),
+/// and the rest of the standing as given. [nextPeriod] false sends null (a
+/// campaign that ends before the next week).
+Map<String, Object?> progressedWeekJson({
+  String code = 'WEEKLY_LOGIN',
+  String mode = 'LOGIN_STREAK',
+  required String progression,
+  required List<String> states,
+  String status = 'ACTIVE',
+  required int currentDay,
+  required bool claimedToday,
+  required bool canClaim,
+  required int nextDay,
+  String today = wednesday,
+  int dayOfPeriod = 3,
+  bool nextPeriod = true,
+  int? startsInMs = threeDaysEightHours,
+}) => {
+  'program': {
+    ...programJson(
+      code: code,
+      mode: mode,
+      periodType: 'WEEKLY',
+      reset: progression == 'RESET',
+    ),
+    'progressionType': progression,
+  },
+  'today': today,
+  'dayOfPeriod': dayOfPeriod,
+  'periodDays': 7,
+  'currentDay': currentDay,
+  'claimedToday': claimedToday,
+  'claimedDays': states.where((s) => s == 'CLAIMED').length,
+  'rewards': [
+    for (final (i, d) in weeklyLoginRewards().indexed)
+      {...d, 'claimed': states[i] == 'CLAIMED', 'state': states[i]},
+  ],
+  'status': status,
+  'canClaim': canClaim,
+  'nextDay': nextDay,
+  'period': periodJson(),
+  'nextPeriod': nextPeriod ? nextPeriodJson(startsInMs: startsInMs) : null,
+};
+
+/// The mock's week: a weekly login streak that resets, on its third day —
+/// Days 1 and 2 collected, Day 3's 20,000 chips to collect, Days 4–7 locked.
+Map<String, Object?> activeResetWeekJson({
+  String code = 'WEEKLY_LOGIN',
+  int? startsInMs = threeDaysEightHours,
+}) => progressedWeekJson(
+  code: code,
+  progression: 'RESET',
+  states: const [
+    'CLAIMED',
+    'CLAIMED',
+    'AVAILABLE',
+    'LOCKED',
+    'LOCKED',
+    'LOCKED',
+    'LOCKED',
+  ],
+  currentDay: 3,
+  claimedToday: false,
+  canClaim: true,
+  nextDay: 3,
+  startsInMs: startsInMs,
+);
+
+/// A sequential weekly login program on Thursday: Days 1–3 collected (the
+/// day missed between them cost nothing), Day 4 to collect.
+Map<String, Object?> activeSequentialWeekJson({
+  String code = 'WEEKLY_SEQUENTIAL_LOGIN',
+}) => progressedWeekJson(
+  code: code,
+  progression: 'SEQUENTIAL',
+  states: const [
+    'CLAIMED',
+    'CLAIMED',
+    'CLAIMED',
+    'AVAILABLE',
+    'LOCKED',
+    'LOCKED',
+    'LOCKED',
+  ],
+  currentDay: 4,
+  claimedToday: false,
+  canClaim: true,
+  nextDay: 4,
+  today: thursday,
+  dayOfPeriod: 4,
+);
+
+/// The brief's broken week: a weekly CALENDAR that breaks — Monday and
+/// Tuesday collected, Wednesday (Day 3) missed, today Thursday — BROKEN
+/// until next Monday.
+Map<String, Object?> brokenCalendarWeekJson({
+  String code = 'WEEKLY_BREAK_CALENDAR',
+}) => progressedWeekJson(
+  code: code,
+  mode: 'CALENDAR',
+  progression: 'BREAK',
+  status: 'BROKEN',
+  states: const [
+    'CLAIMED',
+    'CLAIMED',
+    'MISSED',
+    'LOCKED',
+    'LOCKED',
+    'LOCKED',
+    'LOCKED',
+  ],
+  currentDay: 3,
+  claimedToday: false,
+  canClaim: false,
+  nextDay: 0,
+  today: thursday,
+  dayOfPeriod: 4,
+);
+
+/// A weekly LOGIN streak that breaks, broken the same way: Days 1 and 2
+/// collected, Day 3 missed.
+Map<String, Object?> brokenLoginWeekJson() => progressedWeekJson(
+  progression: 'BREAK',
+  status: 'BROKEN',
+  states: const [
+    'CLAIMED',
+    'CLAIMED',
+    'MISSED',
+    'LOCKED',
+    'LOCKED',
+    'LOCKED',
+    'LOCKED',
+  ],
+  currentDay: 3,
+  claimedToday: false,
+  canClaim: false,
+  nextDay: 0,
+  today: thursday,
+  dayOfPeriod: 4,
+);
+
+/// A weekly login streak with every day collected, the seventh today —
+/// Sunday 11 October, six and a half hours (and half a minute) to the next
+/// week.
+Map<String, Object?> completedWeekJson({String code = 'WEEKLY_LOGIN'}) =>
+    progressedWeekJson(
+      code: code,
+      progression: 'RESET',
+      status: 'COMPLETED',
+      states: List.filled(7, 'CLAIMED'),
+      currentDay: 7,
+      claimedToday: true,
+      canClaim: false,
+      nextDay: 0,
+      today: weekEnd,
+      dayOfPeriod: 7,
+      startsInMs: ((6 * 60 + 30) * 60 + 30) * 1000,
+    );
+
+/// The monthly calendar of [calendarJson] as the progression engine sends
+/// it: SEQUENTIAL (a missed date missed, the rest waiting), October 1–31, the
+/// 10th to collect, the 4th, 6th and 8th missed, November next.
+Map<String, Object?> progressedMonthJson() {
+  final base = calendarJson();
+  const claimed = {1, 2, 3, 5, 7, 9};
+  return {
+    ...base,
+    'program': {
+      ...base['program']! as Map<String, Object?>,
+      'progressionType': 'SEQUENTIAL',
+    },
+    'rewards': [
+      for (final d in monthlyCalendarRewards(claimed: claimed))
+        {
+          ...d,
+          'state': switch (d['day']! as int) {
+            final k when claimed.contains(k) => 'CLAIMED',
+            10 => 'AVAILABLE',
+            final k when k < 10 => 'MISSED',
+            _ => 'LOCKED',
+          },
+        },
+    ],
+    'status': 'ACTIVE',
+    'canClaim': true,
+    'nextDay': 10,
+    'period': periodJson(start: '2026-10-01', end: '2026-10-31'),
+    'nextPeriod': {
+      'startAt': 1793491200000,
+      'startDate': '2026-11-01',
+      'startsInMs': ((21 * 24 + 4) * 60 + 30) * 60 * 1000,
+    },
+  };
+}
+
+/// GET /api/reward-programs from a server with the progression engine.
+Map<String, Object?> progressedProgramsJson(
+  List<Map<String, Object?>> programs,
+) => {'serverTime': progressionServerTime, 'programs': programs};
+
 /// [body] as the server sends it: JSON in UTF-8 (a badge's icon is an emoji,
 /// which `http.Response(String)` would refuse as Latin-1).
 http.Response rewardJson(Object body, [int status = 200]) =>
@@ -284,9 +523,9 @@ http.Response rewardJson(Object body, [int status = 200]) =>
 
 /// A fake server: the read answers [programs] (or [programsResponse]), the
 /// claim [claim] (or [claimResponse]); every request is kept in [sent] and
-/// waits for [release] when given. The lobby's Friends key reads its count
-/// as the lobby appears and hides itself from a server without the route,
-/// so the friends routes answer empty.
+/// waits for [release] when given, and a claim for [claimRelease] too. The
+/// lobby's Friends key reads its count as the lobby appears and hides itself
+/// from a server without the route, so the friends routes answer empty.
 MockClient fakeRewards({
   required List<http.Request> sent,
   Map<String, Object?>? claim,
@@ -294,6 +533,7 @@ MockClient fakeRewards({
   Map<String, Object?>? programs,
   http.Response? programsResponse,
   Completer<void>? release,
+  Completer<void>? claimRelease,
 }) => MockClient((request) async {
   sent.add(request);
   if (release != null) await release.future;
@@ -301,6 +541,7 @@ MockClient fakeRewards({
     if (request.method != 'POST') {
       return rewardJson({'error': 'not_found'}, 404);
     }
+    if (claimRelease != null) await claimRelease.future;
     return claimResponse ?? rewardJson(claim ?? claimJson());
   }
   if (request.url.path == '/api/reward-programs') {

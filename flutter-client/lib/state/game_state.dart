@@ -4848,6 +4848,14 @@ class GameState extends ChangeNotifier {
   /// True from the moment a claim is sent until the server has answered it.
   bool rewardClaimPending = false;
 
+  /// The program a claim in flight names (a day's tile on the rewards
+  /// screen); null for a claim of every program, or none in flight.
+  String? rewardClaimProgram;
+
+  /// Whether any program's today can be collected now — the server's
+  /// verdict where it gives one ([RewardProgramState.canClaimToday]).
+  bool get rewardsDue => rewardPrograms?.any((p) => p.canClaimToday) ?? false;
+
   /// What the last claim gave, while its celebration is on screen; null the
   /// rest of the time. Only a claim's answer sets it — the server says
   /// whether anything was granted — so reopening the app never shows a
@@ -4894,10 +4902,31 @@ class GameState extends ChangeNotifier {
     }
   }
 
-  /// The weekly login streak whose today is still to collect, or null.
+  /// Reads the programs again because a new cycle has begun (a panel's
+  /// countdown reached zero) — once, however many panels count to the same
+  /// moment: not while a read is already out, nor again within
+  /// [_cycleTurnRest] of the last such read, so an answer that still counts
+  /// to that moment can never set off a run of reads.
+  Future<void> rewardCycleTurned() async {
+    final now = rewardClock();
+    final last = _cycleTurnedAt;
+    if (rewardProgramsLoading ||
+        (last != null && now.difference(last).abs() < _cycleTurnRest)) {
+      return;
+    }
+    _cycleTurnedAt = now;
+    await loadRewardPrograms();
+  }
+
+  DateTime? _cycleTurnedAt;
+  static const _cycleTurnRest = Duration(seconds: 10);
+
+  /// The weekly login streak whose today can be collected now, or null — by
+  /// the server's verdict ([RewardProgramState.canClaimToday]), so a broken
+  /// or completed cycle is never offered.
   RewardProgramState? get weeklyLoginDue {
     for (final p in rewardPrograms ?? const <RewardProgramState>[]) {
-      if (p.program.isStreak && p.program.isWeekly && !p.claimedToday) {
+      if (p.program.isStreak && p.program.isWeekly && p.canClaimToday) {
         return p;
       }
     }
@@ -4933,22 +4962,28 @@ class GameState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Claims today's reward of every program the server runs — once a day
-  /// a program, which the SERVER decides — on the player's tap: the weekly
+  /// Claims today's reward of every program the server runs — or of the one
+  /// [programCode] names (a day's tile on the rewards screen) — once a day a
+  /// program, which the SERVER decides, on the player's tap: the weekly
   /// popup's Collect, or the rewards screen's. Answers what the claim gave
   /// (empty when today was already collected), or null when it could not be
-  /// made; with [celebrate] the lobby's celebration shows the grants too.
-  /// Nothing is asked at a table: a reward may be chips, which only the
-  /// lobby may credit.
+  /// made; with [celebrate] the lobby's celebration shows the grants too. A
+  /// named program the server will not claim — gone, not running, its cycle
+  /// broken or completed — is said in the player's words ([notice]) and the
+  /// programs are read again, so the screen shows the truth. Nothing is
+  /// asked at a table: a reward may be chips, which only the lobby may
+  /// credit.
   Future<List<RewardGrant>?> claimRewardPrograms({
     bool celebrate = true,
+    String? programCode,
   }) async {
     final token = _token;
     if (token == null || rewardClaimPending || room != null) return null;
     rewardClaimPending = true;
+    rewardClaimProgram = programCode;
     notifyListeners();
     try {
-      final r = await _api.claimRewardPrograms(token);
+      final r = await _api.claimRewardPrograms(token, programCode: programCode);
       if (_token != token) return null;
       if (r == null) {
         // An older server, or none running: nothing to show.
@@ -4970,6 +5005,16 @@ class GameState extends ChangeNotifier {
     } on ApiException catch (e) {
       // At a table by the server's reckoning: the lobby will ask again.
       if (e.code == 'seated') return null;
+      final words = rewardRefusalText(e.code);
+      if (words != null) {
+        // The program as the phone drew it is not the program as it stands:
+        // say why, and read the truth.
+        if (_token == token) {
+          notice = words;
+          unawaited(loadRewardPrograms());
+        }
+        return null;
+      }
       if (rewardPrograms == null) rewardProgramsFailed = true;
       return null;
     } catch (_) {
@@ -4977,9 +5022,20 @@ class GameState extends ChangeNotifier {
       return null;
     } finally {
       rewardClaimPending = false;
+      rewardClaimProgram = null;
       notifyListeners();
     }
   }
+
+  /// A named program's claim refused, in the player's words; null for any
+  /// other refusal.
+  String? rewardRefusalText(String? code) => switch (code) {
+    'reward_program_not_found' => t.rewardProgramGone,
+    'reward_program_not_running' => t.rewardProgramNotRunning,
+    'reward_cycle_broken' => t.rewardCycleBrokenNotice,
+    'reward_cycle_completed' => t.rewardCycleCompletedNotice,
+    _ => null,
+  };
 
   /// Closes the rewards celebration.
   void dismissRewardsGranted() {

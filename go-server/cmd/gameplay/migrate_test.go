@@ -88,7 +88,7 @@ func embeddedFiles() []string {
 }
 
 // TestMigrateBuildsAFreshSchemaExactlyAsABootWould: on a schema nobody has
-// created, -migrate creates it and leaves what a boot leaves — the forty-three
+// created, -migrate creates it and leaves what a boot leaves — the forty-four
 // tables and every seeded row, table for table and count for count the schema
 // db.Open built for dbtest — and its report names every embedded script, in
 // version order, and the schema, the count and the time.
@@ -118,8 +118,8 @@ func TestMigrateBuildsAFreshSchemaExactlyAsABootWould(t *testing.T) {
 	}
 
 	got, want := tablesOf(t, reference, fresh), tablesOf(t, reference, reference.Schema)
-	if len(got) != 43 {
-		t.Errorf("schema %s has %d tables, want the forty-three a boot creates", fresh, len(got))
+	if len(got) != 44 {
+		t.Errorf("schema %s has %d tables, want the forty-four a boot creates", fresh, len(got))
 	}
 	for name, rows := range want {
 		if _, ok := got[name]; !ok {
@@ -368,7 +368,7 @@ func TestMigrateRunsFromMainOnTheDotEnvOfItsDirectory(t *testing.T) {
 	if !strings.Contains(errs.String(), "read ") || !strings.Contains(errs.String(), string(filepath.Separator)+".env") {
 		t.Errorf("stderr does not say the .env was read:\n%s", errs.String())
 	}
-	if got := tablesOf(t, reference, fresh); len(got) != 43 {
-		t.Errorf("schema %s has %d tables after the run, want forty-three", fresh, len(got))
+	if got := tablesOf(t, reference, fresh); len(got) != 44 {
+		t.Errorf("schema %s has %d tables after the run, want forty-four", fresh, len(got))
 	}
 }
