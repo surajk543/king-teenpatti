@@ -15,7 +15,10 @@
 // replayed receipt credits nothing the second time.
 package purchase
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Product is one entry on the shelf, as the server understands it.
 //
@@ -122,9 +125,16 @@ func Lookup(productID string) (Product, error) {
 	return p, nil
 }
 
-// ActionID is the chip_ledger.action_id for a purchase: "gplay:<token>".
+// ActionID is the chip_ledger.action_id for a purchase: "gplay:<token>" for a
+// Play purchase token, and an App Store purchase's own key as it is
+// ("appstore:<transactionId>", AppleToken).
 //
 // The purchase token is unique per purchase and stable across retries, which
 // is exactly what the UNIQUE index needs. It is namespaced so it can never
 // collide with a hand's ids ("<handId>:settle:<userId>" and friends).
-func ActionID(purchaseToken string) string { return "gplay:" + purchaseToken }
+func ActionID(purchaseToken string) string {
+	if strings.HasPrefix(purchaseToken, AppleTokenPrefix) {
+		return purchaseToken
+	}
+	return "gplay:" + purchaseToken
+}

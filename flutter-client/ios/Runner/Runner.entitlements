@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sign in with Apple (lib/net/social_sign_in.dart). Xcode's automatic
+	     signing turns the capability on for the App ID when it sees this; with
+	     manual signing, tick "Sign In with Apple" on the identifier in the
+	     developer portal. In-app purchase needs no entitlement. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+</dict>
+</plist>

@@ -2,12 +2,34 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:in_app_purchase_android/billing_client_wrappers.dart'
     show BillingResponse;
 import 'package:in_app_purchase_android/in_app_purchase_android.dart';
+import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart'
+    show SK2PurchaseDetails;
+import 'package:in_app_purchase_storekit/store_kit_2_wrappers.dart'
+    show SK2Transaction;
 
-/// The Google Play side of the chip store.
+/// Which store this build buys from. It decides where a receipt is posted
+/// (`/api/purchases/google` or `/api/purchases/apple`) and how a purchase is
+/// finished; the products and their ids are the same in both.
+enum Store {
+  /// Google Play (Android).
+  play,
+
+  /// The App Store (iOS), through StoreKit 2.
+  appStore,
+
+  /// Neither — a desktop or test run. Nothing can be bought.
+  none,
+}
+
+/// The store side of the chip store: Google Play on Android and, since
+/// 2 Oct 2026 (owner: "i want to release app on apple store"), the App Store
+/// on iOS. What follows was written about Play and holds for both — where the
+/// App Store differs, [Store.appStore] says how.
 ///
 /// This class knows how to start a purchase and how to hear about one
 /// finishing. It knows nothing about how many chips a pack is worth — the
@@ -46,22 +68,54 @@ import 'package:in_app_purchase_android/in_app_purchase_android.dart';
 /// so the repeat deliveries this design invites cannot double-credit; the
 /// server also acknowledges the purchase when it credits it, so a purchase
 /// whose consume has not happened yet is not refunded by Play after 3 days.
+///
+/// # The App Store
+///
+/// The same order with StoreKit 2's words. A purchase arrives on the stream
+/// as a TRANSACTION whose `serverVerificationData` is Apple's signed
+/// transaction (a JWS); the server verifies the signature itself and banks it
+/// under Apple's transaction id (`appstore:<id>`), and only then is the
+/// transaction FINISHED (`completePurchase`). The plugin insists on
+/// `autoConsume: true` on iOS, but under StoreKit 2 that finishes nothing —
+/// finishing is always this class's call. An unfinished transaction is what
+/// Play's "owned" purchase is: [redeliver] asks StoreKit for them
+/// (`Transaction.unfinished`) at every session start. StoreKit refuses to
+/// sell a product whose last transaction is still unfinished, so [buy]
+/// answers [finishingEarlier] and redelivers instead of showing its error.
 class Purchases {
   /// What [onFailed] carries when Play gives no reason of its own — its
   /// billing flow did not launch, or it reported an error with no message.
   /// GameState shows it in the player's language (Strings.purchaseNotLaunched).
   static const notLaunched = 'The purchase did not go through.';
 
+  /// What [onFailed] carries when StoreKit will not sell a product because
+  /// an earlier purchase of it has not been banked and finished yet — which
+  /// [buy] then sets about doing. GameState shows it in the player's language
+  /// (Strings.purchaseFinishingEarlier).
+  static const finishingEarlier = 'Finishing an earlier purchase.';
+
   Purchases({
     InAppPurchase? iap,
     @visibleForTesting Future<bool> Function(PurchaseDetails purchase)? consume,
     @visibleForTesting Future<List<PurchaseDetails>> Function()? owned,
     @visibleForTesting this._available = false,
+    @visibleForTesting Store? store,
   }) : _iapOverride = iap,
+       _storeOverride = store,
        _consumeOverride = consume,
        _ownedOverride = owned;
 
   final InAppPurchase? _iapOverride;
+  final Store? _storeOverride;
+
+  /// The store this device buys from.
+  Store get store =>
+      _storeOverride ??
+      (Platform.isIOS
+          ? Store.appStore
+          : Platform.isAndroid
+          ? Store.play
+          : Store.none);
 
   /// Resolved on first use, not at construction: `InAppPurchase.instance`
   /// registers the platform plugin, which a widget test must never reach.
@@ -97,30 +151,24 @@ class Purchases {
   bool _available;
 
   /// Whether this device can buy at all. False on an emulator without Play
-  /// Services, on a build side-loaded outside Play, anywhere Play is
-  /// unavailable — and on iOS, see [start] — none of which are errors, so the
-  /// store should say so plainly rather than fail when the button is pressed.
+  /// Services, on a build side-loaded outside Play, on an iPhone where
+  /// purchases are restricted, anywhere the store is unavailable — none of
+  /// which are errors, so the store should say so plainly rather than fail
+  /// when the button is pressed.
   bool get available => _available;
 
-  /// Subscribes to Play. Safe to call once at startup; further calls are
-  /// ignored.
+  /// Subscribes to the store. Safe to call once at startup; further calls
+  /// are ignored. Nothing on a platform with no store ([Store.none]).
   ///
-  /// **Android only, deliberately.** StoreKit works and `in_app_purchase`
-  /// supports iOS, but the half that matters does not: a receipt goes to
-  /// `POST /api/purchases/google`, which verifies it with Google and banks the
-  /// chips. Apple's receipt is not a Play token, so the server would refuse it
-  /// — and `GameState._deliverPurchase` completes a refused purchase to stop an
-  /// endless redelivery loop. The player would have paid Apple and been given
-  /// nothing. Leaving [available] false is what keeps that impossible: the
-  /// shelf still shows its prices and Buy answers `storeNotLive`.
-  ///
-  /// Turning it on means an `/api/purchases/apple` route on the server that
-  /// verifies with the App Store Server API, and Apple products created with
-  /// these same ids. Until both exist this stays as it is.
+  /// iOS was held back here until the server had a door for Apple's receipt:
+  /// a StoreKit transaction posted to `/api/purchases/google` is refused, and
+  /// a refused purchase is finished — the player would have paid Apple and
+  /// been given nothing. `POST /api/purchases/apple` is that door (2 Oct
+  /// 2026), and GameState posts each store's receipt to its own.
   Future<void> start() => _starting ??= _start();
 
   Future<void> _start() async {
-    if (!Platform.isAndroid) return;
+    if (store == Store.none) return;
     try {
       _available = await _iap.isAvailable();
     } catch (_) {
@@ -163,7 +211,28 @@ class Purchases {
   /// it marks every purchase `restored`, a still-pending one included, and
   /// throws away the whole list when the subscriptions half of its query
   /// fails.
+  ///
+  /// On the App Store "owned" is every UNFINISHED transaction — bought, and
+  /// not yet banked — each with Apple's signed transaction to post.
   Future<List<PurchaseDetails>> _queryOwned() async {
+    if (store == Store.appStore) {
+      final unfinished = await SK2Transaction.unfinishedTransactions();
+      return [
+        for (final tx in unfinished)
+          SK2PurchaseDetails(
+            productID: tx.productId,
+            purchaseID: tx.id,
+            verificationData: PurchaseVerificationData(
+              localVerificationData: tx.jsonRepresentation ?? '',
+              serverVerificationData: tx.receiptData ?? '',
+              source: 'app_store',
+            ),
+            transactionDate: tx.purchaseDate,
+            status: PurchaseStatus.purchased,
+            appAccountToken: tx.appAccountToken,
+          ),
+      ];
+    }
     final android = _iap
         .getPlatformAddition<InAppPurchaseAndroidPlatformAddition>();
     final res = await android.queryPastPurchases();
@@ -199,7 +268,11 @@ class Purchases {
   /// (`autoConsume: false`; see the class doc).
   Future<void> buy(ProductDetails product) async {
     if (!_available) {
-      onFailed?.call('Google Play is not available on this device.');
+      onFailed?.call(
+        store == Store.appStore
+            ? 'The App Store is not available on this device.'
+            : 'Google Play is not available on this device.',
+      );
       return;
     }
     final param = PurchaseParam(productDetails: product);
@@ -211,11 +284,24 @@ class Purchases {
       // its socket for [buyingFor] and be shown out with no way back.
       final launched = await _iap.buyConsumable(
         purchaseParam: param,
-        autoConsume: false,
+        // The plugin asserts true on iOS; under StoreKit 2 it finishes
+        // nothing — [handle] still finishes after the server has banked.
+        autoConsume: store == Store.appStore,
       );
       if (!launched) {
         _buyStartedAt = null;
         onFailed?.call(notLaunched);
+      }
+    } on PlatformException catch (e) {
+      _buyStartedAt = null;
+      if (e.code == 'storekit_duplicate_product_object') {
+        // An earlier purchase of this product is still unfinished: paid, and
+        // not banked yet. Bank and finish it now rather than show StoreKit's
+        // refusal; the player can then buy again.
+        onFailed?.call(finishingEarlier);
+        unawaited(redeliver());
+      } else {
+        onFailed?.call(e.message ?? '$e');
       }
     } catch (e) {
       _buyStartedAt = null;
@@ -270,7 +356,8 @@ class Purchases {
   }
 
   Future<bool> _consume(PurchaseDetails p) async {
-    if (!Platform.isAndroid) {
+    if (store != Store.play) {
+      // The App Store: finishing the transaction is the whole of it.
       await _iap.completePurchase(p);
       return true;
     }
@@ -280,7 +367,14 @@ class Purchases {
     return r.responseCode == BillingResponse.ok;
   }
 
-  static String _tokenOf(PurchaseDetails p) {
+  /// What one purchase is known by across deliveries: Play's purchase token,
+  /// or the App Store's transaction id — the signed transaction itself is
+  /// signed afresh each time StoreKit hands it over, so two deliveries of one
+  /// purchase carry different strings.
+  String _tokenOf(PurchaseDetails p) {
+    if (store == Store.appStore && (p.purchaseID ?? '').isNotEmpty) {
+      return p.purchaseID!;
+    }
     final token = p.verificationData.serverVerificationData;
     return token.isNotEmpty ? token : (p.purchaseID ?? '');
   }
@@ -335,11 +429,17 @@ class Purchases {
 /// and the player may well have paid, so the purchase stays owned and the
 /// next session posts it again. Consuming on one of those, now that consuming
 /// is what finishes a purchase, would throw a paid receipt away for good.
+///
+/// Nor is a 404 final: no server this app talks to answers a purchase route
+/// with one except a server that does not have the route yet — an iOS build
+/// reaching a server from before `/api/purchases/apple` — and that says
+/// nothing about the receipt.
 bool receiptRefusalIsFinal(int? status) =>
     status != null &&
     status >= 400 &&
     status < 500 &&
     status != 401 &&
     status != 403 &&
+    status != 404 &&
     status != 408 &&
     status != 429;

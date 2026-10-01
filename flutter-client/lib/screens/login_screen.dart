@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart'
+    show SignInWithAppleButton, SignInWithAppleButtonStyle;
 
 import '../config/server_config.dart';
 import '../l10n/strings.dart';
@@ -197,6 +199,28 @@ class _LoginScreenState extends State<LoginScreen> {
                             : const Icon(Icons.sports_esports_outlined),
                         label: state.busy ? t.signingIn : t.playAsGuest,
                       ),
+                      // Sign in with Apple, on iOS (owner, 2 Oct 2026):
+                      // Apple's own button — its logo, its black or white
+                      // face, one of its three permitted phrasings — as its
+                      // guidelines ask, as wide and as tall as Google's.
+                      if (SocialSignIn.appleOffered) ...[
+                        const SizedBox(height: Space.md),
+                        SignInWithAppleButton(
+                          key: const ValueKey('sign-in-apple'),
+                          text: t.continueApple,
+                          height: 48,
+                          style: theme.brightness == Brightness.dark
+                              ? SignInWithAppleButtonStyle.white
+                              : SignInWithAppleButtonStyle.black,
+                          onPressed: state.busy
+                              ? null
+                              : () => state.loginWithProvider(
+                                  'apple',
+                                  SocialSignIn.apple,
+                                  nameOf: () => SocialSignIn.appleName,
+                                ),
+                        ),
+                      ],
                       const SizedBox(height: Space.md),
                       // Google is always on screen, even in a build that
                       // carries no client id — it says so when tapped

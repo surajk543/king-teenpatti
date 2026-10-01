@@ -28,6 +28,7 @@ import (
 // verifyLogin). Only the fields for the chosen provider are read:
 //
 //	google   → IDToken
+//	apple    → IDToken (Apple's identity token), DisplayName?
 //	facebook → AccessToken
 //	guest    → DeviceID, DisplayName?
 //
@@ -92,6 +93,17 @@ const (
 	googleClockSkew        = 300 * time.Second
 	googleMaxTokenLifetime = 86400 * time.Second
 	facebookGraphURL       = "https://graph.facebook.com"
+
+	// Sign in with Apple (owner, 2 Oct 2026): the keys Apple signs identity
+	// tokens with, and the issuer it signs as.
+	appleKeysURL = "https://appleid.apple.com/auth/keys"
+	appleIssuer  = "https://appleid.apple.com"
+	// appleKeysTTL is how long Apple's keys are kept. Apple's endpoint
+	// answers `Cache-Control: no-store`, and honouring that would fetch the
+	// keys on every login; they rotate rarely, and a token signed by a key
+	// not held refetches them at once (appleKeysRefetchAfter apart at most).
+	appleKeysTTL          = time.Hour
+	appleKeysRefetchAfter = time.Minute
 )
 
 // googleIssuers are the accepted `iss` values. google-auth-library also took
@@ -102,6 +114,7 @@ var googleIssuers = []string{"accounts.google.com", "https://accounts.google.com
 // Verifier resolves a login request into a verified db.Profile (providers.js).
 type Verifier struct {
 	google             config.GoogleConfig
+	apple              config.AppleConfig
 	facebook           config.FacebookConfig
 	allowFakeProviders bool
 	// botDevicePrefixes is config.BotDevicePrefixes: a guest device id
@@ -127,12 +140,24 @@ type Verifier struct {
 	certsMu      sync.Mutex
 	certs        map[string]*rsa.PublicKey
 	certsExpires time.Time
+
+	// Apple's keys (appleKeysTTL), and when they were fetched.
+	appleKeysURL string
+	appleMu      sync.Mutex
+	appleKeys    map[string]*rsa.PublicKey
+	appleFetched time.Time
+	// appleOff is why Apple logins are refused although bundle ids are
+	// configured ("" = they are not): set at boot when the database's
+	// users.provider CHECK does not admit 'apple' yet (DisableApple).
+	appleOff string
 }
 
 // NewVerifier builds the verifier from config.
 func NewVerifier(cfg *config.Config) *Verifier {
 	return &Verifier{
 		google:             cfg.Google,
+		apple:              cfg.Apple,
+		appleKeysURL:       appleKeysURL,
 		facebook:           cfg.Facebook,
 		allowFakeProviders: cfg.AllowFakeProviders,
 		botDevicePrefixes:  cfg.BotDevicePrefixes,
@@ -167,6 +192,7 @@ func (v *Verifier) clock() time.Time {
 // VerifyLogin dispatches on Provider (verifyLogin):
 //
 //	"google":   fake path when allowFakeProviders && IDToken == "", else VerifyGoogle
+//	"apple":    fake path when allowFakeProviders && IDToken == "", else VerifyApple
 //	"facebook": switched off for now — unknown_provider like any other (was:
 //	            fake path when allowFakeProviders && AccessToken == "", else VerifyFacebook)
 //	"guest":    VerifyGuest
@@ -182,6 +208,16 @@ func (v *Verifier) VerifyLogin(ctx context.Context, req LoginRequest) (*db.Profi
 			return v.verifyFake(req)
 		}
 		return v.VerifyGoogle(ctx, req.IDToken)
+	case db.ProviderApple:
+		if v.appleOff != "" {
+			// Shut at boot (DisableApple): the fake path with it, or a test
+			// login would meet the CHECK the door is shut for.
+			return nil, NewAuthError(CodeProviderUnconfigured, "Apple login is not configured on this server", http.StatusServiceUnavailable)
+		}
+		if v.allowFakeProviders && req.IDToken == "" {
+			return v.verifyFake(req)
+		}
+		return v.VerifyApple(ctx, req.IDToken, req.DisplayName)
 	// Facebook login is switched off for now (owner, 23 Sep 2026): the Flutter
 	// login screen no longer draws the button, and "facebook" is refused here
 	// as an unsupported provider (400 unknown_provider), fake path included.
@@ -339,6 +375,141 @@ func (v *Verifier) verifyGoogleJWT(ctx context.Context, idToken string) (jwt.Map
 	return claims, nil
 }
 
+// DisableApple shuts Sign in with Apple with a reason for the log, whatever
+// the configuration says: every Apple login then answers provider_unconfigured
+// (503). The app calls it at boot when this database cannot hold an Apple
+// account yet (db.Users.ProviderAccepted). Call before serving.
+func (v *Verifier) DisableApple(reason string) { v.appleOff = reason }
+
+// VerifyApple checks a Sign in with Apple identity token (owner, 2 Oct 2026:
+// the iOS app, where App Review expects it beside Google sign-in). "" →
+// missing_token ("idToken is required for Apple login"); no bundle ids, or
+// the door shut at boot (DisableApple) → provider_unconfigured 503 ("Apple
+// login is not configured on this server"). The token is a JWT Apple signs
+// with RS256: the header kid must name one of Apple's keys
+// (https://appleid.apple.com/auth/keys), exp and iat present and within the
+// 300 s skew Google's tokens are given, iss = https://appleid.apple.com, aud
+// ∈ APPLE_BUNDLE_IDS — any failure → invalid_token ("Apple token rejected:
+// <reason>"); no sub → invalid_token ("Apple token had no subject").
+//
+// Profile: the account is keyed on `sub`, Apple's stable id for this person
+// in this team's apps. Apple puts NO name in the token — the app is given the
+// name once, at the person's first authorisation, and sends it as
+// displayName — so displayName = SanitizeName(displayName) || "Player" +
+// upper(sha256(sub)[:5]) (the guest's shape: a table of plain "Player"s
+// would tell nobody apart). email is the token's when present (often a
+// private relay address); there is no picture. Like every provider's, the
+// name is written for a NEW account only.
+func (v *Verifier) VerifyApple(ctx context.Context, idToken, displayName string) (*db.Profile, error) {
+	if idToken == "" {
+		return nil, NewAuthError(CodeMissingToken, "idToken is required for Apple login", 0)
+	}
+	if len(v.apple.BundleIDs) == 0 || v.appleOff != "" {
+		return nil, NewAuthError(CodeProviderUnconfigured, "Apple login is not configured on this server", http.StatusServiceUnavailable)
+	}
+	payload, err := v.verifyAppleJWT(ctx, idToken)
+	if err != nil {
+		return nil, NewAuthError(CodeInvalidToken, "Apple token rejected: "+err.Error(), 0)
+	}
+	sub, _ := payload["sub"].(string)
+	if sub == "" {
+		return nil, NewAuthError(CodeInvalidToken, "Apple token had no subject", 0)
+	}
+	name := SanitizeName(displayName)
+	if name == "" {
+		sum := sha256.Sum256([]byte(sub))
+		name = "Player" + strings.ToUpper(hex.EncodeToString(sum[:])[:5])
+	}
+	return &db.Profile{
+		Provider:       db.ProviderApple,
+		ProviderUserID: sub,
+		DisplayName:    name,
+		Email:          optionalString(payload["email"]),
+	}, nil
+}
+
+// verifyAppleJWT performs the checks listed on VerifyApple and returns the
+// payload.
+func (v *Verifier) verifyAppleJWT(ctx context.Context, idToken string) (jwt.MapClaims, error) {
+	if strings.Count(idToken, ".") != 2 {
+		return nil, errors.New("Wrong number of segments in token")
+	}
+	claims := jwt.MapClaims{}
+	now := v.clock()
+	var keyErr error
+	_, err := jwt.ParseWithClaims(idToken, claims, func(token *jwt.Token) (any, error) {
+		kid, _ := token.Header["kid"].(string)
+		key, err := v.appleKey(ctx, kid)
+		if err != nil {
+			keyErr = err
+			return nil, err
+		}
+		return key, nil
+	},
+		jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}),
+		jwt.WithTimeFunc(func() time.Time { return now }),
+		jwt.WithLeeway(googleClockSkew),
+		jwt.WithExpirationRequired(),
+		jwt.WithIssuedAt(),
+		jwt.WithIssuer(appleIssuer))
+	if err != nil {
+		switch {
+		case keyErr != nil:
+			// The key's own reason, without the JWT library's wrapping.
+			return nil, keyErr
+		case errors.Is(err, jwt.ErrTokenSignatureInvalid):
+			return nil, errors.New("Invalid token signature")
+		case errors.Is(err, jwt.ErrTokenRequiredClaimMissing):
+			return nil, errors.New("No expiration time in token")
+		case errors.Is(err, jwt.ErrTokenExpired):
+			return nil, errors.New("Token used too late")
+		case errors.Is(err, jwt.ErrTokenUsedBeforeIssued):
+			return nil, errors.New("Token used too early")
+		case errors.Is(err, jwt.ErrTokenInvalidIssuer):
+			return nil, errors.New("Invalid issuer")
+		}
+		return nil, err
+	}
+	aud, err := claims.GetAudience()
+	if err != nil || len(aud) == 0 {
+		return nil, errors.New("Wrong recipient, payload audience != requiredAudience")
+	}
+	for _, a := range aud {
+		for _, allowed := range v.apple.BundleIDs {
+			if a == allowed {
+				return claims, nil
+			}
+		}
+	}
+	return nil, errors.New("Wrong recipient, payload audience != requiredAudience")
+}
+
+// appleKey is Apple's signing key named kid. The keys are kept for
+// appleKeysTTL; a kid not among them refetches at once — Apple has rotated —
+// though never more often than appleKeysRefetchAfter, so a stream of tokens
+// naming a kid that does not exist cannot turn into a stream of fetches.
+func (v *Verifier) appleKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
+	v.appleMu.Lock()
+	defer v.appleMu.Unlock()
+	age := v.clock().Sub(v.appleFetched)
+	key, held := v.appleKeys[kid]
+	if v.appleKeys == nil || age >= appleKeysTTL || (!held && age >= appleKeysRefetchAfter) {
+		keys, _, err := v.fetchJWKS(ctx, v.appleKeysURL)
+		if err != nil {
+			if held {
+				return key, nil // a stale key still verifies; Apple is unreachable just now
+			}
+			return nil, fmt.Errorf("Failed to retrieve verification keys: %v", err)
+		}
+		v.appleKeys, v.appleFetched = keys, v.clock()
+		key, held = keys[kid]
+	}
+	if !held {
+		return nil, errors.New("No key found for envelope")
+	}
+	return key, nil
+}
+
 // googleCerts returns the kid → RSA public key map, refetching once the
 // cached copy's max-age has elapsed.
 func (v *Verifier) googleCerts(ctx context.Context) (map[string]*rsa.PublicKey, error) {
@@ -347,21 +518,33 @@ func (v *Verifier) googleCerts(ctx context.Context) (map[string]*rsa.PublicKey, 
 	if v.certs != nil && v.clock().Before(v.certsExpires) {
 		return v.certs, nil
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.certsURL, nil)
+	certs, maxAge, err := v.fetchJWKS(ctx, v.certsURL)
 	if err != nil {
 		return nil, err
 	}
+	v.certs = certs
+	v.certsExpires = v.clock().Add(maxAge)
+	return certs, nil
+}
+
+// fetchJWKS reads a JWKS document's RSA keys by kid, and the Cache-Control
+// max-age it was served with (0 when none).
+func (v *Verifier) fetchJWKS(ctx context.Context, target string) (map[string]*rsa.PublicKey, time.Duration, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, 0, err
+	}
 	resp, err := v.client().Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("certificate endpoint answered %d", resp.StatusCode)
+		return nil, 0, fmt.Errorf("certificate endpoint answered %d", resp.StatusCode)
 	}
 	var jwks struct {
 		Keys []struct {
@@ -372,7 +555,7 @@ func (v *Verifier) googleCerts(ctx context.Context) (map[string]*rsa.PublicKey, 
 		} `json:"keys"`
 	}
 	if err := json.Unmarshal(body, &jwks); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	certs := map[string]*rsa.PublicKey{}
 	for _, key := range jwks.Keys {
@@ -381,17 +564,15 @@ func (v *Verifier) googleCerts(ctx context.Context) (map[string]*rsa.PublicKey, 
 		}
 		n, err := base64.RawURLEncoding.DecodeString(key.N)
 		if err != nil {
-			return nil, fmt.Errorf("key %s: bad modulus", key.Kid)
+			return nil, 0, fmt.Errorf("key %s: bad modulus", key.Kid)
 		}
 		e, err := base64.RawURLEncoding.DecodeString(key.E)
 		if err != nil {
-			return nil, fmt.Errorf("key %s: bad exponent", key.Kid)
+			return nil, 0, fmt.Errorf("key %s: bad exponent", key.Kid)
 		}
 		certs[key.Kid] = &rsa.PublicKey{N: new(big.Int).SetBytes(n), E: int(new(big.Int).SetBytes(e).Int64())}
 	}
-	v.certs = certs
-	v.certsExpires = v.clock().Add(cacheMaxAge(resp.Header.Get("Cache-Control")))
-	return certs, nil
+	return certs, cacheMaxAge(resp.Header.Get("Cache-Control")), nil
 }
 
 // cacheMaxAge reads max-age from a Cache-Control header; 0 when absent, so

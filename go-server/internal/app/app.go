@@ -6,6 +6,7 @@ package app
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -57,6 +58,11 @@ type Options struct {
 	// last. An injected store (tests; several apps replaying a restart on one
 	// store) stays open: its owner closes it, as with DB.
 	Live live.Store
+	// AppleRoots replaces the root the App Store's signed transactions must
+	// chain to — Apple Root CA - G3, compiled in — for tests, which sign
+	// transactions with a root of their own (purchase/appletest). nil, every
+	// real server's, trusts Apple's alone.
+	AppleRoots *x509.CertPool
 }
 
 // App is the assembled server.
@@ -312,6 +318,26 @@ func New(opts Options) (*App, error) {
 	friends := db.NewFriends(opts.DB, clock.Now)
 	tokens := auth.NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, clock.Now)
 	verifier := auth.NewVerifier(cfg)
+	// Sign in with Apple needs users.provider to admit 'apple', and a boot
+	// never changes a CHECK a table already has: on a database built before
+	// the iOS app the door stays shut, said loudly, until the statement in
+	// the baseline's header is run by hand — rather than every Apple login
+	// failing at its INSERT with a 500.
+	if opts.DB != nil && len(cfg.Apple.BundleIDs) > 0 {
+		probe, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ok, err := users.ProviderAccepted(probe, db.ProviderApple)
+		cancel()
+		switch {
+		case err != nil:
+			logger.Warn("could not read users_provider_check; Sign in with Apple left on", "err", err.Error())
+		case !ok:
+			verifier.DisableApple("users_provider_check does not admit 'apple'")
+			logger.Error("Sign in with Apple disabled: this database's users.provider CHECK predates it",
+				"fix", "ALTER TABLE users DROP CONSTRAINT users_provider_check; "+
+					"ALTER TABLE users ADD CONSTRAINT users_provider_check CHECK (provider IN ('google', 'facebook', 'guest', 'apple')) NOT VALID; "+
+					"ALTER TABLE users VALIDATE CONSTRAINT users_provider_check; then restart (V1.0.0__baseline.sql header, DEPLOY.md)")
+		}
+	}
 
 	// The Socket.IO server.
 	a.sio = sio.NewServer(sio.Options{
@@ -526,6 +552,29 @@ func New(opts Options) (*App, error) {
 		logger.Info("chip store enabled", "package", cfg.Play.Package, "products", len(purchase.Catalogue))
 	}
 
+	// The App Store's till (owner, 2 Oct 2026). It needs no credentials — a
+	// signed transaction is checked against Apple's certificate chain, which
+	// is compiled in — so it is open wherever a bundle id is named, which the
+	// defaults do. Like Play's, a store that cannot be built is closed (503)
+	// with a loud log, never a server that will not start.
+	var appleStore auth.PurchaseGateway
+	if av, err := purchase.NewAppleVerifier(cfg.Apple.BundleIDs, cfg.Apple.IAPEnvironments); err != nil {
+		logger.Error("app store purchases disabled", "err", err.Error())
+	} else if av != nil && opts.DB != nil {
+		if opts.AppleRoots != nil {
+			av = av.WithRoots(opts.AppleRoots)
+		}
+		appleStore = &appStore{
+			verifier: av,
+			db:       opts.DB,
+			users:    users,
+			credit:   a.rooms.CreditBoughtChips,
+			logger:   logger,
+		}
+		logger.Info("app store purchases enabled",
+			"bundleIds", cfg.Apple.BundleIDs, "environments", cfg.Apple.IAPEnvironments)
+	}
+
 	api := auth.NewHandler(auth.Deps{
 		Config:      cfg,
 		Users:       users,
@@ -536,9 +585,10 @@ func New(opts Options) (*App, error) {
 		TablePictureLaid: func(userID string, pic *game.TablePicture) {
 			a.rooms.SetPlayerTablePicture(userID, pic)
 		},
-		Purchases: chipStore,
-		Missiles:  missiles,
-		Pictures:  pictures,
+		Purchases:      chipStore,
+		ApplePurchases: appleStore,
+		Missiles:       missiles,
+		Pictures:       pictures,
 		// The cloths a player lays on their own table (owner, 15 Sep 2026):
 		// the same catalogue shape, bought at the same till; a Teen Patti
 		// table shows the highest-ranking one laid among its seats to
