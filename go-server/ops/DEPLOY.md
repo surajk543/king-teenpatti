@@ -738,6 +738,63 @@ sudo -u postgres psql gameplay -c "SET statement_timeout = '5s'; UPDATE reward_p
 - **Rollback**: an older tag never reads `progression_type` or `user_reward_progress` (both stay, harmless) and judges each program
   by its mode and `reset_on_missed_day` alone, so a BREAK calendar plays as an ordinary calendar there.
 
+### The iOS app's two doors (2 Oct 2026) — one statement by hand, then nothing
+
+This build adds **Sign in with Apple** (`provider: "apple"` on
+`POST /api/auth/login`) and **App Store purchases**
+(`POST /api/purchases/apple`), for the iOS app (`docs/ios-setup.md` is the
+whole release runbook). Neither needs a secret or a new line in the `.env`:
+
+| Key | Default | |
+|---|---|---|
+| `APPLE_BUNDLE_IDS` | `com.sungamestudio.kingteenpatti` | the audience an Apple identity token must name, and the app a purchase must have been made in; empty shuts both doors (503) |
+| `APPLE_IAP_ENVIRONMENTS` | `Production,Sandbox` | whose purchases are credited. **Keep Sandbox**: TestFlight, sandbox testers and App Review buy there (nothing is charged), and only people the owner invites can |
+
+After the restart the journal says `app store purchases enabled`. Android and
+every installed app are untouched: nothing they send or receive changed.
+
+**One statement by hand, once.** Production's `users.provider` CHECK was built
+before Apple, and a boot never changes a CHECK a table already has. The server
+notices at boot, logs `Sign in with Apple disabled: this database's
+users.provider CHECK predates it` with the fix, and answers every Apple login
+`503 provider_unconfigured` (every other door works) until this is run — as
+the owner of `users` (`postgres` where §7 is applied), at a quiet hour:
+
+```bash
+sudo -u postgres psql gameplay <<'SQL'
+SET statement_timeout = '10s';
+SET lock_timeout = '3s';
+ALTER TABLE users DROP CONSTRAINT users_provider_check;
+ALTER TABLE users ADD CONSTRAINT users_provider_check
+  CHECK (provider IN ('google', 'facebook', 'guest', 'apple')) NOT VALID;
+ALTER TABLE users VALIDATE CONSTRAINT users_provider_check;
+SQL
+sudo systemctl restart gameplay     # the constraint is read at boot only
+sudo journalctl -u gameplay -n 50 --no-pager | grep -i 'apple'
+```
+
+The DROP and the ADD each take a brief exclusive lock on `users` (no scan:
+`NOT VALID`); the VALIDATE scans under a lock that lets logins and
+checkpoints carry on. If `lock_timeout` stops it, nothing has changed —
+run it again. Do it before the iOS app is in anyone's hands, App Review's
+included.
+
+Once the app has its App Store id, give the version gate its store link (no
+restart): `UPDATE app_versions SET store_url = 'https://apps.apple.com/app/id<id>'
+WHERE platform = 'ios';`
+
+**Checking a purchase**: `journalctl -u gameplay | grep 'app store purchase
+banked'` — one line a purchase, with its `transactionId` and `environment`.
+A chip purchase's ledger row is `action_id = 'appstore:<transactionId>'`,
+reason `purchase`; a diamond, hammer or badge purchase's guard row carries the
+same key in `purchase_token`.
+
+**Rolling back** past this build needs nothing undone: an older server
+refuses `apple` as an unknown provider and has no Apple purchase route (an
+iOS app keeps an unbanked purchase and posts it again later), and the rows
+this build wrote — Apple accounts, `appstore:` keys, the wider CHECK — are
+ones it never reads or is indifferent to.
+
 ## 4. Verify
 
 **Health** — `process.node` must start with `go`; `goroutines`/`numCpu`/`gomaxprocs` are Go-only extras:

@@ -35,7 +35,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 |---|---|---|
 | **Game server** | `go-server/` | **The server** — live in production since `go-server/ops/DEPLOY.md` was run (Sept 2026). Go 1.27, one static binary, PostgreSQL via `pgx` (**16.15 on production**, 18.6 on the dev box — checked 29 Sep 2026). Database-first money model (§5). Wire-identical to the Node original it replaced — same protocol, JWTs, schema, ledger rows, `/health`, `game_*` metrics (141/141 black-box parity suites). §5–§7 describe its behaviour; §14 its shape. **Since 19 Sep 2026 it also runs the Poker family** (§6.5): 3-Card Poker, 5-Card Draw, Texas Hold'em and Omaha as rooms beside the Teen Patti tables, in `internal/poker/`. **Since 23 Sep 2026 its table configuration can live in PostgreSQL** (owner: "all table related config store in database"): the engines (Teen Patti, Poker), the categories under them, and every lobby table with every figure it plays by, read once at boot when `TABLE_CONFIG_SOURCE=db` (§7.3, §7.4) and served to the app as `GET /api/tables` (§7.2). Configuration only — game state stays in Redis. |
 | Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. **No longer a rollback target at all** (12 Sep 2026): it reads and writes `users.avatar_choice`, which the schema dropped for `active_picture_id`, and knows nothing of the picture-catalogue tables — so it cannot run against this database. `ops/rollback-to-node.sh` was deleted rather than left as a recovery script that would fail when used; rolling back now means the previous **Go** tag (DEPLOY.md §5). |
-| Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
+| Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`, the App Store release runbook) but has never been compiled — there is no macOS here; since 2 Oct 2026 it carries Sign in with Apple and App Store purchases (§7.2, §8.4 iOS). |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
 | Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation and `tools/lottie/bake_loop_expressions.py` writes its `loopOut()` expressions out as keyframes, both for the phone players (§12.3). `tools/tables/make_table_pictures.py` (Python 3, stdlib) draws the 16 SVG table pictures in `go-server/public/tables/` — eight designs, a day and a night file each (§7.3); `tools/tables/make_background_pattern.py` re-encodes the owner's Background Pattern Lottie (`background-pattern.json`, 122 KB) into the two 31 KB Drive files beside it, day and night (§7.3); `tools/tables/make_thank_you_day.py` recolours the owner's Thank You Lottie into its day file, deep gold for the light ground (§7.3). `tools/r2/migrate_drive_assets.py` (Python 3 + the AWS CLI) copied the catalogue's 130 art files from Google Drive (and `go-server/public/levels/`) into the private Cloudflare R2 bucket and wrote `tools/r2/drive-to-r2.tsv`, the record the seed's moves were written from; `tools/r2/move_back_sql.py` turns that record into the SQL a rollback past the move needs first (§7.3 "The catalogue's art in R2"). |
 | **Bot fleet** | `bot-play/` | The resident bots that keep production's lobby populated (`bot-play.service` on the game host, loopback to `:3000`). **Go since 27 Sep 2026** (module `github.com/surajk543/king-teenpatti/bot-play`, one static binary; the Node fleet it replaced is in git history, tagged `bot-play/v1.0.0`): `BOT_COUNT` bots (450 in the unit since 30 Sep 2026, 320 before — about 280 seated at once: 30–50 at each of Seen 200, Seen 50,000 and Variation 50,000, and 50–80 at Blind 200 and Blind 50,000 — `BOT_LOBBY_TABLES=seen:200,seen:50000,blind:200:fleet=50-80,blind:50000:fleet=50-80,variation:50000`, `BOT_FLEET_PER_TABLE=30,50` for the entries without their own `:fleet=FLOOR-CEILING`; owner 27 Sep 2026, and 30 Sep 2026: "add some bots which plays blind 50000, blind 200 also". A new build must be built before its unit is installed: an older binary refuses a `:fleet=` entry and the unit would restart-loop), guest devices `botplay-<6 digits>` the server marks `is_bot`, each on its own goroutine, event loop and websocket-only Socket.IO connection, in sessions of play with rests between. Six personality families (CAUTIOUS … BEGINNER) stable per identity, blind/seen play, raises up the server's ladder, hand strength from a copy of `handrank.go` pinned by a fingerprint of all 22,100 hands (variation hands read from the server's `you.hand`), log-normal reaction times ending 3 s inside the turn clock, tables from `GET /api/tables`, chat under a per-table budget, a lost ack resent with the same `actionId`; a bot broke for every table collects the lobby's 6-hour bonus (25,000, `POST /api/rewards/bonus`, `bankroll.collect_bonus`/`BOT_COLLECT_BONUS`) and looks again, where from the rewards' removal until 1 Oct 2026 it rested for good. `ops/install.sh` runs the unit as `BOT_USER` (unset: the installed fleet's user, else `deploy`) and refuses a user the host lacks — production has no `deploy` and runs the fleet as `gameplay` (a drop-in, `/etc/systemd/system/bot-play.service.d/user.conf`, since the unit as shipped restart-looped there on 217/USER). `go run ./cmd/bot-play` (`BOT_MODE=simulation BOT_SEED=12345` runs an in-process stand-in server), `go test -race ./...`; `bot-play/README.md` is the reference. Separate from `tools/bot.js`, the practice bots for manual testing. |
@@ -102,7 +102,7 @@ king-teenpatti/
 │   │   │                         poker.go (poker:action in, the poker:* events out — the Handler's poker.Listener); testclient/
 │   │   ├── appversion/           the app version gate (28 Sep 2026, §7.2): semver.go (Parse/Compare — the ONE version comparison), rules.go (Evaluate: NORMAL/SOFT_UPDATE/FORCE_UPDATE/MAINTENANCE, the platforms, LegacyMinClientBuild), source.go (the app_versions rows behind a TTL cache), gate.go (Gate.Admit/Check, the refusal and the GET /api/app-config body, the logs)
 │   │   ├── assets/               the catalogue's art in a private Cloudflare R2 bucket (1 Oct 2026, §7.2 POST /api/assets/sign): sigv4.go (AWS SigV4 query presigning, stdlib only), signer.go (Signer: a location's GET link valid ten minutes, Location/Key, the bucket's and keys' shapes checked)
-│   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go, reports.go (Report Player's POST /api/reports and GET /api/reports/limit, §7.2), rewardprograms.go (GET /api/reward-programs and POST /api/reward-programs/claim, §7.2), assets.go (POST /api/assets/sign, §7.2)
+│   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Apple/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go, reports.go (Report Player's POST /api/reports and GET /api/reports/limit, §7.2), rewardprograms.go (GET /api/reward-programs and POST /api/reward-programs/claim, §7.2), assets.go (POST /api/assets/sign, §7.2)
 │   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — the founding PAIR since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows); since 28 Sep 2026 DML-only seeds may follow them, V1.0.2__seed-festive-capybara.sql the first (Festive Capybara) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL), luckydraw.go (the Lucky Draw: State, Spin — draw, grant and record in one transaction, §7.3), reports.go (player_reports: Submit — the limits and the insert in one transaction, §7.3), rewardprograms.go (the reward programs, §7.3: State and Claim — the period, the streak and the calendar day worked out in Go from the claims, one transaction a program; a claim may name one program) and rewardprogress.go (progressAt — the ONE statement of the progression rules, RESET / SEQUENTIAL / BREAK × LOGIN_STREAK / CALENDAR, pure; the progress row's upsert lives in rewardprograms.go) and grant.go (grantReward — the ONE grant of a reward of any kind, the Lucky Draw's and the programs'), assets.go (Assets.Stored — which R2 locations some catalogue row names, what the sign route signs, §7.2); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js),
@@ -1391,8 +1391,34 @@ the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a repla
 **diamond packs** (owner, 13 Sep 2026): `diamonds_1_49`, `diamonds_5_199`, `diamonds_20_699`, `diamonds_100_2999`
 (`purchase.Catalogue`, `Product.Diamonds`) → `db.CreditDiamondPurchase` adds to `users.diamond` with **no ledger row**,
 guarded by `diamond_purchases` (PK = the purchase token, `ON CONFLICT DO NOTHING`), and the answer carries `diamonds`
-beside `chips` (one of them 0). All four product ids must exist as managed products in the Play Console. **There
-is no Apple counterpart**, which is why the Flutter chip store does not start on iOS (§8.4);
+beside `chips` (one of them 0). All four product ids must exist as managed products in the Play Console. **The App Store's counterpart is
+`POST /api/purchases/apple {productId, transaction}`** (owner, 2 Oct 2026: "i want to release app on apple store … Build Apple
+purchases now"; `auth/handlers.go` `BuyFromAppStore`, `app/purchases.go` `appStore`, `purchase/apple.go`): the same products under the
+same ids (each a Consumable in App Store Connect; a badge by its `play_product_id`), the same answer and refusals (402
+`purchase_unverified` "The App Store could not confirm that purchase…", 400 `unknown_product` / `invalid_purchase`, 503
+`store_unavailable` with no bundle id), no seated check, the wallet limiter. `transaction` is the StoreKit 2 **signed transaction**
+(a JWS) the purchase handed the app, verified WITHOUT calling Apple and without a secret (`purchase.AppleVerifier`, the procedure of
+Apple's own library with its online checks off): `alg` ES256 and nothing else, an `x5c` chain of three whose leaf and intermediate
+carry Apple's marker extensions (1.2.840.113635.100.6.11.1 / .6.2.1), verified up to **Apple Root CA - G3, compiled in**
+(`purchase/apple_root_ca_g3.pem`, SHA-256 63:34:3A:BF…3E:91:79, held to that by a test) at the transaction's own `signedDate`, the
+leaf's signature over the payload, then `bundleId` ∈ `APPLE_BUNDLE_IDS`, `productId` = the request's, `environment` ∈
+`APPLE_IAP_ENVIRONMENTS`, no `revocationDate` (a refund → 402). It is banked once under **`appstore:<transactionId>`**
+(`purchase.AppleToken`; `purchase.ActionID` leaves that key as it is and still prefixes a Play token `gplay:`) through the SAME
+till as Play's (`app.till`: `lookup` then `bank` — the chip ledger row, `diamond_purchases`, `hammer_purchases`, `badge_purchases`,
+the seat's top-up under the seat lock), and logged `app store purchase banked` with its environment. **Sandbox is credited by
+default** — TestFlight, sandbox testers and App Review buy there, uncharged, and only people the owner invites can. Nothing is
+acknowledged: the APP finishes the transaction once the server has answered (§8.1). Tests sign with a root of their own
+(`purchase/appletest`, `app.Options.AppleRoots`): `purchase/apple_test.go`, `app/appstore_test.go`.
+**Sign in with Apple** (the same day; `auth/providers.go` `VerifyApple`): `POST /api/auth/login {provider:"apple", idToken,
+displayName?}` — the identity token is an RS256 JWT checked against Apple's keys (`https://appleid.apple.com/auth/keys`, kept an
+hour although Apple says `no-store`, refetched for a kid not held, at most once a minute), `iss` `https://appleid.apple.com`, `aud` ∈
+`APPLE_BUNDLE_IDS`, `exp`/`iat` within 300 s; the account is keyed on `sub` (`db.ProviderApple`). Apple puts no name in the token
+— the app is told it once and sends `displayName` — so a new account is `SanitizeName(displayName)` or `Player` + five hex of
+sha256(sub); email is the token's (often a relay address); no photo. Refusals `missing_token`, `invalid_token` ("Apple token
+rejected: …"), 503 `provider_unconfigured` with no bundle id **or on a database whose `users.provider` CHECK predates Apple**
+(§7.3: `app.New` asks `db.Users.ProviderAccepted` and calls `Verifier.DisableApple`, one ERROR with the statement to run). The
+fake path (`AUTH_ALLOW_FAKE_PROVIDERS`, no `idToken`) serves `apple` as it does `google`. Token revocation at account deletion
+(Apple's guideline 5.1.1(v) "should") is NOT built — it needs a `.p8` key. `auth/providers_apple_test.go`, `app/appstore_test.go`;
 **`POST /api/store/missiles {packId, requestId}`** (owner, 14 Sep 2026) — trades diamonds for missiles in
 packs: `missiles_1` (15 diamonds for 1 — 10 until the owner raised it later on 14 Sep 2026), `missiles_5` (73 for 5), `missiles_10` (140 for 10), `missiles_20` (220 for 20), in one transaction under the
 wallet lock (`db.Missiles.TradeMissiles`), replay-guarded by `missile_purchases` (`request_id` = `<userId>:<requestId>`).
@@ -1869,6 +1895,11 @@ actions it records; a player's history filed and received is the two player inde
 every login (`startSession`). An existing database gains it at its next boot, empty: every account reads 0, which is what every
 token issued before it carries (`handover_boot_test.go` re-creates it under §7).
 
+**`users.provider` admits `apple` since 2 Oct 2026** (Sign in with Apple, §7.2): the CREATE TABLE's CHECK is `('google', 'facebook',
+'guest', 'apple')`, which reaches a FRESH database only — production's keeps the three until the hand step in the baseline's header
+and DEPLOY.md "The iOS app's two doors" (DROP, ADD … NOT VALID, VALIDATE, then a restart: the server reads the constraint at boot
+alone and keeps Apple's door shut, 503, until it admits the provider; `TestOnADatabaseFromBeforeItSignInWithAppleIsShutUntilTheCheckIsReplaced`).
+
 Timestamps are epoch-ms BIGINT. Rewards (removed 30 Sep 2026, §7.2): milestone 25,000 / 25 hands (`didChaal` only), timed bonus 10,000 / 4h, and beside it the Go-only daily bonus 1,00,000 chips + 1 hammer / 24h (owner, 14 Sep 2026) — they were constants in `db/users.go`, never configurable. Display names: `NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\p{M} ]*$/u` —
 **`\p{M}` is essential** for Indic vowel signs.
 
@@ -2226,6 +2257,7 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | **`WS_COMPRESSION`** | true | **Go-only (26 Sep 2026).** Negotiate websocket permessage-deflate (RFC 7692) with every client that offers it — they all do: dart:io's WebSocket (the Flutter app), the browsers, node's `ws` (bots, `tools/`). `sio.Options.EnableCompression`; gorilla negotiates no context takeover both ways, so each message is deflated on its own, and frames under `sio.DefaultCompressMinBytes` (256: pings, acks, action broadcasts) go out plain. Measured locally at 500 bots: the server's traffic per player **8.9 → 4.1 KB/s (−54%)**, move ack p95 3 → 4 ms, the game process's CPU about a quarter higher — traffic, not CPU, was what the 26 Sep production ladder showed filling first. `false` = plain frames, Node's behaviour (engine.io 6 left perMessageDeflate off); a restart applies it. A debug line `sio: websocket open` says whether each connection is compressed. |
 | `JWT_SECRET` / `JWT_EXPIRES_IN` | dev-only-insecure-secret / 30d | |
 | `GOOGLE_CLIENT_IDS`, `FACEBOOK_APP_ID/SECRET` | empty → 503 | Facebook's pair is read and unused while Facebook sign-in is switched off (23 Sep 2026, §7.2). `GOOGLE_CLIENT_IDS` must name the Web client `265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com`: `prod.sungamestudio.com` answered every Google login 503 `provider_unconfigured` until the owner set it and restarted on 24 Sep 2026 (a dummy-token login then answered 401 `invalid_token`); a login answered 503 there means it is missing again — §12.3 |
+| **`APPLE_BUNDLE_IDS`** / **`APPLE_IAP_ENVIRONMENTS`** | `com.sungamestudio.kingteenpatti` / `Production,Sandbox` | **Go-only (2 Oct 2026; §7.2).** The iOS bundle ids this server answers to — the audience a Sign in with Apple token must name and the app an App Store transaction must have been bought in; empty shuts both (503 `provider_unconfigured` / `store_unavailable`). No secret is involved in either. The environments whose purchases are credited (comma list of `Production`, `Sandbox`; anything else stops the boot): **keep Sandbox** — TestFlight, sandbox testers and App Review buy there and a refused reviewer rejects the build. |
 | `AUTH_ALLOW_FAKE_PROVIDERS` | false | |
 | **`REST_LOGIN_RATE_LIMIT`** / **`REST_WALLET_RATE_LIMIT`** / **`REST_RATE_WINDOW_MS`** | 60 / 120 / 60000 | **Go-only (24 Sep 2026).** Per-client-IP fixed-window limits (`config.RESTRateConfig`, `auth/ratelimit.go`): `POST /api/auth/login`, and the doors that move a wallet (Play purchases, picture and table-picture buys, the missile store, `DELETE /api/account`). Over it: **429** `{error:"rate_limited"}` + `Retry-After`, one WARN `rest rate limited` per IP per window. 0 = that limit off. The IP is the peer's, or nginx's `X-Real-IP` from a loopback peer; a loopback peer with no `X-Real-IP` (bot-play, `tools/`, tests) is never limited. Generous on purpose — CGNAT puts many players behind one IP. |
 | **`DATABASE_URL`** | `postgres://postgres:postgres@localhost:5432/gameplay` | |
@@ -2534,7 +2566,14 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   idempotent on the token (`gplay:<token>`). A refusal finishes the purchase only when it is a verdict on the receipt
   (`receiptRefusalIsFinal`: 400, 402); 401/403/408/429/5xx keep it owned for the next session. In-flight and finished
   tokens are de-duplicated. A consume that fails acknowledges instead (the server acknowledges on credit too).
-  `test/purchases_consume_test.dart`.
+  `test/purchases_consume_test.dart`. **On iOS the same class buys from the App Store** (2 Oct 2026; `Store {play, appStore,
+  none}`, `Purchases.store`): `buyConsumable(autoConsume: true)` — the StoreKit plugin asserts it, and under StoreKit 2 it finishes
+  nothing —, the purchase's `serverVerificationData` (Apple's signed transaction) posted to `/api/purchases/apple`
+  (`ApiClient.redeemPurchase(appStore: true)`), and `completePurchase` (StoreKit's finish) only after the server banked it;
+  `redeliver()` asks `SK2Transaction.unfinishedTransactions()`; a purchase is known across deliveries by its transaction id.
+  StoreKit refuses to sell a product whose last transaction is unfinished (`storekit_duplicate_product_object`): `buy` then says
+  `Purchases.finishingEarlier` (`Strings.purchaseFinishingEarlier`) and redelivers. A **404** is no longer a final refusal
+  (`receiptRefusalIsFinal`): it is a server without the route, not a verdict on a receipt. `test/ios_store_test.dart`.
 - **The table catalogue on the phone** (owner, 23 Sep 2026: "the UI fetches it, stores it on the phone, and re-fetches it
   at every login"; `state/table_config_cache.dart`). `TableConfigCache` keeps ONE entry under `tableConfig`:
   `{"schema":1, "version", "fetchedAt", "body"}`, `body` being the server's JSON exactly as it came (a later build can
@@ -4594,11 +4633,18 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   `UIStatusBarHidden` for immersive-sticky's absence, `NSAllowsLocalNetworking` as the `usesCleartextTraffic`
   equivalent. `tool/render_icons.dart` also writes `AppIcon.appiconset` (**alpha stripped via Pillow** — Apple rejects
   an icon with an alpha channel) and the `LaunchImage`/`LaunchBranding` sets the storyboard draws on
-  `LaunchBackground.colorset` (#FAF7F0 / #0B0B0B, Android's two launch colours). Two things are deliberately
-  Android-only and must stay so until the server catches up: `Purchases.start()` (the receipt goes to
-  `/api/purchases/google`, so StoreKit would take money and credit nothing) and `AppUpdate` (`in_app_update` is an
-  Android plugin; the server's `MIN_CLIENT_BUILD` floor still works and `storeListingUris()` needs
-  `--dart-define=APPLE_APP_ID`). `docs/ios-setup.md` is the runbook.
+  `LaunchBackground.colorset` (#FAF7F0 / #0B0B0B, Android's two launch colours). **Since 2 Oct 2026 the iOS build has
+  both of its doors** (owner: "i want to release app on apple store"; server §7.2): the store (§8.1 "Play purchases" — StoreKit 2,
+  each signed transaction posted to `/api/purchases/apple` and finished only once banked; **minimum iOS 15.0**,
+  `IPHONEOS_DEPLOYMENT_TARGET`, StoreKit 2's floor — 13.0 before) and **Sign in with Apple** (`SocialSignIn.apple`/`appleOffered`/
+  `appleName`, the `sign_in_with_apple` plugin's own `SignInWithAppleButton` on the sign-in screen between Guest and Google, on iOS
+  alone — white by night, black by day, 48dp, `continueApple` in all five languages; `GameState.loginWithProvider(…, nameOf:)` sends
+  the name Apple hands over once; `Runner/Runner.entitlements` with `com.apple.developer.applesignin`, named by
+  `CODE_SIGN_ENTITLEMENTS` in all three configurations). `Info.plist` answers export compliance
+  (`ITSAppUsesNonExemptEncryption` false). Still Android-only: `AppUpdate` (`in_app_update` is an Android plugin; the version
+  gate's Update key opens the `ios` row's `store_url`, else `storeListingUris()` with `--dart-define=APPLE_APP_ID`).
+  `test/ios_store_test.dart`. `docs/ios-setup.md` is the runbook, App Store Connect's 27 products and the review checklist
+  included.
 
 ---
 
@@ -4620,7 +4666,7 @@ HTML comment and its handler commented out while Facebook is switched off (23 Se
 ---
 
 ## 10. Requirements index (`Requirements.txt`)
-1 login providers (Google and guest; Facebook switched off for now, 23 Sep 2026) · 2 DB per identity (brief says SQLite; **now Postgres by owner's decision**) ·
+1 login providers (Google and guest; Facebook switched off for now, 23 Sep 2026; Sign in with Apple on iOS since 2 Oct 2026) · 2 DB per identity (brief says SQLite; **now Postgres by owner's decision**) ·
 3 ≤5/room · 4 ≥2 to start · 5 3 lakh welcome (2 lakh until 14 Sep 2026; with 9 diamonds, 20 hammers and 1 missile; 10 Lakh since 27 Sep 2026; since 30 Sep 2026 whatever the
 `welcome_rewards` rows say — chips, diamonds, hammers, missiles, pictures, emojis, some or all, §7.3 — seeded 5 Lakh, 5, 10 and 1 since the owner's seed edit that evening; 9 and 20 for its first hours) · 6a–g core play · 7 persistence · 8 room chat ·
 9 +/− stepper · 10 auto-pack · **(no 11)** · 12 collapsible chat · 13 Blind/Seen × 200/5000 (and, since 18 Sep 2026, a third
@@ -4993,7 +5039,9 @@ deploy runbook; `steps.txt` the six-line routine.
   `gomaxprocs`. Grafana's former "Node.js" row is now "Runtime"; alerts
   `GameServerSchedulerLatencyHigh` / `GameServerGoroutinesHigh` / `GameServerMemoryHigh` replaced
   the three `nodejs_*` ones (§7.5 bundle at `go-server/ops/monitoring/`, `MONITORING.md`).
-- Small honest deviations: **the catalogue's art in R2** (§7.2/§7.3/§7.4; 1 Oct 2026) — `POST /api/assets/sign`, the four `R2_*`
+- Small honest deviations: **the iOS app's two doors** (§7.2/§7.3/§7.4; 2 Oct 2026) — provider `apple` on the login,
+  `POST /api/purchases/apple`, `APPLE_BUNDLE_IDS` / `APPLE_IAP_ENVIRONMENTS`, `'apple'` in `users.provider`'s CHECK and
+  `appstore:<transactionId>` purchase keys; nothing an Android client sends or receives changed; **the catalogue's art in R2** (§7.2/§7.3/§7.4; 1 Oct 2026) — `POST /api/assets/sign`, the four `R2_*`
   keys (production will not start without them), and every catalogue URL a route hands out a location in a private bucket, which a
   client opens only through that route; **the reward programs** (§7.2/§7.3/§8.4; 30 Sep 2026) — three tables (four since the progression types, 1 Oct 2026), `GET /api/reward-programs`,
   `POST /api/reward-programs/claim`, `reward_program` ledger rows; nothing of a table's wire, snapshot or ledger row changed; **the app version gate** (§7.1/§7.2/§7.3/§7.4; 28 Sep 2026) — `app_versions`, `GET /api/app-config`,

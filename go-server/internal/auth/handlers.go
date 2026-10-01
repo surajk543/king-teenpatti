@@ -329,17 +329,53 @@ func (h *Handler) BuyChips(w http.ResponseWriter, r *http.Request, user *db.User
 		h.writeError(w, r, err)
 		return
 	}
-	if body.ProductID == "" || body.PurchaseToken == "" {
+	h.buy(w, r, user, h.deps.Purchases, "google", body.ProductID, body.PurchaseToken)
+}
+
+// BuyFromAppStore is POST /api/purchases/apple {productId, transaction}
+// (owner, 2 Oct 2026: the iOS app's store).
+//
+// BuyChips for the App Store: the same products under the same ids, the same
+// answer, the same refusals and the same absence of a seated check. The one
+// difference is the receipt — `transaction` is the StoreKit 2 signed
+// transaction (a JWS) the purchase gave the app, which the gateway verifies
+// against Apple's certificate chain instead of asking Google about a token —
+// and the replay guard's key, Apple's transaction id. A transaction already
+// banked answers 200 with credited=false, and the app then finishes it with
+// StoreKit rather than delivering it again.
+//
+// No gateway (the server names no Apple bundle id) → 503 store_unavailable.
+func (h *Handler) BuyFromAppStore(w http.ResponseWriter, r *http.Request, user *db.User) {
+	if h.deps.ApplePurchases == nil {
+		WriteJSON(w, http.StatusServiceUnavailable,
+			ErrorResponse{Error: CodeStoreUnavailable, Message: MsgStoreUnavailable})
+		return
+	}
+	var body struct {
+		ProductID   string `json:"productId"`
+		Transaction string `json:"transaction"`
+	}
+	if err := ReadJSONBody(r, &body); err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	h.buy(w, r, user, h.deps.ApplePurchases, "apple", body.ProductID, body.Transaction)
+}
+
+// buy is the two purchase routes' shared half: the receipt handed to its
+// store's gateway, the log line, and the answer.
+func (h *Handler) buy(w http.ResponseWriter, r *http.Request, user *db.User, gateway PurchaseGateway, store, productID, receipt string) {
+	if productID == "" || receipt == "" {
 		WriteJSON(w, http.StatusBadRequest,
 			ErrorResponse{Error: CodeInvalidPurchase, Message: MsgInvalidPurchase})
 		return
 	}
 
-	out, err := h.deps.Purchases.Buy(r.Context(), user.ID, body.ProductID, body.PurchaseToken)
+	out, err := gateway.Buy(r.Context(), user.ID, productID, receipt)
 	if err != nil {
 		if h.deps.Logger != nil {
 			h.deps.Logger.Warn("purchase refused",
-				"userId", user.ID, "productId", body.ProductID, "err", err.Error())
+				"userId", user.ID, "productId", productID, "store", store, "err", err.Error())
 		}
 		h.writeError(w, r, err)
 		return
@@ -350,16 +386,16 @@ func (h *Handler) BuyChips(w http.ResponseWriter, r *http.Request, user *db.User
 		switch {
 		case out.Badge != nil:
 			h.deps.Logger.Info("badge purchased",
-				"userId", user.ID, "productId", body.ProductID, "badge", out.Badge.Code, "expiresAt", out.Badge.ExpiresAt)
+				"userId", user.ID, "productId", productID, "store", store, "badge", out.Badge.Code, "expiresAt", out.Badge.ExpiresAt)
 		case out.Diamonds > 0:
 			h.deps.Logger.Info("diamonds purchased",
-				"userId", user.ID, "productId", body.ProductID, "diamonds", out.Diamonds)
+				"userId", user.ID, "productId", productID, "store", store, "diamonds", out.Diamonds)
 		case out.Hammers > 0 && out.Chips == 0:
 			h.deps.Logger.Info("hammers purchased",
-				"userId", user.ID, "productId", body.ProductID, "hammers", out.Hammers)
+				"userId", user.ID, "productId", productID, "store", store, "hammers", out.Hammers)
 		default:
 			h.deps.Logger.Info("chips purchased",
-				"userId", user.ID, "productId", body.ProductID, "chips", out.Chips,
+				"userId", user.ID, "productId", productID, "store", store, "chips", out.Chips,
 				"missiles", out.Missiles, "hammers", out.Hammers)
 		}
 	}

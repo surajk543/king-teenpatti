@@ -58,11 +58,15 @@ dependencies:
   # Already in the tree through in_app_purchase; named because net/purchases.dart
   # consumes a banked purchase and lists owned ones through its Android addition.
   in_app_purchase_android: ^0.5.3
+  # The App Store half, named for the same reason: net/purchases.dart asks
+  # StoreKit 2 for its unfinished transactions directly (2 Oct 2026).
+  in_app_purchase_storekit: ^0.4.12
   in_app_update: ^5.0.0
   frosted_ui_kit: ^1.0.2
   audioplayers: ^6.8.1
   google_sign_in: ^7.2.0
   url_launcher: ^6.3.1
+  sign_in_with_apple: ^8.2.0
 
   # Facebook Login (restored 22 Sep 2026, owner). It was dropped on 10 Sep 2026
   # for the first release because com.facebook.android:facebook-core injects

@@ -116,6 +116,23 @@
 --   ALTER TABLE user_milestones ADD CONSTRAINT user_milestones_milestone_check
 --     CHECK (milestone IN ('HANDS_PLAYED', 'TIMED_BONUS', 'DAILY_BONUS'));
 --
+-- A database built before Sign in with Apple (2 Oct 2026; the iOS app) —
+-- production's — keeps users_provider_check at ('google', 'facebook',
+-- 'guest'), which refuses an Apple account's INSERT. The server notices at
+-- boot (db.Users.ProviderAccepted), logs these statements and answers every
+-- Apple login 503 provider_unconfigured, until they are run (as the owner of
+-- users: postgres where DEPLOY.md §7 is applied, else the app role) and the
+-- server is restarted:
+--
+--   ALTER TABLE users DROP CONSTRAINT users_provider_check;
+--   ALTER TABLE users ADD CONSTRAINT users_provider_check
+--     CHECK (provider IN ('google', 'facebook', 'guest', 'apple')) NOT VALID;
+--   ALTER TABLE users VALIDATE CONSTRAINT users_provider_check;
+--
+-- (NOT VALID then VALIDATE: the check is added without scanning the table
+-- under its exclusive lock, and validated under a lock that lets logins and
+-- checkpoints carry on.)
+--
 -- Bringing such a database to this shape is a deliberate one-off step run by
 -- hand, or a fresh start (ops/DEPLOY.md §8), never something a boot does behind
 -- your back. The guarded blocks are the one thing a boot does bring forward: a
@@ -281,7 +298,7 @@ $$;
 
 CREATE TABLE IF NOT EXISTS users (
   id                TEXT PRIMARY KEY,
-  provider          TEXT NOT NULL CHECK (provider IN ('google', 'facebook', 'guest')),
+  provider          TEXT NOT NULL CHECK (provider IN ('google', 'facebook', 'guest', 'apple')),
   -- Provider-scoped identity: Google "sub", Facebook user id, or the hashed device id for guests.
   provider_user_id  TEXT NOT NULL,
   display_name      TEXT NOT NULL,

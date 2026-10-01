@@ -75,6 +75,10 @@ class Strings {
   String get playAsGuest => _('playAsGuest');
   String get signingIn => _('signingIn');
   String get continueGoogle => _('continueGoogle');
+
+  /// The Sign in with Apple button's words (iOS; owner, 2 Oct 2026). One of
+  /// the three phrasings Apple's guidelines allow on that button.
+  String get continueApple => _('continueApple');
   String get continueFacebook => _('continueFacebook');
 
   /// Opens the published privacy policy. Google's User Data policy wants
@@ -82,7 +86,7 @@ class Strings {
   String get privacyPolicy => _('privacyPolicy');
 
   /// Shown when a provider button is tapped in a build that carries no
-  /// credentials for it. `{provider}` is substituted with 'Google'/'Facebook'.
+  /// credentials for it. `{provider}` is substituted with 'Google'/'Apple'.
   String signInUnavailable(String provider) =>
       _('signInUnavailable').replaceAll('{provider}', provider);
 
@@ -1958,6 +1962,11 @@ class Strings {
   String get maintenanceRetry => _('maintenanceRetry');
   String get purchaseNotLaunched => _('purchaseNotLaunched');
 
+  /// The App Store would not sell a pack because an earlier purchase of it is
+  /// still being banked (Purchases.finishingEarlier): said while the app
+  /// finishes that one.
+  String get purchaseFinishingEarlier => _('purchaseFinishingEarlier');
+
   // --- name and the entry cap
   String get changeName => _('changeName');
   String get save => _('save');
@@ -1981,6 +1990,7 @@ class Strings {
       'playAsGuest': 'Play as Guest',
       'signingIn': 'Signing in…',
       'continueGoogle': 'Continue with Google',
+      'continueApple': 'Continue with Apple',
       'continueFacebook': 'Continue with Facebook',
       'privacyPolicy': 'Privacy policy',
       'signInUnavailable':
@@ -2186,6 +2196,8 @@ class Strings {
           'King Teen Patti is temporarily unavailable. Please try again later.',
       'maintenanceRetry': 'Try again',
       'purchaseNotLaunched': 'The purchase did not go through.',
+      'purchaseFinishingEarlier':
+          'Finishing an earlier purchase — try again in a moment.',
       'storeTitle': 'Chip Store',
       'storeBlurb': 'The bigger the pack, the bigger the bonus.',
       'storeTabChips': 'Chips',
@@ -2983,6 +2995,7 @@ class Strings {
       'playAsGuest': 'मेहमान के रूप में खेलें',
       'signingIn': 'साइन इन हो रहा है…',
       'continueGoogle': 'Google से जारी रखें',
+      'continueApple': 'Apple से जारी रखें',
       'continueFacebook': 'Facebook से जारी रखें',
       'privacyPolicy': 'गोपनीयता नीति',
       'signInUnavailable':
@@ -3188,6 +3201,8 @@ class Strings {
           'King Teen Patti अभी कुछ समय के लिए उपलब्ध नहीं है। कृपया बाद में फिर कोशिश करें।',
       'maintenanceRetry': 'फिर कोशिश करें',
       'purchaseNotLaunched': 'खरीदारी पूरी नहीं हुई।',
+      'purchaseFinishingEarlier':
+          'पिछली खरीदारी पूरी की जा रही है — थोड़ी देर में फिर कोशिश करें।',
       'storeTitle': 'चिप स्टोर',
       'storeBlurb': 'जितना बड़ा पैक, उतना बड़ा बोनस।',
       'storeTabChips': 'चिप्स',
@@ -3970,6 +3985,7 @@ class Strings {
       'playAsGuest': 'অতিথি হিসেবে খেলুন',
       'signingIn': 'সাইন ইন হচ্ছে…',
       'continueGoogle': 'Google দিয়ে চালিয়ে যান',
+      'continueApple': 'Apple দিয়ে চালিয়ে যান',
       'continueFacebook': 'Facebook দিয়ে চালিয়ে যান',
       'privacyPolicy': 'গোপনীয়তা নীতি',
       'signInUnavailable':
@@ -4175,6 +4191,8 @@ class Strings {
           'King Teen Patti সাময়িকভাবে অনুপলব্ধ। অনুগ্রহ করে পরে আবার চেষ্টা করুন।',
       'maintenanceRetry': 'আবার চেষ্টা করুন',
       'purchaseNotLaunched': 'কেনাকাটা সম্পন্ন হয়নি।',
+      'purchaseFinishingEarlier':
+          'আগের কেনাকাটা সম্পন্ন করা হচ্ছে — একটু পরে আবার চেষ্টা করুন।',
       'storeTitle': 'চিপ স্টোর',
       'storeBlurb': 'প্যাক যত বড়, বোনাসও তত বড়।',
       'storeTabChips': 'চিপস',
@@ -4956,6 +4974,7 @@ class Strings {
       'playAsGuest': 'મહેમાન તરીકે રમો',
       'signingIn': 'સાઇન ઇન થઈ રહ્યું છે…',
       'continueGoogle': 'Google થી ચાલુ રાખો',
+      'continueApple': 'Apple થી ચાલુ રાખો',
       'continueFacebook': 'Facebook થી ચાલુ રાખો',
       'privacyPolicy': 'ગોપનીયતા નીતિ',
       'signInUnavailable':
@@ -5159,6 +5178,8 @@ class Strings {
           'King Teen Patti હાલમાં થોડા સમય માટે ઉપલબ્ધ નથી. કૃપા કરીને પછીથી ફરી પ્રયાસ કરો.',
       'maintenanceRetry': 'ફરી પ્રયાસ કરો',
       'purchaseNotLaunched': 'ખરીદી પૂર્ણ થઈ નહીં.',
+      'purchaseFinishingEarlier':
+          'અગાઉની ખરીદી પૂર્ણ થઈ રહી છે — થોડી વારમાં ફરી પ્રયાસ કરો.',
       'storeTitle': 'ચિપ સ્ટોર',
       'storeBlurb': 'પૅક જેટલું મોટું, બોનસ એટલું મોટું.',
       'storeTabChips': 'ચિપ્સ',
@@ -5937,6 +5958,7 @@ class Strings {
       'playAsGuest': 'ਮਹਿਮਾਨ ਵਜੋਂ ਖੇਡੋ',
       'signingIn': 'ਸਾਈਨ ਇਨ ਹੋ ਰਿਹਾ ਹੈ…',
       'continueGoogle': 'Google ਨਾਲ ਜਾਰੀ ਰੱਖੋ',
+      'continueApple': 'Apple ਨਾਲ ਜਾਰੀ ਰੱਖੋ',
       'continueFacebook': 'Facebook ਨਾਲ ਜਾਰੀ ਰੱਖੋ',
       'privacyPolicy': 'ਪਰਦੇਦਾਰੀ ਨੀਤੀ',
       'signInUnavailable':
@@ -6142,6 +6164,8 @@ class Strings {
           'King Teen Patti ਹਾਲੇ ਕੁਝ ਸਮੇਂ ਲਈ ਉਪਲਬਧ ਨਹੀਂ ਹੈ। ਕਿਰਪਾ ਕਰਕੇ ਬਾਅਦ ਵਿੱਚ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
       'maintenanceRetry': 'ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
       'purchaseNotLaunched': 'ਖਰੀਦਦਾਰੀ ਪੂਰੀ ਨਹੀਂ ਹੋਈ।',
+      'purchaseFinishingEarlier':
+          'ਪਿਛਲੀ ਖਰੀਦਦਾਰੀ ਪੂਰੀ ਕੀਤੀ ਜਾ ਰਹੀ ਹੈ — ਥੋੜ੍ਹੀ ਦੇਰ ਵਿੱਚ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
       'storeTitle': 'ਚਿੱਪ ਸਟੋਰ',
       'storeBlurb': 'ਪੈਕ ਜਿੰਨਾ ਵੱਡਾ, ਬੋਨਸ ਓਨਾ ਵੱਡਾ।',
       'storeTabChips': 'ਚਿਪਸ',

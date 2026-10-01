@@ -141,6 +141,11 @@ type Deps struct {
 	// has no Play credentials, and then the endpoint refuses every request
 	// rather than crediting on the client's word.
 	Purchases PurchaseGateway
+	// ApplePurchases credits a verified App Store purchase (owner, 2 Oct
+	// 2026; POST /api/purchases/apple). Nil when the server names no Apple
+	// bundle id, and then that endpoint refuses every request, as Play's does
+	// without credentials.
+	ApplePurchases PurchaseGateway
 	// Missiles is the missile store: diamonds traded for missiles. Nil → the
 	// endpoint answers 503 store_unavailable.
 	Missiles MissileStore
@@ -209,7 +214,8 @@ type LuckyDrawStore interface {
 }
 
 // PurchaseGateway is the store side of the server: verify a receipt with
-// Google, then credit the wallet exactly once. Implemented in internal/app so
+// its store — Google Play's purchase token, or the App Store's signed
+// transaction — then credit the wallet exactly once. Implemented in internal/app so
 // this package keeps knowing nothing about Play or the database.
 type PurchaseGateway interface {
 	Buy(ctx context.Context, userID, productID, purchaseToken string) (PurchaseOutcome, error)
@@ -348,6 +354,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/auth/login", methods(http.MethodPost, h.limited(h.loginLimit, http.HandlerFunc(h.Login))))
 	mux.Handle("/api/auth/me", methods(http.MethodGet, h.RequireAuth(h.Me)))
 	mux.Handle("/api/purchases/google", methods(http.MethodPost, wallet(h.BuyChips)))
+	mux.Handle("/api/purchases/apple", methods(http.MethodPost, wallet(h.BuyFromAppStore)))
 	mux.Handle("/api/profiles", methods(http.MethodGet, http.HandlerFunc(h.Profiles)))
 	mux.Handle("/api/profile/avatar", methods(http.MethodPost, h.RequireAuth(h.Avatar)))
 	mux.Handle("/api/profile/picture/buy", methods(http.MethodPost, wallet(h.BuyPicture)))
@@ -871,6 +878,7 @@ const (
 	MsgInvalidPurchase    = "That purchase is missing its product or receipt."
 	MsgUnknownProduct     = "That pack is not on sale."
 	MsgPurchaseUnverified = "Google Play could not confirm that purchase. Nothing was charged for it here."
+	MsgAppStoreUnverified = "The App Store could not confirm that purchase. Nothing was charged for it here."
 	MsgUnknownAvatar      = "That picture is not available."
 	MsgPictureLocked      = "Unlock that picture before you can wear it."
 	MsgPictureRetired     = "That picture is no longer available."

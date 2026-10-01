@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 // import with facebook() below and the dependency in pubspec.yaml.
 // import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 /// Thrown when the build carries no credentials for the provider tapped.
 ///
@@ -18,7 +19,7 @@ class SignInUnavailable implements Exception {
   String toString() => 'SignInUnavailable($provider)';
 }
 
-/// Getting a credential out of Google or Facebook.
+/// Getting a credential out of Google, Apple or Facebook.
 ///
 /// Only that. Neither function talks to our server, decides anything about the
 /// account, or knows what a session is — they hand back one string, and
@@ -141,6 +142,62 @@ class SocialSignIn {
       description == null ||
       description.isEmpty ||
       description.toLowerCase().contains('cancel');
+
+  /// Whether this device offers Sign in with Apple: the iOS app (owner,
+  /// 2 Oct 2026). App Review expects it wherever another provider's sign-in
+  /// is offered, so the login screen draws its button exactly where this is
+  /// true. Android is left to guest and Google: Apple's flow there is a web
+  /// page that needs a Services ID and a redirect server this game has not
+  /// got.
+  static bool get appleOffered => defaultTargetPlatform == TargetPlatform.iOS;
+
+  /// The name Apple handed over with the last [apple] credential, if any.
+  ///
+  /// Apple tells the app a person's name ONCE — at their first authorisation
+  /// of this app — and never puts it in the identity token, so it has to
+  /// travel beside the token on that one login for the new account to be
+  /// named (GameState.loginWithProvider's `nameOf`). Null on every later
+  /// sign-in, when the account already has its name.
+  static String? appleName;
+
+  /// Signs in with Apple and returns the identity token for our server
+  /// (`provider: apple`), which checks its signature against Apple's keys
+  /// and its audience against this app's bundle id. Null when the player
+  /// closes Apple's sheet.
+  static Future<String?> apple() async {
+    appleName = null;
+    try {
+      final credential = await SignInWithApple.getAppleIDCredential(
+        // The name is asked for so a new account is not called "Player";
+        // the email only because the sheet offers "Hide My Email" with it.
+        scopes: const [
+          AppleIDAuthorizationScopes.fullName,
+          AppleIDAuthorizationScopes.email,
+        ],
+      );
+      final token = credential.identityToken;
+      if (token == null || token.isEmpty) {
+        debugPrint('Apple sign-in: no identity token');
+        throw const SignInUnavailable('Apple');
+      }
+      final name = [
+        credential.givenName,
+        credential.familyName,
+      ].where((part) => part != null && part.trim().isNotEmpty).join(' ');
+      appleName = name.isEmpty ? null : name;
+      return token;
+    } on SignInWithAppleAuthorizationException catch (e) {
+      debugPrint('Apple sign-in: ${e.code.name}: ${e.message}');
+      if (e.code == AuthorizationErrorCode.canceled) return null;
+      // Anything else is the device or the build, not the player or our
+      // server: no Apple account signed in on the phone, or a build without
+      // the Sign in with Apple capability.
+      throw const SignInUnavailable('Apple');
+    } on SignInWithAppleNotSupportedException catch (e) {
+      debugPrint('Apple sign-in: not supported: ${e.message}');
+      throw const SignInUnavailable('Apple');
+    }
+  }
 
   // /// Signs in with Facebook and returns the access token for our server.
   // static Future<String?> facebook() async {

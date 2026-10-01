@@ -2801,7 +2801,7 @@ class GameState extends ChangeNotifier {
     }
   }
 
-  /// Signs in with Google or Facebook.
+  /// Signs in with Google, Apple or Facebook.
   ///
   /// The provider hands back a credential, the server verifies it and answers
   /// with the same session guest play gets — so everything after this line is
@@ -2810,10 +2810,16 @@ class GameState extends ChangeNotifier {
   ///
   /// `credential` is null when the player backed out of the provider's own
   /// sheet, which is not an error and must not be reported as one.
+  ///
+  /// `nameOf` is read once the credential is in hand, for a provider whose
+  /// credential carries no name: Apple tells the APP a person's name, once,
+  /// at their first authorisation, and never puts it in the token — so it is
+  /// sent beside the token, and names the account if this login creates it.
   Future<void> loginWithProvider(
     String provider,
-    Future<String?> Function() credentialOf,
-  ) async {
+    Future<String?> Function() credentialOf, {
+    String? Function()? nameOf,
+  }) async {
     busy = true;
     loginError = null;
     notifyListeners();
@@ -2825,6 +2831,7 @@ class GameState extends ChangeNotifier {
       final r = await _api.loginProvider(
         provider: provider,
         credential: credential,
+        displayName: nameOf?.call(),
       );
       _token = r.token;
       user = r.user;
@@ -4025,9 +4032,11 @@ class GameState extends ChangeNotifier {
       }
       ..onFailed = (message) {
         purchasePending = false;
-        notice = message == Purchases.notLaunched
-            ? t.purchaseNotLaunched
-            : message;
+        notice = switch (message) {
+          Purchases.notLaunched => t.purchaseNotLaunched,
+          Purchases.finishingEarlier => t.purchaseFinishingEarlier,
+          _ => message,
+        };
         notifyListeners();
       }
       ..onDeliver = _deliverPurchase;
@@ -4049,7 +4058,12 @@ class GameState extends ChangeNotifier {
     if (receipt.isEmpty) return false;
 
     try {
-      final r = await _api.redeemPurchase(token, purchase.productID, receipt);
+      final r = await _api.redeemPurchase(
+        token,
+        purchase.productID,
+        receipt,
+        appStore: purchases.store == Store.appStore,
+      );
       if (r.user != null) user = r.user;
       purchasePending = false;
       // `credited` false means the server had already banked this receipt.

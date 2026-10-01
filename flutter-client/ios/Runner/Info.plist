@@ -44,6 +44,11 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Export compliance, answered here so App Store Connect does not ask at
+	     every upload: the app uses no encryption of its own, only HTTPS/TLS
+	     and the system's (Apple's "exempt" case). -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<!-- The Android manifest carries usesCleartextTraffic for exactly one
@@ -87,6 +92,12 @@
 	     two through SystemChrome, but that only narrows what the system already
 	     allows — a portrait entry here would let the launch screen and the first
 	     frame appear sideways before Dart ever runs. -->
+	<!-- A landscape-only app on iPad must opt out of multitasking (Split View
+	     and Slide Over), or App Store Connect refuses the upload: "iPad
+	     Multitasking support requires these orientations: Portrait, …"
+	     (ITMS-90474). The table is laid out for the whole screen anyway. -->
+	<key>UIRequiresFullScreen</key>
+	<true/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationLandscapeLeft</string>

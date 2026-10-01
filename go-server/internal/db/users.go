@@ -68,6 +68,10 @@ const (
 	ProviderGoogle   = "google"
 	ProviderFacebook = "facebook"
 	ProviderGuest    = "guest"
+	// ProviderApple is Sign in with Apple (owner, 2 Oct 2026: the iOS app).
+	// The provider_user_id is the identity token's `sub`, Apple's stable id
+	// for this person in this developer team's apps.
+	ProviderApple = "apple"
 )
 
 // User is the account as every client sees it (users.js publicUser) — the
@@ -687,6 +691,29 @@ func (u *Users) SignIn(ctx context.Context, p Profile) (*SignIn, error) {
 		}
 		return nil, err
 	}
+}
+
+// ProviderAccepted reports whether this database's users.provider CHECK
+// admits provider. A boot never changes a CHECK an existing table already
+// has (the baseline's FOR AN EMPTY DATABASE), so a database built before a
+// provider was added refuses that provider's first account at the INSERT
+// until the constraint is replaced by hand; the app asks here at boot and
+// keeps the provider's door shut, with the statement to run in the log,
+// rather than answer its logins with a 500. No such constraint (a schema
+// that never had one) accepts everything.
+func (u *Users) ProviderAccepted(ctx context.Context, provider string) (bool, error) {
+	var def string
+	err := u.db.Pool.QueryRow(ctx,
+		`SELECT pg_get_constraintdef(c.oid)
+		   FROM pg_constraint c
+		  WHERE c.conrelid = to_regclass('users') AND c.conname = 'users_provider_check'`).Scan(&def)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.Contains(def, "'"+provider+"'"), nil
 }
 
 // UpsertFromProfile is SignIn without the welcome: the account and whether

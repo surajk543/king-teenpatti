@@ -1,5 +1,9 @@
 # Google and Facebook sign-in — what is built, and what is still needed
 
+> **Sign in with Apple** (the iOS app, 2 Oct 2026) is not covered here: it needs
+> no client id or secret, and `docs/ios-setup.md` §4 has all of it, with the
+> iOS OAuth client Google sign-in needs on an iPhone.
+
 The code on both sides is finished. Guest, Google and Facebook all run through
 one path: the provider hands back a credential, `POST /api/auth/login` verifies
 it, and the session that comes back is the same one guest play gets. All three

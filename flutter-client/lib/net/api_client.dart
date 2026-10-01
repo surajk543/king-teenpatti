@@ -302,7 +302,8 @@ class ApiClient {
       body: jsonEncode({
         'provider': provider,
         // The key differs per provider; the server reads whichever it needs.
-        if (provider == 'google') 'idToken': credential,
+        // Apple's identity token travels as Google's does.
+        if (provider == 'google' || provider == 'apple') 'idToken': credential,
         if (provider == 'facebook') 'accessToken': credential,
         if (displayName != null && displayName.trim().isNotEmpty)
           'displayName': displayName.trim(),
@@ -1083,13 +1084,25 @@ class ApiClient {
       int badgeExpiresAt,
     })
   >
-  redeemPurchase(String token, String productId, String purchaseToken) async {
+  redeemPurchase(
+    String token,
+    String productId,
+    String purchaseToken, {
+    bool appStore = false,
+  }) async {
+    // Each store has its own door (owner, 2 Oct 2026): Play's purchase token
+    // goes to /api/purchases/google, the App Store's signed transaction to
+    // /api/purchases/apple. The products, the answer and the refusals are
+    // the same.
     final r = await http.post(
-      _uri('/api/purchases/google'),
+      _uri(appStore ? '/api/purchases/apple' : '/api/purchases/google'),
       headers: _headers(token),
       body: jsonEncode({
         'productId': productId,
-        'purchaseToken': purchaseToken,
+        if (appStore)
+          'transaction': purchaseToken
+        else
+          'purchaseToken': purchaseToken,
       }),
     );
     final j = _decode(r);

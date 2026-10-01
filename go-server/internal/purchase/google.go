@@ -19,13 +19,15 @@ import (
 // Errors a caller distinguishes. Everything else is a transport or
 // configuration failure and should be retried or fixed, not shown to a player.
 var (
-	// ErrNotPurchased is Google answering that this token is not a completed
-	// purchase — pending, cancelled, or refunded.
+	// ErrNotPurchased is the store answering that this is not a completed
+	// purchase — on Play pending, cancelled or refunded; on the App Store a
+	// transaction Apple has revoked.
 	ErrNotPurchased = errors.New("purchase: not in the purchased state")
-	// ErrUnverified is Google rejecting the token outright: wrong package,
-	// wrong product, or a token that never existed. Treat as fraud, not as a
-	// transient failure.
-	ErrUnverified = errors.New("purchase: token rejected by Google Play")
+	// ErrUnverified is the receipt rejected outright: on Play a wrong
+	// package, a wrong product, or a token that never existed; on the App
+	// Store a transaction Apple did not sign for this app and product. Treat
+	// as fraud, not as a transient failure.
+	ErrUnverified = errors.New("purchase: receipt rejected by the store")
 	// ErrNotConfigured is the server having no credentials. The endpoint
 	// refuses rather than crediting on trust.
 	ErrNotConfigured = errors.New("purchase: Google Play credentials are not configured")

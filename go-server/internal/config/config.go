@@ -95,6 +95,7 @@ type Config struct {
 
 	JWT      JWTConfig
 	Google   GoogleConfig
+	Apple    AppleConfig
 	Facebook FacebookConfig
 	// AllowFakeProviders is AUTH_ALLOW_FAKE_PROVIDERS (false). Lets google /
 	// facebook logins without a token through as trusted profiles (tests, the
@@ -217,6 +218,27 @@ type JWTConfig struct {
 // GoogleConfig ← config.google. Empty ClientIDs → 503 provider_unconfigured.
 type GoogleConfig struct {
 	ClientIDs []string // GOOGLE_CLIENT_IDS, comma list
+}
+
+// AppleConfig is the iOS app's two doors (owner, 2 Oct 2026: "i want to
+// release app on apple store"): Sign in with Apple and App Store purchases.
+// Neither needs a secret — an identity token is checked against Apple's
+// public keys and a purchase against Apple's certificate chain — so the
+// defaults switch both on for this app's bundle.
+type AppleConfig struct {
+	// BundleIDs is APPLE_BUNDLE_IDS, comma list: the iOS apps this server
+	// answers to (default com.sungamestudio.kingteenpatti). It is the
+	// audience a Sign in with Apple identity token must name and the bundle
+	// an App Store transaction must have been bought in. Empty switches both
+	// off: provider "apple" answers 503 provider_unconfigured and POST
+	// /api/purchases/apple 503 store_unavailable.
+	BundleIDs []string
+	// IAPEnvironments is APPLE_IAP_ENVIRONMENTS, comma list of Production
+	// and Sandbox (default both). Sandbox is where TestFlight builds, sandbox
+	// testers and APP REVIEW buy — nothing is charged there — so a server
+	// that takes Production only fails the reviewer's purchase. Anything
+	// else stops the boot.
+	IAPEnvironments []string
 }
 
 // FacebookConfig ← config.facebook. Either empty → 503 provider_unconfigured.
@@ -692,7 +714,11 @@ func Defaults() *Config {
 			Secret:    DefaultJWTSecret,
 			ExpiresIn: 30 * 24 * time.Hour,
 		},
-		Google:             GoogleConfig{ClientIDs: nil},
+		Google: GoogleConfig{ClientIDs: nil},
+		Apple: AppleConfig{
+			BundleIDs:       []string{"com.sungamestudio.kingteenpatti"},
+			IAPEnvironments: []string{"Production", "Sandbox"},
+		},
 		Facebook:           FacebookConfig{},
 		AllowFakeProviders: false,
 		BotDevicePrefixes:  []string{"botplay-", "practice-bot-", "ramp-bot-"},
@@ -944,6 +970,18 @@ func FromEnv(lookup Lookup) (*Config, error) {
 		}
 	}
 	c.Google.ClientIDs = r.list("GOOGLE_CLIENT_IDS", c.Google.ClientIDs)
+	c.Apple.BundleIDs = r.list("APPLE_BUNDLE_IDS", c.Apple.BundleIDs)
+	if raw, ok := r.lookup("APPLE_IAP_ENVIRONMENTS"); ok {
+		envs := list(raw)
+		for _, env := range envs {
+			if env != "Production" && env != "Sandbox" {
+				r.fail("APPLE_IAP_ENVIRONMENTS", raw, "each entry must be Production or Sandbox")
+			}
+		}
+		if len(envs) > 0 {
+			c.Apple.IAPEnvironments = envs
+		}
+	}
 	c.Facebook.AppID = r.str("FACEBOOK_APP_ID", c.Facebook.AppID)
 	c.Facebook.AppSecret = r.str("FACEBOOK_APP_SECRET", c.Facebook.AppSecret)
 	c.AllowFakeProviders = r.boolean("AUTH_ALLOW_FAKE_PROVIDERS", c.AllowFakeProviders)

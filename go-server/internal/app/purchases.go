@@ -49,21 +49,10 @@ type playStore struct {
 }
 
 func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken string) (auth.PurchaseOutcome, error) {
-	product, err := purchase.Lookup(productID)
-	var badge *db.BadgeProduct
+	t := till{db: s.db, users: s.users, credit: s.credit, logger: s.logger}
+	product, badge, err := t.lookup(ctx, productID)
 	if err != nil {
-		// Not a pack: perhaps a badge the store sells (owner, 27 Sep 2026),
-		// which the badges table names by its Play product — still the
-		// server's catalogue, never the client's word.
-		b, ok, lerr := db.BadgeForProduct(ctx, s.db, productID)
-		if lerr != nil {
-			return auth.PurchaseOutcome{}, lerr
-		}
-		if !ok {
-			return auth.PurchaseOutcome{}, auth.NewAuthError(
-				auth.CodeUnknownProduct, auth.MsgUnknownProduct, http.StatusBadRequest)
-		}
-		badge = &b
+		return auth.PurchaseOutcome{}, err
 	}
 
 	if _, err := s.verifier.Verify(ctx, productID, purchaseToken); err != nil {
@@ -78,16 +67,107 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 		return auth.PurchaseOutcome{}, err
 	}
 
+	// Acknowledged best effort, and only once the credit is banked. A failure
+	// is not the player's problem — they have what they bought.
+	return t.bank(ctx, userID, productID, product, badge, purchaseToken, func() {
+		_ = s.verifier.Acknowledge(ctx, productID, purchaseToken)
+	})
+}
+
+// appStore is the auth.PurchaseGateway for the App Store (owner, 2 Oct 2026):
+// the playStore's order with Apple's verdict in Google's place.
+//
+//  1. Look the product up in the SERVER's catalogue — the same catalogue and
+//     the same product ids as Play's (each created in App Store Connect as a
+//     consumable), and a badge by the same badges.play_product_id.
+//  2. Verify the StoreKit 2 signed transaction the client posted: signed by
+//     Apple's App Store chain, for this app, this product, an environment
+//     this server takes, and not revoked (purchase.AppleVerifier). No call to
+//     Apple is made, so there is no "Apple is down" failure to retry.
+//  3. Credit exactly once, keyed on "appstore:<transactionId>"
+//     (purchase.AppleToken) through the credit paths Play's purchases use.
+//
+// There is nothing to acknowledge: the APP finishes the transaction with
+// StoreKit once this has answered, and an unfinished one is delivered again.
+type appStore struct {
+	verifier *purchase.AppleVerifier
+	db       *db.DB
+	users    *db.Users
+	// credit is playStore.credit: the chip credit and the live seat's top-up
+	// as one step under the player's seat lock.
+	credit func(userID string, amount int64, bank func(ctx context.Context) bool) bool
+	logger *slog.Logger
+}
+
+func (s *appStore) Buy(ctx context.Context, userID, productID, signedTransaction string) (auth.PurchaseOutcome, error) {
+	t := till{db: s.db, users: s.users, credit: s.credit, logger: s.logger}
+	product, badge, err := t.lookup(ctx, productID)
+	if err != nil {
+		return auth.PurchaseOutcome{}, err
+	}
+	tx, err := s.verifier.Verify(productID, signedTransaction)
+	if err != nil {
+		return auth.PurchaseOutcome{}, auth.NewAuthError(
+			auth.CodePurchaseUnverified, auth.MsgAppStoreUnverified, http.StatusPaymentRequired)
+	}
+	out, err := t.bank(ctx, userID, productID, product, badge, purchase.AppleToken(tx.TransactionID), nil)
+	if err == nil && out.Credited && s.logger != nil {
+		// The environment is on the record because a Sandbox purchase —
+		// TestFlight, a sandbox tester, App Review — charged nobody.
+		s.logger.Info("app store purchase banked",
+			"userId", userID, "productId", productID, "transactionId", tx.TransactionID,
+			"environment", tx.Environment, "quantity", tx.Quantity)
+	}
+	return out, err
+}
+
+// till banks a purchase a store has verified. What a product is worth, which
+// wallet it fills and the replay guard are the same whichever store sold it;
+// only the receipt and its idempotency key (token) differ.
+type till struct {
+	db     *db.DB
+	users  *db.Users
+	credit func(userID string, amount int64, bank func(ctx context.Context) bool) bool
+	logger *slog.Logger
+}
+
+// lookup finds productID in the server's catalogue: a pack, or — badge
+// non-nil — a badge the store sells (owner, 27 Sep 2026), which the badges
+// table names by its product id. Still the server's catalogue, never the
+// client's word; an id neither knows is unknown_product.
+func (t till) lookup(ctx context.Context, productID string) (purchase.Product, *db.BadgeProduct, error) {
+	product, err := purchase.Lookup(productID)
+	if err == nil {
+		return product, nil, nil
+	}
+	b, ok, lerr := db.BadgeForProduct(ctx, t.db, productID)
+	if lerr != nil {
+		return purchase.Product{}, nil, lerr
+	}
+	if !ok {
+		return purchase.Product{}, nil, auth.NewAuthError(
+			auth.CodeUnknownProduct, auth.MsgUnknownProduct, http.StatusBadRequest)
+	}
+	return purchase.Product{}, &b, nil
+}
+
+// bank credits a verified purchase once, keyed on token, and then calls
+// delivered (nil = nothing to tell the store).
+func (t till) bank(ctx context.Context, userID, productID string, product purchase.Product, badge *db.BadgeProduct, token string, delivered func()) (auth.PurchaseOutcome, error) {
+	s := t
+	if delivered == nil {
+		delivered = func() {}
+	}
 	// A badge is granted through badge_purchases, its replay guard, for its
 	// validity — extended where a grant of it still runs. No chip moves, so
 	// there is no seat to top up; a seated player's winning-tax rate takes it
 	// from their next hand's end, as it takes a level reached.
 	if badge != nil {
-		result, err := db.CreditBadgePurchase(ctx, s.db, s.users, userID, *badge, purchaseToken, time.Now().UnixMilli())
+		result, err := db.CreditBadgePurchase(ctx, s.db, s.users, userID, *badge, token, time.Now().UnixMilli())
 		if err != nil {
 			return auth.PurchaseOutcome{}, err
 		}
-		_ = s.verifier.Acknowledge(ctx, productID, purchaseToken)
+		delivered()
 		out := auth.PurchaseOutcome{
 			Credited: result.Credited,
 			User:     result.User,
@@ -102,11 +182,11 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 	// A diamond pack fills users.diamond through its own replay guard, and
 	// has no live seat to top up: diamonds are spent in the lobby, on pictures.
 	if product.Diamonds > 0 {
-		result, err := db.CreditDiamondPurchase(ctx, s.db, s.users, userID, product, purchaseToken)
+		result, err := db.CreditDiamondPurchase(ctx, s.db, s.users, userID, product, token)
 		if err != nil {
 			return auth.PurchaseOutcome{}, err
 		}
-		_ = s.verifier.Acknowledge(ctx, productID, purchaseToken)
+		delivered()
 		return auth.PurchaseOutcome{
 			Diamonds: result.Diamonds,
 			Balance:  result.Balance,
@@ -124,11 +204,11 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 	// it is chips first, and goes down the chip path below, where
 	// db.CreditPurchase banks its missiles and hammers with the chips.
 	if product.Hammers > 0 && !product.Premium() {
-		result, err := db.CreditHammerPurchase(ctx, s.db, s.users, userID, product, purchaseToken)
+		result, err := db.CreditHammerPurchase(ctx, s.db, s.users, userID, product, token)
 		if err != nil {
 			return auth.PurchaseOutcome{}, err
 		}
-		_ = s.verifier.Acknowledge(ctx, productID, purchaseToken)
+		delivered()
 		return auth.PurchaseOutcome{
 			Hammers:  result.Hammers,
 			Balance:  result.Balance,
@@ -147,8 +227,9 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 	// on the request's: a client giving up while COMMIT was on the wire would
 	// end the call, and release the lock, before the outcome was known.
 	var result db.PurchaseResult
+	var err error
 	bank := func(bctx context.Context) bool {
-		result, err = db.CreditPurchase(bctx, s.db, s.users, userID, product, purchaseToken)
+		result, err = db.CreditPurchase(bctx, s.db, s.users, userID, product, token)
 		return err == nil && result.Credited
 	}
 	seated := false
@@ -166,10 +247,8 @@ func (s *playStore) Buy(ctx context.Context, userID, productID, purchaseToken st
 			"missiles", product.Missiles, "hammers", product.Hammers)
 	}
 
-	// Best effort, and only now. A failure here is not the player's problem —
-	// they have their chips — but it is ours to notice, so it is returned to
-	// the handler's logger rather than swallowed.
-	_ = s.verifier.Acknowledge(ctx, productID, purchaseToken)
+	// Only now: the store is told once the chips are banked, never before.
+	delivered()
 
 	return auth.PurchaseOutcome{
 		Chips:    result.Chips,
