@@ -103,7 +103,7 @@ Finder get _layer => find.byKey(const ValueKey('welcome-rewards'));
 Finder get _panel => find.byKey(const ValueKey('welcome-rewards-panel'));
 Finder get _confirm => find.byKey(const ValueKey('welcome-rewards-confirm'));
 Finder get _consent => find.byKey(const ValueKey('consent-gate'));
-Finder get _weekly => find.byKey(const ValueKey('weekly-login-overlay'));
+Finder get _weekly => find.byKey(const ValueKey('reward-offer-overlay'));
 Finder _item(int i) => find.byKey(ValueKey('welcome-rewards-item-$i'));
 
 /// The words of row [i].
@@ -335,8 +335,8 @@ void main() {
         expect(_weekly, findsNothing);
         // The weekly login is due — read while the statement stood — and
         // yet not offered.
-        expect(state.weeklyLoginDue, isNotNull);
-        expect(state.weeklyLoginOffer, isNull);
+        expect(state.rewardOffersDue, isNotEmpty);
+        expect(state.rewardOffer, isNull);
 
         // "I confirm": the welcome rewards, and still no weekly login.
         await tester.tap(find.text(state.t.consentAccept));
@@ -346,7 +346,7 @@ void main() {
         expect(_layer, findsOneWidget);
         expect(_panel, findsOneWidget);
         expect(_weekly, findsNothing);
-        expect(state.weeklyLoginOffer, isNull);
+        expect(state.rewardOffer, isNull);
         expect(state.welcomePending, isNotNull);
 
         // A tap outside changes nothing: the lobby under it takes no tap.
@@ -378,7 +378,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 400));
         expect(state.welcomePending, isNull);
         expect(_layer, findsNothing);
-        expect(state.weeklyLoginOffer, isNotNull);
+        expect(state.rewardOffer, isNotNull);
         expect(_weekly, findsOneWidget);
         // Nothing was claimed by any of it.
         expect(sent.where((r) => r.method == 'POST'), isEmpty);
@@ -408,16 +408,16 @@ void main() {
         // The consent's read lands.
         await pumpEventQueue();
         await state.loadRewardPrograms();
-        expect(state.weeklyLoginDue, isNotNull);
-        expect(state.offerWeeklyLogin(), isFalse);
-        expect(state.weeklyLoginOffer, isNull);
+        expect(state.rewardOffersDue, isNotEmpty);
+        expect(state.offerRewards(), isFalse);
+        expect(state.rewardOffer, isNull);
         state.confirmWelcome();
         expect(state.welcomePending, isNull);
-        expect(state.weeklyLoginOffer, isNotNull);
+        expect(state.rewardOffer, isNotNull);
         // Signing out forgets both.
         await state.signOut();
         expect(state.welcomePending, isNull);
-        expect(state.weeklyLoginOffer, isNull);
+        expect(state.rewardOffer, isNull);
         state.dispose();
       }, () => fakeRewards(sent: sent, programs: _due()));
     });

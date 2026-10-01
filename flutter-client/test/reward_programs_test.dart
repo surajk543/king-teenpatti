@@ -533,7 +533,7 @@ void main() {
               await state.loadRewardPrograms();
               expect(state.rewardPrograms, isNull);
               expect(state.rewardProgramsFailed, isFalse);
-              expect(state.weeklyLoginOffer, isNull);
+              expect(state.rewardOffer, isNull);
               expect(await state.claimRewardPrograms(), isNull);
               expect(state.rewardPrograms, isNull);
               expect(state.rewardProgramsFailed, isFalse);
@@ -660,7 +660,7 @@ void main() {
             await state.signOut();
             expect(state.rewardPrograms, isNull);
             expect(state.rewardsGranted, isNull);
-            expect(state.weeklyLoginOffer, isNull);
+            expect(state.rewardOffer, isNull);
             expect(state.rewardProgramsFailed, isFalse);
           },
           () => fakeRewards(
@@ -754,7 +754,7 @@ void main() {
             findsOneWidget,
           );
           expect(
-            find.byKey(const ValueKey('weekly-login-overlay')),
+            find.byKey(const ValueKey('reward-offer-overlay')),
             findsNothing,
           );
           expect(
@@ -937,182 +937,189 @@ void main() {
         'Collect claims and closes', (tester) async {
       await setRewardView(tester, textScale: 1.25);
       final sent = <http.Request>[];
-      await http.runWithClient(
-        () async {
-          final state = rewardState();
-          final handle = tester.ensureSemantics();
-          await _openScreen(tester, state);
-          final t = state.t;
-          expect(tester.takeException(), isNull);
-          expect(find.byType(RewardProgramsScreen), findsOneWidget);
-          expect(find.text(t.rewardsTitle), findsOneWidget);
-          // Opening read (no claim), and the screen shows the answer.
-          expect(_gets(sent), ['/api/reward-programs']);
-          expect(_posts(sent), isEmpty);
+      await http.runWithClient(() async {
+        final state = rewardState();
+        final handle = tester.ensureSemantics();
+        await _openScreen(tester, state);
+        final t = state.t;
+        expect(tester.takeException(), isNull);
+        expect(find.byType(RewardProgramsScreen), findsOneWidget);
+        expect(find.text(t.rewardsTitle), findsOneWidget);
+        // Opening read (no claim), and the screen shows the answer.
+        expect(_gets(sent), ['/api/reward-programs']);
+        expect(_posts(sent), isEmpty);
 
-          // The streak: "3 day streak", LOGIN STREAK, seven tiles, Day 4's
-          // diamond next.
-          final streak = find.byKey(
-            const ValueKey('reward-program-WEEKLY_LOGIN'),
-          );
-          expect(streak, findsOneWidget);
+        // The streak: "3 day streak", LOGIN STREAK, seven tiles, Day 4's
+        // diamond next.
+        final streak = find.byKey(
+          const ValueKey('reward-program-WEEKLY_LOGIN'),
+        );
+        expect(streak, findsOneWidget);
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const ValueKey('reward-headline-WEEKLY_LOGIN')),
+              )
+              .data,
+          t.streakDays(3),
+        );
+        expect(
+          find.descendant(of: streak, matching: find.text(t.rewardModeStreak)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: streak,
+            matching: find.text(t.rewardProgramName('WEEKLY_LOGIN', '')),
+          ),
+          findsOneWidget,
+        );
+        for (var k = 1; k <= 7; k++) {
           expect(
-            tester
-                .widget<Text>(
-                  find.byKey(const ValueKey('reward-headline-WEEKLY_LOGIN')),
-                )
-                .data,
-            t.streakDays(3),
-          );
-          expect(
-            find.descendant(
-              of: streak,
-              matching: find.text(t.rewardModeStreak),
-            ),
+            find.byKey(ValueKey('reward-day-WEEKLY_LOGIN-$k')),
             findsOneWidget,
+            reason: 'day $k',
           );
-          expect(
-            find.descendant(
-              of: streak,
-              matching: find.text(t.rewardProgramName('WEEKLY_LOGIN', '')),
+        }
+        expect(
+          find.byKey(const ValueKey('reward-day-WEEKLY_LOGIN-8')),
+          findsNothing,
+        );
+        final next = tester.widget<Text>(
+          find.byKey(const ValueKey('reward-next-WEEKLY_LOGIN')),
+        );
+        expect(next.data, contains(t.rewardNext));
+        expect(
+          next.data,
+          contains(
+            rewardPrizeLabel(
+              t,
+              RewardPrize.fromJson(dayJson(4, 'DIAMOND', value: 1)),
             ),
-            findsOneWidget,
-          );
-          for (var k = 1; k <= 7; k++) {
-            expect(
-              find.byKey(ValueKey('reward-day-WEEKLY_LOGIN-$k')),
-              findsOneWidget,
-              reason: 'day $k',
-            );
-          }
-          expect(
-            find.byKey(const ValueKey('reward-day-WEEKLY_LOGIN-8')),
-            findsNothing,
-          );
-          final next = tester.widget<Text>(
-            find.byKey(const ValueKey('reward-next-WEEKLY_LOGIN')),
-          );
-          expect(next.data, contains(t.rewardNext));
-          expect(
-            next.data,
-            contains(
-              rewardPrizeLabel(
-                t,
-                RewardPrize.fromJson(dayJson(4, 'DIAMOND', value: 1)),
-              ),
-            ),
-          );
-          // What a screen reader hears of Day 3 — today's, collected — and
-          // of Day 5, not reached, and Day 1, collected on Monday.
-          String heard(String code, int k) => tester
-              .getSemantics(find.byKey(ValueKey('reward-day-$code-$k')))
-              .label;
-          expect(heard('WEEKLY_LOGIN', 3), contains(t.rewardDay(3)));
-          expect(heard('WEEKLY_LOGIN', 3), contains(t.weekdayShort(3)));
-          expect(heard('WEEKLY_LOGIN', 3), contains('20,000'));
-          expect(heard('WEEKLY_LOGIN', 3), contains(t.rewardTileClaimed));
-          expect(heard('WEEKLY_LOGIN', 5), contains(t.rewardTileLocked));
-          expect(heard('WEEKLY_LOGIN', 1), contains(t.weekdayShort(1)));
+          ),
+        );
+        // What a screen reader hears of Day 3 — today's, collected — and
+        // of Day 5, not reached, and Day 1, collected on Monday.
+        String heard(String code, int k) => tester
+            .getSemantics(find.byKey(ValueKey('reward-day-$code-$k')))
+            .label;
+        expect(heard('WEEKLY_LOGIN', 3), contains(t.rewardDay(3)));
+        expect(heard('WEEKLY_LOGIN', 3), contains(t.weekdayShort(3)));
+        expect(heard('WEEKLY_LOGIN', 3), contains('20,000'));
+        expect(heard('WEEKLY_LOGIN', 3), contains(t.rewardTileClaimed));
+        expect(heard('WEEKLY_LOGIN', 5), contains(t.rewardTileLocked));
+        expect(heard('WEEKLY_LOGIN', 1), contains(t.weekdayShort(1)));
 
-          // The calendar: "Day 10 reward", CALENDAR, thirty-one tiles, the
-          // 4th missed, the 10th today's and waiting, the emoji next.
-          final list = find.byKey(const ValueKey('reward-programs-list'));
-          final calendar = find.byKey(
-            const ValueKey('reward-program-MONTHLY_CALENDAR'),
-          );
-          await tester.dragUntilVisible(calendar, list, const Offset(0, -120));
-          await tester.pump();
+        // The calendar: "Day 10 reward", CALENDAR, thirty-one tiles, the
+        // 4th missed, the 10th today's and waiting, the emoji next.
+        final list = find.byKey(const ValueKey('reward-programs-list'));
+        final calendar = find.byKey(
+          const ValueKey('reward-program-MONTHLY_CALENDAR'),
+        );
+        await tester.dragUntilVisible(calendar, list, const Offset(0, -120));
+        await tester.pump();
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const ValueKey('reward-headline-MONTHLY_CALENDAR')),
+              )
+              .data,
+          t.calendarDayReward(10),
+        );
+        expect(
+          find.descendant(
+            of: calendar,
+            matching: find.text(t.rewardModeCalendar),
+          ),
+          findsOneWidget,
+        );
+        for (var k = 1; k <= 31; k++) {
           expect(
-            tester
-                .widget<Text>(
-                  find.byKey(
-                    const ValueKey('reward-headline-MONTHLY_CALENDAR'),
-                  ),
-                )
-                .data,
-            t.calendarDayReward(10),
-          );
-          expect(
-            find.descendant(
-              of: calendar,
-              matching: find.text(t.rewardModeCalendar),
-            ),
+            find.byKey(ValueKey('reward-day-MONTHLY_CALENDAR-$k')),
             findsOneWidget,
+            reason: 'day $k',
           );
-          for (var k = 1; k <= 31; k++) {
-            expect(
-              find.byKey(ValueKey('reward-day-MONTHLY_CALENDAR-$k')),
-              findsOneWidget,
-              reason: 'day $k',
-            );
-          }
-          expect(
-            find.byKey(const ValueKey('reward-day-MONTHLY_CALENDAR-32')),
-            findsNothing,
-          );
-          expect(heard('MONTHLY_CALENDAR', 4), contains(t.rewardTileMissed));
-          expect(heard('MONTHLY_CALENDAR', 9), contains(t.rewardTileClaimed));
-          expect(heard('MONTHLY_CALENDAR', 10), contains(t.rewardToday));
-          expect(heard('MONTHLY_CALENDAR', 10), contains('Clapping Hands'));
-          expect(heard('MONTHLY_CALENDAR', 11), contains(t.rewardTileLocked));
-          expect(heard('MONTHLY_CALENDAR', 31), contains('Royal Ace'));
-          expect(
-            tester
-                .widget<Text>(
-                  find.byKey(const ValueKey('reward-next-MONTHLY_CALENDAR')),
-                )
-                .data,
-            contains('Clapping Hands'),
-          );
-          handle.dispose();
+        }
+        expect(
+          find.byKey(const ValueKey('reward-day-MONTHLY_CALENDAR-32')),
+          findsNothing,
+        );
+        expect(heard('MONTHLY_CALENDAR', 4), contains(t.rewardTileMissed));
+        expect(heard('MONTHLY_CALENDAR', 9), contains(t.rewardTileClaimed));
+        expect(heard('MONTHLY_CALENDAR', 10), contains(t.rewardToday));
+        expect(heard('MONTHLY_CALENDAR', 10), contains('Clapping Hands'));
+        expect(heard('MONTHLY_CALENDAR', 11), contains(t.rewardTileLocked));
+        expect(heard('MONTHLY_CALENDAR', 31), contains('Royal Ace'));
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const ValueKey('reward-next-MONTHLY_CALENDAR')),
+              )
+              .data,
+          contains('Clapping Hands'),
+        );
+        handle.dispose();
 
-          // The calendar's 10th waits: Collect stands, claims on a tap, and
-          // the screen closes over the lobby's celebration.
-          final collect = find.byKey(const ValueKey('reward-programs-collect'));
-          expect(collect, findsOneWidget);
-          await tester.tap(collect);
-          await tester.pump();
-          await tester.pump(const Duration(milliseconds: 600));
-          await tester.pump(const Duration(milliseconds: 600));
-          expect(_posts(sent), ['/api/reward-programs/claim']);
-          expect(find.byType(RewardProgramsScreen), findsNothing);
-          expect(state.rewardsGranted?.length, 2);
-          expect(state.user?.chips, 1020000);
-          await unmountReward(tester, state);
-        },
-        () => fakeRewards(
-          sent: sent,
-          programs: {
-            'programs': [streakJson(), calendarJson()],
-          },
-          claim: claimJson(granted: twoGrants(), chips: 1020000),
-        ),
-      );
+        // The calendar's 10th waits. No key collects every program at once
+        // (owner, 2 Oct 2026: "not a single pup up to collect all
+        // reward"): its own day's Collect claims it — that program alone
+        // — and the screen closes over the lobby's celebration.
+        expect(
+          find.byKey(const ValueKey('reward-programs-collect')),
+          findsNothing,
+        );
+        final collect = find.byKey(
+          const ValueKey('reward-collect-MONTHLY_CALENDAR-10'),
+        );
+        await tester.dragUntilVisible(
+          collect,
+          find.byKey(const ValueKey('reward-programs-list')),
+          const Offset(0, -120),
+        );
+        await tester.pump();
+        await tester.tap(collect);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 600));
+        await tester.pump(const Duration(milliseconds: 600));
+        expect(claimedPrograms(sent), ['MONTHLY_CALENDAR']);
+        expect(find.byType(RewardProgramsScreen), findsNothing);
+        expect(state.rewardsGranted?.length, 1);
+        await unmountReward(tester, state);
+      }, fakeNamedClaims(sent: sent, weeklyCollected: true));
     });
 
-    testWidgets('with everything collected there is no Collect key', (
-      tester,
-    ) async {
-      await setRewardView(tester);
-      final sent = <http.Request>[];
-      await http.runWithClient(
-        () async {
-          final state = rewardState();
-          await _openScreen(tester, state);
-          expect(
-            find.byKey(const ValueKey('reward-programs-collect')),
-            findsNothing,
-          );
-          await unmountReward(tester, state);
-        },
-        () => fakeRewards(
-          sent: sent,
-          programs: {
-            'programs': [streakJson(), calendarJson(claimedToday: true)],
+    for (final collected in [false, true]) {
+      testWidgets('no key collects every program at once — '
+          '${collected ? 'everything collected' : 'two programs waiting'}: '
+          'each waiting day collects its own', (tester) async {
+        await setRewardView(tester);
+        final sent = <http.Request>[];
+        await http.runWithClient(
+          () async {
+            final state = rewardState();
+            await _openScreen(tester, state);
+            expect(
+              find.byKey(const ValueKey('reward-programs-collect')),
+              findsNothing,
+            );
+            expect(
+              find.byKey(const ValueKey('reward-collect-WEEKLY_LOGIN-3')),
+              collected ? findsNothing : findsOneWidget,
+            );
+            await unmountReward(tester, state);
           },
-        ),
-      );
-    });
+          () => fakeRewards(
+            sent: sent,
+            programs: {
+              'programs': [
+                streakJson(claimedToday: collected),
+                calendarJson(claimedToday: collected),
+              ],
+            },
+          ),
+        );
+      });
+    }
 
     testWidgets('a streak not yet begun says so, and a day that gives '
         'nothing is drawn as none', (tester) async {
@@ -1225,14 +1232,16 @@ void main() {
               expect(tester.takeException(), isNull);
               final reason = '${lang.name} ${brightness.name}';
               final view = Offset.zero & const Size(640, 360);
-              // The Collect key, whole and on the screen.
-              final collect = find.byKey(
-                const ValueKey('reward-programs-collect'),
-              );
-              expect(collect, findsOneWidget, reason: reason);
-              expectRewardWhole(tester, collect, '$reason collect');
+              // No key collects every program at once; the close key is on
+              // the screen.
               expect(
-                view.contains(tester.getRect(collect).bottomRight),
+                find.byKey(const ValueKey('reward-programs-collect')),
+                findsNothing,
+                reason: reason,
+              );
+              final close = find.byKey(const ValueKey('reward-programs-close'));
+              expect(
+                view.contains(tester.getRect(close).bottomRight),
                 isTrue,
                 reason: reason,
               );

@@ -773,10 +773,10 @@ void main() {
             expect(s.claimedToday, isFalse);
             expect(s.canClaimToday, isFalse);
             expect(state.rewardsDue, isFalse);
-            expect(state.weeklyLoginDue, isNull);
-            expect(state.weeklyLoginOffer, isNull);
-            expect(state.offerWeeklyLogin(again: true), isFalse);
-            expect(state.weeklyLoginOffer, isNull);
+            expect(state.rewardOffersDue, isEmpty);
+            expect(state.rewardOffer, isNull);
+            expect(state.offerRewards(again: true), isFalse);
+            expect(state.rewardOffer, isNull);
           },
           () => fakeRewards(
             sent: sent,
@@ -793,7 +793,7 @@ void main() {
           await pumpEventQueue();
           await state.loadRewardPrograms();
           expect(state.rewardsDue, isTrue);
-          expect(state.weeklyLoginOffer?.program.code, 'WEEKLY_LOGIN');
+          expect(state.rewardOffer?.program.code, 'WEEKLY_LOGIN');
         },
         () => fakeRewards(
           sent: sent,
@@ -851,7 +851,7 @@ void main() {
             findsNothing,
           );
           expect(
-            find.byKey(const ValueKey('weekly-login-overlay')),
+            find.byKey(const ValueKey('reward-offer-overlay')),
             findsNothing,
           );
           await tester.tap(chip);
@@ -860,7 +860,7 @@ void main() {
           await tester.pump(const Duration(milliseconds: 600));
           expect(find.byType(RewardProgramsScreen), findsOneWidget);
           expect(
-            find.byKey(const ValueKey('weekly-login-overlay')),
+            find.byKey(const ValueKey('reward-offer-overlay')),
             findsNothing,
           );
           expect(_posts(sent), isEmpty);
@@ -967,11 +967,11 @@ void main() {
           await pumpRewardLobby(tester, state);
           await tester.pump(const Duration(seconds: 2));
           expect(
-            find.byKey(const ValueKey('weekly-login-overlay')),
+            find.byKey(const ValueKey('reward-offer-overlay')),
             findsOneWidget,
           );
           expect(
-            find.byKey(const ValueKey('weekly-login-collect')),
+            find.byKey(const ValueKey('reward-offer-collect')),
             findsOneWidget,
           );
           // The programs read again meanwhile: the cycle has broken.
@@ -983,14 +983,14 @@ void main() {
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 100));
           expect(
-            find.byKey(const ValueKey('weekly-login-collect')),
+            find.byKey(const ValueKey('reward-offer-collect')),
             findsNothing,
           );
-          final done = find.byKey(const ValueKey('weekly-login-done'));
+          final done = find.byKey(const ValueKey('reward-offer-done'));
           expect(done, findsOneWidget);
           await tester.tap(done);
           await tester.pump();
-          expect(state.weeklyLoginOffer, isNull);
+          expect(state.rewardOffer, isNull);
           expect(_posts(sent), isEmpty);
           await unmountReward(tester, state);
         },
@@ -1107,9 +1107,15 @@ void main() {
             ),
             findsOneWidget,
           );
+          // Collected by its own day: there is no key that collects every
+          // program at once.
+          expect(
+            find.byKey(const ValueKey('reward-collect-$code-3')),
+            findsOneWidget,
+          );
           expect(
             find.byKey(const ValueKey('reward-programs-collect')),
-            findsOneWidget,
+            findsNothing,
           );
           handle.dispose();
           await unmountReward(tester, state);
@@ -1953,7 +1959,7 @@ void main() {
           expect(state.rewardClaimPending, isTrue);
           expect(state.rewardClaimProgram, code);
           // While it is out: the loader where Collect was, and nothing more
-          // is sent — not by the tile, not by the header's key.
+          // is sent by a second tap.
           expect(
             find.byKey(const ValueKey('reward-collecting-$code-3')),
             findsOneWidget,
@@ -1963,9 +1969,6 @@ void main() {
             findsNothing,
           );
           await tester.tap(day3);
-          await tester.tap(
-            find.byKey(const ValueKey('reward-programs-collect')),
-          );
           await tester.pump();
           expect(_posts(sent).length, 1);
           claimRelease.complete();

@@ -214,7 +214,7 @@ class _Root extends StatelessWidget {
             ),
             // Where the consent panel stood: a new account is shown what it
             // was given the moment the statement is confirmed, and must
-            // confirm that too before the weekly login popup, the lobby and
+            // confirm that too before the reward popups, the lobby and
             // the game (owner, 30 Sep 2026). Covers the game exactly as the
             // panel does, and is passed the same one way: its key.
             IgnorePointer(
@@ -604,10 +604,11 @@ class _BackGuard extends StatelessWidget {
           lobbyClick(context);
         }
 
-        // The weekly login popup over the lobby (30 Sep 2026) closes first,
-        // as a drawer does.
-        if (screen == Screen.lobby && state.weeklyLoginOffer != null) {
-          state.dismissWeeklyLogin();
+        // A reward popup over the lobby (30 Sep 2026; one a program since
+        // 2 Oct 2026) is put away first, as a drawer closes — and the next
+        // program's comes up.
+        if (screen == Screen.lobby && state.rewardOffer != null) {
+          state.dismissRewardOffer();
           return;
         }
 

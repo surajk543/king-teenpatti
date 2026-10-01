@@ -186,7 +186,7 @@ king-teenpatti/
     │   │                         rules_sheet, own_record (the lobby's Stats drawer, §8.4), level_art (a level's Lottie, §6.6),
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
     │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4),
-    │   │                         weekly_login (the weekly login popup: the owner's calendar, its day cards and the reward panel — §8.4)
+    │   │                         weekly_login (the reward popups, one a program: the owner's calendar for the weekly login streak, any other program's own days, the reward panel — §8.4)
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
     │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4); CasinoTableColors (the casino table's, §8.4)
     │   ├── theme/depth.dart      the depth ladder (28 Sep 2026, §8.4): Elevation, Depth/DepthScheme (every shadow and edge light), SurfaceLight, OuterShadow
@@ -202,7 +202,7 @@ king-teenpatti/
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
     │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
-    │          reward_programs, weekly_login and reward_progression on reward_fixtures.dart (§8.4),
+    │          reward_programs, weekly_login, reward_progression and reward_offers on reward_fixtures.dart (§8.4),
     │          casino_table, seat_ring, premium_cards (§8.4); by hand, not `_test`: table_shots and card_shots (pictures)
     ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext in DEBUG builds only (src/debug manifest),
     │                             no Android backup (allowBackup=false + res/xml/data_extraction_rules.xml), USE_BIOMETRIC/USE_FINGERPRINT removed
@@ -1454,8 +1454,9 @@ one this server cannot run), 409 `reward_program_not_running` (before its `start
 the last day is collected on its own day, which answers ALREADY_CLAIMED first); a claim of every program refuses none of these, reports
 BROKEN and COMPLETED as outcomes, and never meets a program that is not running. Idempotent by construction (the action_id is
 `reward:<userId>:<programCode>:<claimDate>`), so no client key. **The login does not claim, and nor does the app by itself**: the lobby
-reads the programs as it appears and puts the weekly login popup up while today's is still to collect (§8.1/§8.4); the claim is the
-player's tap — which is also what keeps a seated player's chips out of it;
+reads the programs as it appears and puts up a popup for each program whose today is still to collect, one after another, each
+claiming its own program by name (§8.1/§8.4); the claim is the player's tap — which is also what keeps a seated player's chips out of
+it. Since 2 Oct 2026 no surface of the app claims every program at once; the route still answers such a claim for the installed apps;
 **`POST /api/assets/sign {urls:[…]}`** (owner, 1 Oct 2026: "backend will give signed urls valid for 10 min, UI will download and save
 in phone disk or cache, when user login again, it will see the path of assets is changed, so the UI will ask for new signed url for
 changed asset path stored in db"; `auth/assets.go`, `internal/assets`, `db/assets.go`) — the catalogue's art is in a PRIVATE
@@ -2428,7 +2429,7 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
     and COMPLETED, a sequential streak, a retry, named claims racing over two pools, the named refusals, the progress row, an older
     database brought forward), `rewardprogress_internal_test.go` (the engine: every mode × progression, a campaign, Kolkata's midnight,
     February), `rewardprogress_save_internal_test.go` (a stale look never winds the progress row back). Flutter:
-    `test/reward_programs_test.dart` (§8.4).
+    `test/reward_programs_test.dart`, `weekly_login_test.dart`, `reward_progression_test.dart` and `reward_offers_test.dart` (§8.4).
   - Leftover schemas after a crash: `select nspname from pg_namespace where nspname like 'test_%'` (§4).
 - **Parity harness** (`tools/parity/`, run with `cd tools && npm run parity`): black-box `node:test` suites — `game`, `money`
   (audits the books the profile wrote), `lobby`, `stakes`, `rest`, `protocol` (raw frames via `lib/csharpJsonPort.js`), `resume`,
@@ -2623,12 +2624,12 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   block, or an older server's `welcomeChips` alone, or a grant of nothing — a returning account never has one). **A new account meets
   three things in a fixed order** (owner, the same day: "WHen user login with new account it should show first consent pop up "before
   you play", then after show pop up Welcome Rewards which user must select confirm otherwise not able to proceed then Weekly Login pop
-  up"): the no-winnings statement, then this popup, then the weekly login popup. `widgets/welcome_rewards.dart` `WelcomeRewardsPanel` is
+  up"): the no-winnings statement, then this popup, then the reward popups (one a program since 2 Oct 2026, the weekly login's first). `widgets/welcome_rewards.dart` `WelcomeRewardsPanel` is
   the consent gate's twin — a layer in main.dart's root Stack right after it (`welcome-rewards`, shown while `welcomePending` stands,
   `consentPending` is false and the screen is the lobby or a table), never a route: a tap outside does nothing (the scrim is an opaque
   `ColoredBox`), Back offers to quit as under the statement (`_BackGuard` skips the click and `closeLobbyLevel` while it is up), and the
-  one way on is its **Confirm** key (`welcome-rewards-confirm` → `GameState.confirmWelcome`, which clears the grant and offers the weekly
-  login; `offerWeeklyLogin` answers false while a welcome waits, as it does while consent is pending). The card: a gift mark and "Welcome
+  one way on is its **Confirm** key (`welcome-rewards-confirm` → `GameState.confirmWelcome`, which clears the grant and offers the reward
+  popups; `offerRewards` answers false while a welcome waits, as it does while consent is pending). The card: a gift mark and "Welcome
   rewards", "Added to your account:" (or "Welcome to King Teen Patti!" for a grant of nothing), one row a reward (`prizesOf`: chips,
   diamonds, hammers, missiles, then each picture, table picture and emoji by name, as `RewardPrize`s drawn with the reward programs'
   `rewardPrizeLabel`/`rewardPrizeIcon`/`rewardPrizeInk` — "5 Lakh chips", "Lovestruck Cat picture"; the wallet rows two to a line on a
@@ -2643,17 +2644,25 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   granted picture locked. `test/welcome_grant_test.dart` (the grant's reading and summary; the sign-in leaving it for the popup, nothing
   for a returning account, sign-out forgetting it), `test/welcome_rewards_test.dart` (the rows in the summary's order; the strings; the
   card in Hindi; the layout; nothing for nothing; the ORDER in the app as main.dart builds it — the statement, then the popup, a tap
-  outside and Back doing nothing to it, Confirm, then the weekly login, and no claim by any of it; a returning account; the state's
+  outside and Back doing nothing to it, Confirm, then the first reward popup, and no claim by any of it; a returning account; the state's
   offer; 640x360 and 592x360 ×1.25 in all five languages and both themes, no word cut, Confirm reachable).
 - **The reward programs on the phone** (30 Sep 2026; server §7.2/§7.3; the popup, the chip, the screen and the celebration §8.4).
   `GameState.loadRewardPrograms()` GETs `/api/reward-programs` whenever the lobby appears (`_RewardsChip`'s first build, once the
   resume veil is down), at every `session:ready` in the lobby (`_wire`) and when the rewards screen opens — never at a table — and
-  keeps the answer as `rewardPrograms` (`RewardProgramState` in `dtos.dart`); then `offerWeeklyLogin()` puts the weekly login popup
-  up (`weeklyLoginOffer`) when a WEEKLY login streak's today is still to collect and that day has not been offered this session
-  (`_weeklyOfferedFor`, `<code>:<today>`; the chip's tap offers it `again`). **Nothing is claimed by itself** (owner: "if user has
-  claimed it should not show when user start the app, otherwise show it" — the claim is the player's tap):
-  `claimRewardPrograms({celebrate})` POSTs `/api/reward-programs/claim` on the popup's Collect (`celebrate: false` — the popup shows
-  what was given) or the screen's (the lobby's celebration then shows `rewardsGranted`), answers the grants, takes the answer's
+  keeps the answer as `rewardPrograms` (`RewardProgramState` in `dtos.dart`); then `offerRewards()` puts up the reward popups (§8.4):
+  **one popup a program** (owner, 2 Oct 2026: "for every reward type sequmtial or calender there should be different pop up, not a
+  single pup up to collect all reward") — every program whose today can be collected (`rewardOffersDue`, the server's `canClaimToday`)
+  and has not been offered that day this session (`_offeredFor`, `<code>:<today>`; the chip's tap offers them all `again`), in the
+  server's order: `rewardOffer` is the one on screen, `rewardOfferIndex` of `rewardOfferCount` its place in the run ("2 of 3"), the
+  rest wait by code (`_offerQueue`), and `dismissRewardOffer()` — Continue, Close, a tap outside, Back — puts up the next, passing
+  over one collected meanwhile (on the rewards screen, on another phone). None while the no-winnings panel or a new account's welcome
+  waits, before the account's consent is known, or behind the rewards screen (`rewardsScreenOpen`, set while `showRewardPrograms` is
+  open: its own read would stand a popup behind it unseen). Until 2 Oct 2026 one popup, the weekly login streak's, offered itself
+  (`offerWeeklyLogin`, `weeklyLoginOffer`) and its Collect claimed EVERY program at once. **Nothing is claimed by itself** (owner: "if
+  user has claimed it should not show when user start the app, otherwise show it" — the claim is the player's tap):
+  `claimRewardPrograms({celebrate, programCode})` POSTs `/api/reward-programs/claim` naming ONE program — on a popup's Collect
+  (`celebrate: false` — the popup shows what was given) or a day's tile on the rewards screen (the lobby's celebration then shows
+  `rewardsGranted`) — answers the grants, takes the answer's
   `programs` and `user` (the wallet after), re-reads the catalogues when an item was won (`_loadPictures`), and is refused at a table
   (`room != null`; the server would answer 409 `seated`). A 404 or 503 (an older server, none running) leaves `rewardPrograms` null and
   is no failure; a lost network is one only while nothing is held (`rewardProgramsFailed`; Try again → `loadRewardPrograms()`); an
@@ -2661,10 +2670,11 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   **The progression types** (1 Oct 2026; server §7.2/§7.3): every verdict is the server's — `RewardProgramState.canClaimToday`
   (`canClaim`, or from an older server `!claimedToday`), `status` (`isBroken`, `isCompleted`, `missedDay`), each day's `state`
   (`RewardDayState`) and `nextDay` (`serverNextDay`); the app works out no eligibility. `program.progression` is the server's
-  `progressionType`, or from an older server RESET where `resetOnMissedDay`, else SEQUENTIAL. `rewardsDue`, `weeklyLoginDue` (the
-  popup's offer) and the lobby chip read `canClaimToday`, so a BROKEN or COMPLETED cycle is never offered. `claimRewardPrograms
-  ({celebrate, programCode})` names one program when a day's tile is tapped (`ApiClient.claimRewardPrograms(programCode:)` sends
-  `{"programCode": …}`, else `{}` as before; `rewardClaimProgram` while it is out); a named claim refused — `reward_program_not_found`,
+  `progressionType`, or from an older server RESET where `resetOnMissedDay`, else SEQUENTIAL. `rewardsDue`, `rewardOffersDue` (the
+  popups' offer) and the lobby chip read `canClaimToday`, so a BROKEN or COMPLETED cycle is never offered. `claimRewardPrograms
+  ({celebrate, programCode})` names one program (`ApiClient.claimRewardPrograms(programCode:)` sends `{"programCode": …}`, and `{}` —
+  every program — only when none is named, which nothing in this build does since 2 Oct 2026; `rewardClaimProgram` while it is out);
+  a named claim refused — `reward_program_not_found`,
   `reward_program_not_running`, `reward_cycle_broken`, `reward_cycle_completed` — is said in the player's language (`rewardRefusalText`
   → `notice`) and the programs are read again (a 404 that is not `reward_program_not_found` is still an older server's, null). Every
   answer is stamped as it arrives (`rewardClock`, the tests' seam), and the next cycle's countdown counts the server's `startsInMs` from
@@ -3240,8 +3250,15 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   under `_luckyChip`, so `lobbyNoticeArea` keeps a toast off both: REWARDS over "Collect now", lit, while any program's today can be
   collected (`canClaimToday`, the server's verdict since 1 Oct 2026), else the longest unbroken streak ("3 day streak"), "Streak broken"
   when every program still to collect has broken its cycle (`rewardBrokenShort`), or "Collected today"; its room is kept, unseen, while the first read is out (as
-  the Lucky Draw's is); none from a server with no programs; a tap opens the weekly login popup while its day waits, else the screen.
-  **The weekly login popup** (owner, the same day: "Use this animation which shows up everyday in case of weekly login and put the
+  the Lucky Draw's is); none from a server with no programs; a tap puts up again the popups of every program whose day waits
+  (`offerRewards(again: true)`), else opens the screen.
+  **The reward popups, one a program** (owner, 2 Oct 2026: "for every reward type sequmtial or calender there should be different pop
+  up, not a single pup up to collect all reward"): every program whose today waits gets a popup of its own, one after another in the
+  server's order (§8.1), each in its kind's look ("Each kind of program looks its own", below) and each collecting its own program
+  alone. The weekly login streak that RESETS (`rewardUsesOwnersCalendar`: LOGIN_STREAK, WEEKLY, RESET — the seeded WEEKLY_LOGIN) keeps
+  the owner's calendar, as described next; every other program stands its own days in the calendar's place (`RewardProgramDays`,
+  after the panel). Until then one popup, the weekly login's, collected every program at once.
+  **The weekly login's calendar** (owner, 30 Sep 2026: "Use this animation which shows up everyday in case of weekly login and put the
   prize in blue boxes, it should pop after login and if user has claimed it should not show when user start the app, otherwise show
   it"; then "Calender size should be big and it should play animation where all box one by one come up and then rewards on them
   boxes"; then the polish brief the same evening — "Premium King Teen Patti Reward Vault", not "generic calendar popup";
@@ -3261,33 +3278,55 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   30 Sep 2026: "Make Text size bigger of reward money which u show in calender"; 9.5 fixed before) — a collected day struck gold with a
   ✓ badge straddling its corner, today's ringed in gold, a touch larger, with a breathing glow, the next day in cyan glass, the days
   beyond dark with a small lock, the seventh gold over purple; a `_ProgressThread` between the days of a row, gold as far as the run
-  has come. **The panel** (`WeeklyLoginOverlay`, a `Positioned.fill` in the lobby's Stack under the celebration, while
-  `weeklyLoginOffer` stands and the resume veil is down; a tap outside, the × `LevelCloseKey` and Back — `_BackGuard` — close it):
-  the lobby's glass (`PremiumGlassPanel`, `Elevation.overlay`) with a gold edge and a soft light behind it, the calendar 60% of its
-  width (55% under 600dp inner), and on the right the reward hierarchy — the program's name in capitals, 🔥 "2 DAY STREAK" / "START
-  YOUR STREAK TODAY" (set down to its column rather than cut — on a 640dp phone it ended "START YOUR STREAK…" until 2 Oct 2026, the
-  line a new player meets first), what the mode means (the one line that gives way), TODAY'S REWARD over the prize in large gold, NEXT REWARD, and
-  the gold `LuckyGoldKey` **Collect now** — which claims (`claimRewardPrograms(celebrate: false)`) and turns the hero into "✓ + 20,000
-  CHIPS" (the other programs' grants under it, `rewardsAlso`), fireworks, the day's card struck gold, and the key **Continue**; a
-  claim that fails says so in the hero's place and keeps the key. **Inside a Blind or Variation level the popup takes the level's
+  has come. **The panel** (`RewardOfferOverlay`, `WeeklyLoginOverlay` until 2 Oct 2026: a `Positioned.fill` keyed
+  `reward-offer-overlay` in the lobby's Stack under the celebration, while `rewardOffer` stands and the resume veil is down, its popup
+  keyed `reward-offer-<code>` so the next program's makes its own entrance; a tap outside, the × `LevelCloseKey` and Back —
+  `_BackGuard` — put it away and bring up the next): the lobby's glass (`PremiumGlassPanel`, `Elevation.overlay`) with an edge and a
+  soft light behind it in the program's colour (`rewardProgramStyle`: the weekly login's gold), the calendar 60% of its width (55%
+  under 600dp inner), and on the right the reward hierarchy — the program's name in capitals (`reward-offer-name`, set down to two
+  lines rather than cut, `_fitTwoLines`: a server's own name, "WEEKLY SEQUENTIAL REWARDS", can be longer than any the app
+  translates), the headline in the kind's mark and ink (`reward-offer-headline`: 🔥 "2 DAY STREAK" / "START YOUR STREAK TODAY" for a
+  streak, set down to its column rather than cut — on a 640dp phone it ended "START YOUR STREAK…" until 2 Oct 2026, the line a new
+  player meets first —, "DAY 4 REWARD" for a calendar), what the mode means (the one line that gives way), TODAY'S REWARD — with
+  "2 OF 3" at the row's right end while the run holds more than one popup (`reward-offer-position`, `rewardOfferPosition`) — over
+  the prize in large gold, NEXT REWARD, and the gold `LuckyGoldKey` **Collect now** — which claims THAT program alone
+  (`claimRewardPrograms(celebrate: false, programCode:)`) and turns the hero into "✓ + 20,000 CHIPS" (an older server, which claims
+  every program, puts the others' grants under it, `rewardsAlso`), fireworks, the day's card struck gold, and the key **Continue**,
+  which brings the next program's popup; a claim that fails says so in the hero's place and keeps the key.
+  **`RewardProgramDays`** (`reward_programs_screen.dart`) is every other program's stage in the calendar's place: a card
+  (`reward-offer-stage`) washed and edged in the kind's colour over the owner's calendar card's own OPAQUE body
+  (`WeeklyCardColours.of(brightness, level).body`, the level's hue included — a translucent ground let the lobby's cards show
+  through by night until 2 Oct 2026), the kind's tag and the cycle's dates at its head
+  (`reward-offer-cycle`), then the program's own days in the shapes the rewards screen gives them — a week four over three like the
+  owner's calendar (`_WeekStage`, each row centred, its joints and its rail within the row, `_DayTile.rowStart`/`rowEnd`), a month's
+  grid filling the card (`_MonthGrid.aspect`) — where today's tile collects too. **Inside a Blind or Variation level the popup takes the level's
   colour** as the two drawers do (owner, the same day: "In day mode, when i click "Rewards" button after going into blind catalogue,
   then daily Streak background color should be changed acc to card color, same with when i go in variation catalogue"): the lobby lays
   `LevelAccent(palette: drawerPalette)` over the overlay, and the panel's wash (`tint`), its edge, the light behind it and the
   calendar card's glass (`WeeklyCardColours.of(b, level)`, `LevelColours.inHue`) take the level's hue — ice and sapphire, lavender and
   violet, by day and by night — the house gold at the front and inside Seen, and the day cards' own colours everywhere. **It waits
   behind "Before you play"** (owner: "The weekly pop should not come in background of the text "Before you Play" it should come after,
-  when i click "I confirm""): `offerWeeklyLogin` answers false until `loadConsent` has settled the account (`_consentKnownFor`) and
-  while `consentPending`; `loadConsent` offers once it finds the account clear and `acceptConsent` offers on the tap. Offered once a
-  day a session; the next start offers it again while it is still to collect. Strings `todaysReward`, `rewardsAlso`,
-  `todaysRewardTitle`, `continueKey`, `weeklyFinal` in all five languages. `test/weekly_login_test.dart` (23: the file's geometry,
+  when i click "I confirm""): `offerRewards` answers false until `loadConsent` has settled the account (`_consentKnownFor`) and
+  while `consentPending`; `loadConsent` offers once it finds the account clear and `acceptConsent` offers on the tap. Each program's
+  popup is offered once a day a session; the next start offers it again while it is still to collect. Strings `todaysReward`, `rewardsAlso`,
+  `todaysRewardTitle`, `continueKey`, `weeklyFinal` and, since 2 Oct 2026, `rewardOfferPosition` in all five languages.
+  `test/weekly_login_test.dart` (24: the file's geometry,
   layers, pops and traps; the delegates, the day states, the level's hue on the card and not on the boxes; the boxes then the prizes,
   the file held at its frame; the popup behind consent, after sign-in, not when collected; the figure's size; the level's colour inside
-  Blind and Variation and the house gold at the front and inside Seen; Collect and Continue, nothing celebrated twice, once a day, the
-  chip, a new day, a tap outside and Back, a failed claim, and 640x360 / 592x360 ×1.25 in all five languages and both themes, a streak
-  running and one not yet begun) on `test/reward_fixtures.dart` (the fake server, `rewardState(consented:)`, the fonts); pictures by hand, `test/weekly_login_shots.dart`.
+  Blind and Variation and the house gold at the front and inside Seen; one popup a program — Collect claiming its own alone, Continue
+  bringing the next's "2 of 2", an older server's claim of every program —, nothing celebrated twice, once a day, the chip, a new day,
+  a tap outside and Back walking both popups, a failed claim, and 640x360 / 592x360 ×1.25 in all five languages and both themes, a streak
+  running and one not yet begun) on `test/reward_fixtures.dart` (the fake server, `rewardState(consented:)`, the fonts, and
+  `fakeNamedClaims`, which answers a named claim with that program's grant alone); pictures by hand, `test/weekly_login_shots.dart`.
+  `test/reward_offers_test.dart` (15: five programs' popups in the server's order and each kind's look — the owner's calendar, steps
+  and chevrons, pages, the chain, a month's 31 tiles —, "n OF 5"; by night every popup blurs the lobby, not only the first, and
+  every program's card stands on an opaque ground, day and night; each popup collecting its own program by its key or by today's
+  tile and Continue bringing the next; no popup behind the rewards screen; 640x360 and 592x360 ×1.25 in all five languages and both
+  themes).
   **The screen** (`showRewardPrograms`, a page risen from the foot like the
-  Lucky Draw's; it reads again as it opens, the day may have turned; a gold **Collect now** key in its header while any program's
-  today waits, `reward-programs-collect`, which claims and closes the screen over the lobby's celebration): one `_ProgramPanel` a program — a LOGIN STREAK / CALENDAR tag
+  Lucky Draw's; it reads again as it opens, the day may have turned, and offers no popup while it is open (`rewardsScreenOpen`); no
+  key collects every program — today's tile claims its own (the header's gold **Collect now**, `reward-programs-collect`, which
+  claimed every program at once, went on 2 Oct 2026)): one `_ProgramPanel` a program — a LOGIN STREAK / CALENDAR tag
   (in its kind's colour and mark — "Each kind of program looks its own", below), the program's name (the four seeded ones in the player's language, `rewardProgramName`; any other
   by the server's `name`), the headline — **"3 day streak"** (`streakDays`; "Start your streak today" at 0) for a streak, **"Day 10
   reward"** (`calendarDayReward`) for a calendar, the brief's §27 difference kept on the screen — on a second line where the three cannot
@@ -3312,11 +3351,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   tappable; `rewardTileCollect`); MISSED (a small ✕, in the error ink on the day that broke a cycle); LOCKED (the padlock). The next-reward
   line is the server's `nextDay`; a streak's tiles drop their weekdays once its run is broken or finished (those dates are not on the
   phone), and on any day past the cycle's last date (`_ProgramPanel.inCycle`: a run never crosses its cycle, so a weekly streak begun on a
-  Thursday dates Days 1–4 Thu to Sun and Days 5–7 not at all — they read "Mon, Tue, Wed" until 1 Oct 2026). The weekly popup takes the same states for its boxes (`weeklyDayStateOf`), its hint follows the progression, it is offered only
-  while `canClaimToday`, and its Collect turns to Continue if the cycle stops being collectable while it is up. 33 strings in all five
+  Thursday dates Days 1–4 Thu to Sun and Days 5–7 not at all — they read "Mon, Tue, Wed" until 1 Oct 2026). The weekly login's popup takes the same states for its boxes (`weeklyDayStateOf`), every popup's hint follows its progression,
+  each is offered only while its program's `canClaimToday`, and its Collect turns to Continue if the cycle stops being collectable
+  while it is up. 33 strings in all five
   languages (`rewardTileCollect`, `rewardBrokenShort`, `rewardBrokenTitle`, `rewardAllCollected`, `rewardBreakHint`, `rewardMissedDay`,
   `rewardNewCycleStarts`, `rewardNextWeekIn`/`rewardNextMonthIn`, the four refusals, `month1`–`month12`, `dateDayMonth`,
-  `weekdayFull1`–`weekdayFull7`). **Each kind of program looks its own** (owner, 2 Oct 2026: "Keep different design in ui for
+  `weekdayFull1`–`weekdayFull7`). **Each kind of program looks its own** (owner, 1 Oct 2026: "Keep different design in ui for
   daily login, weekly calendar, for different types"; presentation only — `_ProgramLook`, `_DayShape`, `_Joint`): the mode and the
   progression choose a colour, a mark and a shape for the days, all the lobby's own palettes. A login streak that resets is gold
   (`paletteFor(seen)`) with a flame, its days MEDALLIONS threaded on a rail (`medallionShare` 0.40 of the tile), the rail in the
@@ -3326,7 +3366,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`violetPalette`) with a link — a breaking calendar's pages joined by chain links, a breaking streak's medallions on their rail — and
   the link (or the rail) on BOTH sides of the day whose miss broke the cycle is broken in the error ink (`link_off`), so the break shows
   when that is Day 1, the usual case for a player who first opens a breaking calendar mid-week; a calendar that resets is gold pages.
-  The tag carries the kind's mark, the panel is washed and edged in its colour (the error's while broken), the headline in its ink.
+  The tag carries the kind's mark, the panel is washed and edged in its colour (the error's while broken), the headline in its ink;
+  each program's popup wears the same look (`rewardProgramStyle`, `RewardProgramDays`).
   **Every tile of a row keeps to the same lines** (`fitLine`): each line is set down to the tile's width on its own, so a long prize
   name ("Clapping Hands", "Royal Ace") never shrinks the date or the label above it, and is always as tall as its type at full size (a
   hidden "0" holds it); a weekday line is kept wherever any day of the row has one (a streak's days past its cycle have none), and
@@ -3336,8 +3377,9 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   rewards collected!", one line per grant ("+ 20,000 chips", "Clapping Hands emoji", "(already yours)" after an item the player had;
   `rewardPrizeLabel`) and the programs and days they came from, closed by its key or a tap; shown ONLY from a claim's answer with
   something in `granted` — reopening the app never shows a reward twice. 42 strings in all five languages (the weekdays' short names
-  among them). `test/reward_programs_test.dart` (40: the wire, the words in every language, GameState's every path — a read on the
-  lobby's appearance and every `session:ready`, the claim only on the player's tap —, the screen's Collect key, the chip's words and
+  among them). `test/reward_programs_test.dart` (41: the wire, the words in every language, GameState's every path — a read on the
+  lobby's appearance and every `session:ready`, the claim only on the player's tap —, today's tile claiming its own program and no
+  key claiming every program, collected or not, the chip's words and
   its place beside the Lucky Draw and clear of the foot's keys at 592x360–1280x800 ×1.0/×1.25 in both themes, the screen's headlines,
   tiles, next reward and what a screen reader hears, no line cut at 640x360 ×1.25 in all five languages and both themes, the
   celebration's lines and close, and nothing raised by a claim that gave nothing).
@@ -4162,7 +4204,11 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   near-transparent gradient body over the blur (or an opaque body when tinted), a 2dp sheen and a 1px
   top→bottom gradient hairline (`GlassHairline` painter; gold when `live`); `sigma: null` = the theme's.
   **Blur budget unchanged**: one `GlassBudget` lease, `GlassMode.auto` claimants only over static or
-  covered backdrops — never on the felt or over the lobby's drifting chips (`tinted` there).
+  covered backdrops — never on the felt or over the lobby's drifting chips (`tinted` there). **A panel that leaves the tree gives
+  its lease back at once** (`deactivate`, and asks again on `activate`; 2 Oct 2026): it used to keep it until `dispose` at the end
+  of the frame, so a panel swapped for another in one frame — one reward popup giving way to the next — found the blur held and
+  stood unblurred for its life, the lobby showing through it by night. A panel still decides once, when it mounts, and among
+  several children Flutter mounts a newcomer before it removes the one that left. `test/glass_lease_test.dart`.
   `widgets/glass_components.dart`: `tapHaptic(context)` (`HapticFeedback.lightImpact`, gated on the
   Vibration switch), `PressScale` (Listener-based 0.97 press-down; never enters the gesture arena),
   `GlassCard`, `GlassButton` (Material's Filled/Outlined/TextButton underneath → `enableFeedback`,
@@ -4613,7 +4659,8 @@ the latest claim in the program's own zone, one transaction a program, idempoten
 `POST /api/reward-programs/claim`; the lobby's REWARDS chip, the screen ("3 day streak" against "Day 10 reward") and the celebration.
 **The progression types** (owner's brief, 1 Oct 2026; §7.2, §7.3): RESET, SEQUENTIAL and BREAK on every program beside its mode, a
 fourth table (`user_reward_progress`, the standing per period, the claims still the authority), each day's state, the cycle and the next
-one's countdown on the wire, a claim of one named program, and the brief's WEEKLY_SEQUENTIAL_CAL seeded waiting.
+one's countdown on the wire, a claim of one named program, and the brief's WEEKLY_SEQUENTIAL_CAL seeded waiting. Since 2 Oct 2026
+each program has a popup of its own, in its own look, collecting it alone.
 **Report Player** (owner's brief, 27 Sep 2026; §7.2, §7.3, §8.4): a player at a table reports another at it (or one who shared
 it within 10 minutes) from the player drawer; the server derives the table, game, category, variant and hand, enforces 2
 reports per 24 hours per reporter in PostgreSQL, and files a PENDING row that changes nothing in the game. With both used the

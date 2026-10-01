@@ -274,18 +274,25 @@ class Strings {
   /// A weekday's short name, 1 Monday … 7 Sunday.
   String weekdayShort(int iso) => _('weekday${iso.clamp(1, 7)}');
 
-  /// The weekly login popup's foot: "Today's reward: 20,000 chips".
+  /// A reward popup's foot: "Today's reward: 20,000 chips".
   String todaysReward(String prize) =>
       _('todaysReward').replaceAll('{prize}', prize);
 
-  /// What the other programs gave with the same tap: "Also: Clapping Hands
-  /// emoji".
+  /// What other programs gave with the same tap — an older server's claim,
+  /// which collects every program whichever one is named: "Also: Clapping
+  /// Hands emoji".
   String rewardsAlso(String list) =>
       _('rewardsAlso').replaceAll('{list}', list);
 
-  /// The weekly login popup's headings and key (the owner's polish brief,
-  /// 30 Sep 2026): "Today's reward" over the prize, "Continue" once it is
-  /// collected, and "FINAL" on the seventh day's card.
+  /// Which of a run of reward popups is up — one popup a program waiting
+  /// today: "2 of 3".
+  String rewardOfferPosition(int n, int max) => _(
+    'rewardOfferPosition',
+  ).replaceAll('{n}', '$n').replaceAll('{max}', '$max');
+
+  /// A reward popup's headings and key (the owner's polish brief, 30 Sep
+  /// 2026): "Today's reward" over the prize, "Continue" once it is collected,
+  /// and "FINAL" on the seventh day's card.
   String get todaysRewardTitle => _('todaysRewardTitle');
   String get continueKey => _('continueKey');
   String get weeklyFinal => _('weeklyFinal');
@@ -414,7 +421,7 @@ class Strings {
   String get bonusRefused => _('bonusRefused');
 
   // --- the welcome rewards popup (owner, 30 Sep 2026): after the no-winnings
-  // panel and before the weekly login popup, a new account confirms what it
+  // panel and before the reward popups, a new account confirms what it
   // was given — the one way on. The rows are the rewards' own words.
   String get welcomeRewardsTitle => _('welcomeRewardsTitle');
   String get welcomeRewardsLead => _('welcomeRewardsLead');
@@ -2067,6 +2074,7 @@ class Strings {
       'rewardProgramMonthlyCalendar': 'Monthly Calendar Rewards',
       'todaysReward': 'Today\'s reward: {prize}',
       'rewardsAlso': 'Also: {list}',
+      'rewardOfferPosition': '{n} of {max}',
       'todaysRewardTitle': 'Today\'s reward',
       'continueKey': 'Continue',
       'weeklyFinal': 'FINAL',
@@ -3069,6 +3077,7 @@ class Strings {
       'rewardProgramMonthlyCalendar': 'मासिक कैलेंडर रिवॉर्ड',
       'todaysReward': 'आज का रिवॉर्ड: {prize}',
       'rewardsAlso': 'साथ में: {list}',
+      'rewardOfferPosition': '{max} में से {n}',
       'todaysRewardTitle': 'आज का रिवॉर्ड',
       'continueKey': 'जारी रखें',
       'weeklyFinal': 'अंतिम',
@@ -4054,6 +4063,7 @@ class Strings {
       'rewardProgramMonthlyCalendar': 'মাসিক ক্যালেন্ডার রিওয়ার্ড',
       'todaysReward': 'আজকের রিওয়ার্ড: {prize}',
       'rewardsAlso': 'সাথে: {list}',
+      'rewardOfferPosition': '{max}টির মধ্যে {n}টি',
       'todaysRewardTitle': 'আজকের রিওয়ার্ড',
       'continueKey': 'চালিয়ে যান',
       'weeklyFinal': 'শেষ',
@@ -5039,6 +5049,7 @@ class Strings {
       'rewardProgramMonthlyCalendar': 'માસિક કૅલેન્ડર રિવોર્ડ',
       'todaysReward': 'આજનું રિવોર્ડ: {prize}',
       'rewardsAlso': 'સાથે: {list}',
+      'rewardOfferPosition': '{max} માંથી {n}',
       'todaysRewardTitle': 'આજનું રિવોર્ડ',
       'continueKey': 'ચાલુ રાખો',
       'weeklyFinal': 'અંતિમ',
@@ -6019,6 +6030,7 @@ class Strings {
       'rewardProgramMonthlyCalendar': 'ਮਾਸਿਕ ਕੈਲੰਡਰ ਰਿਵਾਰਡ',
       'todaysReward': 'ਅੱਜ ਦਾ ਰਿਵਾਰਡ: {prize}',
       'rewardsAlso': 'ਨਾਲ ਹੀ: {list}',
+      'rewardOfferPosition': '{max} ਵਿੱਚੋਂ {n}',
       'todaysRewardTitle': 'ਅੱਜ ਦਾ ਰਿਵਾਰਡ',
       'continueKey': 'ਜਾਰੀ ਰੱਖੋ',
       'weeklyFinal': 'ਅੰਤਿਮ',

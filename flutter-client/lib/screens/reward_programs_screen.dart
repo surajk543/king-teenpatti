@@ -12,9 +12,11 @@ import '../theme/depth.dart';
 import '../theme/theme_colors.dart';
 import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
+import '../widgets/level_accent.dart';
 import '../widgets/picture_shelf.dart'
     show diamondInkOn, hammerInkOn, missileIcon, missileInkOn;
 import '../widgets/premium_surface.dart';
+import '../widgets/weekly_login.dart' show WeeklyCardColours;
 
 // The reward programs' screen (owner, 30 Sep 2026): the login streaks and
 // the calendar rewards the server runs, one panel each, drawn from
@@ -39,10 +41,21 @@ import '../widgets/premium_surface.dart';
 
 /// Opens the rewards over the lobby, the way the Lucky Draw opens: a page of
 /// its own, risen from the foot of the screen, which the back gesture
-/// closes.
-Future<void> showRewardPrograms(BuildContext context) {
+/// closes. While it is open no reward popup is put up behind it
+/// ([GameState.rewardsScreenOpen]): each program is collected here instead.
+Future<void> showRewardPrograms(BuildContext context) async {
+  final state = context.read<GameState>();
+  state.rewardsScreenOpen = true;
   // Read again as it opens: the day may have turned while the app was up.
-  unawaited(context.read<GameState>().loadRewardPrograms());
+  unawaited(state.loadRewardPrograms());
+  try {
+    await _showRewardsPage(context);
+  } finally {
+    state.rewardsScreenOpen = false;
+  }
+}
+
+Future<void> _showRewardsPage(BuildContext context) {
   return showGeneralDialog<void>(
     context: context,
     barrierDismissible: true,
@@ -146,6 +159,18 @@ String? rewardNextCycleStart(Strings t, RewardProgramState s) {
   return s.program.isWeekly ? t.weekdayFull(first.weekday) : t.dateShort(first);
 }
 
+/// A program's colour and mark, for what is drawn outside its panel — its
+/// own popup's frame and headline (owner, 2 Oct 2026: "for every reward type
+/// sequential or calender there should be different pop up"): the colour and
+/// mark its kind wears everywhere ([_ProgramLook]).
+({Color accent, Color ink, IconData icon}) rewardProgramStyle(
+  RewardProgramInfo p,
+  ColorScheme scheme,
+) {
+  final look = _ProgramLook.of(p, scheme);
+  return (accent: look.accent, ink: look.ink, icon: look.icon);
+}
+
 /// The rewards page.
 class RewardProgramsScreen extends StatelessWidget {
   const RewardProgramsScreen({super.key});
@@ -166,10 +191,11 @@ class RewardProgramsScreen extends StatelessWidget {
     final failed = context.select<GameState, bool>(
       (s) => s.rewardProgramsFailed,
     );
-    // Collecting is the player's tap (30 Sep 2026): the key stands while
-    // any program's today can be collected — the server's verdict — and the
-    // lobby's celebration shows what it gave once the screen has closed over
-    // it. A day's tile collects its own program the same way (1 Oct 2026).
+    // Collecting is the player's tap (30 Sep 2026), and one program at a
+    // time (owner, 2 Oct 2026: "not a single pop up to collect all reward"):
+    // a day's tile collects its own program (1 Oct 2026), and the lobby's
+    // celebration shows what it gave once the screen has closed over it.
+    // There is no key that collects every program at once.
     final claiming = context.select<GameState, bool>(
       (s) => s.rewardClaimPending,
     );
@@ -226,7 +252,6 @@ class RewardProgramsScreen extends StatelessWidget {
       (short ? text.titleMedium : text.titleLarge)!,
       weight: FontWeight.w700,
     );
-    final due = programs?.any((p) => p.canClaimToday) ?? false;
 
     final header = ConstrainedBox(
       constraints: const BoxConstraints(minHeight: Dim.minTouch),
@@ -247,17 +272,6 @@ class RewardProgramsScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(width: Space.sm),
-          if (due)
-            GlassButton(
-              key: const ValueKey('reward-programs-collect'),
-              style: GlassButtonStyle.primary,
-              click: true,
-              onPressed: claiming ? null : collect,
-              child: claiming
-                  ? const GameLoaderRing(size: 18)
-                  : Text(t.rewardsCollect),
-            ),
-          if (due) const SizedBox(width: Space.sm),
           PressScale(
             child: IconButton(
               key: const ValueKey('reward-programs-close'),
@@ -881,6 +895,7 @@ class _MonthGrid extends StatelessWidget {
     required this.t,
     this.collecting = false,
     this.onCollect,
+    this.aspect = 1.2,
   });
 
   final RewardProgramState state;
@@ -889,6 +904,10 @@ class _MonthGrid extends StatelessWidget {
   final bool collecting;
   final VoidCallback? onCollect;
 
+  /// A cell's width over its height: the screen's 1.2, or what fills a
+  /// popup's card.
+  final double aspect;
+
   @override
   Widget build(BuildContext context) {
     final days = state.periodDays.clamp(1, 31);
@@ -896,11 +915,11 @@ class _MonthGrid extends StatelessWidget {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       padding: EdgeInsets.zero,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 7,
         mainAxisSpacing: Space.xs,
         crossAxisSpacing: Space.xs,
-        childAspectRatio: 1.2,
+        childAspectRatio: aspect,
       ),
       itemCount: days,
       itemBuilder: (_, i) => _DayTile(
@@ -913,6 +932,240 @@ class _MonthGrid extends StatelessWidget {
         collecting: collecting,
         onCollect: onCollect,
       ),
+    );
+  }
+}
+
+/// A program's days for its own popup (owner, 2 Oct 2026: "for every reward
+/// type sequential or calender there should be different pop up, not a
+/// single pup up to collect all reward"): the days its panel draws — a login
+/// streak's medallions on their rail, a sequential login's steps joined by
+/// chevrons, a calendar's pages, a breaking cycle's pages joined by its chain
+/// — on a card of the program's own colour, headed by its mode's tag and its
+/// cycle's dates, filling [size]: a week's seven four over three (the
+/// owner's calendar's arrangement), a month's dates seven to a row. Today's
+/// day collects the program with a tap ([onCollect]), as on the rewards
+/// screen.
+class RewardProgramDays extends StatelessWidget {
+  const RewardProgramDays({
+    super.key,
+    required this.state,
+    required this.size,
+    this.collecting = false,
+    this.onCollect,
+  });
+
+  final RewardProgramState state;
+  final Size size;
+
+  /// A claim of this program is out: its day shows the loader.
+  final bool collecting;
+
+  /// Collects the program — null while a claim is out.
+  final VoidCallback? onCollect;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Strings(context.select<GameState, AppLang>((s) => s.lang));
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final p = state.program;
+    final look = _ProgramLook.of(p, theme.colorScheme);
+    final cycle = rewardCycleLabel(t, state.cycle);
+    final quiet = theme.colorScheme.onSurface.withValues(
+      alpha: AppTheme.inkLowOn(theme.brightness),
+    );
+    // The owner's calendar card's own body — charcoal by night, warm
+    // off-white by day, in the open level's hue inside Blind or Variation —
+    // and opaque, as that card is: a translucent ground let the lobby's
+    // cards show through a popup's days by night.
+    final ground = WeeklyCardColours.of(
+      theme.brightness,
+      LevelAccent.of(context),
+    ).body;
+    return SizedBox.fromSize(
+      size: size,
+      child: DecoratedBox(
+        key: const ValueKey('reward-offer-stage'),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color.alphaBlend(
+                look.accent.withValues(alpha: dark ? 0.16 : 0.12),
+                ground,
+              ),
+              Color.alphaBlend(
+                look.accent.withValues(alpha: dark ? 0.05 : 0.04),
+                ground,
+              ),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(Radii.lg),
+          border: Border.all(
+            color: look.accent.withValues(alpha: dark ? 0.5 : 0.55),
+            width: 1.5,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(Space.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // The tag says which kind of program this is; the dates, the
+              // cycle it stands in.
+              Row(
+                children: [
+                  _ModeTag(
+                    label: p.isStreak
+                        ? t.rewardModeStreak
+                        : t.rewardModeCalendar,
+                    look: look,
+                  ),
+                  const SizedBox(width: Space.sm),
+                  if (cycle != null)
+                    Expanded(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          cycle,
+                          key: const ValueKey('reward-offer-cycle'),
+                          maxLines: 1,
+                          style: AppTheme.label(
+                            theme.textTheme.labelMedium!,
+                            colour: quiet,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: Space.sm),
+              Expanded(
+                child: p.isWeekly
+                    ? _WeekStage(
+                        state: state,
+                        look: look,
+                        t: t,
+                        collecting: collecting,
+                        onCollect: onCollect,
+                      )
+                    : LayoutBuilder(
+                        builder: (context, box) {
+                          // Cells that fill the card: seven across, as many
+                          // rows as the month needs, every row as tall as
+                          // the card allows.
+                          final days = state.periodDays.clamp(1, 31);
+                          final rows = (days / 7).ceil();
+                          final cellW = (box.maxWidth - 6 * Space.xs) / 7;
+                          final cellH =
+                              (box.maxHeight - (rows - 1) * Space.xs) / rows;
+                          final aspect = (cellW / cellH).clamp(0.6, 2.0);
+                          return Align(
+                            alignment: Alignment.topCenter,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: SizedBox(
+                                width: box.maxWidth,
+                                child: _MonthGrid(
+                                  state: state,
+                                  look: look,
+                                  t: t,
+                                  collecting: collecting,
+                                  onCollect: onCollect,
+                                  aspect: aspect,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A week's seven days for a popup: four over three, each row joined the
+/// program's way and centred, its days as wide as the first row's.
+class _WeekStage extends StatelessWidget {
+  const _WeekStage({
+    required this.state,
+    required this.look,
+    required this.t,
+    this.collecting = false,
+    this.onCollect,
+  });
+
+  final RewardProgramState state;
+  final _ProgramLook look;
+  final Strings t;
+  final bool collecting;
+  final VoidCallback? onCollect;
+
+  /// The tallest a row of days stands — a little over the screen's
+  /// [_WeekRow.tileHeight]; a taller card centres its rows.
+  static const double rowMax = 116;
+
+  @override
+  Widget build(BuildContext context) {
+    final days = state.periodDays.clamp(1, 7);
+    final medallions = look.shape == _DayShape.medallion;
+    final joined =
+        look.shape == _DayShape.step ||
+        (look.shape == _DayShape.page && look.chained);
+    final between = medallions
+        ? 0.0
+        : joined
+        ? _WeekRow.jointWidth
+        : Space.xs;
+    return LayoutBuilder(
+      builder: (context, box) {
+        final rowH = math.min(rowMax, (box.maxHeight - Space.sm) / 2);
+        final tileW = (box.maxWidth - 3 * between) / 4;
+        Widget row(int first, int last) => SizedBox(
+          height: rowH,
+          width: (last - first + 1) * tileW + (last - first) * between,
+          child: Row(
+            children: [
+              for (var k = first; k <= last; k++) ...[
+                if (k > first)
+                  joined
+                      ? _Joint(state: state, look: look, after: k - 1)
+                      : SizedBox(width: between),
+                SizedBox(
+                  width: tileW,
+                  child: _DayTile(
+                    program: state,
+                    look: look,
+                    day: k,
+                    days: days,
+                    rowStart: first,
+                    rowEnd: last,
+                    rail: medallions,
+                    t: t,
+                    height: rowH,
+                    collecting: collecting,
+                    onCollect: onCollect,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            row(1, math.min(4, days)),
+            if (days > 4) ...[const SizedBox(height: Space.sm), row(5, days)],
+          ],
+        );
+      },
     );
   }
 }
@@ -934,6 +1187,8 @@ class _DayTile extends StatelessWidget {
     required this.t,
     required this.height,
     this.days = 0,
+    this.rowStart = 1,
+    this.rowEnd,
     this.rail = false,
     this.collecting = false,
     this.onCollect,
@@ -950,6 +1205,12 @@ class _DayTile extends StatelessWidget {
   /// The days in its row: a medallion's rail runs to neither side of the
   /// row's ends.
   final int days;
+
+  /// The first and last days of the tile's own row, where a medallion's rail
+  /// ends: the whole run in a week's one row (the default), each row's own
+  /// days where a popup lays the week four over three.
+  final int rowStart;
+  final int? rowEnd;
 
   /// A medallion threads the rail through its row (a week's); a month's grid
   /// draws none, since its rows would join the wrong days.
@@ -1173,8 +1434,8 @@ class _DayTile extends StatelessWidget {
         return glass.cardMuted.withValues(alpha: 0.32);
       }
 
-      final railIn = rail && day > 1 ? railAfter(day - 1) : null;
-      final railOut = rail && day < days ? railAfter(day) : null;
+      final railIn = rail && day > rowStart ? railAfter(day - 1) : null;
+      final railOut = rail && day < (rowEnd ?? days) ? railAfter(day) : null;
       Widget railPart(Color? colour) => Expanded(
         child: colour == null
             ? const SizedBox.shrink()

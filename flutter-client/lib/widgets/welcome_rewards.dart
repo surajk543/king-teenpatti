@@ -20,8 +20,8 @@ import 'premium_surface.dart' show GlassMode;
 // A NEW account's sign-in is met by three things in a fixed order: the
 // no-winnings statement (main.dart's consent gate), then this — what the
 // server's welcome grant put in the account, which the player must confirm —
-// and only then the weekly login popup (GameState.confirmWelcome →
-// offerWeeklyLogin). It took the place of the sign-in's welcome toast, which
+// and only then the reward popups, one a program (GameState.confirmWelcome
+// → offerRewards). It took the place of the sign-in's welcome toast, which
 // said the same in one line and went by itself.
 //
 // The consent panel's shape and rule: a layer in the root Stack, not a

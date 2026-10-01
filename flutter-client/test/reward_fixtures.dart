@@ -569,6 +569,82 @@ MockClient fakeRewards({
   return rewardJson({'error': 'not_found'}, 404);
 });
 
+/// A server whose claims collect the one program they name, as a server with
+/// named claims does (1 Oct 2026): the streak's Day 3 chips for WEEKLY_LOGIN,
+/// the calendar's 10th — an emoji — for MONTHLY_CALENDAR; each program read
+/// after says what has been collected. Every request is kept in [sent].
+/// [weeklyCollected] and [calendarCollected] are today's already. Answers
+/// `http.runWithClient`'s client factory, which is asked for every client
+/// the app makes: one server, whatever the client.
+MockClient Function() fakeNamedClaims({
+  required List<http.Request> sent,
+  bool weeklyCollected = false,
+  bool calendarCollected = false,
+}) {
+  var weekly = weeklyCollected;
+  var calendar = calendarCollected;
+  List<Map<String, Object?>> programs() => [
+    streakJson(claimedToday: weekly),
+    calendarJson(claimedToday: calendar),
+  ];
+  Future<http.Response> answer(http.Request request) async {
+    sent.add(request);
+    final path = request.url.path;
+    if (path == '/api/reward-programs/claim' && request.method == 'POST') {
+      final body = request.body.isEmpty
+          ? const <String, Object?>{}
+          : jsonDecode(request.body) as Map<String, Object?>;
+      final code = body['programCode'];
+      final granted = <Map<String, Object?>>[];
+      if ((code == null || code == 'WEEKLY_LOGIN') && !weekly) {
+        weekly = true;
+        granted.add(twoGrants()[0]);
+      }
+      if ((code == null || code == 'MONTHLY_CALENDAR') && !calendar) {
+        calendar = true;
+        granted.add(twoGrants()[1]);
+      }
+      return rewardJson(
+        claimJson(
+          granted: granted,
+          programs: programs(),
+          chips: weekly ? 1020000 : 1000000,
+        ),
+      );
+    }
+    if (path == '/api/reward-programs') {
+      return rewardJson({'programs': programs()});
+    }
+    if (path == '/api/friends/requests') {
+      return rewardJson({
+        'incoming': const [],
+        'outgoing': const [],
+        'incomingTotal': 0,
+        'outgoingTotal': 0,
+        'nextIncoming': null,
+        'nextOutgoing': null,
+      });
+    }
+    if (path == '/api/friends') {
+      return rewardJson({'friends': const [], 'total': 0, 'nextCursor': null});
+    }
+    return rewardJson({'error': 'not_found'}, 404);
+  }
+
+  return () => MockClient(answer);
+}
+
+/// The programs each claim in [sent] named — null for a claim of every
+/// program.
+List<String?> claimedPrograms(List<http.Request> sent) => [
+  for (final r in sent)
+    if (r.method == 'POST' && r.url.path == '/api/reward-programs/claim')
+      r.body.isEmpty
+          ? null
+          : (jsonDecode(r.body) as Map<String, Object?>)['programCode']
+                as String?,
+];
+
 /// A GameState at the lobby, signed in (unless not), with an account whose
 /// no-winnings confirmation is recorded on this phone (unless not
 /// [consented]) — and read, as a sign-in reads it, since the weekly login
