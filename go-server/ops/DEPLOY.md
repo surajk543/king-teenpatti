@@ -661,19 +661,23 @@ location, and a signed-in app asks `POST /api/assets/sign` for a link that works
 - **The four R2 keys go into production's `.env` BEFORE this build is deployed.** In production this build will not start
   without them, and `deploy.sh`'s migrate step refuses the same way (exit 2, nothing restarted), so a forgotten key costs a
   deploy and nothing else. A token that can only READ this bucket is enough: the server signs links and never calls R2, so
-  the token that uploaded the files need not go to the host. Edit the file in an editor, so the secret stays out of the shell
-  history, and check without printing a value:
+  the token that uploaded the files need not go to the host. The running server ignores keys it does not know, so the lines
+  can go in any time before the deploy, with no restart. Edit the file in an editor, so the secret stays out of the shell
+  history, and check without printing a value. **Leave its owner and mode as they are**: `deploy.sh` runs `gameplay
+  -migrate` as the unit's user (`gameplay`), and the binary reads `./.env` itself, so that user must still be able to read
+  it (`sudoedit` keeps both):
 
 ```bash
 cd /var/www/gameplay/king-teenpatti/go-server
-ls -l .env                               # note the owner: edit as that user
+sudo cp -p .env "/var/backups/gameplay-env.$(date +%Y%m%d-%H%M%S)"   # a copy outside the checkout, same owner and mode
+sudo grep -c '^R2_' .env                 # 0: not there yet (a key written twice is ambiguous)
 sudoedit .env                            # add the four lines:
 #   R2_ACCOUNT_ID=a91cb23b3b93a35dd9ea50db7b855e18
 #   R2_ACCESS_KEY_ID=<the read-only token's access key id>
 #   R2_SECRET_ACCESS_KEY=<the read-only token's secret access key>
 #   R2_BUCKET_NAME=king-teenpatti
-sudo grep -c '^R2_[A-Z_]*=.' .env        # 4
-sudo chmod 600 .env
+sudo grep -cE '^R2_(ACCOUNT_ID|ACCESS_KEY_ID|SECRET_ACCESS_KEY|BUCKET_NAME)=.+' .env   # 4
+U="$(systemctl show gameplay -p User --value)"; sudo -u "${U:-root}" test -r .env && echo "readable by ${U:-root}"
 ```
 
 - **Release the app first.** An installed app up to 1.8.0 opens a picture's URL as it comes; given an R2 location it is
