@@ -1749,37 +1749,38 @@ VALUES ('chips',    'CHIPS',   500000, 10),
 -- Never DELETE a program or a day: the claims point at them, and a seeded
 -- row comes back at the next boot.
 INSERT INTO reward_programs (code, name, mode, progression_type, period_type, timezone, week_start_day, reset_on_missed_day, is_active, sort_order)
-VALUES ('WEEKLY_LOGIN',          'Weekly Login Streak',          'LOGIN_STREAK', 'RESET',      'WEEKLY',  'UTC',          1, TRUE,  TRUE,  10),
-       -- No days seeded (the owner's lists are commented out below): inactive
-       -- until they are, and switched on with an UPDATE.
-       ('MONTHLY_LOGIN',         'Monthly Login Streak',         'LOGIN_STREAK', 'RESET',      'MONTHLY', 'UTC',          1, TRUE,  FALSE, 20),
-       ('WEEKLY_CALENDAR',       'Weekly Calendar Rewards',      'CALENDAR',     'SEQUENTIAL', 'WEEKLY',  'UTC',          1, FALSE, FALSE, 30),
-       ('MONTHLY_CALENDAR',      'Monthly Calendar Rewards',     'CALENDAR',     'SEQUENTIAL', 'MONTHLY', 'UTC',          1, FALSE, FALSE, 40),
-       -- The progression brief's (1 Oct 2026): inactive until the app that
-       -- draws a broken cycle and the next one's countdown is the one players
-       -- have. WEEKLY_SEQUENTIAL has no days yet.
-       ('WEEKLY_SEQUENTIAL',     'Weekly Sequential Rewards',    'LOGIN_STREAK', 'SEQUENTIAL', 'WEEKLY',  'Asia/Kolkata', 1, FALSE, FALSE, 50),
-       ('WEEKLY_SEQUENTIAL_CAL', 'Weekly Sequential Calendar',   'CALENDAR',     'BREAK',      'WEEKLY',  'Asia/Kolkata', 1, FALSE, FALSE, 60)
+VALUES ('WEEKLY_LOGIN',          'Weekly Login Streak',          'LOGIN_STREAK', 'RESET',      'WEEKLY',  'UTC',          1, TRUE,  TRUE,  10)
+       -- Only the weekly login streak is seeded for now (owner, 2 Oct 2026):
+       -- the other programs' rows and days are commented out here and below.
+       -- A database that already has them keeps them, inactive.
+    --    ('MONTHLY_LOGIN',         'Monthly Login Streak',         'LOGIN_STREAK', 'RESET',      'MONTHLY', 'UTC',          1, TRUE,  FALSE, 20),
+    --    ('WEEKLY_CALENDAR',       'Weekly Calendar Rewards',      'CALENDAR',     'SEQUENTIAL', 'WEEKLY',  'UTC',          1, FALSE, FALSE, 30),
+    --    ('MONTHLY_CALENDAR',      'Monthly Calendar Rewards',     'CALENDAR',     'SEQUENTIAL', 'MONTHLY', 'UTC',          1, FALSE, FALSE, 40),
+    --    -- The progression brief's (1 Oct 2026): inactive until the app that
+    --    -- draws a broken cycle and the next one's countdown is the one players
+    --    -- have. WEEKLY_SEQUENTIAL has no days yet.
+    --    ('WEEKLY_SEQUENTIAL',     'Weekly Sequential Rewards',    'LOGIN_STREAK', 'SEQUENTIAL', 'WEEKLY',  'Asia/Kolkata', 1, FALSE, FALSE, 50),
+    --    ('WEEKLY_SEQUENTIAL_CAL', 'Weekly Sequential Calendar',   'CALENDAR',     'BREAK',      'WEEKLY',  'Asia/Kolkata', 1, FALSE, FALSE, 60)
     ON CONFLICT (code) DO NOTHING;
 
 -- WEEKLY_SEQUENTIAL_CAL: the progression brief's seven days (1 Oct 2026).
 -- A day whose catalogue item this database lacks is left out by the WHERE,
 -- never inserted broken.
-INSERT INTO reward_program_rewards (program_id, day_number, reward_type, reward_value, reward_ref_id, is_active, sort_order)
-SELECT p.id, v.day_number, v.reward_type, v.reward_value, v.reward_ref_id, TRUE, v.day_number
-  FROM reward_programs p
- CROSS JOIN (VALUES
-   (1, 'CHIPS',   10000::BIGINT, NULL::TEXT),
-   (2, 'HAMMER',  1::BIGINT,     NULL::TEXT),
-   (3, 'CHIPS',   20000::BIGINT, NULL::TEXT),
-   (4, 'DIAMOND', 1::BIGINT,     NULL::TEXT),
-   (5, 'EMOJI',   NULL::BIGINT,  (SELECT id::text FROM emojis WHERE name = 'Clapping Hands')),
-   (6, 'CHIPS',   50000::BIGINT, NULL::TEXT),
-   (7, 'BADGE',   NULL::BIGINT,  (SELECT code FROM badges WHERE code = 'ROYAL_ACE'))
- ) AS v(day_number, reward_type, reward_value, reward_ref_id)
- WHERE p.code = 'WEEKLY_SEQUENTIAL_CAL'
-   AND (v.reward_value IS NOT NULL OR v.reward_ref_id IS NOT NULL)
-    ON CONFLICT (program_id, day_number) DO NOTHING;
+-- INSERT INTO reward_program_rewards (program_id, day_number, reward_type, reward_value, reward_ref_id, is_active, sort_order)
+-- SELECT p.id, v.day_number, v.reward_type, v.reward_value, v.reward_ref_id, TRUE, v.day_number
+--   FROM reward_programs p
+--  CROSS JOIN (VALUES
+--    (1, 'CHIPS',   10000::BIGINT, NULL::TEXT),
+--    (2, 'HAMMER',  1::BIGINT,     NULL::TEXT),
+--    (3, 'CHIPS',   20000::BIGINT, NULL::TEXT),
+--    (4, 'DIAMOND', 1::BIGINT,     NULL::TEXT),
+--    (5, 'EMOJI',   NULL::BIGINT,  (SELECT id::text FROM emojis WHERE name = 'Clapping Hands')),
+--    (6, 'CHIPS',   50000::BIGINT, NULL::TEXT),
+--    (7, 'BADGE',   NULL::BIGINT,  (SELECT code FROM badges WHERE code = 'ROYAL_ACE'))
+--  ) AS v(day_number, reward_type, reward_value, reward_ref_id)
+--  WHERE p.code = 'WEEKLY_SEQUENTIAL_CAL'
+--    AND (v.reward_value IS NOT NULL OR v.reward_ref_id IS NOT NULL)
+--     ON CONFLICT (program_id, day_number) DO NOTHING;
 
 -- WEEKLY_LOGIN: the owner's seven, day for day (30 Sep 2026).
 INSERT INTO reward_program_rewards (
