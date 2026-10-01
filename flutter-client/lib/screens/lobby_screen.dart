@@ -27,7 +27,7 @@ import '../widgets/fireworks.dart';
 import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/avatar_badge.dart';
-import '../widgets/card_coins.dart';
+import '../widgets/card_chips.dart';
 import '../widgets/entry_wallet.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/info_wave.dart';
@@ -2406,16 +2406,15 @@ class _GroupCard extends StatelessWidget {
                                     ),
                                   )
                                 else
-                                  // The owner's coins in the card's
-                                  // colour (29 Sep 2026), a little taller
-                                  // than the name's capitals (owner, 30 Sep
-                                  // 2026: "increase the animated coin
-                                  // size"; they stood as tall as the
-                                  // two-chip pile they replaced, 0.76 of the
-                                  // name's size). The pile is 0.8 of its
-                                  // width tall, so it stays inside the
+                                  // The owner's casino chips in the
+                                  // card's colour (1 Oct 2026; coins from
+                                  // 29 Sep), in the box the coins had (owner,
+                                  // 30 Sep 2026: "increase the animated coin
+                                  // size"), a little taller than the name's
+                                  // capitals. The stack's whole loop fills
+                                  // the box's height, so it stays inside the
                                   // name's line and the row does not grow.
-                                  CardCoins(
+                                  CardChips(
                                     size: m.titleSize * 1.1,
                                     fallbackInk: palette.ink,
                                     tint: accent,
@@ -4032,13 +4031,13 @@ class _CategoryBadgeState extends State<_CategoryBadge>
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        // The owner's coins in the card's colour (29 Sep
-                        // 2026), where the spinning chip was — as large as
-                        // the badge holds (owner, 30 Sep 2026: "increase the
-                        // animated coin size"; 0.72 before): the pile is 0.8
-                        // of its width tall, 0.75 of the badge, and the badge
-                        // clips anything taller.
-                        CardCoins(
+                        // The owner's casino chips in the card's colour
+                        // (1 Oct 2026; coins from 29 Sep), where the spinning
+                        // chip was — as large as the badge holds (owner, 30
+                        // Sep 2026: "increase the animated coin size"): the
+                        // stack's whole loop is 0.94 of the badge tall, and
+                        // the badge clips anything taller.
+                        CardChips(
                           size: h * 0.94,
                           fallbackInk: palette.ink,
                           tint: palette.accent,

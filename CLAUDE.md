@@ -2763,14 +2763,17 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   flicking its pages over its shadow, 2 s, 500 units square, in the card's colour like the other three (outline and pages
   as drawn); its whole loop (76–423 × 7–441) fits `_ruleBookSize` 22dp, centred in the key's 28dp disc where the 16dp
   glyph was, and it always plays (the keys work on a shut card too). `test/rule_book_test.dart`; `lobby_click_sound_test`
-  and `table_tax_test` find the key by `ValueKey('rule-book')`. **The coins at a card's top left play the owner's
-  `assets/animations/Coins.json`** (the same day: "use this animation in lobby cards on top left for coin and change
-  color acc to card"; `widgets/card_coins.dart` `CardCoins`): a pile of gold coins, the front one spinning and a sparkle
-  crossing it, 2 s, 800 units square, in the card's colour — beside every category card's name (where the two-chip
-  `LivelyChipStack` was: `titleSize × 1.1`, a little taller than the name's capitals — `× 0.62 × 1.22`, the pile's height, until the
-  owner asked for bigger coins on 30 Sep 2026) and in every table card's badge (where the `SpinningChip` was: `h × 0.94`, the
-  most the badge holds — the pile is 0.8 of its width tall and the badge clips; `h × 0.72` before). The boot row's chip pile and the engine cards' `ChipShuffle` are as they were. Its whole
-  loop (30–728 × 122–684) fits the box by its width. `test/card_coins_test.dart`. **Every table card's ⓘ key plays the
+  and `table_tax_test` find the key by `ValueKey('rule-book')`. **The chips at a card's top left play the owner's
+  `assets/animations/Casino Chips.json`** (1 Oct 2026: "Use this animation on top left of lobby cards, change colour acc to
+  card"; `widgets/card_chips.dart` `CardChips`): ten casino chips dropped one on another into a stack over the first 1.7 s,
+  standing to the end of a 4 s loop (its first frame is empty), 400 units square, no 3D, expressions or images, in the
+  card's colour — the chips' golds tinted, their white faces and grey sides as they are — beside every category card's
+  name (where the two-chip `LivelyChipStack` was: `titleSize × 1.1`, a little taller than the name's capitals) and in
+  every table card's badge (where the `SpinningChip` was: `h × 0.94`, the most the badge holds; the badge clips). The
+  boot row's chip pile and the engine cards' `ChipShuffle` are as they were. Its whole loop (106–294 × 5–367 — the top
+  chip pops in 30 units above where it lands) fits the box by its HEIGHT, so the standing stack is 0.92 of the box tall
+  and 0.52 of it wide. It replaced the owner's `Coins.json` (29 Sep 2026, a spinning pile of coins; the file is in git
+  history). `test/card_chips_test.dart`; pictures by hand, `test/card_chips_shots.dart`. **Every table card's ⓘ key plays the
   owner's `assets/animations/Info icon wave.json`** (the same day: "use this icon for info on top right … and change
   color acc to card type"; `widgets/info_wave.dart` `InfoWave`, `_CardCornerKey.glyph`): an "i" in a ring with waves
   rippling out, 2 s, 120 units square, in the card's colour; the waves at their widest (4–116) fill 26dp, inside the key's
