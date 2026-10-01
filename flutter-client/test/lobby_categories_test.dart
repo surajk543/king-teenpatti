@@ -28,7 +28,7 @@ import 'package:teenpatti/screens/lobby_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
-import 'package:teenpatti/widgets/card_coins.dart';
+import 'package:teenpatti/widgets/card_chips.dart';
 import 'package:teenpatti/widgets/chip_shuffle.dart';
 import 'package:teenpatti/widgets/game_card.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
@@ -681,7 +681,7 @@ void main() {
           await _settleLevel(tester);
           expect(tester.takeException(), isNull);
           expect(find.byType(ChipShuffle, skipOffstage: false), findsNothing);
-          expect(find.byType(CardCoins, skipOffstage: false), findsNWidgets(3));
+          expect(find.byType(CardChips, skipOffstage: false), findsNWidgets(3));
 
           await _unmount(tester);
           state.dispose();

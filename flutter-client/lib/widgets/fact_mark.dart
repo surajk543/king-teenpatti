@@ -5,7 +5,7 @@ import 'package:lottie/lottie.dart';
 /// on the "Open to you" row ([OpenLock]), wallet on the "Entry" row
 /// ([EntryWallet]) and piggy bank on the "Pot limit" row ([PotPiggy]), the
 /// rules key's book ([RuleBook]), the info key's waves ([InfoWave]), the
-/// coins at a card's top left ([CardCoins]) and the Shop key's shop
+/// chips at a card's top left ([CardChips]) and the Shop key's shop
 /// ([ShopMark]).
 class FactMarkArt {
   const FactMarkArt({

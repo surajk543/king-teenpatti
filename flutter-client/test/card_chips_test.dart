@@ -1,50 +1,51 @@
-// The owner's coins at the top left of the lobby's cards (29 Sep 2026): "use
-// this animation in lobby cards on top left for coin and change color acc to
-// card".
+// The owner's casino chips at the top left of the lobby's cards (1 Oct 2026):
+// "Use this animation on top left of lobby cards, change colour acc to card".
 //
-// assets/animations/Coins.json (widgets/card_coins.dart, over
-// widgets/fact_mark.dart) stands beside each category card's name, where the
-// two-chip pile was, and in each table card's badge, where the spinning chip
-// was — in the card's colour, as the lock, the wallet, the piggy bank and the
-// rule book are. These hold the file to what a phone can play and to the box
-// the widget fits its whole loop into, the widget to playing on through the
-// lobby's one-second rebuilds, and the lobby to drawing it in both places in
-// each card's colour — the boot's own pile left as it was — with nothing on a
-// card overflowing.
+// assets/animations/Casino Chips.json (widgets/card_chips.dart, over
+// widgets/fact_mark.dart) stands beside each category card's name and in each
+// table card's badge, where the owner's coins stood from 29 Sep 2026 — in the
+// card's colour, as the lock, the wallet, the piggy bank and the rule book
+// are. These hold the file to what a phone can play and to the box the widget
+// fits its whole loop into, the chips to the card's colour with their white
+// faces kept, the widget to playing on through the lobby's one-second
+// rebuilds, and the lobby to drawing it in both places in each card's colour —
+// the boot's own pile left as it was — with nothing on a card overflowing.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lottie/lottie.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/theme/app_theme.dart';
-import 'package:teenpatti/widgets/card_coins.dart';
+import 'package:teenpatti/widgets/card_chips.dart';
 import 'package:teenpatti/widgets/poker_chip.dart';
 
 import 'level_fixtures.dart';
 import 'script_fonts.dart';
 
 final _json =
-    jsonDecode(File('assets/animations/Coins.json').readAsStringSync())
+    jsonDecode(File('assets/animations/Casino Chips.json').readAsStringSync())
         as Map<String, dynamic>;
 
 /// Where the painted pixels of [progress] lie on the file's canvas, drawn a
 /// unit to a pixel over a mid grey.
-Future<Rect> _paintedAt(LottieComposition comp, double progress) async {
+Future<Rect?> _paintedAt(LottieComposition comp, double progress) async {
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder)
     ..drawColor(const Color(0xFF808080), BlendMode.src);
   LottieDrawable(comp)
     ..setProgress(progress)
-    ..draw(canvas, const Rect.fromLTWH(0, 0, 800, 800));
-  final image = await recorder.endRecording().toImage(800, 800);
+    ..draw(canvas, const Rect.fromLTWH(0, 0, 400, 400), fit: BoxFit.fill);
+  final image = await recorder.endRecording().toImage(400, 400);
   final pixels = (await image.toByteData())!;
-  var left = 800, top = 800, right = -1, bottom = -1;
-  for (var y = 0; y < 800; y += 2) {
-    for (var x = 0; x < 800; x += 2) {
-      final i = (y * 800 + x) * 4;
+  image.dispose();
+  var left = 400, top = 400, right = -1, bottom = -1;
+  for (var y = 0; y < 400; y++) {
+    for (var x = 0; x < 400; x++) {
+      final i = (y * 400 + x) * 4;
       if ((pixels.getUint8(i) - 0x80).abs() > 6 ||
           (pixels.getUint8(i + 1) - 0x80).abs() > 6 ||
           (pixels.getUint8(i + 2) - 0x80).abs() > 6) {
@@ -55,6 +56,7 @@ Future<Rect> _paintedAt(LottieComposition comp, double progress) async {
       }
     }
   }
+  if (right < 0) return null;
   return Rect.fromLTRB(
     left.toDouble(),
     top.toDouble(),
@@ -85,11 +87,11 @@ void main() {
   setUpAll(loadScriptFonts);
 
   group('the file', () {
-    test('is 800 units square, two seconds a loop, and nothing a phone '
+    test('is 400 units square, four seconds a loop, and nothing a phone '
         'cannot play', () {
-      expect(_json['w'], 800);
-      expect(_json['h'], 800);
-      expect((_json['op'] as num) / (_json['fr'] as num), 2);
+      expect(_json['w'], 400);
+      expect(_json['h'], 400);
+      expect((_json['op'] as num) / (_json['fr'] as num), closeTo(4.03, 0.01));
       for (final layer in (_json['layers'] as List).cast<Map>()) {
         expect(layer['ddd'] ?? 0, 0, reason: 'no 3D layer');
       }
@@ -104,35 +106,123 @@ void main() {
     });
 
     testWidgets('its whole loop lies inside the box the widget fits it to, '
-        'and fills its width', (tester) async {
+        'fills its height, and stands built from 1.75 s', (tester) async {
       await tester.runAsync(() async {
         final comp = await LottieComposition.fromBytes(
-          File('assets/animations/Coins.json').readAsBytesSync(),
+          File('assets/animations/Casino Chips.json').readAsBytesSync(),
         );
-        final art = cardCoinsArt;
+        final art = cardChipsArt;
         final box = Rect.fromCenter(
           center: art.centre,
           width: art.extent,
           height: art.extent,
         ).inflate(2);
-        var all = Rect.zero;
-        for (var frame = 0; frame < 60; frame += 3) {
-          final painted = await _paintedAt(comp, (frame + 0.5) / 60);
-          all = frame == 0 ? painted : all.expandToInclude(painted);
+        final frames = (_json['op'] as num).toInt();
+        Rect? all;
+        Rect? standing;
+        for (var frame = 0; frame < frames; frame++) {
+          final painted = await _paintedAt(comp, (frame + 0.5) / frames);
+          if (painted == null) {
+            expect(frame, 0, reason: 'only the loop\'s first frame is empty');
+            continue;
+          }
+          all = all?.expandToInclude(painted) ?? painted;
           expect(
             box.contains(painted.topLeft) && box.contains(painted.bottomRight),
             isTrue,
             reason: 'frame $frame: $painted outside $box',
           );
+          if (frame >= 53) {
+            standing ??= painted;
+            expect(painted, standing, reason: 'frame $frame stands still');
+          }
         }
-        expect(all.width, closeTo(art.extent, 6));
+        expect(all!.height, closeTo(art.extent, 3));
+        expect(all.center.dx, closeTo(art.centre.dx, 3));
+        // The standing stack: 0.92 of the box tall, 0.52 of it wide.
+        expect(standing!.height / art.extent, closeTo(0.92, 0.01));
+        expect(standing.width / art.extent, closeTo(0.52, 0.01));
       });
     });
   });
 
+  testWidgets('the chips\' golds take the card\'s colour and their white '
+      'faces stay white', (tester) async {
+    await tester.runAsync(() => AssetLottie(cardChipsAsset).load());
+    const violet = Color(0xFF7650CC);
+    final boundary = GlobalKey();
+    tester.view.physicalSize = const Size(300, 300);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: RepaintBoundary(
+            key: boundary,
+            child: Container(
+              color: Colors.white,
+              padding: const EdgeInsets.all(40),
+              child: const CardChips(
+                size: 160,
+                fallbackInk: Colors.red,
+                tint: violet,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    // Two seconds in, the stack stands built.
+    await tester.pump(const Duration(seconds: 2));
+    final pixels = await tester.runAsync(() async {
+      final image =
+          await (boundary.currentContext!.findRenderObject()!
+                  as RenderRepaintBoundary)
+              .toImage();
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      image.dispose();
+      return data!;
+    });
+    final width = tester.getSize(find.byKey(boundary)).width.toInt();
+    final origin = tester.getTopLeft(find.byKey(boundary));
+    final chips = tester.getRect(find.byKey(const ValueKey('card-chips')));
+    var violetSeen = 0, whiteSeen = 0;
+    for (var x = chips.left; x < chips.right; x += 2) {
+      for (var y = chips.top; y < chips.bottom; y += 2) {
+        final p = Offset(x, y) - origin;
+        final i = (p.dy.toInt() * width + p.dx.toInt()) * 4;
+        final c = Color.fromARGB(
+          255,
+          pixels!.getUint8(i),
+          pixels.getUint8(i + 1),
+          pixels.getUint8(i + 2),
+        );
+        final hsl = HSLColor.fromColor(c);
+        if (hsl.saturation < 0.25) {
+          if (hsl.lightness > 0.85 && hsl.lightness < 0.99) whiteSeen++;
+          continue;
+        }
+        expect(
+          hsl.hue >= 30 && hsl.hue <= 65,
+          isFalse,
+          reason: 'the file\'s gold at ($x, $y): $c',
+        );
+        if ((hsl.hue - HSLColor.fromColor(violet).hue).abs() < 6) {
+          violetSeen++;
+        }
+      }
+    }
+    expect(violetSeen, greaterThan(50));
+    expect(whiteSeen, greaterThan(50), reason: 'the chips\' white faces');
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('plays on through its parent rebuilding every second, in its '
       'card\'s colour', (tester) async {
-    await tester.runAsync(() => AssetLottie(cardCoinsAsset).load());
+    await tester.runAsync(() => AssetLottie(cardChipsAsset).load());
     final tick = ValueNotifier<int>(0);
     addTearDown(tick.dispose);
     await tester.pumpWidget(
@@ -143,7 +233,7 @@ void main() {
             listenable: tick,
             // Not const: a new widget every tick, as the lobby hands it.
             // ignore: prefer_const_constructors
-            builder: (context, _) => CardCoins(
+            builder: (context, _) => CardChips(
               size: 20,
               fallbackInk: const Color(0xFFC9A227),
               tint: const Color(0xFF7650CC),
@@ -165,7 +255,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     expect(tester.state(lottie), same(state));
     expect(tester.widget<Lottie>(lottie), same(widget));
-    expect((progress() - before) % 1, closeTo(0.25, 0.03));
+    final loop = (_json['op'] as num) / (_json['fr'] as num);
+    expect((progress() - before) % 1, closeTo(0.5 / loop, 0.03));
     expect(widget.delegates, isNotNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -192,10 +283,10 @@ void main() {
           bootAmount: 200,
         ).accent;
 
-        // The front: one pile of coins a category card, none of the old
+        // The front: one stack of chips a category card, none of the old
         // piles.
         final front = tester
-            .widgetList<CardCoins>(find.byType(CardCoins, skipOffstage: false))
+            .widgetList<CardChips>(find.byType(CardChips, skipOffstage: false))
             .toList();
         final colours = {
           for (final c in const ['seen', 'blind', 'variation']) accent(c),
@@ -215,17 +306,17 @@ void main() {
           state.openLobbyCategory(category);
           await tester.pump(const Duration(seconds: 1));
           await tester.pump(const Duration(seconds: 1));
-          final coins = tester
-              .widgetList<CardCoins>(find.byType(CardCoins))
+          final chips = tester
+              .widgetList<CardChips>(find.byType(CardChips))
               .toList();
-          expect(coins, isNotEmpty, reason: category);
-          for (final c in coins) {
+          expect(chips, isNotEmpty, reason: category);
+          for (final c in chips) {
             expect(c.tint, accent(category), reason: category);
           }
           // One in each table card's badge; the boot keeps its own pile.
           if (screen.width >= 1280) {
             final tables = state.lobbyTablesIn(category).length;
-            expect(coins, hasLength(tables), reason: category);
+            expect(chips, hasLength(tables), reason: category);
             expect(
               find.byType(LivelyChipStack),
               findsNWidgets(tables),
