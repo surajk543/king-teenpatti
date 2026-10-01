@@ -662,21 +662,23 @@ location, and a signed-in app asks `POST /api/assets/sign` for a link that works
   without them, and `deploy.sh`'s migrate step refuses the same way (exit 2, nothing restarted), so a forgotten key costs a
   deploy and nothing else. A token that can only READ this bucket is enough: the server signs links and never calls R2, so
   the token that uploaded the files need not go to the host. The running server ignores keys it does not know, so the lines
-  can go in any time before the deploy, with no restart. Edit the file in an editor, so the secret stays out of the shell
-  history, and check without printing a value. **Leave its owner and mode as they are**: `deploy.sh` runs `gameplay
-  -migrate` as the unit's user (`gameplay`), and the binary reads `./.env` itself, so that user must still be able to read
-  it (`sudoedit` keeps both):
+  can go in any time before the deploy, with no restart. **Leave the file's owner and mode as they are**: `deploy.sh` runs
+  `gameplay -migrate` as the unit's user (`gameplay`), and the binary reads `./.env` itself, so that user must still be
+  able to read it. Append with `sudo tee -a`, which keeps both, and type the two keys at `read` prompts, so neither lands in
+  the shell history or a process list (`sudoedit` refuses here: `write` can write to `go-server/`, and sudo will not edit a
+  file in a directory the user can write to). Check without printing a value:
 
 ```bash
 cd /var/www/gameplay/king-teenpatti/go-server
 sudo cp -p .env "/var/backups/gameplay-env.$(date +%Y%m%d-%H%M%S)"   # a copy outside the checkout, same owner and mode
 sudo grep -c '^R2_' .env                 # 0: not there yet (a key written twice is ambiguous)
-sudoedit .env                            # add the four lines:
-#   R2_ACCOUNT_ID=a91cb23b3b93a35dd9ea50db7b855e18
-#   R2_ACCESS_KEY_ID=<the read-only token's access key id>
-#   R2_SECRET_ACCESS_KEY=<the read-only token's secret access key>
-#   R2_BUCKET_NAME=king-teenpatti
+read -rp  'R2 access key id: ' K
+read -rsp 'R2 secret access key: ' S; echo
+printf '\nR2_ACCOUNT_ID=%s\nR2_ACCESS_KEY_ID=%s\nR2_SECRET_ACCESS_KEY=%s\nR2_BUCKET_NAME=%s\n' \
+  a91cb23b3b93a35dd9ea50db7b855e18 "$K" "$S" king-teenpatti | sudo tee -a .env >/dev/null
+unset K S
 sudo grep -cE '^R2_(ACCOUNT_ID|ACCESS_KEY_ID|SECRET_ACCESS_KEY|BUCKET_NAME)=.+' .env   # 4
+sudo awk -F= '/^R2_ACCESS_KEY_ID=/{print "key id", length($2)} /^R2_SECRET_ACCESS_KEY=/{print "secret", length($2)}' .env   # 32 and 64
 U="$(systemctl show gameplay -p User --value)"; sudo -u "${U:-root}" test -r .env && echo "readable by ${U:-root}"
 ```
 
