@@ -8,7 +8,12 @@ import 'package:flutter_test/flutter_test.dart';
 String _read(String path) => File(path).readAsStringSync();
 
 void main() {
-  test('the version is past the last tagged release, 1.8.0+18', () {
+  test('the version is past the last tagged release, 1.9.0+19', () {
+    // flutter-client/v1.9.0 is 1.9.0+19 (1 Oct 2026); 1.10.0+20 carries the
+    // reward progression types (each day's state, a broken cycle, the next
+    // cycle's countdown, a day's own Collect tag), a look of its own for
+    // each kind of program, one popup a program each collecting its own,
+    // and, by night, no lobby showing through a later popup.
     // flutter-client/v1.8.0 is 1.8.0+18 (1 Oct 2026); 1.9.0+19 carries the
     // catalogue's art from the private R2 bucket (signed ten-minute links,
     // each file kept on the phone under its location, six downloads at
@@ -52,7 +57,7 @@ void main() {
     expect(line, isNotNull);
     final build = int.parse(line!.group(4)!);
     final name = [1, 2, 3].map((i) => int.parse(line.group(i)!)).toList();
-    expect(build, greaterThan(18));
+    expect(build, greaterThan(19));
     // The name moves with it: 1.2.2 is the tagged release.
     final isAfter122 =
         name[0] > 1 ||
