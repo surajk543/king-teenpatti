@@ -67,6 +67,11 @@ class GameCard extends StatelessWidget {
   /// start at its left.
   final Alignment light;
 
+  /// The top of a lit card's hairline: [accent] at a hint's strength. The
+  /// Live tab standing on a card is outlined in it too ([LiveTab]).
+  static Color edgeOf(Color accent, {required bool dark}) =>
+      accent.withValues(alpha: dark ? 0.32 : 0.36);
+
   @override
   Widget build(BuildContext context) {
     final glass = GlassColors.of(context);
@@ -77,7 +82,7 @@ class GameCard extends StatelessWidget {
       padding: padding,
       // A hint of the mode along the lit top of the hairline, no more (owner's
       // final pass: "keep the hue, reduce the tint").
-      edge: lit ? accent.withValues(alpha: dark ? 0.32 : 0.36) : null,
+      edge: lit ? edgeOf(accent, dark: dark) : null,
       behind: lit
           ? CardLight(
               // The accent brought to full colour, as the old orbs were: a

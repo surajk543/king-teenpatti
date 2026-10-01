@@ -28,6 +28,7 @@ import '../widgets/game_loader.dart';
 import '../widgets/glass_components.dart';
 import '../widgets/avatar_badge.dart';
 import '../widgets/card_chips.dart';
+import '../widgets/live_tab.dart';
 import '../widgets/entry_wallet.dart';
 import '../widgets/glass_panels.dart';
 import '../widgets/info_wave.dart';
@@ -430,8 +431,20 @@ class _LobbyScreenState extends State<LobbyScreen> {
                           // The card's ceiling is h=360 -> 259.2 | h=411 -> 295.9
                           // | h=800 -> 400.0; with the chip's band off the height
                           // the two phones get about 227 and 270.
+                          //
+                          // Above the cards the rail keeps room for the Live tab
+                          // that stands on the Seen, Blind and Variation cards
+                          // (owner, 1 Oct 2026; LiveTab): the tab's height and a
+                          // small gap over it, where the list's padding was. On
+                          // every level, so the cards are one size whether the
+                          // tabs are over them or not, and a category's tables
+                          // open at the height its card stood.
+                          final tabRoom =
+                              Space.sm +
+                              LiveTab.heightOf(context, state.t.live) -
+                              Space.md;
                           final fit = math.min(
-                            math.max(box.maxHeight - Space.xl, 0.0),
+                            math.max(box.maxHeight - Space.xl - tabRoom, 0.0),
                             Dim.lobbyCardSide(h),
                           );
                           // ...and then no larger than lets the rail stop on
@@ -472,7 +485,7 @@ class _LobbyScreenState extends State<LobbyScreen> {
                               duration: Motion.base,
                               curve: Motion.standard,
                               builder: (context, shown, child) => SizedBox(
-                                height: shown + Space.xl,
+                                height: shown + Space.xl + tabRoom,
                                 child: child,
                               ),
                               // Each level is a ListView of its own, so a
@@ -501,9 +514,10 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                   // right (Space.lg), so the rail's end
                                   // leaves only what makes the last card stop
                                   // as far from the edge as the first starts.
-                                  padding: const EdgeInsets.fromLTRB(
+                                  // Over the cards, the Live tab's room.
+                                  padding: EdgeInsets.fromLTRB(
                                     Space.xl,
-                                    Space.md,
+                                    Space.md + tabRoom,
                                     Space.xl - Space.lg,
                                     Space.md,
                                   ),
@@ -544,7 +558,11 @@ class _LobbyScreenState extends State<LobbyScreen> {
                                 final footClear =
                                     safeBottom +
                                     band +
-                                    (box.maxHeight - side - Space.xl) / 2 +
+                                    (box.maxHeight -
+                                            side -
+                                            Space.xl -
+                                            tabRoom) /
+                                        2 +
                                     Space.md;
                                 final fieldTop =
                                     screenH - footClear - side + fieldInCard;
@@ -2253,6 +2271,11 @@ class _EngineCard extends StatelessWidget {
   }
 }
 
+/// The categories whose cards wear the Live tab ([LiveTab]; owner, 1 Oct 2026:
+/// "on top of lobby card(seen, blind, variation) only") — not a poker game's,
+/// not an engine's, the private card's or a table's.
+const _liveCategories = {'seen', 'blind', 'variation'};
+
 /// One of an engine's categories — Seen, Blind, Variation inside Teen Patti
 /// (owner, 18 Sep 2026); 3-Card Poker, 5-Card Draw, Texas Hold'em and Omaha
 /// inside Poker (owner, 23 Sep 2026).
@@ -2280,6 +2303,7 @@ class _CategoryCard extends StatelessWidget {
       palette: _categoryPalette(Theme.of(context).colorScheme, category),
       tables: state.lobbyTablesIn(category, engine: engine),
       action: t.viewTables,
+      live: _liveCategories.contains(category),
       onOpen: () =>
           context.read<GameState>().openLobbyCategory(category, engine: engine),
     );
@@ -2308,6 +2332,7 @@ class _GroupCard extends StatelessWidget {
     required this.action,
     required this.onOpen,
     this.shuffle = false,
+    this.live = false,
   });
 
   /// The card's title, already in the player's language.
@@ -2331,6 +2356,10 @@ class _GroupCard extends StatelessWidget {
   /// category's card keeps.
   final bool shuffle;
 
+  /// Whether a Live tab stands on the card's top edge ([LiveTab]): Seen,
+  /// Blind and Variation (owner, 1 Oct 2026).
+  final bool live;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -2347,6 +2376,7 @@ class _GroupCard extends StatelessWidget {
         : boots.first == boots.last
         ? formatChips(boots.first)
         : '${formatChips(boots.first)} – ${formatChips(boots.last)}';
+    final liveH = live ? LiveTab.heightOf(context, t.live) : 0.0;
 
     return Padding(
       padding: const EdgeInsets.only(right: Space.lg),
@@ -2354,170 +2384,202 @@ class _GroupCard extends StatelessWidget {
         aspectRatio: 1,
         child: Semantics(
           button: true,
-          label: '$name. $action',
+          label: live ? '$name. ${t.live}. $action' : '$name. $action',
           child: _Pressable(
             onTap: () {
               tapHaptic(context);
               lobbyClick(context);
               onOpen();
             },
-            child: LayoutBuilder(
-              builder: (context, box) {
-                // The table card's own proportions, so the two kinds of card
-                // are one family. This column is shorter than that one — a
-                // name, a line, three facts against a badge, a stake, a line
-                // and three facts — so wherever a table card fits, this does.
-                final s = box.maxHeight;
-                final m = _CardMetrics(s);
-
-                return GameCard(
-                  accent: accent,
-                  padding: EdgeInsets.all(m.pad),
+            // The Live tab stands on the card's top edge, outside its box
+            // (in the room the rail keeps above every card), and moves with
+            // the card when it is pressed.
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned.fill(
                   child: LayoutBuilder(
-                    builder: (context, inner) => Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Allowed the height the key leaves and no more, and
-                        // scaled down rather than overflowing past it — the
-                        // table card's own guard, for the same reason:
-                        // Devanagari stands taller than Latin.
-                        CardColumn(
-                          maxHeight: math.max(
-                            0.0,
-                            inner.maxHeight - m.ctaH - m.ctaGap,
-                          ),
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                if (shuffle)
-                                  // Twelve chips, each as wide as the
-                                  // coin it replaces, in that coin's
-                                  // colours. The pile is what shows
-                                  // should the file fail to load.
-                                  ChipShuffle(
-                                    colour: accent,
-                                    size: ChipShuffle.sizeForChip(
-                                      m.titleSize * 0.62,
-                                    ),
-                                    fallback: LivelyChipStack(
-                                      size: m.titleSize * 0.62,
-                                      colours: [accent, palette.rimLow],
-                                    ),
-                                  )
-                                else
-                                  // The owner's casino chips in the
-                                  // card's colour (1 Oct 2026; coins from
-                                  // 29 Sep), in the box the coins had (owner,
-                                  // 30 Sep 2026: "increase the animated coin
-                                  // size"), a little taller than the name's
-                                  // capitals. The stack's whole loop fills
-                                  // the box's height, so it stays inside the
-                                  // name's line and the row does not grow.
-                                  CardChips(
-                                    size: m.titleSize * 1.1,
-                                    fallbackInk: palette.ink,
-                                    tint: accent,
-                                  ),
-                                SizedBox(width: m.markGap),
-                                // The card's name in the room's own
-                                // ink, not gold: gold is what money is
-                                // written in, and the mode's colour is
-                                // already in the chips beside it.
-                                Expanded(
-                                  child: FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    alignment: Alignment.centerLeft,
-                                    child: Text(
-                                      name,
-                                      maxLines: 1,
-                                      style: AppTheme.label(
-                                        text.displaySmall!,
-                                        colour: glass.textDisplay,
-                                        weight: FontWeight.w700,
-                                      ).copyWith(fontSize: m.titleSize),
-                                    ),
-                                  ),
+                    builder: (context, box) {
+                      // The table card's own proportions, so the two kinds of card
+                      // are one family. This column is shorter than that one — a
+                      // name, a line, three facts against a badge, a stake, a line
+                      // and three facts — so wherever a table card fits, this does.
+                      final s = box.maxHeight;
+                      final m = _CardMetrics(s);
+
+                      return GameCard(
+                        accent: accent,
+                        padding: EdgeInsets.all(m.pad),
+                        child: LayoutBuilder(
+                          builder: (context, inner) => Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Allowed the height the key leaves and no more, and
+                              // scaled down rather than overflowing past it — the
+                              // table card's own guard, for the same reason:
+                              // Devanagari stands taller than Latin.
+                              CardColumn(
+                                maxHeight: math.max(
+                                  0.0,
+                                  inner.maxHeight - m.ctaH - m.ctaGap,
                                 ),
-                              ],
-                            ),
-                            if (blurb.isNotEmpty) ...[
-                              // Twice the card's gap between the name and
-                              // its line (owner, 30 Sep 2026: "add some
-                              // space between 'Seen' and 'Everyone's chips
-                              // visible'"): 16dp, 24dp on a roomy card. A
-                              // tight card gives it up before any words
-                              // shrink (CardColumn). An engine card's
-                              // (Teen Patti, Poker — the shuffling chips)
-                              // keeps the one gap: it has the most to hold.
-                              CardGap(shuffle ? m.gap : m.gap * 2),
-                              // Allowed a third line rather than cut
-                              // short: a long translation at a large
-                              // text size wraps, and the column above
-                              // the key scales down to hold it.
-                              Text(
-                                blurb,
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                                style: text.bodySmall?.copyWith(
-                                  fontSize: m.blurbSize,
-                                  color: glass.textBody,
-                                ),
+                                children: [
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      if (shuffle)
+                                        // Twelve chips, each as wide as the
+                                        // coin it replaces, in that coin's
+                                        // colours. The pile is what shows
+                                        // should the file fail to load.
+                                        ChipShuffle(
+                                          colour: accent,
+                                          size: ChipShuffle.sizeForChip(
+                                            m.titleSize * 0.62,
+                                          ),
+                                          fallback: LivelyChipStack(
+                                            size: m.titleSize * 0.62,
+                                            colours: [accent, palette.rimLow],
+                                          ),
+                                        )
+                                      else
+                                        // The owner's casino chips in the
+                                        // card's colour (1 Oct 2026; coins from
+                                        // 29 Sep), in the box the coins had (owner,
+                                        // 30 Sep 2026: "increase the animated coin
+                                        // size"), a little taller than the name's
+                                        // capitals. The stack's whole loop fills
+                                        // the box's height, so it stays inside the
+                                        // name's line and the row does not grow.
+                                        CardChips(
+                                          size: m.titleSize * 1.1,
+                                          fallbackInk: palette.ink,
+                                          tint: accent,
+                                        ),
+                                      SizedBox(width: m.markGap),
+                                      // The card's name in the room's own
+                                      // ink, not gold: gold is what money is
+                                      // written in, and the mode's colour is
+                                      // already in the chips beside it.
+                                      Expanded(
+                                        child: FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            name,
+                                            maxLines: 1,
+                                            style: AppTheme.label(
+                                              text.displaySmall!,
+                                              colour: glass.textDisplay,
+                                              weight: FontWeight.w700,
+                                            ).copyWith(fontSize: m.titleSize),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (blurb.isNotEmpty) ...[
+                                    // Twice the card's gap between the name and
+                                    // its line (owner, 30 Sep 2026: "add some
+                                    // space between 'Seen' and 'Everyone's chips
+                                    // visible'"): 16dp, 24dp on a roomy card. A
+                                    // tight card gives it up before any words
+                                    // shrink (CardColumn). An engine card's
+                                    // (Teen Patti, Poker — the shuffling chips)
+                                    // keeps the one gap: it has the most to hold.
+                                    CardGap(shuffle ? m.gap : m.gap * 2),
+                                    // Allowed a third line rather than cut
+                                    // short: a long translation at a large
+                                    // text size wraps, and the column above
+                                    // the key scales down to hold it.
+                                    Text(
+                                      blurb,
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: text.bodySmall?.copyWith(
+                                        fontSize: m.blurbSize,
+                                        color: glass.textBody,
+                                      ),
+                                    ),
+                                  ],
+                                  CardGap(m.gap),
+                                  _CardFact(
+                                    icon: Icons.toll_rounded,
+                                    palette: palette,
+                                    label: t.boot,
+                                    value: bootRange,
+                                    height: m.groupFactH,
+                                    // Stakes are money, and money is gold.
+                                    money: true,
+                                  ),
+                                  _FactRule(space: m.groupRuleSpace),
+                                  _CardFact(
+                                    icon: Icons.table_restaurant_rounded,
+                                    palette: palette,
+                                    label: t.tablesLabel,
+                                    value: '${tables.length}',
+                                    height: m.groupFactH,
+                                  ),
+                                  _FactRule(space: m.groupRuleSpace),
+                                  _CardFact(
+                                    icon: Icons.lock_open_rounded,
+                                    // The owner's lock Lottie in the icon's box
+                                    // (29 Sep 2026), still and faded when none is
+                                    // open, as the "0" beside it is said quietly.
+                                    glyph: (size, ink) => OpenLock(
+                                      size: size,
+                                      fallbackInk: ink,
+                                      tint: palette.accent,
+                                      quiet: open == 0,
+                                    ),
+                                    palette: palette,
+                                    label: t.openToYouLabel,
+                                    value: '$open',
+                                    height: m.groupFactH,
+                                    // Every table open is the good news; none
+                                    // open is said quietly.
+                                    highlight:
+                                        open > 0 && open == tables.length,
+                                    quiet: open == 0,
+                                  ),
+                                ],
+                              ),
+                              const Spacer(),
+                              _SitCapsule(
+                                label: action,
+                                height: m.ctaH,
+                                enabled: true,
+                                palette: palette,
                               ),
                             ],
-                            CardGap(m.gap),
-                            _CardFact(
-                              icon: Icons.toll_rounded,
-                              palette: palette,
-                              label: t.boot,
-                              value: bootRange,
-                              height: m.groupFactH,
-                              // Stakes are money, and money is gold.
-                              money: true,
-                            ),
-                            _FactRule(space: m.groupRuleSpace),
-                            _CardFact(
-                              icon: Icons.table_restaurant_rounded,
-                              palette: palette,
-                              label: t.tablesLabel,
-                              value: '${tables.length}',
-                              height: m.groupFactH,
-                            ),
-                            _FactRule(space: m.groupRuleSpace),
-                            _CardFact(
-                              icon: Icons.lock_open_rounded,
-                              // The owner's lock Lottie in the icon's box
-                              // (29 Sep 2026), still and faded when none is
-                              // open, as the "0" beside it is said quietly.
-                              glyph: (size, ink) => OpenLock(
-                                size: size,
-                                fallbackInk: ink,
-                                tint: palette.accent,
-                                quiet: open == 0,
-                              ),
-                              palette: palette,
-                              label: t.openToYouLabel,
-                              value: '$open',
-                              height: m.groupFactH,
-                              // Every table open is the good news; none
-                              // open is said quietly.
-                              highlight: open > 0 && open == tables.length,
-                              quiet: open == 0,
-                            ),
-                          ],
+                          ),
                         ),
-                        const Spacer(),
-                        _SitCapsule(
-                          label: action,
-                          height: m.ctaH,
-                          enabled: true,
-                          palette: palette,
+                      );
+                    },
+                  ),
+                ),
+                // In the middle of the card's top edge (owner, 1 Oct 2026:
+                // "Keep the text Live in middle at the top of card").
+                if (live)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: -liveH,
+                    height: liveH,
+                    child: Center(
+                      child: ExcludeSemantics(
+                        child: LiveTab(
+                          label: t.live,
+                          edge: GameCard.edgeOf(
+                            accent,
+                            dark: theme.brightness == Brightness.dark,
+                          ),
                         ),
-                      ],
+                      ),
                     ),
                   ),
-                );
-              },
+              ],
             ),
           ),
         ),
