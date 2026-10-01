@@ -36,6 +36,7 @@ import 'package:teenpatti/net/api_client.dart';
 import 'package:teenpatti/screens/reward_programs_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
+import 'package:teenpatti/theme/app_theme.dart';
 import 'package:teenpatti/widgets/weekly_login.dart';
 
 import 'reward_fixtures.dart';
@@ -1187,6 +1188,420 @@ void main() {
         ),
       );
     });
+
+    // A streak begun on a Thursday: Day 1 to collect today, Days 2–4 dated
+    // Fri to Sun, Days 5–7 past the cycle and on no weekday — every kind of
+    // line a row of days can hold.
+    for (final (screen, scale, lang) in const [
+      (Size(640, 360), 1.0, AppLang.english),
+      (Size(592, 360), 1.25, AppLang.english),
+      (Size(592, 360), 1.25, AppLang.hindi),
+    ]) {
+      testWidgets('along a row every day\'s words, mark and figure stand '
+          'level — the Collect, dated days and days past the cycle alike — '
+          'for a streak\'s medallions and a sequential login\'s steps, at '
+          '${screen.width.toInt()}x${screen.height.toInt()} x$scale in '
+          '${lang.name}', (tester) async {
+        await setRewardView(tester, screen: screen, textScale: scale);
+        _fakeRewardClock(tester);
+        Map<String, Object?> begunThursday(String code, String progression) =>
+            progressedWeekJson(
+              code: code,
+              progression: progression,
+              states: const [
+                'AVAILABLE',
+                'LOCKED',
+                'LOCKED',
+                'LOCKED',
+                'LOCKED',
+                'LOCKED',
+                'LOCKED',
+              ],
+              currentDay: 1,
+              claimedToday: false,
+              canClaim: true,
+              nextDay: 1,
+              today: thursday,
+              dayOfPeriod: 4,
+            );
+        final sent = <http.Request>[];
+        await http.runWithClient(
+          () async {
+            final state = rewardState(lang: lang);
+            await _openScreen(tester, state);
+            expect(tester.takeException(), isNull);
+            final t = state.t;
+            for (final code in ['WEEKLY_LOGIN', 'WEEKLY_SEQUENTIAL_LOGIN']) {
+              await tester.dragUntilVisible(
+                find.byKey(ValueKey('reward-program-$code')),
+                find.byKey(const ValueKey('reward-programs-list')),
+                const Offset(0, -120),
+              );
+              await tester.pump();
+              Finder tile(int k) => find.byKey(ValueKey('reward-day-$code-$k'));
+              Rect labelOf(int k) => tester.getRect(
+                find.descendant(
+                  of: tile(k),
+                  matching: find.text(t.rewardDay(k)),
+                ),
+              );
+              Rect figureOf(int k) => tester.getRect(
+                find.byKey(ValueKey('reward-figure-$code-$k')),
+              );
+              final label = labelOf(2);
+              final figure = figureOf(2);
+              for (var k = 1; k <= 7; k++) {
+                expect(
+                  labelOf(k).center.dy,
+                  moreOrLessEquals(label.center.dy, epsilon: 0.5),
+                  reason: '$code Day $k label',
+                );
+                expect(
+                  labelOf(k).height,
+                  moreOrLessEquals(label.height, epsilon: 0.5),
+                  reason: '$code Day $k label size',
+                );
+                expect(
+                  figureOf(k).center.dy,
+                  moreOrLessEquals(figure.center.dy, epsilon: 0.5),
+                  reason: '$code Day $k figure',
+                );
+              }
+              expectRewardWhole(
+                tester,
+                find.byKey(ValueKey('reward-program-$code')),
+                '$code at $screen x$scale ${lang.name}',
+              );
+            }
+            await unmountReward(tester, state);
+          },
+          () => fakeRewards(
+            sent: sent,
+            programs: progressedProgramsJson([
+              begunThursday('WEEKLY_LOGIN', 'RESET'),
+              begunThursday('WEEKLY_SEQUENTIAL_LOGIN', 'SEQUENTIAL'),
+            ]),
+          ),
+        );
+      });
+    }
+
+    testWidgets('every kind of program has a look of its own: a login '
+        'streak\'s medallions, a sequential login\'s steps, a calendar\'s '
+        'pages, a breaking calendar\'s chain', (tester) async {
+      await setRewardView(tester, screen: const Size(915, 412));
+      _fakeRewardClock(tester);
+      final sent = <http.Request>[];
+      await http.runWithClient(
+        () async {
+          final state = rewardState();
+          await _openScreen(tester, state);
+          expect(tester.takeException(), isNull);
+          final list = find.byKey(const ValueKey('reward-programs-list'));
+          Finder panel(String code) =>
+              find.byKey(ValueKey('reward-program-$code'));
+          Future<void> show(String code) async {
+            await tester.dragUntilVisible(
+              panel(code),
+              list,
+              const Offset(0, -120),
+            );
+            await tester.pump();
+          }
+
+          Color edgeOf(String code) {
+            final box = tester.widget<Container>(panel(code));
+            final border = (box.decoration! as BoxDecoration).border! as Border;
+            return border.top.color.withValues(alpha: 1);
+          }
+
+          int discsIn(String code) => tester
+              .widgetList<DecoratedBox>(
+                find.descendant(
+                  of: panel(code),
+                  matching: find.byType(DecoratedBox),
+                ),
+              )
+              .where(
+                (d) =>
+                    d.decoration is BoxDecoration &&
+                    (d.decoration as BoxDecoration).shape == BoxShape.circle,
+              )
+              .length;
+          Icon joint(String code, int after) => tester.widget<Icon>(
+            find.byKey(ValueKey('reward-joint-$code-$after')),
+          );
+          Finder joints(String code) => find.descendant(
+            of: panel(code),
+            matching: find.byWidgetPredicate(
+              (w) =>
+                  w.key is ValueKey<String> &&
+                  (w.key as ValueKey<String>).value.startsWith(
+                    'reward-joint-$code-',
+                  ),
+            ),
+          );
+
+          // The daily login streak (RESET): gold, a flame, seven medallions
+          // on a rail — nothing between the days but the rail.
+          const login = 'WEEKLY_LOGIN';
+          await show(login);
+          final scheme = Theme.of(tester.element(panel(login))).colorScheme;
+          expect(
+            find.descendant(
+              of: panel(login),
+              matching: find.byIcon(Icons.local_fire_department_rounded),
+            ),
+            findsOneWidget,
+          );
+          expect(edgeOf(login), AppTheme.gold);
+          expect(discsIn(login), 7);
+          expect(joints(login), findsNothing);
+
+          // A sequential login: emerald, stairs, steps joined by chevrons —
+          // the one from a collected day to the day to collect lit.
+          const steps = 'WEEKLY_SEQUENTIAL_LOGIN';
+          await show(steps);
+          expect(
+            find.descendant(
+              of: panel(steps),
+              matching: find.byIcon(Icons.stairs_rounded),
+            ),
+            findsOneWidget,
+          );
+          expect(edgeOf(steps), scheme.primary.withValues(alpha: 1));
+          expect(discsIn(steps), 0);
+          expect(joints(steps), findsNWidgets(6));
+          expect(joint(steps, 3).icon, Icons.chevron_right_rounded);
+          expect(joint(steps, 3).color, scheme.primary);
+          expect(joint(steps, 4).color, isNot(scheme.primary));
+
+          // A breaking calendar: violet, a chain, pages joined by links —
+          // broken, in the error ink, on both sides of the day whose miss
+          // broke it; its panel edged in the error while it is broken.
+          const chain = 'WEEKLY_BREAK_CALENDAR';
+          await show(chain);
+          final violet = AppTheme.violetPalette(scheme).accent;
+          expect(edgeOf(chain), scheme.error.withValues(alpha: 1));
+          expect(discsIn(chain), 0);
+          expect(joints(chain), findsNWidgets(6));
+          expect(joint(chain, 1).icon, Icons.link_rounded);
+          expect(joint(chain, 1).color, violet);
+          expect(joint(chain, 2).icon, Icons.link_off_rounded);
+          expect(joint(chain, 2).color, scheme.error);
+          expect(joint(chain, 3).icon, Icons.link_off_rounded);
+          expect(joint(chain, 3).color, scheme.error);
+          expect(joint(chain, 4).icon, Icons.link_rounded);
+          expect(joint(chain, 4).color, isNot(scheme.error));
+
+          // The usual break — a player who first opens a breaking calendar
+          // mid-week has missed its Monday — shows too: the link out of
+          // Day 1 is broken, and the rest of the chain is quiet.
+          const monday = 'WEEKLY_BREAK_MONDAY';
+          await show(monday);
+          expect(edgeOf(monday), scheme.error.withValues(alpha: 1));
+          expect(joint(monday, 1).icon, Icons.link_off_rounded);
+          expect(joint(monday, 1).color, scheme.error);
+          for (var after = 2; after <= 6; after++) {
+            expect(joint(monday, after).icon, Icons.link_rounded);
+            expect(joint(monday, after).color, isNot(scheme.error));
+          }
+
+          // A calendar: sapphire, a calendar, pages standing apart.
+          const month = 'MONTHLY_CALENDAR';
+          await show(month);
+          expect(
+            find.descendant(
+              of: panel(month),
+              matching: find.byIcon(Icons.calendar_month_rounded),
+            ),
+            findsOneWidget,
+          );
+          expect(edgeOf(month), scheme.tertiary.withValues(alpha: 1));
+          expect(discsIn(month), 0);
+          expect(joints(month), findsNothing);
+
+          // A login streak that breaks: violet medallions, the chain's mark,
+          // and its rail in the error ink on both sides of the missed Day 3 —
+          // a half of the rail in each of Days 2 and 4, both halves in Day 3.
+          const breaking = 'WEEKLY_LOGIN_BREAK';
+          await show(breaking);
+          expect(
+            find.descendant(
+              of: panel(breaking),
+              matching: find.byIcon(Icons.link_rounded),
+            ),
+            findsOneWidget,
+          );
+          expect(discsIn(breaking), 7);
+          expect(joints(breaking), findsNothing);
+          expect(
+            tester
+                .widgetList<Container>(
+                  find.descendant(
+                    of: panel(breaking),
+                    matching: find.byType(Container),
+                  ),
+                )
+                .where((c) => c.color == scheme.error),
+            hasLength(4),
+          );
+          await unmountReward(tester, state);
+        },
+        () => fakeRewards(
+          sent: sent,
+          programs: progressedProgramsJson([
+            activeResetWeekJson(),
+            activeSequentialWeekJson(),
+            brokenCalendarWeekJson(),
+            progressedWeekJson(
+              code: 'WEEKLY_BREAK_MONDAY',
+              mode: 'CALENDAR',
+              progression: 'BREAK',
+              status: 'BROKEN',
+              states: const [
+                'MISSED',
+                'LOCKED',
+                'LOCKED',
+                'LOCKED',
+                'LOCKED',
+                'LOCKED',
+                'LOCKED',
+              ],
+              currentDay: 1,
+              claimedToday: false,
+              canClaim: false,
+              nextDay: 0,
+              today: thursday,
+              dayOfPeriod: 4,
+            ),
+            progressedMonthJson(),
+            progressedWeekJson(
+              code: 'WEEKLY_LOGIN_BREAK',
+              progression: 'BREAK',
+              status: 'BROKEN',
+              states: const [
+                'CLAIMED',
+                'CLAIMED',
+                'MISSED',
+                'LOCKED',
+                'LOCKED',
+                'LOCKED',
+                'LOCKED',
+              ],
+              currentDay: 3,
+              claimedToday: false,
+              canClaim: false,
+              nextDay: 0,
+              today: thursday,
+              dayOfPeriod: 4,
+            ),
+          ]),
+        ),
+      );
+    });
+
+    // The brief's week (the seed's WEEKLY_SEQUENTIAL_CAL): an emoji on Day 5
+    // and a badge on Day 7, whose names are far wider than a page.
+    for (final (screen, scale) in const [
+      (Size(640, 360), 1.0),
+      (Size(592, 360), 1.25),
+    ]) {
+      testWidgets('a page\'s date stands as large beside a long prize name '
+          '("Clapping Hands", "Royal Ace") as beside a figure, at '
+          '${screen.width.toInt()}x${screen.height.toInt()} x$scale', (
+        tester,
+      ) async {
+        await setRewardView(tester, screen: screen, textScale: scale);
+        _fakeRewardClock(tester);
+        const code = 'WEEKLY_SEQUENTIAL_CAL';
+        const states = [
+          'CLAIMED',
+          'CLAIMED',
+          'CLAIMED',
+          'LOCKED',
+          'LOCKED',
+          'LOCKED',
+          'LOCKED',
+        ];
+        final week = progressedWeekJson(
+          code: code,
+          mode: 'CALENDAR',
+          progression: 'BREAK',
+          states: states,
+          currentDay: 3,
+          claimedToday: true,
+          canClaim: false,
+          nextDay: 4,
+        );
+        week['rewards'] = [
+          for (final (i, d) in [
+            dayJson(1, 'CHIPS', value: 10000),
+            dayJson(2, 'HAMMER', value: 1),
+            dayJson(3, 'CHIPS', value: 20000),
+            dayJson(4, 'DIAMOND', value: 1),
+            dayJson(5, 'EMOJI', ref: '5', emoji: clappingHands),
+            dayJson(6, 'CHIPS', value: 50000),
+            dayJson(7, 'BADGE', ref: 'ROYAL_ACE', badge: royalAce),
+          ].indexed)
+            {...d, 'claimed': states[i] == 'CLAIMED', 'state': states[i]},
+        ];
+        final sent = <http.Request>[];
+        await http.runWithClient(
+          () async {
+            final state = rewardState();
+            await _openScreen(tester, state);
+            expect(tester.takeException(), isNull);
+            await tester.dragUntilVisible(
+              find.byKey(const ValueKey('reward-program-$code')),
+              find.byKey(const ValueKey('reward-programs-list')),
+              const Offset(0, -120),
+            );
+            await tester.pump();
+            // A page's date: the one line of it set at the date's size.
+            Rect dateOf(int day) {
+              final date = find.descendant(
+                of: find.byKey(ValueKey('reward-day-$code-$day')),
+                matching: find.byWidgetPredicate(
+                  (w) => w is Text && w.data != '0' && w.style?.fontSize == 22,
+                ),
+              );
+              expect(date, findsOneWidget, reason: 'Day $day');
+              return tester.getRect(date);
+            }
+
+            final plain = dateOf(4).height;
+            expect(plain, greaterThan(18 * scale));
+            for (final day in [1, 2, 3, 5, 6, 7]) {
+              expect(
+                dateOf(day).height,
+                moreOrLessEquals(plain, epsilon: 0.5),
+                reason: 'Day $day',
+              );
+            }
+            // The long names are set down to their page, and kept whole.
+            for (final day in [5, 7]) {
+              final tile = tester.getRect(
+                find.byKey(ValueKey('reward-day-$code-$day')),
+              );
+              final name = tester.getRect(
+                find.byKey(ValueKey('reward-figure-$code-$day')),
+              );
+              expect(name.left, greaterThanOrEqualTo(tile.left - 0.5));
+              expect(name.right, lessThanOrEqualTo(tile.right + 0.5));
+            }
+            expectRewardWhole(
+              tester,
+              find.byKey(const ValueKey('reward-program-$code')),
+              '$code at $screen x$scale',
+            );
+            await unmountReward(tester, state);
+          },
+          () =>
+              fakeRewards(sent: sent, programs: progressedProgramsJson([week])),
+        );
+      });
+    }
 
     testWidgets('an ACTIVE SEQUENTIAL week: "3 day streak", a missed day '
         'skipped, Day 4 to collect', (tester) async {

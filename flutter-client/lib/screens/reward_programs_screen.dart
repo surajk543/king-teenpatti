@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -324,6 +325,96 @@ class RewardProgramsScreen extends StatelessWidget {
 /// reachable.
 enum _DayState { claimed, available, missed, locked }
 
+/// The shape a program's days take (owner, 1 Oct 2026: "Keep different
+/// design in ui for daily login, weekly calendar, for different types"): a
+/// login streak's days are medallions threaded on a rail — a run to keep
+/// going; a sequential login's are steps taken one after another; a
+/// calendar's are the pages of a desk calendar, each dated.
+enum _DayShape { medallion, step, page }
+
+/// How one kind of program is drawn — every kind its own: its colour (one of
+/// the lobby's palettes, so no colour is new), its mark, the shape of its
+/// days, and whether its days are chained — a cycle a missed day breaks.
+///
+///   login streak, RESET       gold, a flame, medallions on a rail
+///   login streak, SEQUENTIAL  emerald, stairs, steps joined by chevrons
+///   login streak, BREAK       violet, a chain, medallions on a rail
+///   calendar, SEQUENTIAL      sapphire, a calendar, pages
+///   calendar, BREAK           violet, a chain, pages joined by links
+///   calendar, RESET           gold, a flame, pages
+class _ProgramLook {
+  const _ProgramLook({
+    required this.palette,
+    required this.icon,
+    required this.shape,
+    this.chained = false,
+  });
+
+  final TablePalette palette;
+  final IconData icon;
+  final _DayShape shape;
+
+  /// The days are links of one chain: a missed day breaks it.
+  final bool chained;
+
+  Color get accent => palette.accent;
+
+  /// The accent as type and glyph on the panel.
+  Color get ink => palette.ink;
+
+  /// Type and glyphs laid ON the accent: a collected medallion's mark.
+  Color get onAccent => onFill(accent);
+
+  /// White or charcoal, whichever reads on [fill].
+  static Color onFill(Color fill) =>
+      ThemeData.estimateBrightnessForColor(fill) == Brightness.dark
+      ? Colors.white
+      : AppTheme.ink900;
+
+  static _ProgramLook of(RewardProgramInfo p, ColorScheme scheme) {
+    final gold = AppTheme.paletteFor(scheme, category: 'seen', bootAmount: 0);
+    final violet = AppTheme.violetPalette(scheme);
+    if (p.isStreak) {
+      return switch (p.progression) {
+        RewardProgression.sequential => _ProgramLook(
+          palette: AppTheme.privatePalette(scheme),
+          icon: Icons.stairs_rounded,
+          shape: _DayShape.step,
+        ),
+        RewardProgression.breaks => _ProgramLook(
+          palette: violet,
+          icon: Icons.link_rounded,
+          shape: _DayShape.medallion,
+          chained: true,
+        ),
+        _ => _ProgramLook(
+          palette: gold,
+          icon: Icons.local_fire_department_rounded,
+          shape: _DayShape.medallion,
+        ),
+      };
+    }
+    return switch (p.progression) {
+      RewardProgression.breaks => _ProgramLook(
+        palette: violet,
+        icon: Icons.link_rounded,
+        shape: _DayShape.page,
+        chained: true,
+      ),
+      RewardProgression.reset => _ProgramLook(
+        palette: gold,
+        icon: Icons.local_fire_department_rounded,
+        shape: _DayShape.page,
+      ),
+      _ => _ProgramLook(
+        palette: AppTheme.paletteFor(scheme, category: 'blind', bootAmount: 0),
+        icon: Icons.calendar_month_rounded,
+        shape: _DayShape.page,
+      ),
+    };
+  }
+}
+
 /// One program's panel: its head, its cycle's dates, what its progression
 /// means — or, broken, the day missed and when the next cycle starts — its
 /// days, what the next one gives and how long until the next period.
@@ -432,9 +523,8 @@ class _ProgramPanel extends StatelessWidget {
     final text = theme.textTheme;
     final b = theme.brightness;
     final dark = b == Brightness.dark;
-    final glass = GlassColors.of(context);
     final p = state.program;
-    final gold = AppTheme.goldInk(b);
+    final look = _ProgramLook.of(p, theme.colorScheme);
     final quiet = theme.colorScheme.onSurface.withValues(
       alpha: AppTheme.inkLowOn(b),
     );
@@ -462,15 +552,33 @@ class _ProgramPanel extends StatelessWidget {
     final collect = onCollect;
     final tap = claiming || collect == null ? null : () => collect(p.code);
 
+    final ground = dark
+        ? Colors.white.withValues(alpha: 0.05)
+        : Colors.white.withValues(alpha: 0.55);
     return Container(
       key: ValueKey('reward-program-${p.code}'),
       padding: const EdgeInsets.all(Space.md),
       decoration: BoxDecoration(
-        color: dark
-            ? Colors.white.withValues(alpha: 0.05)
-            : Colors.white.withValues(alpha: 0.55),
+        // Each kind of program in its own colour: a wash of it from the
+        // panel's head, and its edge — the error's while a cycle is broken.
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          stops: const [0, 0.55],
+          colors: [
+            Color.alphaBlend(
+              look.accent.withValues(alpha: dark ? 0.12 : 0.08),
+              ground,
+            ),
+            ground,
+          ],
+        ),
         borderRadius: BorderRadius.circular(Radii.md),
-        border: Border.all(color: glass.cardBorder),
+        border: Border.all(
+          color: broken
+              ? theme.colorScheme.error.withValues(alpha: 0.6)
+              : look.accent.withValues(alpha: dark ? 0.42 : 0.5),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -491,7 +599,7 @@ class _ProgramPanel extends StatelessWidget {
                     label: p.isStreak
                         ? t.rewardModeStreak
                         : t.rewardModeCalendar,
-                    streak: p.isStreak,
+                    look: look,
                   ),
                   const SizedBox(width: Space.sm),
                   Flexible(
@@ -515,8 +623,8 @@ class _ProgramPanel extends StatelessWidget {
                 style: AppTheme.money(
                   text.titleSmall!,
                   // A broken cycle in the theme's error ink; the rest in the
-                  // lobby's money gold.
-                  colour: broken ? theme.colorScheme.error : gold,
+                  // program's own colour.
+                  colour: broken ? theme.colorScheme.error : look.ink,
                 ),
               ),
             ],
@@ -556,12 +664,14 @@ class _ProgramPanel extends StatelessWidget {
           p.isWeekly
               ? _WeekRow(
                   state: state,
+                  look: look,
                   t: t,
                   collecting: collecting,
                   onCollect: tap,
                 )
               : _MonthGrid(
                   state: state,
+                  look: look,
                   t: t,
                   collecting: collecting,
                   onCollect: tap,
@@ -607,55 +717,64 @@ class _ProgramPanel extends StatelessWidget {
   }
 }
 
-/// "LOGIN STREAK" / "CALENDAR" — a small tag saying which kind of program
-/// the panel is, gold for a streak and the blind table's sapphire for a
-/// calendar.
+/// "LOGIN STREAK" / "CALENDAR" with the program's mark — a flame, stairs, a
+/// calendar, a chain — in the program's own colour ([_ProgramLook]).
 class _ModeTag extends StatelessWidget {
-  const _ModeTag({required this.label, required this.streak});
+  const _ModeTag({required this.label, required this.look});
 
   final String label;
-  final bool streak;
+  final _ProgramLook look;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
-    final ink = streak
-        ? AppTheme.goldInk(theme.brightness)
-        : theme.colorScheme.tertiary;
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: Space.sm,
         vertical: Space.xxs,
       ),
       decoration: BoxDecoration(
-        color: ink.withValues(alpha: dark ? 0.16 : 0.12),
+        color: look.accent.withValues(alpha: dark ? 0.16 : 0.12),
         borderRadius: BorderRadius.circular(Radii.pill),
-        border: Border.all(color: ink.withValues(alpha: 0.6)),
+        border: Border.all(color: look.accent.withValues(alpha: 0.6)),
       ),
-      child: Text(
-        label,
-        maxLines: 1,
-        style: AppTheme.label(
-          theme.textTheme.labelSmall!,
-          colour: ink,
-          weight: FontWeight.w700,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(look.icon, size: 13, color: look.ink),
+          const SizedBox(width: Space.xs),
+          Text(
+            label,
+            maxLines: 1,
+            style: AppTheme.label(
+              theme.textTheme.labelSmall!,
+              colour: look.ink,
+              weight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// A week's seven days in one row.
+/// A week's seven days in one row, joined the way the program's days are: a
+/// rail through a streak's medallions (drawn inside each tile, which stand
+/// shoulder to shoulder for it), chevrons between a sequential login's
+/// steps, chain links between a breaking calendar's pages; a calendar's
+/// other pages stand apart.
 class _WeekRow extends StatelessWidget {
   const _WeekRow({
     required this.state,
+    required this.look,
     required this.t,
     this.collecting = false,
     this.onCollect,
   });
 
   final RewardProgramState state;
+  final _ProgramLook look;
   final Strings t;
   final bool collecting;
   final VoidCallback? onCollect;
@@ -665,18 +784,31 @@ class _WeekRow extends StatelessWidget {
   /// type [_DayTile] sets.
   static const double tileHeight = 96;
 
+  /// The width a joint — a chevron, a link — takes between two days.
+  static const double jointWidth = 14;
+
   @override
   Widget build(BuildContext context) {
     final days = state.periodDays.clamp(1, 7);
+    final medallions = look.shape == _DayShape.medallion;
+    final joined =
+        look.shape == _DayShape.step ||
+        (look.shape == _DayShape.page && look.chained);
     return Row(
       children: [
-        for (var k = 1; k <= days; k++)
+        for (var k = 1; k <= days; k++) ...[
+          if (k > 1 && joined) _Joint(state: state, look: look, after: k - 1),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: Space.xxs),
+              padding: EdgeInsets.symmetric(
+                horizontal: medallions || joined ? 0 : Space.xxs,
+              ),
               child: _DayTile(
                 program: state,
+                look: look,
                 day: k,
+                days: days,
+                rail: medallions,
                 t: t,
                 height: tileHeight,
                 collecting: collecting,
@@ -684,22 +816,75 @@ class _WeekRow extends StatelessWidget {
               ),
             ),
           ),
+        ],
       ],
     );
   }
 }
 
+/// What joins day [after] to the next: a sequential login's chevron, or a
+/// breaking calendar's link — in the program's colour where both days are
+/// collected (or the second can be now), broken and in the error ink on both
+/// sides of the day whose miss broke the cycle (so the break shows when that
+/// is Day 1, the usual case for a player who first opens a breaking calendar
+/// mid-week), quiet elsewhere.
+class _Joint extends StatelessWidget {
+  const _Joint({required this.state, required this.look, required this.after});
+
+  final RewardProgramState state;
+  final _ProgramLook look;
+  final int after;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final glass = GlassColors.of(context);
+    final here = _ProgramPanel.stateOf(state, after);
+    final next = _ProgramPanel.stateOf(state, after + 1);
+    final missed = state.missedDay;
+    final broke = missed >= 1 && (after + 1 == missed || after == missed);
+    final held =
+        here == _DayState.claimed &&
+        (next == _DayState.claimed || next == _DayState.available);
+    final icon = look.shape == _DayShape.step
+        ? Icons.chevron_right_rounded
+        : broke
+        ? Icons.link_off_rounded
+        : Icons.link_rounded;
+    return ExcludeSemantics(
+      child: SizedBox(
+        width: _WeekRow.jointWidth,
+        child: Center(
+          child: Icon(
+            icon,
+            key: ValueKey('reward-joint-${state.program.code}-$after'),
+            size: _WeekRow.jointWidth,
+            color: broke
+                ? theme.colorScheme.error
+                : held
+                ? look.ink
+                : glass.cardMuted.withValues(alpha: 0.7),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// A month's 28 to 31 days, seven to a row — never 31 large cards on a phone
-/// (the brief's §27): the page scrolls, the grid does not.
+/// (the brief's §27): the page scrolls, the grid does not. Its days take the
+/// program's shape; nothing joins them across the grid's rows.
 class _MonthGrid extends StatelessWidget {
   const _MonthGrid({
     required this.state,
+    required this.look,
     required this.t,
     this.collecting = false,
     this.onCollect,
   });
 
   final RewardProgramState state;
+  final _ProgramLook look;
   final Strings t;
   final bool collecting;
   final VoidCallback? onCollect;
@@ -720,7 +905,9 @@ class _MonthGrid extends StatelessWidget {
       itemCount: days,
       itemBuilder: (_, i) => _DayTile(
         program: state,
+        look: look,
         day: i + 1,
+        days: days,
         t: t,
         height: null,
         collecting: collecting,
@@ -730,28 +917,43 @@ class _MonthGrid extends StatelessWidget {
   }
 }
 
-/// One day: its label, its reward's mark and figure, and its standing — a
-/// green tick when collected; a gold ring for today, and on the day that can
-/// be collected now a Collect that collects its program with a tap (the
-/// loader there while the claim is out); faded and locked when not reached;
-/// faded and crossed when missed — in the error ink on the day that broke a
-/// cycle. Everything inside is set down to fit the tile, never cut.
+/// One day, drawn in its program's shape ([_ProgramLook]): a streak's
+/// medallion on its rail, a sequential login's step, a calendar's page.
+/// Every shape says the same things — the day's label, its reward's mark and
+/// figure, and its standing: collected (a tick, the program's colour),
+/// collectable now (the program's colour round it, a glow, and a Collect
+/// that collects its program with a tap — the loader there while the claim is
+/// out), not reached (faded, a padlock) or missed (faded, a ✕ — in the error
+/// ink on the day that broke a cycle). Everything inside is set down to fit,
+/// never cut.
 class _DayTile extends StatelessWidget {
   const _DayTile({
     required this.program,
+    required this.look,
     required this.day,
     required this.t,
     required this.height,
+    this.days = 0,
+    this.rail = false,
     this.collecting = false,
     this.onCollect,
   });
 
   final RewardProgramState program;
+  final _ProgramLook look;
   final int day;
   final Strings t;
 
   /// A fixed height, or null to take the grid cell's.
   final double? height;
+
+  /// The days in its row: a medallion's rail runs to neither side of the
+  /// row's ends.
+  final int days;
+
+  /// A medallion threads the rail through its row (a week's); a month's grid
+  /// draws none, since its rows would join the wrong days.
+  final bool rail;
 
   /// The claim out collects this program: the loader in place of Collect.
   final bool collecting;
@@ -763,12 +965,21 @@ class _DayTile extends StatelessWidget {
   /// The type on a tile (owner, 30 Sep 2026: "Increase the size of each box
   /// of Day along with text" — the label ramp's smallest step, 11, for
   /// everything before): the day's label, its weekday, the prize's mark and
-  /// its figure, the largest thing on the tile. A tile too small for them —
-  /// a month's cell on a phone — sets the column down whole.
+  /// its figure. A tile too small for them — a month's cell on a phone — sets
+  /// its words down whole.
   static const double labelSize = 13;
   static const double subSize = 12;
   static const double markSize = 22;
   static const double figureSize = 15.5;
+
+  /// A calendar page's date, the largest thing on it.
+  static const double dateSize = 22;
+
+  /// A medallion's share of its tile's height (and at most of its width,
+  /// [medallionWidthShare]); the rail through it.
+  static const double medallionShare = 0.40;
+  static const double medallionWidthShare = 0.62;
+  static const double railWidth = 3;
 
   @override
   Widget build(BuildContext context) {
@@ -777,26 +988,17 @@ class _DayTile extends StatelessWidget {
     final b = theme.brightness;
     final dark = b == Brightness.dark;
     final glass = GlassColors.of(context);
-    final gold = AppTheme.goldInk(b);
+    final error = theme.colorScheme.error;
     final code = program.program.code;
     final prize = program.rewardFor(day)?.prize;
     final standing = _ProgramPanel.stateOf(program, day);
     final available = standing == _DayState.available;
+    final claimed = standing == _DayState.claimed;
     final today = available || _ProgramPanel.isToday(program, day);
     final collect = onCollect;
     final tappable = available && collect != null;
     final (label, sub) = _ProgramPanel.labelsOf(program, day, t);
     final faded = standing == _DayState.locked || standing == _DayState.missed;
-    final fill = switch (standing) {
-      _DayState.claimed => AppTheme.gold.withValues(alpha: dark ? 0.16 : 0.12),
-      _DayState.available => AppTheme.gold.withValues(
-        alpha: dark ? 0.08 : 0.06,
-      ),
-      _ =>
-        dark
-            ? Colors.white.withValues(alpha: 0.04)
-            : Colors.black.withValues(alpha: 0.03),
-    };
     final ink = prize == null ? glass.cardMuted : rewardPrizeInk(prize, b);
     final words = [
       label,
@@ -811,9 +1013,9 @@ class _DayTile extends StatelessWidget {
     ].join(', ');
     // The day to collect now says so: its Collect — or the loader, at the
     // Collect's own size, while the claim is out — in place of its weekday
-    // or date (of its date, in a month's cell), so its column is no taller
-    // than its neighbours' and is never set down smaller than theirs. A
-    // screen reader still hears every word.
+    // or date (of its label, where it has no second line), so its words are
+    // no taller than its neighbours' and never set down smaller than theirs.
+    // A screen reader still hears every word.
     final Widget? collectMark = !available
         ? null
         : collecting
@@ -832,6 +1034,428 @@ class _DayTile extends StatelessWidget {
             key: ValueKey('reward-collect-$code-$day'),
             label: t.rewardTileCollect,
           );
+    final glow = available
+        ? [
+            BoxShadow(
+              color: look.accent.withValues(alpha: dark ? 0.45 : 0.35),
+              blurRadius: 10,
+            ),
+          ]
+        : null;
+
+    final labelStyle = AppTheme.label(
+      text.labelSmall!,
+      fontSize: labelSize,
+      colour: today ? look.ink : glass.cardMuted,
+      weight: FontWeight.w700,
+    );
+    final subStyle = text.labelSmall?.copyWith(
+      fontSize: subSize,
+      color: glass.cardMuted,
+    );
+
+    // What every tile of the row keeps to, so that its lines stand level
+    // with its neighbours': a weekday or date line wherever any day of the
+    // row has one (a streak's days past its cycle have none), and room for
+    // the Collect wherever a day of the row can be collected.
+    final span = days > 0 ? days : day;
+    final rowHasSub = [
+      for (var k = 1; k <= span; k++) _ProgramPanel.labelsOf(program, k, t).$2,
+    ].any((s) => s != null);
+    final rowCollects = [
+      for (var k = 1; k <= span; k++) _ProgramPanel.stateOf(program, k),
+    ].contains(_DayState.available);
+    final collectHeight = rowCollects
+        ? _CollectTag.heightFor(context, t.rewardTileCollect)
+        : 0.0;
+
+    // One line of a tile, set down on its own to the tile's [width] — so a
+    // long prize name ("Clapping Hands") never shrinks the date or the label
+    // above it — and always as tall as a line of [style] at its full size
+    // (a hidden figure holds it), or [minHeight] where that is taller. Every
+    // tile of a row has the same lines, so its column of them is one height,
+    // and where that is too tall for the tile all the row's tiles are set
+    // down by the same share: a page's date stands as large beside a long
+    // name as beside a figure, and every reward's mark and figure stand
+    // level along the row.
+    Widget fitLine(
+      double width,
+      Widget line, {
+      required TextStyle? style,
+      double minHeight = 0,
+    }) => SizedBox(
+      width: width,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Opacity(opacity: 0, child: Text('0', style: style)),
+          if (minHeight > 0) SizedBox(height: minHeight),
+          FittedBox(fit: BoxFit.scaleDown, child: line),
+        ],
+      ),
+    );
+
+    // The day's words over its reward, a line each: its label over its
+    // weekday or date (a blank line where this day has none but the row
+    // does), the Collect in place of the second line, or of the only one.
+    List<Widget> headLines(double width) {
+      final collectOnLabel = !rowHasSub;
+      return [
+        fitLine(
+          width,
+          collectMark != null && collectOnLabel
+              ? collectMark
+              : Text(label, style: labelStyle),
+          style: labelStyle,
+          minHeight: collectOnLabel ? collectHeight : 0,
+        ),
+        if (rowHasSub)
+          fitLine(
+            width,
+            collectMark ?? Text(sub ?? '', style: subStyle),
+            style: subStyle,
+            minHeight: collectHeight,
+          ),
+      ];
+    }
+
+    Icon markIcon(double size, Color colour) => Icon(
+      prize == null ? Icons.remove_rounded : rewardPrizeIcon(prize),
+      size: size,
+      color: colour,
+    );
+
+    final figureStyle = AppTheme.money(
+      text.labelSmall!,
+      fontSize: figureSize,
+      colour: theme.colorScheme.onSurface,
+    );
+    final figure = Text(
+      prize == null ? '' : rewardPrizeShort(prize),
+      key: ValueKey('reward-figure-$code-$day'),
+      style: figureStyle,
+    );
+    Widget figureLine(double width) =>
+        fitLine(width, figure, style: figureStyle);
+
+    // The standing's mark at the corner: [quiet] where it says nothing loud
+    // (a padlock, a ✕ on a day that broke nothing).
+    Widget? badge(Color quiet) => switch (standing) {
+      _DayState.claimed => Icon(
+        Icons.check_circle_rounded,
+        size: 14,
+        color: theme.colorScheme.primary,
+      ),
+      _DayState.locked => Icon(Icons.lock_rounded, size: 12, color: quiet),
+      _DayState.missed => Icon(
+        Icons.cancel_rounded,
+        key: ValueKey('reward-missed-$code-$day'),
+        size: 13,
+        color: program.isBroken ? error : quiet,
+      ),
+      _DayState.available => null,
+    };
+
+    // A login streak: a medallion threaded on the run's rail — in the
+    // program's colour where the run holds (both days collected, or the
+    // second collectable now), in the error ink on both sides of the day
+    // whose miss broke the cycle, quiet elsewhere.
+    Widget medallionFace() {
+      bool reached(_DayState s) =>
+          s == _DayState.claimed || s == _DayState.available;
+      final missed = program.missedDay;
+      // The rail from day [a] to the next.
+      Color railAfter(int a) {
+        if (missed >= 1 && (a == missed || a + 1 == missed)) return error;
+        final from = _ProgramPanel.stateOf(program, a);
+        final to = _ProgramPanel.stateOf(program, a + 1);
+        if (from == _DayState.claimed && reached(to)) return look.accent;
+        return glass.cardMuted.withValues(alpha: 0.32);
+      }
+
+      final railIn = rail && day > 1 ? railAfter(day - 1) : null;
+      final railOut = rail && day < days ? railAfter(day) : null;
+      Widget railPart(Color? colour) => Expanded(
+        child: colour == null
+            ? const SizedBox.shrink()
+            : Center(
+                child: Container(height: railWidth, color: colour),
+              ),
+      );
+      final paper = dark ? Colors.white.withValues(alpha: 0.06) : Colors.white;
+      final corner = badge(glass.cardMuted);
+      return LayoutBuilder(
+        builder: (context, box) {
+          final h = height ?? box.maxHeight;
+          final d = math.min(
+            h * medallionShare,
+            box.maxWidth * medallionWidthShare,
+          );
+          final disc = DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: claimed
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [look.palette.rimHigh, look.palette.rimLow],
+                    )
+                  : null,
+              color: claimed
+                  ? null
+                  : available
+                  ? Color.alphaBlend(
+                      look.accent.withValues(alpha: dark ? 0.18 : 0.12),
+                      paper,
+                    )
+                  : paper,
+              border: claimed
+                  ? null
+                  : Border.all(
+                      color: available ? look.accent : glass.cardBorder,
+                      width: available ? 2.5 : 1.2,
+                    ),
+              boxShadow: glow,
+            ),
+            child: Center(
+              child: markIcon(d * 0.5, claimed ? look.onAccent : ink),
+            ),
+          );
+          return SizedBox(
+            height: h,
+            child: Column(
+              children: [
+                SizedBox(
+                  height: h * 0.36,
+                  child: Center(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: headLines(box.maxWidth),
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  height: d,
+                  child: Row(
+                    children: [
+                      railPart(railIn),
+                      SizedBox.square(
+                        dimension: d,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Positioned.fill(child: disc),
+                            if (corner != null)
+                              Positioned(top: -3, right: -4, child: corner),
+                          ],
+                        ),
+                      ),
+                      railPart(railOut),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: Space.xxs),
+                Expanded(
+                  child: Center(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: figureLine(box.maxWidth),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+
+    // A calendar: a desk calendar's page — a band in the program's colour
+    // across its head carrying the weekday (a week's), the date large under
+    // it, then the reward. The band says the standing too: the program's
+    // colour collected or collectable, a pale one ahead, grey for a date gone
+    // by, the error's on the day that broke a cycle.
+    Widget pageFace() {
+      final weekly = program.program.isWeekly;
+      final paper = dark ? Colors.white.withValues(alpha: 0.06) : Colors.white;
+      final bandFill = switch (standing) {
+        _DayState.claimed || _DayState.available => look.accent,
+        _DayState.missed =>
+          program.isBroken
+              ? error.withValues(alpha: 0.24)
+              : glass.cardMuted.withValues(alpha: 0.2),
+        _DayState.locked => look.accent.withValues(alpha: dark ? 0.36 : 0.3),
+      };
+      final onBand = _ProgramLook.onFill(
+        Color.alphaBlend(bandFill, AppTheme.panelBase(b)),
+      );
+      final date = weekly ? sub : label;
+      final dateStyle = AppTheme.money(
+        text.titleMedium!,
+        fontSize: dateSize,
+        colour: today ? look.ink : theme.colorScheme.onSurface,
+      );
+      final corner = badge(onBand);
+      return LayoutBuilder(
+        builder: (context, box) {
+          final h = height ?? box.maxHeight;
+          final band = weekly ? h * 0.24 : math.max(h * 0.17, 14.0);
+          return Container(
+            height: h,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: paper,
+              borderRadius: BorderRadius.circular(Radii.sm),
+              border: Border.all(
+                color: today ? look.accent : glass.cardBorder,
+                width: today ? 1.5 : 1,
+              ),
+              boxShadow: glow,
+            ),
+            child: Column(
+              children: [
+                Container(
+                  height: band,
+                  width: double.infinity,
+                  color: bandFill,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (weekly)
+                        Padding(
+                          // Clear of the corner's mark on either side.
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: Space.lg + Space.xxs,
+                          ),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              label,
+                              style: AppTheme.label(
+                                text.labelSmall!,
+                                fontSize: subSize,
+                                colour: onBand,
+                                weight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (corner != null)
+                        Positioned(right: Space.xxs, child: corner),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      Space.xxs,
+                      Space.xxs,
+                      Space.xxs,
+                      Space.xs,
+                    ),
+                    child: LayoutBuilder(
+                      builder: (context, body) => Center(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              fitLine(
+                                body.maxWidth,
+                                collectMark ??
+                                    Text(date ?? '', style: dateStyle),
+                                style: dateStyle,
+                                minHeight: collectHeight,
+                              ),
+                              const SizedBox(height: Space.xxs),
+                              markIcon(markSize * 0.8, ink),
+                              figureLine(body.maxWidth),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+
+    // A sequential login: a step — a square in the program's colour, filled
+    // once taken, ringed while it is the one to take.
+    Widget stepFace() {
+      final fill = switch (standing) {
+        _DayState.claimed => look.accent.withValues(alpha: dark ? 0.22 : 0.15),
+        _DayState.available => look.accent.withValues(
+          alpha: dark ? 0.10 : 0.07,
+        ),
+        _ =>
+          dark
+              ? Colors.white.withValues(alpha: 0.04)
+              : Colors.black.withValues(alpha: 0.03),
+      };
+      final corner = badge(glass.cardMuted);
+      return Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: fill,
+          borderRadius: BorderRadius.circular(Radii.sm),
+          border: Border.all(
+            color: today
+                ? look.accent
+                : claimed
+                ? look.accent.withValues(alpha: 0.55)
+                : glass.cardBorder,
+            width: today ? 1.5 : 1,
+          ),
+          boxShadow: glow,
+        ),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  Space.xxs,
+                  Space.xs,
+                  Space.xxs,
+                  Space.xs,
+                ),
+                child: LayoutBuilder(
+                  builder: (context, body) => Center(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ...headLines(body.maxWidth),
+                          const SizedBox(height: Space.xxs),
+                          markIcon(markSize, ink),
+                          figureLine(body.maxWidth),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (corner != null)
+              Positioned(top: Space.xxs, right: Space.xxs, child: corner),
+          ],
+        ),
+      );
+    }
+
+    final face = switch (look.shape) {
+      _DayShape.medallion => medallionFace(),
+      _DayShape.page => pageFace(),
+      _DayShape.step => stepFace(),
+    };
 
     return Semantics(
       key: ValueKey('reward-day-$code-$day'),
@@ -847,113 +1471,7 @@ class _DayTile extends StatelessWidget {
                   collect();
                 }
               : null,
-          child: Opacity(
-            opacity: faded ? 0.45 : 1,
-            child: Container(
-              height: height,
-              decoration: BoxDecoration(
-                color: fill,
-                borderRadius: BorderRadius.circular(Radii.sm),
-                border: Border.all(
-                  color: today ? gold : glass.cardBorder,
-                  width: today ? 1.5 : 1,
-                ),
-              ),
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        Space.xxs,
-                        Space.xs,
-                        Space.xxs,
-                        Space.xs,
-                      ),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (collectMark != null && sub == null)
-                              collectMark
-                            else
-                              Text(
-                                label,
-                                style: AppTheme.label(
-                                  text.labelSmall!,
-                                  fontSize: _DayTile.labelSize,
-                                  colour: today ? gold : glass.cardMuted,
-                                  weight: FontWeight.w700,
-                                ),
-                              ),
-                            if (sub != null)
-                              collectMark ??
-                                  Text(
-                                    sub,
-                                    style: text.labelSmall?.copyWith(
-                                      fontSize: _DayTile.subSize,
-                                      color: glass.cardMuted,
-                                    ),
-                                  ),
-                            const SizedBox(height: Space.xxs),
-                            Icon(
-                              prize == null
-                                  ? Icons.remove_rounded
-                                  : rewardPrizeIcon(prize),
-                              size: _DayTile.markSize,
-                              color: ink,
-                            ),
-                            Text(
-                              prize == null ? '' : rewardPrizeShort(prize),
-                              key: ValueKey('reward-figure-$code-$day'),
-                              style: AppTheme.money(
-                                text.labelSmall!,
-                                fontSize: _DayTile.figureSize,
-                                colour: theme.colorScheme.onSurface,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (standing == _DayState.claimed)
-                    Positioned(
-                      top: Space.xxs,
-                      right: Space.xxs,
-                      child: Icon(
-                        Icons.check_circle_rounded,
-                        size: 14,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                  if (standing == _DayState.locked)
-                    Positioned(
-                      top: Space.xxs,
-                      right: Space.xxs,
-                      child: Icon(
-                        Icons.lock_rounded,
-                        size: 12,
-                        color: glass.cardMuted,
-                      ),
-                    ),
-                  if (standing == _DayState.missed)
-                    Positioned(
-                      top: Space.xxs,
-                      right: Space.xxs,
-                      child: Icon(
-                        Icons.cancel_rounded,
-                        key: ValueKey('reward-missed-$code-$day'),
-                        size: 13,
-                        color: program.isBroken
-                            ? theme.colorScheme.error
-                            : glass.cardMuted,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
+          child: Opacity(opacity: faded ? 0.45 : 1, child: face),
         ),
       ),
     );
@@ -967,28 +1485,46 @@ class _CollectTag extends StatelessWidget {
 
   final String label;
 
+  /// At least a line of the tile's own type tall, and taller where the
+  /// script's line is (Devanagari, Bengali …): never clipped.
+  static const double minHeight = 18;
+  static const double padY = 1;
+
+  static TextStyle styleOf(BuildContext context) => AppTheme.label(
+    Theme.of(context).textTheme.labelSmall!,
+    fontSize: 11,
+    colour: AppTheme.ink900,
+    weight: FontWeight.w700,
+  );
+
+  /// The tag's height for [label] here — its line measured in the type and
+  /// the script the phone draws it in (a line that mixes scripts stands
+  /// taller than either font's, so it is measured, never worked out), its
+  /// padding, and never under [minHeight]: what a tile's line keeps room for
+  /// wherever its row has a day to collect.
+  static double heightFor(BuildContext context, String label) {
+    final painter = TextPainter(
+      text: TextSpan(text: label, style: styleOf(context)),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final height = painter.height + 2 * padY;
+    painter.dispose();
+    return math.max(minHeight, height);
+  }
+
   @override
   Widget build(BuildContext context) {
-    // At least a line of the tile's own type tall, and taller where the
-    // script's line is (Devanagari, Bengali …): never clipped.
     return Container(
-      constraints: const BoxConstraints(minHeight: 18),
-      padding: const EdgeInsets.symmetric(horizontal: Space.sm, vertical: 1),
+      constraints: const BoxConstraints(minHeight: minHeight),
+      padding: const EdgeInsets.symmetric(horizontal: Space.sm, vertical: padY),
       alignment: Alignment.center,
       decoration: BoxDecoration(
         gradient: AppTheme.goldFace,
         borderRadius: BorderRadius.circular(Radii.pill),
       ),
-      child: Text(
-        label,
-        maxLines: 1,
-        style: AppTheme.label(
-          Theme.of(context).textTheme.labelSmall!,
-          fontSize: 11,
-          colour: AppTheme.ink900,
-          weight: FontWeight.w700,
-        ),
-      ),
+      child: Text(label, maxLines: 1, style: styleOf(context)),
     );
   }
 }

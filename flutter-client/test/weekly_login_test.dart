@@ -896,67 +896,99 @@ void main() {
       for (final lang in AppLang.values) {
         testWidgets(
           'fits a ${screen.width.toInt()}x${screen.height.toInt()} phone at '
-          'text x1.25 in ${lang.name}, both themes, no word cut',
+          'text x1.25 in ${lang.name}, both themes, a streak running and '
+          'one not yet begun, no word cut',
           (tester) async {
             await setRewardView(tester, screen: screen, textScale: 1.25);
-            for (final brightness in Brightness.values) {
+            // Day 3 of a running streak ("2 DAY STREAK"), and Day 1 of one
+            // not yet begun ("START YOUR STREAK TODAY", the widest line a
+            // new player meets).
+            for (final (brightness, day) in [
+              for (final b in Brightness.values)
+                for (final d in const [3, 1]) (b, d),
+            ]) {
               final sent = <http.Request>[];
-              await http.runWithClient(() async {
-                final state = rewardState(lang: lang);
-                final feedback = FeedbackSettings();
-                addTearDown(feedback.dispose);
-                await tester.pumpWidget(
-                  rewardApp(
-                    state,
-                    feedback,
-                    const LobbyScreen(),
-                    brightness: brightness,
-                  ),
-                );
-                await tester.pump();
-                await tester.pump(const Duration(seconds: 1));
-                await tester.pump(const Duration(seconds: 2));
-                await tester.pump(const Duration(milliseconds: 500));
-                final reason = '${lang.name} ${brightness.name}';
-                expect(tester.takeException(), isNull, reason: reason);
-                expect(_overlay, findsOneWidget, reason: reason);
-                final view = Offset.zero & screen;
-                final panel = tester.getRect(_panel);
-                expect(view.contains(panel.topLeft), isTrue, reason: reason);
-                expect(
-                  view.contains(panel.bottomRight - const Offset(1, 1)),
-                  isTrue,
-                  reason: '$reason $panel',
-                );
-                expectRewardWhole(tester, _panel, reason);
-                // Every box inside the calendar, the calendar inside the
-                // panel.
-                final calendar = tester.getRect(
-                  find.byKey(const ValueKey('weekly-calendar')),
-                );
-                expect(panel.contains(calendar.topLeft), isTrue);
-                expect(
-                  panel.contains(calendar.bottomRight - const Offset(1, 1)),
-                  isTrue,
-                );
-                for (var day = 1; day <= 7; day++) {
-                  final box = tester.getRect(_box(day));
-                  expect(
-                    calendar.contains(box.topLeft) &&
-                        calendar.contains(box.bottomRight - const Offset(1, 1)),
-                    isTrue,
-                    reason: '$reason day $day $box in $calendar',
+              await http.runWithClient(
+                () async {
+                  final state = rewardState(lang: lang);
+                  final feedback = FeedbackSettings();
+                  addTearDown(feedback.dispose);
+                  await tester.pumpWidget(
+                    rewardApp(
+                      state,
+                      feedback,
+                      const LobbyScreen(),
+                      brightness: brightness,
+                    ),
                   );
-                }
-                // The key, whole and reachable.
-                expect(_collect, findsOneWidget, reason: reason);
-                expect(
-                  view.contains(tester.getRect(_collect).bottomRight),
-                  isTrue,
-                  reason: reason,
-                );
-                await unmountReward(tester, state);
-              }, () => fakeRewards(sent: sent, programs: _due()));
+                  await tester.pump();
+                  await tester.pump(const Duration(seconds: 1));
+                  await tester.pump(const Duration(seconds: 2));
+                  await tester.pump(const Duration(milliseconds: 500));
+                  final reason = '${lang.name} ${brightness.name} day $day';
+                  expect(tester.takeException(), isNull, reason: reason);
+                  expect(_overlay, findsOneWidget, reason: reason);
+                  final view = Offset.zero & screen;
+                  final panel = tester.getRect(_panel);
+                  expect(view.contains(panel.topLeft), isTrue, reason: reason);
+                  expect(
+                    view.contains(panel.bottomRight - const Offset(1, 1)),
+                    isTrue,
+                    reason: '$reason $panel',
+                  );
+                  expectRewardWhole(tester, _panel, reason);
+                  // The streak's line whole and inside the panel.
+                  final headline = find.byKey(
+                    const ValueKey('weekly-login-headline'),
+                  );
+                  expect(
+                    tester.widget<Text>(headline).data,
+                    (day > 1
+                            ? state.t.streakDays(day - 1)
+                            : state.t.streakStart)
+                        .toUpperCase(),
+                    reason: reason,
+                  );
+                  expect(
+                    tester.getRect(headline).right,
+                    lessThanOrEqualTo(panel.right),
+                    reason: reason,
+                  );
+                  // Every box inside the calendar, the calendar inside the
+                  // panel.
+                  final calendar = tester.getRect(
+                    find.byKey(const ValueKey('weekly-calendar')),
+                  );
+                  expect(panel.contains(calendar.topLeft), isTrue);
+                  expect(
+                    panel.contains(calendar.bottomRight - const Offset(1, 1)),
+                    isTrue,
+                  );
+                  for (var day = 1; day <= 7; day++) {
+                    final box = tester.getRect(_box(day));
+                    expect(
+                      calendar.contains(box.topLeft) &&
+                          calendar.contains(
+                            box.bottomRight - const Offset(1, 1),
+                          ),
+                      isTrue,
+                      reason: '$reason day $day $box in $calendar',
+                    );
+                  }
+                  // The key, whole and reachable.
+                  expect(_collect, findsOneWidget, reason: reason);
+                  expect(
+                    view.contains(tester.getRect(_collect).bottomRight),
+                    isTrue,
+                    reason: reason,
+                  );
+                  await unmountReward(tester, state);
+                },
+                () => fakeRewards(
+                  sent: sent,
+                  programs: _due(day: day),
+                ),
+              );
             }
           },
         );

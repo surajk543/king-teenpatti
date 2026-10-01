@@ -3265,7 +3265,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `weeklyLoginOffer` stands and the resume veil is down; a tap outside, the × `LevelCloseKey` and Back — `_BackGuard` — close it):
   the lobby's glass (`PremiumGlassPanel`, `Elevation.overlay`) with a gold edge and a soft light behind it, the calendar 60% of its
   width (55% under 600dp inner), and on the right the reward hierarchy — the program's name in capitals, 🔥 "2 DAY STREAK" / "START
-  YOUR STREAK TODAY", what the mode means (the one line that gives way), TODAY'S REWARD over the prize in large gold, NEXT REWARD, and
+  YOUR STREAK TODAY" (set down to its column rather than cut — on a 640dp phone it ended "START YOUR STREAK…" until 2 Oct 2026, the
+  line a new player meets first), what the mode means (the one line that gives way), TODAY'S REWARD over the prize in large gold, NEXT REWARD, and
   the gold `LuckyGoldKey` **Collect now** — which claims (`claimRewardPrograms(celebrate: false)`) and turns the hero into "✓ + 20,000
   CHIPS" (the other programs' grants under it, `rewardsAlso`), fireworks, the day's card struck gold, and the key **Continue**; a
   claim that fails says so in the hero's place and keeps the key. **Inside a Blind or Variation level the popup takes the level's
@@ -3282,12 +3283,12 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   layers, pops and traps; the delegates, the day states, the level's hue on the card and not on the boxes; the boxes then the prizes,
   the file held at its frame; the popup behind consent, after sign-in, not when collected; the figure's size; the level's colour inside
   Blind and Variation and the house gold at the front and inside Seen; Collect and Continue, nothing celebrated twice, once a day, the
-  chip, a new day, a tap outside and Back, a failed claim, and 640x360 / 592x360 ×1.25 in all five languages and both themes) on
-  `test/reward_fixtures.dart` (the fake server, `rewardState(consented:)`, the fonts); pictures by hand, `test/weekly_login_shots.dart`.
+  chip, a new day, a tap outside and Back, a failed claim, and 640x360 / 592x360 ×1.25 in all five languages and both themes, a streak
+  running and one not yet begun) on `test/reward_fixtures.dart` (the fake server, `rewardState(consented:)`, the fonts); pictures by hand, `test/weekly_login_shots.dart`.
   **The screen** (`showRewardPrograms`, a page risen from the foot like the
   Lucky Draw's; it reads again as it opens, the day may have turned; a gold **Collect now** key in its header while any program's
   today waits, `reward-programs-collect`, which claims and closes the screen over the lobby's celebration): one `_ProgramPanel` a program — a LOGIN STREAK / CALENDAR tag
-  (gold / the blind table's sapphire), the program's name (the four seeded ones in the player's language, `rewardProgramName`; any other
+  (in its kind's colour and mark — "Each kind of program looks its own", below), the program's name (the four seeded ones in the player's language, `rewardProgramName`; any other
   by the server's `name`), the headline — **"3 day streak"** (`streakDays`; "Start your streak today" at 0) for a streak, **"Day 10
   reward"** (`calendarDayReward`) for a calendar, the brief's §27 difference kept on the screen — on a second line where the three cannot
   share one (a `Wrap`: 640dp at ×1.25 cut "Monthly Calendar Rewards" in a Row), what the mode means under it, then the days: a week's
@@ -3296,17 +3297,17 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`_MonthGrid`, the date; the page scrolls, the grid does not) — each `_DayTile` its reward's mark in its wallet's ink and its figure
   ("10,000", "×2", an item's name — `rewardPrizeShort`, `rewardPrizeIcon`, `rewardPrizeInk`; the type `_DayTile.labelSize` 13,
   `subSize` 12, `markSize` 22, `figureSize` 15.5, the figure the largest — the label ramp's 11 for all of it before), a green tick when
-  collected, a gold ring for today, faded and padlocked when not reached, faded when missed (a calendar's past day nobody claimed),
-  everything inside set down to fit (`FittedBox`) and never cut, and a `Semantics` label saying its day, its reward and its standing — and "Next reward: 1 diamond"
+  collected, a ring in its kind's colour for today, faded and padlocked when not reached, faded when missed (a calendar's past day
+  nobody claimed), every line set down to fit on its own and never cut, and a `Semantics` label saying its day, its reward and its standing — and "Next reward: 1 diamond"
   (`nextReward`: today's while it waits, tomorrow's once collected, none past the period). The dates on the tiles are the server's
   `today` counted along the run or the period (`dateOfDay`) — labels only; every decision is the server's. **The progression types**
-  (1 Oct 2026; `test/reward_progression_test.dart`, 39 tests): each panel dates its cycle under its head ("Oct 5 – Oct 11",
+  (1 Oct 2026; `test/reward_progression_test.dart`, 45 tests): each panel dates its cycle under its head ("Oct 5 – Oct 11",
   `rewardCycleLabel` — the server's `period` dates as they are, no zone arithmetic), says what a missed day does (`rewardProgramHint`:
   BREAK `rewardBreakHint`, RESET the streak hint, a SEQUENTIAL streak the no-reset hint, a SEQUENTIAL calendar its week or month hint as
   before), and counts down to the next period (`NextCycleCountdown`, "Next weekly rewards in 3d 8h": its own timer, a minute a tick above
   an hour and a second below, so the screen never rebuilds for it). A BROKEN cycle heads its panel "Reward streak broken" in the error ink
   over "You missed Day 3." and "New rewards start Monday." (the full weekday for a week, a short date for a month); COMPLETED reads "All
-  rewards collected". Every tile takes the server's `state`: CLAIMED (the tick); AVAILABLE (the gold ring and a gold "Collect" tag in
+  rewards collected". Every tile takes the server's `state`: CLAIMED (the tick); AVAILABLE (the ring and a gold "Collect" tag in
   place of its weekday or date line — a tap claims that program alone, the game's ring on it while the claim is out and no other tile
   tappable; `rewardTileCollect`); MISSED (a small ✕, in the error ink on the day that broke a cycle); LOCKED (the padlock). The next-reward
   line is the server's `nextDay`; a streak's tiles drop their weekdays once its run is broken or finished (those dates are not on the
@@ -3315,7 +3316,22 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   while `canClaimToday`, and its Collect turns to Continue if the cycle stops being collectable while it is up. 33 strings in all five
   languages (`rewardTileCollect`, `rewardBrokenShort`, `rewardBrokenTitle`, `rewardAllCollected`, `rewardBreakHint`, `rewardMissedDay`,
   `rewardNewCycleStarts`, `rewardNextWeekIn`/`rewardNextMonthIn`, the four refusals, `month1`–`month12`, `dateDayMonth`,
-  `weekdayFull1`–`weekdayFull7`). **The celebration**
+  `weekdayFull1`–`weekdayFull7`). **Each kind of program looks its own** (owner, 2 Oct 2026: "Keep different design in ui for
+  daily login, weekly calendar, for different types"; presentation only — `_ProgramLook`, `_DayShape`, `_Joint`): the mode and the
+  progression choose a colour, a mark and a shape for the days, all the lobby's own palettes. A login streak that resets is gold
+  (`paletteFor(seen)`) with a flame, its days MEDALLIONS threaded on a rail (`medallionShare` 0.40 of the tile), the rail in the
+  program's colour where the run holds; a sequential login is emerald (`privatePalette`) with stairs, its days STEPS joined by
+  chevrons, lit from a collected day to the next; a calendar is sapphire (`paletteFor(blind)`) with a calendar, its days desk-calendar
+  PAGES — a band in the program's colour carrying the weekday, the date large under it (`dateSize` 22); anything that BREAKS is violet
+  (`violetPalette`) with a link — a breaking calendar's pages joined by chain links, a breaking streak's medallions on their rail — and
+  the link (or the rail) on BOTH sides of the day whose miss broke the cycle is broken in the error ink (`link_off`), so the break shows
+  when that is Day 1, the usual case for a player who first opens a breaking calendar mid-week; a calendar that resets is gold pages.
+  The tag carries the kind's mark, the panel is washed and edged in its colour (the error's while broken), the headline in its ink.
+  **Every tile of a row keeps to the same lines** (`fitLine`): each line is set down to the tile's width on its own, so a long prize
+  name ("Clapping Hands", "Royal Ace") never shrinks the date or the label above it, and is always as tall as its type at full size (a
+  hidden "0" holds it); a weekday line is kept wherever any day of the row has one (a streak's days past its cycle have none), and
+  room for the Collect tag (measured, `_CollectTag.heightFor`) wherever a day of the row can be collected — so every label, mark and
+  figure stands level along the row, and a page's date is one size along it. **The celebration**
   (`_RewardCelebration` → `_GrantsSummary`, keyed `rewards-celebration`): the lobby's reward overlay with a gift for its hero, "Daily
   rewards collected!", one line per grant ("+ 20,000 chips", "Clapping Hands emoji", "(already yours)" after an item the player had;
   `rewardPrizeLabel`) and the programs and days they came from, closed by its key or a tap; shown ONLY from a claim's answer with

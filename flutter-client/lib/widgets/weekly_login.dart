@@ -1160,19 +1160,25 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
       children: [
         Icon(Icons.local_fire_department_rounded, size: 20, color: gold),
         const SizedBox(width: Space.xs),
+        // Set down to its column rather than cut: "START YOUR STREAK TODAY"
+        // is wider than a 640dp phone's column, and it is the line a new
+        // player meets first.
         Flexible(
-          child: Text(
-            (shown.claimedDays > 0
-                    ? t.streakDays(shown.claimedDays)
-                    : t.streakStart)
-                .toUpperCase(),
-            key: const ValueKey('weekly-login-headline'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTheme.money(
-              (short ? text.titleMedium : text.titleLarge)!,
-              colour: gold,
-            ).copyWith(letterSpacing: 0.6),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              (shown.claimedDays > 0
+                      ? t.streakDays(shown.claimedDays)
+                      : t.streakStart)
+                  .toUpperCase(),
+              key: const ValueKey('weekly-login-headline'),
+              maxLines: 1,
+              style: AppTheme.money(
+                (short ? text.titleMedium : text.titleLarge)!,
+                colour: gold,
+              ).copyWith(letterSpacing: 0.6),
+            ),
           ),
         ),
       ],
