@@ -885,7 +885,7 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
 - **The levels' art** (owner, 29 Sep 2026: "Instead of using icons use lottie animations json for showing player Level and
   update the database according to that and UI … if there is no url, you show empty icon … meanwhile i will provide u other
   urls"): `player_levels.asset_url`/`asset_format` (the badges' twin; in the CREATE TABLE and two catalogue-guarded ALTERs —
-  nine guarded ALTERs now, §7.3), sent as `assetUrl`/`assetFormat` (omitted when none) on `user.playerLevel`, its `next`,
+  nine guarded ALTERs then, thirteen since `is_listed`, §7.3), sent as `assetUrl`/`assetFormat` (omitted when none) on `user.playerLevel`, its `next`,
   every `GET /api/levels` rung and a friend profile's `level`. **The seed fills a level's art only where `asset_url` IS NULL**
   (a guarded `UPDATE … FROM (VALUES …)` right after the ladder's INSERT in `V1.0.1__seed.sql`), every boot: a URL added to that
   list reaches every database at its next boot, production's included, while an owner's own URL — or `''`, none on purpose —
@@ -982,7 +982,7 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   complete only once … Do not remove or modify the existing DAILY behavior"; branch `one-time-missions`). `xp_sources` gains
   **`mission_type`** (`DAILY` — the DEFAULT, every source before it — | `ONE_TIME`, a CHECK), **`target`** (≥ 1) and **`scope`**
   (NULL any table, an engine `teen_patti`/`poker`, or a category `seen`…`omaha`; checked by the server) — each in the CREATE TABLE
-  AND a catalogue-guarded block, as `is_bot` (§7.3; seven guarded ALTERs then, nine since the levels' art). ONE_TIME kinds (`db.XPKind*`): `HANDS_PLAYED`,
+  AND a catalogue-guarded block, as `is_bot` (§7.3; seven guarded ALTERs then, nine since the levels' art, thirteen since `is_listed`). ONE_TIME kinds (`db.XPKind*`): `HANDS_PLAYED`,
   `HANDS_WON`, `CATEGORIES_PLAYED` (different categories) and `VARIATIONS_PLAYED` (different variations); a DAILY source keeps
   `PLAY_TIME`/`WIN_HAND`, and a row of a kind outside its type's is left out. **`player_xp_missions`** (PK `user_id, source_code`,
   → `users`/`xp_sources` CASCADE): `progress`, `seen TEXT[]` (the distinct values counted), `completed_at` (0 = open; frozen once
@@ -1017,7 +1017,7 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   **Wire**: `user.playerLevel.missions` — `[{code, type:"ONE_TIME", progress, target, completed, completedAt?, xpAwarded?}]` for every
   ACTIVE mission the player has moved or completed (absent when none; no reset or expiry field) — on every account read and in
   `player:level`, which the settle now also pushes when only a mission's progress moved (`SettledHand.Levels`).
-- **`GET /api/levels`** (public, no-cache): every level, every active badge (price, validity, product, art), the sources (code,
+- **`GET /api/levels`** (public, no-cache): every level, every active and listed badge (price, validity, product, art; `is_listed`, §7.3 "Off the shelves"), the sources (code,
   name, icon, kind, `type` (DAILY), `playMinutes`/`hand`, xp, times) and the cap — and since 28 Sep 2026 **`missions`**, the active
   ONE_TIME ones with a target (`type` ONE_TIME, `target`, `scope`), NEVER among `xpSources`: an older app sums every `xpSources`
   entry into the day's "108 XP" and files an unknown kind under "More ways to earn XP".
@@ -1273,7 +1273,7 @@ and daily keys it also read are absent, so it draws neither). `internal/db/users
 25,000 and six hours, not twice inside the countdown, the clock in the database, one timestamp a transaction),
 `internal/auth/http_test.go` (`TestTheSixHourBonusIsBackAndTheOtherRewardsStayGone`), `internal/app/timedbonus_test.go` (the real
 wiring: 404 for the two gone, the bonus paid once through the ledger, 409 `reward_not_ready` with `readyAt` and the account,
-`session:ready` carrying the clock, 409 `seated` at a table and the claim back in the lobby); **`GET /api/profiles`** — the picture catalogue from `profile_pictures`, active rows only, in
+`session:ready` carrying the clock, 409 `seated` at a table and the claim back in the lobby); **`GET /api/profiles`** — the picture catalogue from `profile_pictures`, active rows only — and listed ones, but for what the viewer has (`is_listed`, §7.3 "Off the shelves") — in
 `sort_order` then `id`: `{profiles:[{id, name, url, assetFormat, currency, type, cost, durationDays, durationHours, sortOrder, owned, expiresAt}]}` — a rental lasts `durationDays` days plus `durationHours` hours (both 0: for ever; the hours since 14 Sep 2026, owner) — `assetFormat` is IMAGE (jpg/jpeg/png, one loader), SVG, LOTTIE (Lottie JSON/.lottie at the url) or RIVE (.riv binary), how the client renders what `url` serves; `currency` is COIN (chips), DIAMOND (`users.diamond`) or HAMMER (`users.hammer`, owner 14 Sep 2026), the wallet `cost` is paid from. The token is
 **optional**: without one every FREE row reads `owned:true` and every PREMIUM one `owned:false`;
 with one, `owned` also covers the premium pictures that player has bought. A bad token is ignored,
@@ -1362,7 +1362,7 @@ caches the body across sessions and players (§8.1). No per-table `maxPlayers`/`
 (owner, 15 Sep 2026; merged 23 Sep 2026; `auth/handlers.go` `TablePictures`/`UseTablePicture`/`BuyTablePicture`, `db/tablepictures.go`) —
 the picture a player lays on their TABLE, the profile-picture trio again for the cloth: the catalogue from `table_pictures`
 (`{tablePictures:[{id, name, dayUrl, nightUrl, assetFormat, currency, type, cost, durationDays, durationHours, sortOrder, owned,
-expiresAt}]}`, token optional as for `/api/profiles`); laying one (`pictureId` a number or its text, null/absent takes it off; 400
+expiresAt}]}`, token optional as for `/api/profiles`, and like it leaving out an unlisted row but for the viewer's own — §7.3 "Off the shelves"); laying one (`pictureId` a number or its text, null/absent takes it off; 400
 `unknown_table_picture` / `picture_retired`, 403 `picture_locked`; **allowed while seated** — `Deps.TablePictureLaid` →
 `RoomManager.SetPlayerTablePicture` → `Table.SetTablePicture` puts it on the seat and emits state); and buying one — one
 `table_picture_purchase` ledger row (action_id `table:<userId>:<pictureId>:<n>`, `n` = that pair's `purchases`, so a lapsed rental
@@ -1400,7 +1400,7 @@ buy, just like we have added the feature of profile picture … this emoji can b
 emoji then that emoji message will send to all players just like chat messages"; `db/emojis.go`, `auth/handlers.go`
 `Emojis`/`BuyEmoji`) — the profile-picture model for something SENT rather than worn. **`GET /api/emojis`** (token
 optional, as `/api/profiles`): `{emojis:[{id, name, url, assetFormat, currency, type, cost, durationDays, durationHours,
-sortOrder, owned, expiresAt}]}`, active rows in `sort_order`. **`POST /api/emojis/buy {emojiId}`** (signed in, the wallet
+sortOrder, owned, expiresAt}]}`, active rows in `sort_order` (and listed, but for one the viewer owns — §7.3 "Off the shelves"; an unlisted one's buy is 400 `emoji_retired`). **`POST /api/emojis/buy {emojiId}`** (signed in, the wallet
 rate limiter): `{user, emoji, charged, spent}` — COIN through a `chip_ledger` row, reason **`emoji_purchase`**, action_id
 `emoji:<userId>:<emojiId>:<n>`, LOBBY-ONLY (409 `seated` "You can only buy a chip-priced emoji in the lobby."); DIAMOND
 and HAMMER from their `users` column with no ledger row, at a table too; owned-and-running → `charged:false`; a lapsed
@@ -1624,7 +1624,7 @@ since 28 Sep 2026, below) —
 `table_configs`). The seed was `V1.0.1__seed_profile_pictures.sql` until then; nothing records a script's name, so the
 rename changed nothing for any database. `TestMigrationsAreVersionedOrderedAndSplitByKind` (`db_test.go`) pins the pair:
 those two first, no CREATE/ALTER/INDEX in the seed, and in the baseline an `ALTER TABLE` only as an `EXECUTE` string inside a
-catalogue-guarded block (exactly nine: `users.is_bot`, `users.is_active` (26 Sep 2026, written straight into the baseline the same way), `chip_ledger.game`, `chip_ledger.variant`, since 28 Sep 2026 the one-time missions' `xp_sources.mission_type`, `.target` and `.scope`, and since 29 Sep 2026 the levels' art, `player_levels.asset_url` and `.asset_format`, §6.6). How it got here: the 14 Sep 2026 consolidation (owner, for a
+catalogue-guarded block (exactly thirteen: `users.is_bot`, `users.is_active` (26 Sep 2026, written straight into the baseline the same way), `chip_ledger.game`, `chip_ledger.variant`, since 28 Sep 2026 the one-time missions' `xp_sources.mission_type`, `.target` and `.scope`, since 29 Sep 2026 the levels' art, `player_levels.asset_url` and `.asset_format`, §6.6, and since 1 Oct 2026 the shelves' switch, `is_listed` on `profile_pictures`, `table_pictures`, `emojis` and `badges` — "Off the shelves" below). How it got here: the 14 Sep 2026 consolidation (owner, for a
 production deploy onto an EMPTY database) folded V1.0.2–V1.0.5 in and dropped the blocks that brought older databases
 forward (git history, `ccff445`); later that day `duration_hours`, `V1.0.2__timed_bonus_milestone.sql`,
 `V1.0.3__seed_new_pictures.sql`, the 9-diamond default and the HAMMER currency were folded in too, so a database built
@@ -1916,6 +1916,31 @@ Dollar, Crying, Hi Face, Clapping Hands, Cowboy Hat Face, Muscle, Plane Face, Kn
 Tongue, Crying Face, Enraged Face, Chill Face, Face Blowing a Kiss, Kiss Face, Ok, No Face, Tongue Face (sort_order 10–190, the order they were
 given; the names are the Drive titles without "Emoji" — the app never shows a Drive title).
 `TestTheSeededEmojisAreTheOwnersNineteenAtFiveHammersForThirtyDays`. Twice a batch of links repeated one link where the owner's upload to the emoji folder held another file; the batch's unlinked files were taken as meant (Chill Face, Face Blowing a Kiss, Kiss Face; Tongue Face).
+
+**Off the shelves (owner, 1 Oct 2026: "profile_pictures, table_pictures, emojis, badges in these tables also add one more
+column flag is_listed, by default it is true, if it is false, then user will not see these assets in UI or UI store")**:
+`is_listed BOOLEAN NOT NULL DEFAULT TRUE` on `profile_pictures`, `table_pictures`, `emojis` and `badges` — the last column of
+each CREATE TABLE and a catalogue-guarded block after it, so an existing database gains it at its next boot with every row
+listed (one ACCESS EXCLUSIVE lock per table, once: deploy at a quiet hour). Switched with an UPDATE that the next request reads, no
+restart — `UPDATE profile_pictures SET is_listed = FALSE WHERE name = 'Cool Cat'` (the seed's header has all four). **Hidden,
+never taken away**: an unlisted row leaves `GET /api/profiles`, `/api/table-pictures` and `/api/emojis` (so the picker, every store
+shelf and the table's emoji page) and `GET /api/levels`' `badges` (the store's Badges shelf, the level screen's list) for everybody
+who does not have it — signed out, or signed in as anybody else — and stays on the shelf of whoever does: an ownership row still
+running, and for a profile picture the one worn, for a table picture the one laid (`pictureShelfExpr`, `tablePictureShelfExpr`,
+`emojiShelfExpr` in `internal/db`). A badge's holders read it, rate and art, from their own account (`user.badges`), which never
+read the catalogue. **Not sold**: a buy is refused AFTER the owned check (a second tap on something already owned is still
+`charged:false`) with the codes a retired row gets, which every installed app already handles — 400 `picture_retired` ("That
+picture is no longer available." / "That table picture is no longer available.", `db.ErrPictureUnlisted`) and 400 `emoji_retired`
+(`db.ErrEmojiUnlisted`; the app re-reads the emoji catalogue on it); a lapsed rental of an unlisted item cannot be renewed.
+**Nothing else reads it**: wearing, laying and sending check `is_active` and ownership as before, so an owner keeps using what they
+have; the Lucky Draw, the reward programs and the welcome still GRANT an unlisted item (a reward-only picture or emoji is an
+unlisted row a slot or a day names); a Play badge purchase (`BadgeForProduct`) still credits — the money has been taken. A FREE
+row has no ownership rows, so once unlisted it is shown to its wearers alone (a picture, a table picture) or to nobody (an emoji),
+though, being free, it can still be worn or sent by id. `is_active = FALSE` stays the stronger switch: a retired row is neither
+listed, sold, nor newly worn, laid or sent. The app needed no change — it draws what the routes send. `internal/db/listed_test.go`
+(each rule per table, a reward granting an unlisted item), `internal/app/listed_test.go` (the four routes signed out, as a
+stranger and as the owner; the refusals; relisting), `db_test.go` (the thirteen guarded ALTERs, the column in each CREATE TABLE),
+`upgrade_boot_test.go` (a database without the columns brought forward, every row listed).
 
 **The Lucky Draw (owner, 24 Sep 2026)** is three more tables in `V1.0.0__baseline.sql` (LUCKY DRAW, after `missile_spends`) and one
 draw in `V1.0.1__seed.sql` (THE LUCKY DRAW, last). **`lucky_draws`** (`code` UNIQUE, `name`, `spinner_type` TEXT default `STANDARD` —

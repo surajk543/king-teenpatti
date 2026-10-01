@@ -90,6 +90,13 @@ var (
 	// ErrPictureInactive is a retired row: is_active = FALSE. Still owned and
 	// still worn by whoever had it, but not on offer any more.
 	ErrPictureInactive = errors.New("db: profile picture is retired")
+	// ErrPictureUnlisted is a buy request for a picture taken off the shelves
+	// (is_listed = FALSE, owner 1 Oct 2026): not for sale, though whoever has
+	// it keeps it and a reward may still give it. A table picture's buy
+	// refuses with it too. The HTTP layer answers it as it answers a retired
+	// row — to a player, a picture the store does not show is "no longer
+	// available", and every installed app already knows that code.
+	ErrPictureUnlisted = errors.New("db: profile picture is not on the shelves")
 	// ErrPictureFree is a buy request for a picture that costs nothing —
 	// there is nothing to sell, and charging 0 would write a pointless ledger
 	// row and an ownership row the wear check does not need.
@@ -163,6 +170,17 @@ const ownedExpr = `(p.type = 'FREE' OR o.user_id IS NOT NULL)`
 // out or they do not own it.
 const expiryExpr = `COALESCE(o.expires_at, 0)`
 
+// pictureShelfExpr is List's test for whether a picture is on THIS viewer's
+// shelf (is_listed, owner 1 Oct 2026): it is listed, or the viewer has it —
+// an ownership row still running (ownedJoin's o) or the picture they are
+// wearing. An unlisted picture is hidden, never taken away: a player who
+// bought or won one still finds it in the picker to wear again. A FREE
+// picture has no ownership rows, so once unlisted only its wearers see it.
+// $1 is the viewer; "" has nothing, and an anonymous caller sees the listed
+// pictures alone.
+const pictureShelfExpr = `(p.is_listed OR o.user_id IS NOT NULL
+         OR p.id = (SELECT w.active_picture_id FROM users w WHERE w.id = $1))`
+
 // ownedJoinNow is ownedJoin with this instant baked in.
 //
 // The time is interpolated rather than bound as a parameter, and that is safe
@@ -188,11 +206,15 @@ const (
 // Retired rows (is_active = FALSE) are left out: the catalogue is what the
 // picker draws, and a picture nobody can choose any more does not belong in it.
 // A player still wearing one keeps it — the wear lives on users, not here.
+//
+// So are unlisted rows (is_listed = FALSE), except to a viewer who has one
+// (pictureShelfExpr): the picker and the store's Pictures shelf both draw this
+// listing, so an unlisted picture is on neither for anybody else.
 func (p *Pictures) List(ctx context.Context, userID string) ([]Picture, error) {
 	rows, err := p.db.Pool.Query(ctx,
 		`SELECT `+pictureColumns+`, `+ownedExpr+`, `+expiryExpr+`
 		   FROM profile_pictures p`+p.ownedJoinNow()+`
-		  WHERE p.is_active
+		  WHERE p.is_active AND `+pictureShelfExpr+`
 		  ORDER BY p.sort_order, p.id`, userID)
 	if err != nil {
 		return nil, err
@@ -311,13 +333,13 @@ func (p *Pictures) buy(ctx context.Context, userID string, pictureID int64, atTa
 		// "do they already own it" cannot change under us between the check
 		// and the charge.
 		var pic Picture
-		var active bool
+		var active, listed bool
 		err := tx.QueryRow(ctx,
-			`SELECT `+pictureColumns+`, p.is_active, `+ownedExpr+`, `+expiryExpr+`
+			`SELECT `+pictureColumns+`, p.is_active, `+ownedExpr+`, `+expiryExpr+`, p.is_listed
 			   FROM profile_pictures p`+p.ownedJoinNow()+`
 			  WHERE p.id = $2`, userID, pictureID).
 			Scan(&pic.ID, &pic.Name, &pic.URL, &pic.AssetFormat, &pic.Currency, &pic.Type, &pic.Cost, &pic.DurationDays, &pic.DurationHours,
-				&pic.SortOrder, &active, &pic.Owned, &pic.ExpiresAt)
+				&pic.SortOrder, &active, &pic.Owned, &pic.ExpiresAt, &listed)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrPictureUnknown
 		}
@@ -333,9 +355,14 @@ func (p *Pictures) buy(ctx context.Context, userID string, pictureID int64, atTa
 			return ErrPictureFree
 		case pic.Owned:
 			// Already theirs, and not yet run out. Idempotent success, like a
-			// replayed receipt: this is what makes a double-tap cost once.
+			// replayed receipt: this is what makes a double-tap cost once — and
+			// it comes before the shelf test, so a second tap that lands after
+			// the picture was unlisted is still the success the first one was.
 			out.Charged, out.Spent, out.Balance = false, 0, chips
 			return nil
+		case !listed:
+			// Off the shelves: nothing new is sold, a lapsed rental included.
+			return ErrPictureUnlisted
 		case atTable && pic.PaidInChips():
 			return ErrPictureAtTable
 		}

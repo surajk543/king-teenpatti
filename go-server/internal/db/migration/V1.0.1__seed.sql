@@ -83,6 +83,25 @@
 -- has is an UPDATE (`UPDATE profile_pictures SET cost = … WHERE name = …`,
 -- `UPDATE table_configs SET max_blind_moves = 3 WHERE table_key = 'blind:200'`),
 -- not a code change.
+--
+-- Taking an item OFF THE SHELVES is an UPDATE too (owner, 1 Oct 2026:
+-- is_listed, on profile_pictures, table_pictures, emojis and badges):
+--
+--     UPDATE profile_pictures SET is_listed = FALSE WHERE name = 'Cool Cat';
+--     UPDATE table_pictures   SET is_listed = FALSE WHERE name = 'Welcome';
+--     UPDATE emojis           SET is_listed = FALSE WHERE name = 'Knife';
+--     UPDATE badges           SET is_listed = FALSE WHERE code = 'ROYAL_KING';
+--
+-- The store and every list the app draws stop showing it at their next read
+-- — to everybody but a player who already has it (bought or won, and still
+-- running; a picture they wear, a table picture they have laid; a badge they
+-- hold), who keeps it, sees it and uses it — and nobody can buy it. A reward
+-- (the Lucky Draw, a reward program, the welcome) can still give it: an
+-- unlisted item is a prize no store sells. `SET is_listed = TRUE` puts it
+-- back. No restart: every one of these lists is read fresh. Retiring
+-- (is_active = FALSE) is the stronger switch — a retired item is neither
+-- sold, given, put on nor sent (a picture already worn stays on), and a
+-- retired badge stops being held.
 
 
 -- ================================================================ THE PICTURES

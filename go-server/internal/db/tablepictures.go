@@ -57,10 +57,10 @@ func (p TablePicture) PaidInChips() bool {
 
 // ErrTablePictureUnknown is no such table picture (or an id that was never a
 // number). Every other refusal a table picture can meet is a profile
-// picture's — ErrPictureInactive, ErrPictureFree, ErrPictureChips,
-// ErrPictureDiamonds, ErrPictureHammers, ErrPictureLocked, ErrPictureAtTable —
-// because the rule is the same one; only "which catalogue" differs, and the
-// HTTP layer words that.
+// picture's — ErrPictureInactive, ErrPictureUnlisted, ErrPictureFree,
+// ErrPictureChips, ErrPictureDiamonds, ErrPictureHammers, ErrPictureLocked,
+// ErrPictureAtTable — because the rule is the same one; only "which
+// catalogue" differs, and the HTTP layer words that.
 var ErrTablePictureUnknown = errors.New("db: no such table picture")
 
 // TablePictures is the table-picture catalogue, who owns what, and which
@@ -92,25 +92,34 @@ func (p *TablePictures) ownedJoinNow() string {
 }
 
 // scanTablePicture reads one row selected with tablePictureColumns followed by
-// is_active, ownedExpr and expiryExpr.
-func scanTablePicture(row pgx.Row) (TablePicture, bool, error) {
+// is_active, ownedExpr and expiryExpr — and then into extra, in order, any
+// columns a caller selected after those (Buy's is_listed).
+func scanTablePicture(row pgx.Row, extra ...any) (TablePicture, bool, error) {
 	var pic TablePicture
 	var active bool
-	err := row.Scan(&pic.ID, &pic.Name, &pic.DayURL, &pic.NightURL, &pic.AssetFormat, &pic.Currency, &pic.Type, &pic.Cost,
-		&pic.DurationDays, &pic.DurationHours, &pic.SortOrder, &active, &pic.Owned, &pic.ExpiresAt)
+	err := row.Scan(append([]any{&pic.ID, &pic.Name, &pic.DayURL, &pic.NightURL, &pic.AssetFormat, &pic.Currency, &pic.Type, &pic.Cost,
+		&pic.DurationDays, &pic.DurationHours, &pic.SortOrder, &active, &pic.Owned, &pic.ExpiresAt}, extra...)...)
 	return pic, active, err
 }
+
+// tablePictureShelfExpr is pictureShelfExpr for the table (is_listed, owner
+// 1 Oct 2026): a table picture is on this viewer's shelf when it is listed,
+// or when they have it — an ownership row still running, or the picture laid
+// on their table. $1 is the viewer.
+const tablePictureShelfExpr = `(p.is_listed OR o.user_id IS NOT NULL
+         OR p.id = (SELECT c.table_picture_id FROM user_table_choice c WHERE c.user_id = $1))`
 
 // List returns every table picture still on offer, in catalogue order, each
 // marked with whether this player may lay it. userID may be "" for an
 // unauthenticated caller, who owns the free pictures and nothing else.
 // Retired rows are left out; a player still using one keeps it — the choice
-// lives in user_table_choice, not here.
+// lives in user_table_choice, not here. Unlisted rows (is_listed = FALSE) are
+// left out too, except to a viewer who has one (tablePictureShelfExpr).
 func (p *TablePictures) List(ctx context.Context, userID string) ([]TablePicture, error) {
 	rows, err := p.db.Pool.Query(ctx,
 		`SELECT `+tablePictureColumns+`, p.is_active, `+ownedExpr+`, `+expiryExpr+`
 		   FROM table_pictures p`+p.ownedJoinNow()+`
-		  WHERE p.is_active
+		  WHERE p.is_active AND `+tablePictureShelfExpr+`
 		  ORDER BY p.sort_order, p.id`, userID)
 	if err != nil {
 		return nil, err
@@ -203,10 +212,11 @@ func (p *TablePictures) buy(ctx context.Context, userID string, pictureID int64,
 		// The catalogue and the ownership row, read inside the wallet lock so
 		// "do they already own it" cannot change between the check and the
 		// charge.
+		var listed bool
 		pic, active, err := scanTablePicture(tx.QueryRow(ctx,
-			`SELECT `+tablePictureColumns+`, p.is_active, `+ownedExpr+`, `+expiryExpr+`
+			`SELECT `+tablePictureColumns+`, p.is_active, `+ownedExpr+`, `+expiryExpr+`, p.is_listed
 			   FROM table_pictures p`+p.ownedJoinNow()+`
-			  WHERE p.id = $2`, userID, pictureID))
+			  WHERE p.id = $2`, userID, pictureID), &listed)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrTablePictureUnknown
 		}
@@ -221,8 +231,12 @@ func (p *TablePictures) buy(ctx context.Context, userID string, pictureID int64,
 		case pic.Free():
 			return ErrPictureFree
 		case pic.Owned:
+			// Already theirs: idempotent success, before the shelf test, as
+			// Pictures.buy has it.
 			out.Charged, out.Spent, out.Balance = false, 0, chips
 			return nil
+		case !listed:
+			return ErrPictureUnlisted
 		case atTable && pic.PaidInChips():
 			return ErrPictureAtTable
 		}

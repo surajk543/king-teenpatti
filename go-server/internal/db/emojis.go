@@ -79,6 +79,13 @@ var (
 	// sold nor sent any more — whoever bought it keeps the ownership row, but
 	// an emoji exists to be sent, and a retired one cannot be.
 	ErrEmojiInactive = errors.New("db: emoji is retired")
+	// ErrEmojiUnlisted is a buy request for an emoji taken off the shelves
+	// (is_listed = FALSE, owner 1 Oct 2026): not for sale, though whoever owns
+	// it still sends it and a reward may still give it. The HTTP layer answers
+	// it as it answers a retired row, emoji_retired: to a player both are "no
+	// longer available", and the app already re-reads its catalogue on that
+	// code.
+	ErrEmojiUnlisted = errors.New("db: emoji is not on the shelves")
 	// ErrEmojiFree is a buy request for an emoji that costs nothing: every
 	// player already has it, and charging 0 would write a pointless ledger row
 	// and an ownership row the send check does not need.
@@ -149,33 +156,43 @@ func (e *Emojis) ownedJoinNow() string {
 }
 
 // selectEmoji is one row by id ($2) for a viewer ($1): the catalogue columns,
-// is_active, the send test and the viewer's expiry.
-func (e *Emojis) selectEmoji() string {
-	return `SELECT ` + emojiColumns + `, e.is_active, ` + emojiOwnedExpr + `, ` + expiryExpr + `
+// is_active, the send test and the viewer's expiry, then whatever extra
+// columns the caller names (", e.is_listed" for Buy; "" for none).
+func (e *Emojis) selectEmoji(extra string) string {
+	return `SELECT ` + emojiColumns + `, e.is_active, ` + emojiOwnedExpr + `, ` + expiryExpr + extra + `
 	          FROM emojis e` + e.ownedJoinNow() + `
 	         WHERE e.id = $2`
 }
 
 // scanEmoji reads one row selected with emojiColumns followed by is_active,
-// emojiOwnedExpr and expiryExpr.
-func scanEmoji(row pgx.Row) (Emoji, bool, error) {
+// emojiOwnedExpr and expiryExpr — and then into extra, in order, any columns a
+// caller selected after those (Buy's is_listed).
+func scanEmoji(row pgx.Row, extra ...any) (Emoji, bool, error) {
 	var em Emoji
 	var active bool
-	err := row.Scan(&em.ID, &em.Name, &em.URL, &em.AssetFormat, &em.Currency, &em.Type, &em.Cost,
-		&em.DurationDays, &em.DurationHours, &em.SortOrder, &active, &em.Owned, &em.ExpiresAt)
+	err := row.Scan(append([]any{&em.ID, &em.Name, &em.URL, &em.AssetFormat, &em.Currency, &em.Type, &em.Cost,
+		&em.DurationDays, &em.DurationHours, &em.SortOrder, &active, &em.Owned, &em.ExpiresAt}, extra...)...)
 	return em, active, err
 }
+
+// emojiShelfExpr is List's test for whether an emoji is on THIS viewer's shelf
+// (is_listed, owner 1 Oct 2026): it is listed, or the viewer owns it on a
+// rental still running (emojiOwnedJoin's o). A FREE emoji has no ownership
+// rows, so once unlisted nobody is shown it; one bought or won stays on its
+// owner's shelf and table page, to send.
+const emojiShelfExpr = `(e.is_listed OR o.user_id IS NOT NULL)`
 
 // List returns every emoji still on offer, in catalogue order (sort_order,
 // then id), each marked with whether this player may send it. userID may be ""
 // for an unauthenticated caller. Retired rows are left out: the shelf and the
 // table's picker are what it draws, and a retired emoji can be neither bought
-// nor sent.
+// nor sent. Unlisted rows (is_listed = FALSE) are left out too, except to a
+// viewer who owns one (emojiShelfExpr).
 func (e *Emojis) List(ctx context.Context, userID string) ([]Emoji, error) {
 	rows, err := e.db.Pool.Query(ctx,
 		`SELECT `+emojiColumns+`, e.is_active, `+emojiOwnedExpr+`, `+expiryExpr+`
 		   FROM emojis e`+e.ownedJoinNow()+`
-		  WHERE e.is_active
+		  WHERE e.is_active AND `+emojiShelfExpr+`
 		  ORDER BY e.sort_order, e.id`, userID)
 	if err != nil {
 		return nil, err
@@ -200,7 +217,7 @@ func (e *Emojis) List(ctx context.Context, userID string) ([]Emoji, error) {
 // not it is still on offer — the second result says. A missing row is
 // ErrEmojiUnknown.
 func (e *Emojis) Find(ctx context.Context, userID string, id int64) (Emoji, bool, error) {
-	em, active, err := scanEmoji(e.db.Pool.QueryRow(ctx, e.selectEmoji(), userID, id))
+	em, active, err := scanEmoji(e.db.Pool.QueryRow(ctx, e.selectEmoji(""), userID, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Emoji{}, false, ErrEmojiUnknown
 	}
@@ -295,7 +312,8 @@ func (e *Emojis) buy(ctx context.Context, userID string, emojiID int64, atTable 
 		// The catalogue and the ownership row, read inside the wallet lock so
 		// "do they already own it" cannot change between the check and the
 		// charge.
-		em, active, err := scanEmoji(tx.QueryRow(ctx, e.selectEmoji(), userID, emojiID))
+		var listed bool
+		em, active, err := scanEmoji(tx.QueryRow(ctx, e.selectEmoji(", e.is_listed"), userID, emojiID), &listed)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrEmojiUnknown
 		}
@@ -310,9 +328,14 @@ func (e *Emojis) buy(ctx context.Context, userID string, emojiID int64, atTable 
 		case em.Free():
 			return ErrEmojiFree
 		case em.Owned:
-			// Already theirs, and not yet run out: idempotent success.
+			// Already theirs, and not yet run out: idempotent success — before
+			// the shelf test, so a double tap that lands after the emoji was
+			// unlisted is the success the first tap was.
 			out.Charged, out.Spent, out.Balance = false, 0, chips
 			return nil
+		case !listed:
+			// Off the shelves: nothing new is sold, a lapsed rental included.
+			return ErrEmojiUnlisted
 		case atTable && em.PaidInChips():
 			return ErrEmojiAtTable
 		}

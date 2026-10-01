@@ -415,6 +415,11 @@ func (h *Handler) logRefusedLogin(req LoginRequest, err error) {
 // theirs; without one, every free picture reads as owned and nothing else does.
 // A bad or expired token is ignored rather than refused, so a stale session
 // still gets a picker to look at.
+//
+// A token also decides what an unlisted picture (is_listed = FALSE, owner
+// 1 Oct 2026) does: it is left out of the listing for everybody but the player
+// who has it — bought or won and still running, or worn — so the picker and the
+// store's shelf show it to nobody else (db.Pictures.List).
 func (h *Handler) Profiles(w http.ResponseWriter, r *http.Request) {
 	viewer := ""
 	if claims, err := h.deps.Tokens.Verify(TokenFromRequest(r)); err == nil {
@@ -540,6 +545,11 @@ func (h *Handler) Avatar(w http.ResponseWriter, r *http.Request, user *db.User) 
 // Buying does NOT put the picture on. It is a separate POST to
 // /api/profile/avatar, so the two refusals stay separate and a player who buys
 // a picture to save for later is not forced to wear it.
+//
+// An unlisted picture (is_listed = FALSE, owner 1 Oct 2026) is not for sale:
+// 400 picture_retired, "That picture is no longer available.", the refusal a
+// retired one gets — unless it is already theirs and running, which is the
+// usual 200 charged:false. Wearing one they have is Avatar's, and unchanged.
 func (h *Handler) BuyPicture(w http.ResponseWriter, r *http.Request, user *db.User) {
 	var req BuyPictureRequest
 	if err := ReadJSONBody(r, &req); err != nil {
@@ -568,7 +578,10 @@ func (h *Handler) BuyPicture(w http.ResponseWriter, r *http.Request, user *db.Us
 	case errors.Is(err, db.ErrPictureUnknown):
 		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownAvatar, Message: MsgUnknownAvatar})
 		return
-	case errors.Is(err, db.ErrPictureInactive):
+	case errors.Is(err, db.ErrPictureInactive), errors.Is(err, db.ErrPictureUnlisted):
+		// A picture taken off the shelves (is_listed = FALSE) is refused as a
+		// retired one is: to a player both are "no longer available", and
+		// every installed app already handles the code.
 		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodePictureRetired, Message: MsgPictureRetired})
 		return
 	case errors.Is(err, db.ErrPictureFree):
@@ -776,7 +789,9 @@ func (h *Handler) SpinLuckyDraw(w http.ResponseWriter, r *http.Request, user *db
 // The token is optional for the same reasons — the catalogue is not private,
 // and a token buys the `owned` flag per row; a bad one is ignored, not
 // refused. Listing is also where a lapsed rental on the laid table is noticed
-// for a player who never passes through login.
+// for a player who never passes through login. An unlisted table picture
+// (is_listed = FALSE) is listed to nobody but a player who has it, owned and
+// running or laid on their table (db.TablePictures.List).
 func (h *Handler) TablePictures(w http.ResponseWriter, r *http.Request) {
 	viewer := ""
 	if claims, err := h.deps.Tokens.Verify(TokenFromRequest(r)); err == nil {
@@ -861,6 +876,8 @@ func (h *Handler) UseTablePicture(w http.ResponseWriter, r *http.Request, user *
 // (409 seated) — the money rule BuyPicture explains — and in the lobby the
 // purchase runs under the player's seat lock (Deps.WhileUnseated) for the
 // reason given there. Buying does not lay it: that is /api/table-pictures/use.
+// An unlisted table picture (is_listed = FALSE) is not for sale: 400
+// picture_retired, unless it is already theirs (200 charged:false).
 func (h *Handler) BuyTablePicture(w http.ResponseWriter, r *http.Request, user *db.User) {
 	var req TablePictureRequest
 	if err := ReadJSONBody(r, &req); err != nil {
@@ -889,7 +906,9 @@ func (h *Handler) BuyTablePicture(w http.ResponseWriter, r *http.Request, user *
 	case errors.Is(err, db.ErrTablePictureUnknown):
 		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownTablePicture, Message: MsgUnknownTablePicture})
 		return
-	case errors.Is(err, db.ErrPictureInactive):
+	case errors.Is(err, db.ErrPictureInactive), errors.Is(err, db.ErrPictureUnlisted):
+		// Retired or off the shelves: "no longer available" either way, as
+		// BuyPicture answers.
 		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodePictureRetired, Message: MsgTablePictureRetired})
 		return
 	case errors.Is(err, db.ErrPictureFree):
@@ -945,7 +964,9 @@ func tablePictureHammersRefusal(err error) string {
 // sign-in), and a token buys the `owned` flag per row; a bad or expired one is
 // ignored, not refused. There is no expiry sweep here: an emoji is never worn,
 // and ownership tests the expiry itself. {"emojis": []} when nothing is on
-// offer — which is where a fresh database starts, the seed holding no emoji.
+// offer. An unlisted emoji (is_listed = FALSE) is listed to nobody but a player
+// who owns it on a rental still running (db.Emojis.List), so the Emojis shelf
+// and the table's emoji page show it to its owners alone — who still send it.
 func (h *Handler) Emojis(w http.ResponseWriter, r *http.Request) {
 	if h.deps.Emojis == nil {
 		WriteJSON(w, http.StatusOK, EmojisResponse{Emojis: []db.Emoji{}})
@@ -966,7 +987,9 @@ func (h *Handler) Emojis(w http.ResponseWriter, r *http.Request) {
 // Levels is GET /api/levels (owner, 27 Sep 2026: the table's tax pill,
 // tapped, shows "everything in detail and … all levels and taxes"): the whole
 // level ladder — every level with its title, icon, the XP that reaches it and
-// the winning tax it carries —, every active badge with the rate it brings a
+// the winning tax it carries —, every active badge on the shelves (is_listed;
+// an unlisted one is in neither the store nor the level screen's list, and
+// its holders read it with their account) with the rate it brings a
 // holder's down to and how long a grant of it lasts, the active XP sources and
 // the day's cap (db.LevelLadder). PUBLIC, like
 // GET /api/tables: it is configuration and says nothing about any player, so
@@ -992,7 +1015,9 @@ func (h *Handler) Levels(w http.ResponseWriter, r *http.Request) {
 // was already theirs and running (nothing moved), and a lapsed rental is
 // renewed from now. Refusals, in order: an id that is absent or not a positive
 // integer, or no such row → 400 unknown_emoji; a retired row → 400
-// emoji_retired; a free one → 400 emoji_free; a COIN emoji while seated → 409
+// emoji_retired; a free one → 400 emoji_free; one already theirs and running →
+// 200 charged:false; an unlisted one (is_listed = FALSE: off the shelves) →
+// 400 emoji_retired, as a retired one; a COIN emoji while seated → 409
 // seated; a wallet short of the price → 409 emoji_unaffordable, the message
 // naming the wallet and the price (EmojiUnaffordableMessage).
 //
@@ -1026,7 +1051,10 @@ func (h *Handler) BuyEmoji(w http.ResponseWriter, r *http.Request, user *db.User
 	case errors.Is(err, db.ErrEmojiUnknown):
 		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeUnknownEmoji, Message: MsgUnknownEmoji})
 		return
-	case errors.Is(err, db.ErrEmojiInactive):
+	case errors.Is(err, db.ErrEmojiInactive), errors.Is(err, db.ErrEmojiUnlisted):
+		// Retired or off the shelves: "no longer available" either way, and
+		// the app re-reads its emoji catalogue on this code, which drops the
+		// tile it should not have shown.
 		WriteJSON(w, http.StatusBadRequest, ErrorResponse{Error: CodeEmojiRetired, Message: MsgEmojiRetired})
 		return
 	case errors.Is(err, db.ErrEmojiFree):

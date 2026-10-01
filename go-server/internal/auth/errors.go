@@ -60,7 +60,7 @@ const (
 	CodeUnknownAvatar       = "unknown_avatar"        // 400: no such picture in the catalogue
 	CodeUnknownTablePicture = "unknown_table_picture" // 400: no such table picture in its catalogue (Go only, owner 15 Sep 2026)
 	CodePictureLocked       = "picture_locked"        // 403: a premium picture the player has not bought
-	CodePictureRetired      = "picture_retired"       // 400: is_active = FALSE
+	CodePictureRetired      = "picture_retired"       // 400: is_active = FALSE; and a buy of an unlisted one (is_listed = FALSE)
 	CodePictureFree         = "picture_free"          // 400: nothing to buy
 	CodePictureChips        = "picture_chips"         // 409: wallet cannot cover the price
 	CodeUnknownPack         = "unknown_pack"          // 400: a missile pack the catalogue does not hold
@@ -83,7 +83,7 @@ const (
 	// emoji_retired and emoji_locked are also the socket's chat:emoji refusals
 	// (socket.KnownErrorCodes), with the same messages.
 	CodeUnknownEmoji      = "unknown_emoji"      // 400: no such emoji in the catalogue (or an id that is not one)
-	CodeEmojiRetired      = "emoji_retired"      // 400: is_active = FALSE
+	CodeEmojiRetired      = "emoji_retired"      // 400: is_active = FALSE; and a buy of an unlisted one (is_listed = FALSE)
 	CodeEmojiFree         = "emoji_free"         // 400: a free emoji — nothing to buy
 	CodeEmojiUnaffordable = "emoji_unaffordable" // 409: the wallet the emoji's currency names cannot cover it
 	CodeEmojiLocked       = "emoji_locked"       // chat:emoji only: a premium emoji not bought, or its rental run out

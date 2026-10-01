@@ -991,7 +991,11 @@ func (x *XP) StandingOf(ctx context.Context, userID string) (Standing, bool, err
 // Configuration only: nothing about any player.
 type LevelLadder struct {
 	Levels []LadderLevel `json:"levels"` // [] when the ladder is empty, never null
-	Badges []LadderBadge `json:"badges"` // the active ones; [] when none
+	// Badges are the active ones on the shelves (is_listed, owner 1 Oct 2026:
+	// an unlisted badge is in neither the store nor the level screen's list;
+	// whoever holds it reads it, rate and art, with their own account); []
+	// when none.
+	Badges []LadderBadge `json:"badges"`
 	// XPSources are the active DAILY sources; [] when none. A ONE_TIME
 	// mission is never among them: an app from before them sums every
 	// source's xp × times as the most a window can earn (its "108 XP") and
@@ -1095,7 +1099,7 @@ func (x *XP) Ladder(ctx context.Context) (LevelLadder, error) {
 	rows, err = x.db.Pool.Query(ctx,
 		`SELECT code, title, icon, tax_bps, validity_days, is_default, price_inr, COALESCE(play_product_id, ''),
 		        COALESCE(asset_url, ''), COALESCE(asset_format, '')
-		   FROM badges WHERE is_active ORDER BY sort_order, code`)
+		   FROM badges WHERE is_active AND is_listed ORDER BY sort_order, code`)
 	if err != nil {
 		return LevelLadder{}, fmt.Errorf("read badges: %w", err)
 	}
