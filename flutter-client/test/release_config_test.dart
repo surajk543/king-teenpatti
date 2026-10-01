@@ -8,7 +8,12 @@ import 'package:flutter_test/flutter_test.dart';
 String _read(String path) => File(path).readAsStringSync();
 
 void main() {
-  test('the version is past the last tagged release, 1.7.0+17', () {
+  test('the version is past the last tagged release, 1.8.0+18', () {
+    // flutter-client/v1.8.0 is 1.8.0+18 (1 Oct 2026); 1.9.0+19 carries the
+    // catalogue's art from the private R2 bucket (signed ten-minute links,
+    // each file kept on the phone under its location, six downloads at
+    // once), the casino chips at the top left of the lobby's cards in each
+    // card's colour, and the Live tab on the Seen, Blind and Variation cards.
     // flutter-client/v1.7.0 is 1.7.0+17 (29 Sep 2026); 1.8.0+18 carries the
     // welcome rewards popup, the reward programs (the weekly login popup and
     // the REWARDS chip and screen), the 6-hour bonus back at the top left,
@@ -47,7 +52,7 @@ void main() {
     expect(line, isNotNull);
     final build = int.parse(line!.group(4)!);
     final name = [1, 2, 3].map((i) => int.parse(line.group(i)!)).toList();
-    expect(build, greaterThan(17));
+    expect(build, greaterThan(18));
     // The name moves with it: 1.2.2 is the tagged release.
     final isAfter122 =
         name[0] > 1 ||
