@@ -726,6 +726,10 @@ class Strings {
   /// is what the tile at the head of an engine's rail says it goes back to —
   /// the front, every game.
   String get viewTables => _('viewTables');
+
+  /// The tab over the Seen, Blind and Variation cards on the lobby's front,
+  /// beside its blinking green dot (owner, 1 Oct 2026).
+  String get live => _('live');
   String get tablesLabel => _('tablesLabel');
   String get openToYouLabel => _('openToYouLabel');
   String get backToCategories => _('backToCategories');
@@ -2211,6 +2215,7 @@ class Strings {
       'variation': 'VARIATION',
       'variationTableNote': 'First player picks each hand\'s rules',
       'viewTables': 'View tables',
+      'live': 'Live',
       'tablesLabel': 'tables',
       'openToYouLabel': 'open to you',
       'backToCategories': 'All games',
@@ -3173,6 +3178,7 @@ class Strings {
       'variation': 'वेरिएशन',
       'variationTableNote': 'हर हाथ के नियम पहला खिलाड़ी चुनता है',
       'viewTables': 'टेबल देखें',
+      'live': 'लाइव',
       'tablesLabel': 'टेबल',
       'openToYouLabel': 'आपके लिए खुली',
       'backToCategories': 'सभी खेल',
@@ -4120,6 +4126,7 @@ class Strings {
       'variation': 'ভেরিয়েশন',
       'variationTableNote': 'প্রতিটি হাতের নিয়ম প্রথম খেলোয়াড় বেছে নেন',
       'viewTables': 'টেবিল দেখুন',
+      'live': 'লাইভ',
       'tablesLabel': 'টেবিল',
       'openToYouLabel': 'আপনার জন্য খোলা',
       'backToCategories': 'সব খেলা',
@@ -5069,6 +5076,7 @@ class Strings {
       'variation': 'વેરિએશન',
       'variationTableNote': 'દરેક હાથના નિયમ પહેલો ખેલાડી પસંદ કરે છે',
       'viewTables': 'ટેબલ જુઓ',
+      'live': 'લાઇવ',
       'tablesLabel': 'ટેબલ',
       'openToYouLabel': 'તમારા માટે ખુલ્લાં',
       'backToCategories': 'બધી રમતો',
@@ -6016,6 +6024,7 @@ class Strings {
       'variation': 'ਵੇਰੀਏਸ਼ਨ',
       'variationTableNote': 'ਹਰ ਹੱਥ ਦੇ ਨਿਯਮ ਪਹਿਲਾ ਖਿਡਾਰੀ ਚੁਣਦਾ ਹੈ',
       'viewTables': 'ਟੇਬਲ ਵੇਖੋ',
+      'live': 'ਲਾਈਵ',
       'tablesLabel': 'ਟੇਬਲ',
       'openToYouLabel': 'ਤੁਹਾਡੇ ਲਈ ਖੁੱਲ੍ਹੇ',
       'backToCategories': 'ਸਾਰੀਆਂ ਖੇਡਾਂ',
