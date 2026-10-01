@@ -1644,8 +1644,8 @@ class GameState extends ChangeNotifier {
         // closed, lands now. The server is idempotent on the purchase token.
         unawaited(purchases.redeliver());
         // The reward programs (owner, 30 Sep 2026): every session in the
-        // lobby reads today's standing and puts the weekly login popup up
-        // while its day is still to collect, so a phone that only
+        // lobby reads today's standing and puts a popup up for each program
+        // whose day is still to collect, so a phone that only
         // reconnected across midnight is offered the new day. A cold start
         // reads once its lobby is up (_RewardsChip); at a table the lobby
         // asks when the player is back. Collecting is the player's tap.
@@ -2937,8 +2937,7 @@ class GameState extends ChangeNotifier {
     rewardPrograms = null;
     rewardProgramsFailed = false;
     rewardsGranted = null;
-    weeklyLoginOffer = null;
-    _weeklyOfferedFor = null;
+    _forgetRewardOffers();
     welcomePending = null;
     consentPending = false;
     _consentKnownFor = null;
@@ -2964,11 +2963,11 @@ class GameState extends ChangeNotifier {
   Future<void> loadConsent([SharedPreferences? prefs]) async {
     final id = user?.id;
     consentPending = await NoWinningsConsent.isPending(id, prefs);
-    // Known now for this account: the weekly login popup may have been
-    // waiting on the answer (offerWeeklyLogin) — a lobby's read of the
-    // programs lands before this on a fast link.
+    // Known now for this account: the reward popups may have been waiting
+    // on the answer (offerRewards) — a lobby's read of the programs lands
+    // before this on a fast link.
     _consentKnownFor = id;
-    if (!consentPending && room == null) offerWeeklyLogin();
+    if (!consentPending && room == null) offerRewards();
   }
 
   /// The account whose consent [loadConsent] has answered for, so nothing
@@ -2986,9 +2985,9 @@ class GameState extends ChangeNotifier {
     consentPending = false;
     _consentKnownFor = id;
     // The welcome rewards popup stands next ([welcomePending], shown by
-    // main.dart once the panel is down), and the weekly login popup waited
-    // behind both (offerWeeklyLogin: nothing while the welcome is pending).
-    if (room == null) offerWeeklyLogin();
+    // main.dart once the panel is down), and the reward popups waited behind
+    // both (offerRewards: nothing while the welcome is pending).
+    if (room == null) offerRewards();
     notifyListeners();
   }
 
@@ -2997,8 +2996,8 @@ class GameState extends ChangeNotifier {
   /// show first consent pop up "before you play", then after show pop up
   /// Welcome Rewards which user must select confirm otherwise not able to
   /// proceed then Weekly Login pop up"). main.dart shows the welcome rewards
-  /// popup while this stands and the no-winnings panel is down; the weekly
-  /// login popup is not offered until [confirmWelcome] clears it. A returning
+  /// popup while this stands and the no-winnings panel is down; the reward
+  /// popups are not offered until [confirmWelcome] clears it. A returning
   /// account never has one. Not kept across a restart: the grant comes with
   /// the login that created the account and with nothing else.
   WelcomeGrant? welcomePending;
@@ -3013,12 +3012,12 @@ class GameState extends ChangeNotifier {
         const WelcomeGrant();
   }
 
-  /// The welcome rewards popup has been confirmed: the weekly login popup
-  /// may come now.
+  /// The welcome rewards popup has been confirmed: the reward popups may
+  /// come now.
   void confirmWelcome() {
     if (welcomePending == null) return;
     welcomePending = null;
-    if (room == null) offerWeeklyLogin();
+    if (room == null) offerRewards();
     notifyListeners();
   }
 
@@ -3503,8 +3502,7 @@ class GameState extends ChangeNotifier {
     rewardPrograms = null;
     rewardProgramsFailed = false;
     rewardsGranted = null;
-    weeklyLoginOffer = null;
-    _weeklyOfferedFor = null;
+    _forgetRewardOffers();
     welcomePending = null;
     friends.reset();
     reports.reset();
@@ -4848,31 +4846,66 @@ class GameState extends ChangeNotifier {
   /// True from the moment a claim is sent until the server has answered it.
   bool rewardClaimPending = false;
 
+  /// The program a claim in flight names (a day's tile on the rewards
+  /// screen); null for a claim of every program, or none in flight.
+  String? rewardClaimProgram;
+
+  /// Whether any program's today can be collected now — the server's
+  /// verdict where it gives one ([RewardProgramState.canClaimToday]).
+  bool get rewardsDue => rewardPrograms?.any((p) => p.canClaimToday) ?? false;
+
   /// What the last claim gave, while its celebration is on screen; null the
   /// rest of the time. Only a claim's answer sets it — the server says
   /// whether anything was granted — so reopening the app never shows a
   /// reward twice.
   List<RewardGrant>? rewardsGranted;
 
-  /// The weekly login popup's program (owner, 30 Sep 2026: "it should pop
-  /// after login and if user has claimed it should not show when user start
-  /// the app, otherwise show it"): the WEEKLY login streak whose today is
-  /// still to collect, offered once a day — set when the programs are read
-  /// with it unclaimed and not yet offered for that day, cleared by Close,
-  /// a tap outside, Back, and a session's end. Null the rest of the time,
-  /// and then the lobby shows no popup. A claim never clears it: the popup
-  /// shows what the claim gave and is closed by the player.
-  RewardProgramState? weeklyLoginOffer;
+  /// The reward popup on screen (owner, 30 Sep 2026: "it should pop after
+  /// login and if user has claimed it should not show when user start the
+  /// app, otherwise show it"; 2 Oct 2026: "for every reward type sequential
+  /// or calender there should be different pop up, not a single pup up to
+  /// collect all reward"): one program whose today is still to collect, in a
+  /// popup of its own — in its own look — that collects that program alone.
+  /// Every program waiting today is offered, one after another in the
+  /// server's order ([rewardOfferIndex] of [rewardOfferCount]), each once a
+  /// day a session: set when the programs are read with one waiting and not
+  /// yet offered that day; [dismissRewardOffer] — Continue, Close, a tap
+  /// outside, Back — puts up the next. Null the rest of the time, and then
+  /// the lobby shows no popup. A claim never clears it: the popup shows what
+  /// the claim gave and is put away by the player.
+  RewardProgramState? rewardOffer;
 
-  /// `<code>:<today>` of the last day offered, so a day is offered once
-  /// however many times the programs are read in a session (a
-  /// session:ready, the lobby coming back from a table); the next start of
+  /// Where [rewardOffer] stands in its run of popups (from 1) and how many
+  /// the run holds: "2 of 3".
+  int rewardOfferIndex = 0;
+  int rewardOfferCount = 0;
+
+  /// The programs still to offer after [rewardOffer], by code, in order.
+  final List<String> _offerQueue = [];
+
+  /// `<code>:<today>` of every program's day offered this session, so a day
+  /// is offered once however many times the programs are read in a session
+  /// (a session:ready, the lobby coming back from a table); the next start of
   /// the app offers it again while it is still unclaimed.
-  String? _weeklyOfferedFor;
+  final Set<String> _offeredFor = {};
+
+  /// True while the rewards screen is open: a read it makes offers no popup,
+  /// which would stand behind it unseen — each program can be collected on
+  /// the screen itself.
+  bool rewardsScreenOpen = false;
+
+  /// Forgets every popup offered and waiting: a session's end.
+  void _forgetRewardOffers() {
+    rewardOffer = null;
+    _offerQueue.clear();
+    _offeredFor.clear();
+    rewardOfferIndex = 0;
+    rewardOfferCount = 0;
+  }
 
   /// Reads the reward programs — as the lobby appears, at every
   /// `session:ready` in the lobby, when the rewards screen opens, and on the
-  /// screen's Try again — and offers the weekly login popup when its day is
+  /// screen's Try again — and offers a popup for each program whose day is
   /// still to collect. Claims nothing: collecting is the player's tap.
   Future<void> loadRewardPrograms() async {
     final token = _token;
@@ -4885,7 +4918,7 @@ class GameState extends ChangeNotifier {
       if (_token != token) return;
       rewardPrograms = programs;
       rewardProgramsFailed = false;
-      offerWeeklyLogin();
+      offerRewards();
     } catch (_) {
       if (_token == token) rewardProgramsFailed = true;
     } finally {
@@ -4894,61 +4927,112 @@ class GameState extends ChangeNotifier {
     }
   }
 
-  /// The weekly login streak whose today is still to collect, or null.
-  RewardProgramState? get weeklyLoginDue {
-    for (final p in rewardPrograms ?? const <RewardProgramState>[]) {
-      if (p.program.isStreak && p.program.isWeekly && !p.claimedToday) {
-        return p;
-      }
+  /// Reads the programs again because a new cycle has begun (a panel's
+  /// countdown reached zero) — once, however many panels count to the same
+  /// moment: not while a read is already out, nor again within
+  /// [_cycleTurnRest] of the last such read, so an answer that still counts
+  /// to that moment can never set off a run of reads.
+  Future<void> rewardCycleTurned() async {
+    final now = rewardClock();
+    final last = _cycleTurnedAt;
+    if (rewardProgramsLoading ||
+        (last != null && now.difference(last).abs() < _cycleTurnRest)) {
+      return;
     }
-    return null;
+    _cycleTurnedAt = now;
+    await loadRewardPrograms();
   }
 
-  /// Puts the weekly login popup up for the day still to collect — once a
-  /// day, unless asked [again] (the lobby's REWARDS chip). Answers whether
-  /// it did. Not while the no-winnings panel covers the lobby: the popup's
-  /// animation would play behind it unseen, so [acceptConsent] offers it
-  /// then.
-  bool offerWeeklyLogin({bool again = false}) {
-    final due = weeklyLoginDue;
-    if (due == null || consentPending) return false;
+  DateTime? _cycleTurnedAt;
+  static const _cycleTurnRest = Duration(seconds: 10);
+
+  /// The programs whose today can be collected now, in the server's order —
+  /// by its verdict ([RewardProgramState.canClaimToday]), so a broken or
+  /// completed cycle is never offered.
+  List<RewardProgramState> get rewardOffersDue => [
+    for (final p in rewardPrograms ?? const <RewardProgramState>[])
+      if (p.canClaimToday) p,
+  ];
+
+  String _offerKey(RewardProgramState p) => '${p.program.code}:${p.today}';
+
+  /// Puts up the popups of the programs still to collect today — those not
+  /// yet offered this session, or every one when asked [again] (the lobby's
+  /// REWARDS chip) — the first now and the others one after another as each
+  /// is put away. Answers whether a popup stands. Not while the no-winnings
+  /// panel covers the lobby — a popup's animation would play behind it
+  /// unseen, so [acceptConsent] offers them then — nor while a new
+  /// account's welcome waits to be confirmed ([confirmWelcome] offers them),
+  /// nor behind the rewards screen.
+  bool offerRewards({bool again = false}) {
+    if (rewardOffer != null) return true;
+    if (consentPending || rewardsScreenOpen) return false;
     // Not before this account's consent is known: the programs' read can
     // land first, and the popup would go up under the panel.
     if (_consentKnownFor != user?.id) return false;
-    // Nor while a new account's welcome rewards wait to be confirmed: that
-    // popup comes first, and confirmWelcome offers this one.
     if (welcomePending != null) return false;
-    final key = '${due.program.code}:${due.today}';
-    if (!again && _weeklyOfferedFor == key) return false;
-    _weeklyOfferedFor = key;
-    weeklyLoginOffer = due;
+    final due = [
+      for (final p in rewardOffersDue)
+        if (again || !_offeredFor.contains(_offerKey(p))) p,
+    ];
+    if (due.isEmpty) return false;
+    _offeredFor.addAll(due.map(_offerKey));
+    rewardOffer = due.first;
+    _offerQueue
+      ..clear()
+      ..addAll([for (final p in due.skip(1)) p.program.code]);
+    rewardOfferIndex = 1;
+    rewardOfferCount = due.length;
     notifyListeners();
     return true;
   }
 
-  /// Closes the weekly login popup.
-  void dismissWeeklyLogin() {
-    if (weeklyLoginOffer == null) return;
-    weeklyLoginOffer = null;
+  /// Puts the popup on screen away — Continue, Close, a tap outside, Back —
+  /// and puts up the next program's, passing over one collected meanwhile
+  /// (on the rewards screen, on another phone) or no longer running.
+  void dismissRewardOffer() {
+    if (rewardOffer == null) return;
+    rewardOffer = null;
+    while (_offerQueue.isNotEmpty) {
+      final code = _offerQueue.removeAt(0);
+      rewardOfferIndex++;
+      final next = rewardPrograms
+          ?.where((p) => p.program.code == code)
+          .firstOrNull;
+      if (next != null && next.canClaimToday) {
+        rewardOffer = next;
+        break;
+      }
+    }
+    if (rewardOffer == null) {
+      rewardOfferIndex = 0;
+      rewardOfferCount = 0;
+    }
     notifyListeners();
   }
 
-  /// Claims today's reward of every program the server runs — once a day
-  /// a program, which the SERVER decides — on the player's tap: the weekly
-  /// popup's Collect, or the rewards screen's. Answers what the claim gave
+  /// Claims today's reward of the one program [programCode] names — its own
+  /// popup's Collect, or its day's tile on the rewards screen — or, named
+  /// none, of every program the server runs; once a day a program, which the
+  /// SERVER decides, on the player's tap. Answers what the claim gave
   /// (empty when today was already collected), or null when it could not be
-  /// made; with [celebrate] the lobby's celebration shows the grants too.
-  /// Nothing is asked at a table: a reward may be chips, which only the
-  /// lobby may credit.
+  /// made; with [celebrate] the lobby's celebration shows the grants too. A
+  /// named program the server will not claim — gone, not running, its cycle
+  /// broken or completed — is said in the player's words ([notice]) and the
+  /// programs are read again, so the screen shows the truth. Nothing is
+  /// asked at a table: a reward may be chips, which only the lobby may
+  /// credit.
   Future<List<RewardGrant>?> claimRewardPrograms({
     bool celebrate = true,
+    String? programCode,
   }) async {
     final token = _token;
     if (token == null || rewardClaimPending || room != null) return null;
     rewardClaimPending = true;
+    rewardClaimProgram = programCode;
     notifyListeners();
     try {
-      final r = await _api.claimRewardPrograms(token);
+      final r = await _api.claimRewardPrograms(token, programCode: programCode);
       if (_token != token) return null;
       if (r == null) {
         // An older server, or none running: nothing to show.
@@ -4970,6 +5054,16 @@ class GameState extends ChangeNotifier {
     } on ApiException catch (e) {
       // At a table by the server's reckoning: the lobby will ask again.
       if (e.code == 'seated') return null;
+      final words = rewardRefusalText(e.code);
+      if (words != null) {
+        // The program as the phone drew it is not the program as it stands:
+        // say why, and read the truth.
+        if (_token == token) {
+          notice = words;
+          unawaited(loadRewardPrograms());
+        }
+        return null;
+      }
       if (rewardPrograms == null) rewardProgramsFailed = true;
       return null;
     } catch (_) {
@@ -4977,9 +5071,20 @@ class GameState extends ChangeNotifier {
       return null;
     } finally {
       rewardClaimPending = false;
+      rewardClaimProgram = null;
       notifyListeners();
     }
   }
+
+  /// A named program's claim refused, in the player's words; null for any
+  /// other refusal.
+  String? rewardRefusalText(String? code) => switch (code) {
+    'reward_program_not_found' => t.rewardProgramGone,
+    'reward_program_not_running' => t.rewardProgramNotRunning,
+    'reward_cycle_broken' => t.rewardCycleBrokenNotice,
+    'reward_cycle_completed' => t.rewardCycleCompletedNotice,
+    _ => null,
+  };
 
   /// Closes the rewards celebration.
   void dismissRewardsGranted() {

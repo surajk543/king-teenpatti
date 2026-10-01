@@ -635,15 +635,16 @@ class _LobbyScreenState extends State<LobbyScreen> {
                   ],
                 ),
               ),
-              // The weekly login popup (30 Sep 2026): the owner's calendar
-              // with the week's prizes in its boxes, up after sign-in while
-              // today's is still to collect — in the open level's colour
-              // inside Blind or Variation, as the drawers are (owner, the
-              // same day: "daily Streak background color should be changed
-              // acc to card color").
+              // The reward popups (30 Sep 2026; one a program since 2 Oct
+              // 2026): up after sign-in while a program's today is still to
+              // collect, one program after another, each in its own look —
+              // the owner's calendar for the weekly login streak — and in
+              // the open level's colour inside Blind or Variation, as the
+              // drawers are (owner, 30 Sep 2026: "daily Streak background
+              // color should be changed acc to card color").
               LevelAccent(
                 palette: drawerPalette,
-                child: const WeeklyLoginOverlay(),
+                child: const RewardOfferOverlay(),
               ),
               // Sits last so it covers the foot and the rail. A wallet filling
               // is the one moment in the lobby worth interrupting for.
@@ -6315,20 +6316,31 @@ class _RewardsChipState extends State<_RewardsChip> {
         ),
       );
     }
-    final due = programs.any((p) => !p.claimedToday);
+    // Collectable by the server's verdict (canClaimToday), never worked out
+    // here: a broken or completed cycle waits for nothing.
+    final due = programs.any((p) => p.canClaimToday);
     var streak = 0;
     for (final p in programs) {
-      if (p.program.isStreak) streak = math.max(streak, p.claimedDays);
+      // A broken run is no streak.
+      if (p.program.isStreak && !p.isBroken) {
+        streak = math.max(streak, p.claimedDays);
+      }
     }
+    // Every program still to collect today has broken its cycle: say so
+    // rather than "Collected today".
+    final waiting = programs.where((p) => !p.claimedToday);
+    final broken = waiting.isNotEmpty && waiting.every((p) => p.isBroken);
     final subtitle = due
         ? t.rewardsCollect
         : streak > 0
         ? t.streakDays(streak)
+        : broken
+        ? t.rewardBrokenShort
         : t.rewardsCollected;
-    // A tap: the weekly login popup while its day waits (the owner's
-    // calendar, the same one that pops at sign-in), else the rewards screen.
+    // A tap: the popups of the programs whose day waits — one a program,
+    // the same that pop at sign-in — else the rewards screen.
     void open() {
-      if (!context.read<GameState>().offerWeeklyLogin(again: true)) {
+      if (!context.read<GameState>().offerRewards(again: true)) {
         showRewardPrograms(context);
       }
     }

@@ -401,6 +401,34 @@ class _PremiumGlassPanelState extends State<PremiumGlassPanel> {
     setState(() => _holdsLease = false);
   }
 
+  // A panel that leaves the tree gives its blur back at once, not at the end
+  // of the frame when it is disposed: a panel swapped for another in one
+  // frame (one reward popup giving way to the next, 2 Oct 2026) is
+  // deactivated before its successor mounts, and the successor would
+  // otherwise find the one blur still held and render unblurred for its
+  // whole life, the lobby showing through it.
+  @override
+  void deactivate() {
+    if (_holdsLease) _allowance?.release(this);
+    super.deactivate();
+  }
+
+  // Put back into the tree (a global key moved it): it asks again, as it did
+  // when it mounted.
+  @override
+  void activate() {
+    super.activate();
+    if (_holdsLease) {
+      _holdsLease =
+          _allowance?.claim(
+            this,
+            priority: widget.priority,
+            onRevoked: _onRevoked,
+          ) ??
+          false;
+    }
+  }
+
   @override
   void dispose() {
     if (_holdsLease) _allowance?.release(this);

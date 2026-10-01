@@ -2268,35 +2268,53 @@ $$;
 -- and MONTHLY periods"; db/rewardprograms.go). ONE generic model for every
 -- program the lobby runs — the weekly and monthly login streaks, the weekly
 -- and monthly calendars, and a one-off campaign such as a December calendar —
--- so a later program is rows here, never a table or a line of Go. Three
+-- so a later program is rows here, never a table or a line of Go. Four
 -- tables:
 --
---   reward_programs         a program: LOGIN_STREAK or CALENDAR, WEEKLY or
---                           MONTHLY, its timezone, the day its week starts,
---                           whether a missed day resets the streak, and an
---                           optional campaign window;
+--   reward_programs         a program: its MODE (LOGIN_STREAK or CALENDAR),
+--                           its PROGRESSION TYPE (RESET, SEQUENTIAL or
+--                           BREAK), WEEKLY or MONTHLY, its timezone, the day
+--                           its week starts, and an optional campaign window;
 --   reward_program_rewards  what each day of a program gives;
 --   user_reward_claims      every reward granted, for good: the audit, the
---                           streak's memory and the replay guard.
+--                           run's memory and the replay guard;
+--   user_reward_progress    where each player stands in a program's period
+--                           (owner, 1 Oct 2026) — a row the first time they
+--                           look at or claim the program in that period.
 --
 -- The first two are CONFIGURATION, as the Lucky Draw's are: read on every
 -- claim and every look, so an owner's UPDATE is in force at the next one, no
 -- restart. The third is APPEND-ONLY by use, as user_lucky_draws is. No game
 -- state, and nothing on users: there is no user_login_streaks table and no
--- streak column — the current streak is DERIVED from the latest claim of the
--- current period, every time.
+-- streak column. The standing is worked out from the claims of the current
+-- period every time (db/rewardprogress.go, the one statement of the rules),
+-- and the fourth table is what it came to, kept up to date by the server.
 --
--- A DAY NUMBER means two different things, by the program's mode:
+-- The MODE says what a claim's DAY NUMBER is (owner, 1 Oct 2026: "mode =
+-- WHAT triggers progress, progression_type = HOW progress behaves"):
 --
---   LOGIN_STREAK  the consecutive login day — Mon Day 1, Tue Day 2, Wed
---                 missed, Thu Day 1 again (reset_on_missed_day TRUE);
---   CALENDAR      the day's position in the period — Mon Day 1, Tue Day 2,
---                 Wed missed, Thu Day 4; nothing ever resets.
+--   LOGIN_STREAK  the run's count — the first claim of a run is Day 1 (the
+--                 brief's LOGIN; the name every installed app reads);
+--   CALENDAR      the date's place in the period — Monday is Day 1 of a
+--                 Monday week; every date from the first the program runs
+--                 is REQUIRED.
+--
+-- The PROGRESSION TYPE says what a missed required day does:
+--
+--   RESET       the run starts again at Day 1 (a login streak: Mon Day 1,
+--               Tue Day 2, Wed Day 3, Thu missed, Fri Day 1);
+--   SEQUENTIAL  nothing is lost: the next unclaimed day waits (LOGIN), or
+--               the missed date is missed and the calendar goes on
+--               (CALENDAR — what "CALENDAR" meant from 30 Sep 2026);
+--   BREAK       the cycle is BROKEN: nothing more can be claimed until the
+--               next period starts fresh.
 --
 -- A PERIOD is a calendar week (starting on week_start_day) or a calendar
 -- month, in the program's timezone, worked out by the server with calendar
 -- arithmetic — never 7 × 86,400,000 ms: a month is 28 to 31 days and a week
--- may cross a daylight-saving change.
+-- may cross a daylight-saving change. There is no table of periods: a period
+-- is the program's configuration, the instant and the zone, and the rows
+-- that belong to one carry its first midnight, period_start_at.
 
 -- One row per program. code is what a claim is recorded under and the seed's
 -- conflict key; name the owner's label (the app names the four it knows in
@@ -2304,8 +2322,10 @@ $$;
 -- decides today's date, the week and month boundaries and the claim date —
 -- never the server's local zone; a zone this server cannot load leaves the
 -- program out with a logged reason. week_start_day is 1 Monday … 7 Sunday
--- and is read by WEEKLY programs only. reset_on_missed_day is read by
--- LOGIN_STREAK programs only, and the CHECK below keeps it FALSE on a
+-- and is read by WEEKLY programs only. progression_type is RESET,
+-- SEQUENTIAL or BREAK (above); reset_on_missed_day is what the builds before
+-- it read — TRUE exactly for RESET on a LOGIN_STREAK program — kept so a
+-- rollback finds what it expects, and the CHECK below keeps it FALSE on a
 -- CALENDAR one. starts_at / ends_at (epoch ms, NULL for none) bound a
 -- campaign — DECEMBER_2026 runs Dec 1 to Dec 31 — while a recurring program
 -- leaves both NULL. Retire a program with is_active = FALSE, never DELETE:
@@ -2319,6 +2339,7 @@ CREATE TABLE IF NOT EXISTS reward_programs (
   timezone            TEXT     NOT NULL DEFAULT 'UTC',
   week_start_day      SMALLINT NOT NULL DEFAULT 1 CHECK (week_start_day BETWEEN 1 AND 7),
   reset_on_missed_day BOOLEAN  NOT NULL DEFAULT FALSE,
+  progression_type    TEXT     NOT NULL DEFAULT 'SEQUENTIAL' CHECK (progression_type IN ('RESET', 'SEQUENTIAL', 'BREAK')),
   starts_at           BIGINT   CHECK (starts_at IS NULL OR starts_at >= 0),
   ends_at             BIGINT   CHECK (ends_at IS NULL OR ends_at >= 0),
   is_active           BOOLEAN  NOT NULL DEFAULT TRUE,
@@ -2330,6 +2351,25 @@ CREATE TABLE IF NOT EXISTS reward_programs (
   CONSTRAINT reward_programs_reset_is_a_streaks CHECK (mode = 'LOGIN_STREAK' OR reset_on_missed_day = FALSE),
   CONSTRAINT reward_programs_window_in_order CHECK (starts_at IS NULL OR ends_at IS NULL OR starts_at <= ends_at)
 );
+
+-- progression_type on a database built before it (owner, 1 Oct 2026) —
+-- production's, where WEEKLY_LOGIN runs: added once, behind the catalogue,
+-- and every program it finds given the progression it already had, in the
+-- same statement — a streak that resets on a missed day RESET, every other
+-- program SEQUENTIAL (the column's DEFAULT, which matches
+-- reset_on_missed_day's FALSE). That fill runs only the boot that adds the
+-- column, so it never rewrites a progression an owner has set since.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'reward_programs' AND column_name = 'progression_type'
+  ) THEN
+    EXECUTE 'ALTER TABLE reward_programs ADD COLUMN progression_type TEXT NOT NULL DEFAULT ''SEQUENTIAL'' CHECK (progression_type IN (''RESET'', ''SEQUENTIAL'', ''BREAK''))';
+    EXECUTE 'UPDATE reward_programs SET progression_type = ''RESET'' WHERE mode = ''LOGIN_STREAK'' AND reset_on_missed_day';
+  END IF;
+END;
+$$;
 
 -- One row per day of a program: day_number 1 to 7 for a WEEKLY program, 1 to
 -- 31 for a MONTHLY one (a day past the period is never reached), read by the
@@ -2411,6 +2451,32 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- One row per player, program and period they have touched (owner, 1 Oct
+-- 2026): where the player stands in that period — current_day, the day the
+-- player is to receive next (today's while it can be claimed, tomorrow's once
+-- it is; while BROKEN the day that was missed; while COMPLETED the last
+-- day), status ACTIVE, COMPLETED or BROKEN, and last_activity_at, the latest
+-- claim's claimed_at (0 before the first). Created the first time the player
+-- looks at or claims the program in the period — never one for every period
+-- ahead — and kept up to date by the server in the same transaction as each
+-- claim, and by a look that finds the standing changed (a BREAK program's
+-- missed day turns its cycle BROKEN). The claims stay the record the
+-- standing is worked out from: a row that ever disagreed would be put right
+-- at the next look. A new period is a new row; the ones before it stay as
+-- they ended. ON DELETE CASCADE on both keys: the row is a standing, not an
+-- audit (the claims are the audit, and keep their program).
+CREATE TABLE IF NOT EXISTS user_reward_progress (
+  user_id          TEXT     NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  program_id       BIGINT   NOT NULL REFERENCES reward_programs (id) ON DELETE CASCADE,
+  period_start_at  BIGINT   NOT NULL,
+  current_day      INTEGER  NOT NULL DEFAULT 1 CHECK (current_day > 0),
+  status           TEXT     NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'COMPLETED', 'BROKEN')),
+  last_activity_at BIGINT   NOT NULL DEFAULT 0 CHECK (last_activity_at >= 0),
+  created_at       BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  updated_at       BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  PRIMARY KEY (user_id, program_id, period_start_at)
+);
 
 -- updated_at follows every UPDATE of the two configuration tables by itself.
 -- Replaced on every boot (a function takes no table lock); each trigger is

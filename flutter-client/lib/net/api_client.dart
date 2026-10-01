@@ -653,26 +653,66 @@ class ApiClient {
       headers: _headers(token),
     );
     if (r.statusCode == 404 || r.statusCode == 503) return null;
-    return rewardProgramsFromJson(_decode(r)['programs']);
+    // Stamped the moment it arrives: the next period's countdown counts the
+    // server's `startsInMs` from here, never the phone's clock against a date.
+    final arrived = rewardClock();
+    final j = _decode(r);
+    return rewardProgramsFromJson(
+      j['programs'],
+      serverTime: j['serverTime'],
+      receivedAt: arrived,
+    );
   }
 
-  /// Today's claim of every reward program: `POST /api/reward-programs/claim`.
+  /// Today's claim of the reward programs: `POST /api/reward-programs/claim`.
   ///
   /// The server works out each program's day and reward, grants it once a
   /// day and records it; the answer's `granted` is what THIS call gave —
   /// empty when today was already claimed, which is what every later call
   /// of the day gets — so the app celebrates exactly that and never twice.
-  /// Nothing is sent: nothing a client says decides a reward. Null on a
-  /// server that predates the programs; a claim at a table throws an
-  /// [ApiException] with code `seated` (409).
-  Future<RewardClaimResult?> claimRewardPrograms(String token) async {
+  /// With no [programCode] it claims every program and the body is `{}`, as
+  /// it always was; with one, `{"programCode": …}` claims that program alone
+  /// — still nothing a client sends decides a reward. Null on a server that
+  /// predates the programs or runs none. A refusal throws an [ApiException]
+  /// with the server's code: `seated` (409), and for a named program
+  /// `reward_program_not_found` (404), `reward_program_not_running`,
+  /// `reward_cycle_broken` or `reward_cycle_completed` (409).
+  Future<RewardClaimResult?> claimRewardPrograms(
+    String token, {
+    String? programCode,
+  }) async {
     final r = await http.post(
       _uri('/api/reward-programs/claim'),
       headers: _headers(token),
-      body: '{}',
+      body: programCode == null || programCode.isEmpty
+          ? '{}'
+          : jsonEncode({'programCode': programCode}),
     );
-    if (r.statusCode == 404 || r.statusCode == 503) return null;
-    return RewardClaimResult.fromJson(_decode(r));
+    // A 404 is an older server's — every route it does not know answers so —
+    // unless it is the named program's own refusal.
+    if (r.statusCode == 503 ||
+        (r.statusCode == 404 &&
+            _errorCodeOf(r) != 'reward_program_not_found')) {
+      return null;
+    }
+    final arrived = rewardClock();
+    return RewardClaimResult.fromJson(_decode(r), receivedAt: arrived);
+  }
+
+  /// The `error` code of a refusal's body, without throwing; null for none.
+  static String? _errorCodeOf(http.Response r) {
+    try {
+      final body = jsonDecode(r.body.isEmpty ? '{}' : r.body);
+      if (body is! Map) return null;
+      final error = body['error'];
+      if (error is String) return error;
+      if (error is Map && error['code'] is String) {
+        return error['code'] as String;
+      }
+    } on FormatException {
+      return null;
+    }
+    return null;
   }
 
   // --------------------------------------------------------------- friends

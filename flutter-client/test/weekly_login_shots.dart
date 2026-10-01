@@ -152,7 +152,7 @@ void main() {
           await tester.pump(const Duration(seconds: 2));
           await real();
           await snap('due');
-          await tester.tap(find.byKey(const ValueKey('weekly-login-collect')));
+          await tester.tap(find.byKey(const ValueKey('reward-offer-collect')));
           await tester.pump();
           await real();
           await tester.pump(const Duration(milliseconds: 600));

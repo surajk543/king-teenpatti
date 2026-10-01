@@ -103,7 +103,7 @@ king-teenpatti/
 │   │   ├── appversion/           the app version gate (28 Sep 2026, §7.2): semver.go (Parse/Compare — the ONE version comparison), rules.go (Evaluate: NORMAL/SOFT_UPDATE/FORCE_UPDATE/MAINTENANCE, the platforms, LegacyMinClientBuild), source.go (the app_versions rows behind a TTL cache), gate.go (Gate.Admit/Check, the refusal and the GET /api/app-config body, the logs)
 │   │   ├── assets/               the catalogue's art in a private Cloudflare R2 bucket (1 Oct 2026, §7.2 POST /api/assets/sign): sigv4.go (AWS SigV4 query presigning, stdlib only), signer.go (Signer: a location's GET link valid ten minutes, Location/Key, the bucket's and keys' shapes checked)
 │   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go, reports.go (Report Player's POST /api/reports and GET /api/reports/limit, §7.2), rewardprograms.go (GET /api/reward-programs and POST /api/reward-programs/claim, §7.2), assets.go (POST /api/assets/sign, §7.2)
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — the founding PAIR since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows); since 28 Sep 2026 DML-only seeds may follow them, V1.0.2__seed-festive-capybara.sql the first (Festive Capybara) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL), luckydraw.go (the Lucky Draw: State, Spin — draw, grant and record in one transaction, §7.3), reports.go (player_reports: Submit — the limits and the insert in one transaction, §7.3), rewardprograms.go (the reward programs, §7.3: State and Claim — the period, the streak and the calendar day worked out in Go from the claims, one transaction a program) and grant.go (grantReward — the ONE grant of a reward of any kind, the Lucky Draw's and the programs'), assets.go (Assets.Stored — which R2 locations some catalogue row names, what the sign route signs, §7.2); dbtest/
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — the founding PAIR since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows); since 28 Sep 2026 DML-only seeds may follow them, V1.0.2__seed-festive-capybara.sql the first (Festive Capybara) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL), luckydraw.go (the Lucky Draw: State, Spin — draw, grant and record in one transaction, §7.3), reports.go (player_reports: Submit — the limits and the insert in one transaction, §7.3), rewardprograms.go (the reward programs, §7.3: State and Claim — the period, the streak and the calendar day worked out in Go from the claims, one transaction a program; a claim may name one program) and rewardprogress.go (progressAt — the ONE statement of the progression rules, RESET / SEQUENTIAL / BREAK × LOGIN_STREAK / CALENDAR, pure; the progress row's upsert lives in rewardprograms.go) and grant.go (grantReward — the ONE grant of a reward of any kind, the Lucky Draw's and the programs'), assets.go (Assets.Stored — which R2 locations some catalogue row names, what the sign route signs, §7.2); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js),
 │   │   │                         tableconfig.go (resolveTableCatalogue — the catalogue settled once, before anything is built from it; GET /api/tables; /health.tableConfig)
@@ -186,7 +186,7 @@ king-teenpatti/
     │   │                         rules_sheet, own_record (the lobby's Stats drawer, §8.4), level_art (a level's Lottie, §6.6),
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
     │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4),
-    │   │                         weekly_login (the weekly login popup: the owner's calendar, its day cards and the reward panel — §8.4)
+    │   │                         weekly_login (the reward popups, one a program: the owner's calendar for the weekly login streak, any other program's own days, the reward panel — §8.4)
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
     │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4); CasinoTableColors (the casino table's, §8.4)
     │   ├── theme/depth.dart      the depth ladder (28 Sep 2026, §8.4): Elevation, Depth/DepthScheme (every shadow and edge light), SurfaceLight, OuterShadow
@@ -202,7 +202,7 @@ king-teenpatti/
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
     │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
-    │          reward_programs and weekly_login on reward_fixtures.dart (§8.4),
+    │          reward_programs, weekly_login, reward_progression and reward_offers on reward_fixtures.dart (§8.4),
     │          casino_table, seat_ring, premium_cards (§8.4); by hand, not `_test`: table_shots and card_shots (pictures)
     ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext in DEBUG builds only (src/debug manifest),
     │                             no Android backup (allowBackup=false + res/xml/data_extraction_rules.xml), USE_BIOMETRIC/USE_FINGERPRINT removed
@@ -887,7 +887,7 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
 - **The levels' art** (owner, 29 Sep 2026: "Instead of using icons use lottie animations json for showing player Level and
   update the database according to that and UI … if there is no url, you show empty icon … meanwhile i will provide u other
   urls"): `player_levels.asset_url`/`asset_format` (the badges' twin; in the CREATE TABLE and two catalogue-guarded ALTERs —
-  nine guarded ALTERs then, thirteen since `is_listed`, §7.3), sent as `assetUrl`/`assetFormat` (omitted when none) on `user.playerLevel`, its `next`,
+  nine guarded ALTERs then, thirteen since `is_listed`, fourteen since `progression_type`, §7.3), sent as `assetUrl`/`assetFormat` (omitted when none) on `user.playerLevel`, its `next`,
   every `GET /api/levels` rung and a friend profile's `level`. **The seed fills a level's art only where `asset_url` IS NULL**
   (a guarded `UPDATE … FROM (VALUES …)` right after the ladder's INSERT in `V1.0.1__seed.sql`), every boot: a URL added to that
   list reaches every database at its next boot, production's included, while an owner's own URL — or `''`, none on purpose —
@@ -986,7 +986,7 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   complete only once … Do not remove or modify the existing DAILY behavior"; branch `one-time-missions`). `xp_sources` gains
   **`mission_type`** (`DAILY` — the DEFAULT, every source before it — | `ONE_TIME`, a CHECK), **`target`** (≥ 1) and **`scope`**
   (NULL any table, an engine `teen_patti`/`poker`, or a category `seen`…`omaha`; checked by the server) — each in the CREATE TABLE
-  AND a catalogue-guarded block, as `is_bot` (§7.3; seven guarded ALTERs then, nine since the levels' art, thirteen since `is_listed`). ONE_TIME kinds (`db.XPKind*`): `HANDS_PLAYED`,
+  AND a catalogue-guarded block, as `is_bot` (§7.3; seven guarded ALTERs then, nine since the levels' art, thirteen since `is_listed`, fourteen since `progression_type`). ONE_TIME kinds (`db.XPKind*`): `HANDS_PLAYED`,
   `HANDS_WON`, `CATEGORIES_PLAYED` (different categories) and `VARIATIONS_PLAYED` (different variations); a DAILY source keeps
   `PLAY_TIME`/`WIN_HAND`, and a row of a kind outside its type's is left out. **`player_xp_missions`** (PK `user_id, source_code`,
   → `users`/`xp_sources` CASCADE): `progress`, `seen TEXT[]` (the distinct values counted), `completed_at` (0 = open; frozen once
@@ -1423,23 +1423,40 @@ from the player's last row in `user_lucky_draws` (409 `lucky_draw_not_ready` wit
 slotNumber, reward:{type, value, refId, picture?|tablePicture?}, alreadyOwned, replayed, nextSpinAt, user}`. An `actionId` (1–64,
 else 400 `invalid_action_id`) that has already spun answers that spin again, `replayed:true`, granting nothing; it rides the wallet
 limiter (§7.4);
-**`GET /api/reward-programs`** / **`POST /api/reward-programs/claim`** (owner's brief, 30 Sep 2026; `auth/rewardprograms.go`,
-`db/rewardprograms.go`; the tables and the algorithm in §7.3, the app in §8.1/§8.4) — the reward programs: the login streaks and the
-calendar rewards. The GET (signed in; allowed at a table, it only reads) answers `{programs:[{program:{id, code, name, mode, periodType,
-timezone, weekStartDay, resetOnMissedDay, startsAt, endsAt, periodStart, periodEnd}, today ("2006-01-02" in the program's zone),
-dayOfPeriod, periodDays, currentDay, claimedToday, claimedDays, rewards:[{day, rewardType, rewardValue, rewardRefId, claimed,
-picture?|tablePicture?|emoji?|badge?}]}]}` — every active program in `sort_order` as it stands for THIS player (`currentDay` is the day
-today's claim counts, or counted, as; `claimedDays` a streak's current run, a calendar's days claimed this period; an item reward carries
-its catalogue row with `owned`, a badge `{code, title, icon, validityDays, assetUrl?, assetFormat?, held, expiresAt}`); 503
-`reward_programs_unavailable` from a server with no store. The POST claims TODAY of every program — **the body is ignored: nothing a
-client sends decides a reward** — under `Deps.WhileUnseated` (409 `seated` "Collect your rewards from the lobby, not while you are at a
-table." — a CHIPS reward is a lobby-only credit, §5.1) and the wallet limiter, one transaction a program, and answers
-`{granted:[{programCode, programName, mode, periodType, day, rewardType, rewardValue, rewardRefId, picture?|…, alreadyOwned, claimedAt}],
+**`GET /api/reward-programs`** / **`POST /api/reward-programs/claim`** (owner's brief, 30 Sep 2026, and the progression brief, 1 Oct
+2026; `auth/rewardprograms.go`, `db/rewardprograms.go`, `db/rewardprogress.go`; the tables and the rules in §7.3, the app in §8.1/§8.4)
+— the reward programs: the login streaks and the calendar rewards. The GET (signed in; allowed at a table — no wallet moves, though it
+brings the player's `user_reward_progress` rows up to date, §7.3) answers `{serverTime, programs:[{program:{id, code, name, mode,
+periodType, progressionType, timezone, weekStartDay, resetOnMissedDay, startsAt, endsAt, periodStart, periodEnd}, today ("2006-01-02" in
+the program's zone), dayOfPeriod, periodDays, currentDay, claimedToday, claimedDays, status, canClaim, nextDay, period:{startAt, endAt,
+startDate, endDate}, nextPeriod:{startAt, startDate, startsInMs}|null, rewards:[{day, rewardType, rewardValue, rewardRefId, claimed, state,
+picture?|tablePicture?|emoji?|badge?}]}]}` — every RUNNING program in `sort_order` as it stands for THIS player, every verdict the
+server's: `status` ACTIVE | COMPLETED | BROKEN; `canClaim` (a claim now grants `currentDay`); `currentDay` (the day today's claim counts,
+or counted, as — the missed day while BROKEN, the last day once COMPLETED); `nextDay` (the day the next claim counts as: today's while
+`canClaim`, tomorrow's once collected, 0 when this period has no claim left); `claimedDays` (a RESET program's current run, any other's
+days claimed this period); each day's **`state`** CLAIMED | AVAILABLE | MISSED | LOCKED (`claimed` is `state == CLAIMED`, kept for the
+installed apps); `period` the current cycle in the program's zone (`endAt` exclusive — the next cycle's first midnight) and `nextPeriod`
+when the program runs on into the next one (null when its `ends_at` comes first), `startsInMs` counted from `serverTime`, so a phone with a
+wrong clock still counts down to the server's moment; `resetOnMissedDay` is `progressionType == "RESET"` (§7.3); an item reward carries
+its catalogue row with `owned`, a badge `{code, title, icon, validityDays, assetUrl?, assetFormat?, held, expiresAt}`; 503
+`reward_programs_unavailable` from a server with no store. The POST claims TODAY — **of the one program its body names (`{"programCode":
+"WEEKLY_LOGIN"}`), or of every running program when it names none** (no body, or `{}`, which every app before the progression types
+sends); nothing else in the body is read (a `programCode` that is not a string → 400 `invalid_json`), so **no day and no reward is ever
+the client's to choose** — under `Deps.WhileUnseated` (409 `seated` "Collect your rewards from the lobby, not while you are at a table."
+— a CHIPS reward is a lobby-only credit, §5.1) and the wallet limiter, one transaction a program, and answers `{serverTime,
+granted:[{programCode, programName, mode, periodType, day, rewardType, rewardValue, rewardRefId, picture?|…, alreadyOwned, claimedAt}],
+results:[{programCode, outcome: GRANTED|ALREADY_CLAIMED|BROKEN|COMPLETED, day?, rewardType?, rewardValue?, rewardRefId?, claimedAt?}],
 programs, user}` — `granted` is what THIS call gave, empty once today is claimed (every later call of the day), so a client celebrates
-exactly that and never twice; idempotent by construction (the action_id is `reward:<userId>:<programCode>:<claimDate>`), so no client
-key. **The login does not claim, and nor does the app by itself**: the lobby reads the programs as it appears and puts the weekly
-login popup up while today's is still to collect (§8.1/§8.4); the claim is the player's tap — which is also what keeps a seated
-player's chips out of it;
+exactly that and never twice; `results` says what became of each program, ALREADY_CLAIMED carrying the claim already made, so a retry
+is answered with what its first attempt did. A NAMED program is refused 404 `reward_program_not_found` (no such code, switched off, or
+one this server cannot run), 409 `reward_program_not_running` (before its `starts_at` or after its `ends_at`), 409 `reward_cycle_broken`
+(a BREAK cycle missed a day: nothing until the next period) or 409 `reward_cycle_completed` (every day of the period collected — a guard:
+the last day is collected on its own day, which answers ALREADY_CLAIMED first); a claim of every program refuses none of these, reports
+BROKEN and COMPLETED as outcomes, and never meets a program that is not running. Idempotent by construction (the action_id is
+`reward:<userId>:<programCode>:<claimDate>`), so no client key. **The login does not claim, and nor does the app by itself**: the lobby
+reads the programs as it appears and puts up a popup for each program whose today is still to collect, one after another, each
+claiming its own program by name (§8.1/§8.4); the claim is the player's tap — which is also what keeps a seated player's chips out of
+it. Since 2 Oct 2026 no surface of the app claims every program at once; the route still answers such a claim for the installed apps;
 **`POST /api/assets/sign {urls:[…]}`** (owner, 1 Oct 2026: "backend will give signed urls valid for 10 min, UI will download and save
 in phone disk or cache, when user login again, it will see the path of assets is changed, so the UI will ask for new signed url for
 changed asset path stored in db"; `auth/assets.go`, `internal/assets`, `db/assets.go`) — the catalogue's art is in a PRIVATE
@@ -1648,7 +1665,7 @@ since 28 Sep 2026, below) —
 `table_configs`). The seed was `V1.0.1__seed_profile_pictures.sql` until then; nothing records a script's name, so the
 rename changed nothing for any database. `TestMigrationsAreVersionedOrderedAndSplitByKind` (`db_test.go`) pins the pair:
 those two first, no CREATE/ALTER/INDEX in the seed, and in the baseline an `ALTER TABLE` only as an `EXECUTE` string inside a
-catalogue-guarded block (exactly thirteen: `users.is_bot`, `users.is_active` (26 Sep 2026, written straight into the baseline the same way), `chip_ledger.game`, `chip_ledger.variant`, since 28 Sep 2026 the one-time missions' `xp_sources.mission_type`, `.target` and `.scope`, since 29 Sep 2026 the levels' art, `player_levels.asset_url` and `.asset_format`, §6.6, and since 1 Oct 2026 the shelves' switch, `is_listed` on `profile_pictures`, `table_pictures`, `emojis` and `badges` — "Off the shelves" below). How it got here: the 14 Sep 2026 consolidation (owner, for a
+catalogue-guarded block (exactly fourteen: `users.is_bot`, `users.is_active` (26 Sep 2026, written straight into the baseline the same way), `chip_ledger.game`, `chip_ledger.variant`, since 28 Sep 2026 the one-time missions' `xp_sources.mission_type`, `.target` and `.scope`, since 29 Sep 2026 the levels' art, `player_levels.asset_url` and `.asset_format`, §6.6, and since 1 Oct 2026 the shelves' switch, `is_listed` on `profile_pictures`, `table_pictures`, `emojis` and `badges` — "Off the shelves" below — and the reward programs' `reward_programs.progression_type`, whose block also backfills it, "The reward programs" below). How it got here: the 14 Sep 2026 consolidation (owner, for a
 production deploy onto an EMPTY database) folded V1.0.2–V1.0.5 in and dropped the blocks that brought older databases
 forward (git history, `ccff445`); later that day `duration_hours`, `V1.0.2__timed_bonus_milestone.sql`,
 `V1.0.3__seed_new_pictures.sql`, the 9-diamond default and the HAMMER currency were folded in too, so a database built
@@ -1694,7 +1711,7 @@ owns `users`.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly forty-three, and none of them is game state** (the reward programs' three since 30 Sep 2026 — `reward_programs`, `reward_program_rewards`, `user_reward_claims` — in their own paragraph after the welcome) (`welcome_rewards` since 30 Sep 2026, what a new account is granted, in its own paragraph after the app versions) (`app_versions` since 28 Sep 2026, the app version gate's configuration, in its own paragraph just before the ledger reasons) (`player_xp_missions` since 28 Sep 2026, each player's one-time XP missions, §6.6) (`user_sessions` since 28 Sep 2026, the sign-in each token must carry, in its own paragraph after the player reports) (Report Player's `player_reports` since 27 Sep 2026, moderation audit, in its own paragraph after the friends graph) (Player stats v2's `player_variation_stats` and
+Tables — **there are exactly forty-four, and none of them is game state** (the reward programs' four — `reward_programs`, `reward_program_rewards` and `user_reward_claims` since 30 Sep 2026, `user_reward_progress` since 1 Oct 2026 — in their own paragraph after the welcome) (`welcome_rewards` since 30 Sep 2026, what a new account is granted, in its own paragraph after the app versions) (`app_versions` since 28 Sep 2026, the app version gate's configuration, in its own paragraph just before the ledger reasons) (`player_xp_missions` since 28 Sep 2026, each player's one-time XP missions, §6.6) (`user_sessions` since 28 Sep 2026, the sign-in each token must carry, in its own paragraph after the player reports) (Report Player's `player_reports` since 27 Sep 2026, moderation audit, in its own paragraph after the friends graph) (Player stats v2's `player_variation_stats` and
 `stats_flushes` since 27 Sep 2026, in the statistics paragraph below) (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph; `player_stats`, `friend_requests` and `friendships` since the same day, Friends V1, §7.2; and eight of levels, badges and the daily XP since 27 Sep 2026 — `player_levels`, `badges`, `user_badges`, `badge_purchases`, `xp_sources`, `xp_settings`, `player_xp`, `player_xp_claims`, §6.6): ten of accounts, money and the picture
 catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`, `user_table_choice` — the paragraph after the
 `users` trigger below; merged 23 Sep 2026) (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
@@ -1963,7 +1980,7 @@ row has no ownership rows, so once unlisted it is shown to its wearers alone (a 
 though, being free, it can still be worn or sent by id. `is_active = FALSE` stays the stronger switch: a retired row is neither
 listed, sold, nor newly worn, laid or sent. The app needed no change — it draws what the routes send. `internal/db/listed_test.go`
 (each rule per table, a reward granting an unlisted item), `internal/app/listed_test.go` (the four routes signed out, as a
-stranger and as the owner; the refusals; relisting), `db_test.go` (the thirteen guarded ALTERs, the column in each CREATE TABLE),
+stranger and as the owner; the refusals; relisting), `db_test.go` (the guarded ALTERs — thirteen then, fourteen since the reward progression types —, the column in each CREATE TABLE),
 `upgrade_boot_test.go` (a database without the columns brought forward, every row listed).
 
 **The catalogue's art in R2 (owner, 1 Oct 2026: "All the google drive urls(emoji, profile_pictures, table_pictures, emojis), upload
@@ -2062,11 +2079,20 @@ the active chips rows' sum through a 15 s cache (`db.WelcomeChipsCache`). Bots g
 `internal/app/welcome_test.go`; checked live on the dev server (hammers off, a picture and an emoji on: a new guest got exactly those).
 **The reward programs (owner's brief, 30 Sep 2026: one unified REWARD PROGRAM system — LOGIN_STREAK and CALENDAR modes × WEEKLY and
 MONTHLY periods, "exactly three generic tables", every reward through the existing wallets and catalogues, never a per-program table, a
-`user_login_streaks` or a streak column on `users`; the routes in §7.2, the app in §8.1/§8.4)** are three tables at the end of
-`V1.0.0__baseline.sql` (REWARD PROGRAMS, after the welcome) and four programs at the end of `V1.0.1__seed.sql` (THE REWARD PROGRAMS):
-**`reward_programs`** (`code` UNIQUE, `^[A-Z0-9_]{1,64}$`; `name`; `mode` LOGIN_STREAK | CALENDAR; `period_type` WEEKLY | MONTHLY;
-`timezone`, an IANA name, default UTC; `week_start_day` 1..7, Monday 1; `reset_on_missed_day`, a streak's alone — a CHECK holds it FALSE
-on a calendar; `starts_at`/`ends_at`, a campaign's window, NULL for always, in order; `is_active`; `sort_order`; timestamps with a touch
+`user_login_streaks` or a streak column on `users`; and the progression brief, 1 Oct 2026: "mode = WHAT triggers progress,
+progression_type = HOW progress behaves" — RESET, SEQUENTIAL and BREAK — on "exactly four tables", every period derived from the
+configuration, the time and the zone and never stored as a row of its own; the routes in §7.2, the app in §8.1/§8.4)** are four tables at
+the end of `V1.0.0__baseline.sql` (REWARD PROGRAMS, after the welcome) and six programs at the end of `V1.0.1__seed.sql` (THE REWARD
+PROGRAMS):
+**`reward_programs`** (`code` UNIQUE, `^[A-Z0-9_]{1,64}$`; `name`; `mode` LOGIN_STREAK | CALENDAR — the progression brief's LOGIN is
+LOGIN_STREAK, the value every installed app reads; **`progression_type` RESET | SEQUENTIAL | BREAK** (1 Oct 2026; a CHECK, DEFAULT
+SEQUENTIAL; in the CREATE TABLE and a catalogue-guarded block which, the one time it adds the column to an older database, also sets RESET
+on every LOGIN_STREAK program with `reset_on_missed_day` — so every program keeps exactly the rules it had: a resetting streak RESET, a
+non-resetting streak and every calendar SEQUENTIAL); `period_type` WEEKLY | MONTHLY; `timezone`, an IANA name, default UTC;
+`week_start_day` 1..7, Monday 1; `reset_on_missed_day`, a streak's alone — a CHECK holds it FALSE on a calendar — and **no longer read**:
+the server reads `progression_type` (the wire's `resetOnMissedDay` is `progressionType == RESET`), and the column stays for a rollback to a
+tag before the progression types, which reads it alone — so an owner who changes a program's progression sets it to match (TRUE for a
+RESET streak, else FALSE); `starts_at`/`ends_at`, a campaign's window, NULL for always, in order; `is_active`; `sort_order`; timestamps with a touch
 trigger), **`reward_program_rewards`** (`program_id` → `reward_programs` ON DELETE CASCADE; `day_number` 1..31, UNIQUE per program;
 `reward_type` — an OPEN set the server checks, as the Lucky Draw's: CHIPS / DIAMOND / HAMMER / MISSILE with `reward_value` > 0 and no
 ref, PROFILE_PICTURE / TABLE_PICTURE / EMOJI / BADGE with `reward_ref_id` = the catalogue row's id as text (a badge's `code`) and no
@@ -2075,39 +2101,80 @@ value, NO_REWARD with neither — the shape CHECK holds those nine and lets any 
 `day_number`; `claim_date` DATE, the day in the program's zone; a SNAPSHOT of `reward_type`/`reward_value`/`reward_ref_id`, so a reward
 re-pointed later never rewrites what somebody was given; **`action_id` UNIQUE** = `reward:<userId>:<programCode>:<claimDate>`;
 `claimed_at`), under ONE guarded unique index, `user_reward_claims_period_idx (user_id, program_id, period_start_at, claim_date DESC)` —
-the one-claim-a-day guarantee and the streak's one read in one. **The streak is DERIVED from the claims** (`db/rewardprograms.go`,
-`RewardPrograms.State`/`Claim`): the period is calendar math in the program's zone (`periodOf`: a WEEKLY period from the
+the one-claim-a-day guarantee and the standing's one read in one: one claim a program a calendar DAY, deliberately not a unique day
+NUMBER, since a RESET run claims Day 1 twice in a week (Monday, and again after a miss) — and since 1 Oct 2026 **`user_reward_progress`**
+(`user_id` → `users` CASCADE; `program_id` → `reward_programs` CASCADE; `period_start_at`; PK on the three; `current_day` > 0, the brief's
+"next reward day" — today's while it can be collected, tomorrow's once it is, the missed day while BROKEN, the last day once COMPLETED;
+`status` ACTIVE | COMPLETED | BROKEN, a CHECK; `last_activity_at`, the latest claim's `claimed_at`; timestamps): one row a player a program
+a PERIOD, a mirror of the standing for an operator's query and a moderation tool to come. **The claims stay the authority** — nothing is
+decided from this row, and one lost or stale is rebuilt by the next look. Every claim writes it, and so does a look (`GET
+/api/reward-programs`) whose standing has moved — a BREAK cycle is recorded BROKEN the first time the player looks after the missed day —
+through one upsert (`saveProgress`) that writes only what changed (`IS DISTINCT FROM`) and never takes the row back in time
+(`last_activity_at` only moves forward), so a look that read the claims before a claim committed cannot undo it. A plain CREATE TABLE IF
+NOT EXISTS (nothing alters `users`): an existing database gains it empty at its next boot. **The standing is DERIVED from the claims**
+(`db/rewardprogress.go` `progressAt`, pure — the ONE statement of the rules, which the look, the claim and the progress row all read;
+`db/rewardprograms.go` `RewardPrograms.State`/`Claim`): the period is calendar math in the program's zone (`periodOf`: a WEEKLY period from the
 `week_start_day`'s midnight to the next, a MONTHLY from the 1st's to the next 1st's — never 7 × 86400000, so a week across a
-daylight-saving change is still seven days; `time/tzdata` is compiled in, so a zone loads on a bare host), and the day is read from the
-LATEST claim, never `MAX(day_number)` (`streakAt`): a streak's today is that claim's day + 1 when it was yesterday, its day when it was
-today (claimed already), 1 after a gap where `reset_on_missed_day` (else day + 1 — the missed day simply skipped), and 1 when the
-period turned (a streak never crosses a week or a month, which is what the period index says); a calendar's day is today's place in
-the period, a missed day missed (`calendarAt`). **A claim is ONE transaction a program** (`claimOne`), under the seat-lock stripe
-(`Deps.WhileUnseated`, §5.1): `lockWallet` → this period's claims → the day → the day's reward (a day with none is claimed as NO_REWARD,
-so the run still counts) → `grantReward` (`db/grant.go`, the Lucky Draw's grant generalised and now the ONE grant of a reward of any
+daylight-saving change is still seven days; `time/tzdata` is compiled in, so a zone loads on a bare host), narrowed to the dates a
+campaign runs in it (`runsBetween`). Two axes: **the MODE decides the day number** — LOGIN_STREAK the run's count (its first claim Day 1,
+each claim after it the next), read from the LATEST claim, never `MAX(day_number)`; CALENDAR the date's place in the period (Monday Day 1 of
+a Monday week, the 10th Day 10 of a month) — and a CALENDAR program's days are REQUIRED from the first day it runs in the period, a
+streak's only from its run's first claim; **the PROGRESSION decides what a missed required day does** — RESET starts the run again (a
+streak's next claim is Day 1: Mon 1, Tue 2, Wed 3, Thu missed, Fri 1; a calendar's day stays its date and only its run, the "N day
+streak", starts again); SEQUENTIAL loses nothing (a streak's next claim is the next unclaimed day — Day 1, Day 2, a day missed, Day 3 the
+day after, never Day 4; a calendar's missed date is missed and the calendar goes on, the CALENDAR of 30 Sep 2026); BREAK breaks the cycle
+(`status` BROKEN: nothing more until the next period starts fresh — Mon Day 1, Tue Day 2, Wed missed, Thursday BROKEN, next Monday Day 1;
+a BREAK calendar first opened on a Wednesday is BROKEN at once, its Monday and Tuesday having been required, where a BREAK streak's run
+starts at its first claim). A run never crosses a period (the period index), a period never holds more claims than days, and every
+period starts fresh — no carry-over; COMPLETED once the period's last day is collected. Each day's `state` (`dayStateOf`) is CLAIMED,
+AVAILABLE (today's), MISSED (a BROKEN cycle's missed day, or a calendar date gone by unclaimed) or LOCKED. **A claim is ONE transaction a
+program** (`claimOne`), under the seat-lock stripe (`Deps.WhileUnseated`, §5.1): `lockWallet` → this period's claims (newest first, off
+the period index) → `progressAt` → claimed today: ALREADY_CLAIMED, answered with that claim; BROKEN or COMPLETED: nothing granted, the
+progress row written → the day's reward (a day with none is claimed as NO_REWARD, so the run still counts) → `grantReward` (`db/grant.go`, the Lucky Draw's grant generalised and now the ONE grant of a reward of any
 kind, the draw's too: CHIPS through `chip_ledger`, reason **`reward_program`**, the claim's action_id; DIAMOND / HAMMER / MISSILE as
 deltas on their `users` columns with no ledger row; a picture, table picture or emoji as the ownership row a purchase writes, for the
 shop's term, a lapsed rental renewed, one still running left alone — `alreadyOwned`; a badge through `BadgeExpiry`, a running grant
-extended) → INSERT the claim; a 23505 on the action_id or the period index is a replay and grants nothing, so two requests at once, a
-retry and a second process all grant a day once (`TestTwoRequestsAtOnceGrantADaysRewardOnce`: eight goroutines over two pools, one
-grant). Independent programs: each claims on its own, a refusal of one never touches another. A program outside its window, or in a
-zone the server cannot load, is left out with one WARN (`reward program left out`); a day whose catalogue item is retired, gone or FREE is
-left out too (`reward program day left out`) and neither shown nor granted. **Seeded**: `WEEKLY_LOGIN` (the owner's own list, edited into
+extended) → INSERT the claim → the progress row; a 23505 on the action_id or the period index is a replay — the claims are read again
+and the call answered ALREADY_CLAIMED with the claim that won — and grants nothing, so two requests at once, a retry and a second process
+all grant a day once (`TestTwoRequestsAtOnceGrantADaysRewardOnce`, `TestNamedClaimsAtOnceGrantADayOnce`: eight goroutines over two pools,
+one grant). Independent programs: each claims on its own, a refusal of one never touches another. A program outside its window is not
+running — not listed, and refused `reward_program_not_running` when named; one in a zone the server cannot load, or with a progression
+this build does not know, is left out with one WARN (`reward program left out`); a day whose catalogue item is retired, gone or FREE is
+left out too (`reward program day left out`) and neither shown nor granted. **Seeded**: `WEEKLY_LOGIN` (LOGIN_STREAK, RESET; the owner's own list, edited into
 the seed by the owner on 30 Sep 2026 and raised the same evening: Day 1 20,000 chips · 2 40,000 · 3 80,000 · 4 1.6 Lakh · 5 3.2 Lakh ·
 6 6.4 Lakh · 7 5 hammers — 10,000–60,000 and one hammer for a few hours, and before that chips, hammers and diamonds alternating; a
-database that ran an earlier seed keeps its figures until an `UPDATE reward_program_rewards`, the seed being `ON CONFLICT DO NOTHING`), and `MONTHLY_LOGIN`, `WEEKLY_CALENDAR` and `MONTHLY_CALENDAR` as programs WITHOUT
-days and INACTIVE (`is_active = FALSE`: the owner commented their day lists out of the seed the same day; a program with no days would be
+database that ran an earlier seed keeps its figures until an `UPDATE reward_program_rewards`, the seed being `ON CONFLICT DO NOTHING`), and `MONTHLY_LOGIN` (LOGIN_STREAK, RESET), `WEEKLY_CALENDAR` and `MONTHLY_CALENDAR` (CALENDAR,
+SEQUENTIAL) as programs WITHOUT days and INACTIVE (`is_active = FALSE`: the owner commented their day lists out of the seed the same day; a program with no days would be
 left out of the wire and grant nothing, so each waits for its `reward_program_rewards` rows and an `UPDATE … SET is_active = TRUE` — the
 seed's header shows the shape; the Go tests build the example day lists they need themselves, `exampleDays` in
-`internal/db/rewardprograms_test.go`) — all UTC, Monday weeks, the streaks resetting on a miss, sort_order 10–40; every item by natural
+`internal/db/rewardprograms_test.go`) — all UTC, Monday weeks, sort_order 10–40 — and the progression brief's two (1 Oct 2026),
+both **INACTIVE**, in **Asia/Kolkata**, Monday weeks: `WEEKLY_SEQUENTIAL` ("Weekly Sequential Rewards", LOGIN_STREAK, SEQUENTIAL,
+sort_order 50, no days yet) and `WEEKLY_SEQUENTIAL_CAL` ("Weekly Sequential Calendar", CALENDAR, BREAK, sort_order 60) with the brief's
+seven days — Day 1 10,000 chips · 2 a hammer · 3 20,000 chips · 4 a diamond · 5 the emoji Clapping Hands · 6 50,000 chips · 7 the badge
+ROYAL_ACE (seven days of 0% winning tax). The brief named that emoji and badge by id ("101", "5"); this catalogue's emoji ids run 1–19 and
+a badge is keyed by its code, so the seed names both by natural key, and one UPDATE each points them elsewhere. Both wait for the app that
+draws a broken cycle (`UPDATE reward_programs SET is_active = TRUE WHERE code = 'WEEKLY_SEQUENTIAL_CAL'`, DEPLOY.md "The reward
+progression types"). WEEKLY_LOGIN stays in UTC: moving a running program's zone moves its period's first midnight and starts every
+streak of the week in progress again (the seed's header has the UPDATE, for between two weeks). Every item by natural
 key (`SELECT id::text FROM emojis WHERE name = …`, `SELECT code FROM badges …`) and a day whose item the catalogue lacks NOT inserted;
 `ON CONFLICT (code)` / `(program_id, day_number) DO NOTHING`, so an owner's UPDATE survives every boot (the seed's header shows the UPDATE
 and a campaign INSERT with a window). A reward changed by hand applies
 to claims from then on. Tests: `internal/db/rewardprograms_test.go` (the brief's matrix: the first login, consecutive days, a missed day
 with and without reset, a duplicate, the week's and the month's end, February and a leap year, every reward type landing where its
 purchase would, the race, a repointed day, a zone and its week, a campaign's window, an empty day, an unloadable zone, the seed),
-`rewardprograms_internal_test.go` (the period math, `streakAt`, `calendarAt`, the key), `internal/app/rewardprograms_test.go` (the
-routes on the real wiring: 401, a forged body ignored, four grants, wallet == ledger, nothing twice, 409 `seated` at a table).
+`rewardprogression_test.go` (the progression brief on the real store: the two programs seeded waiting; the brief's U1001 week — Day 1,
+Day 2, Wednesday missed, BROKEN Thursday to Sunday with the progress row saying so, Day 1 the next Monday; a whole week, every reward where
+its purchase lands, then COMPLETED; a sequential streak waiting on its missed day; a retry answered with its claim; eight named claims
+over two pools granting once; a named claim's refusals — unknown, switched off, before its window, after it; the progress row at the first
+look, after each claim, and unwritten when nothing moved; an older database brought forward with its programs' progression and an owner's
+edit kept across reboots), `rewardprogress_internal_test.go` (the engine alone: RESET weekly and monthly and never across a month,
+SEQUENTIAL never skipping, BREAK on a calendar and a streak, a BREAK calendar first opened on a Wednesday, a campaign requiring only its
+own days, the week turning at midnight in Kolkata, February's 28 and 29 days, a completed cycle, the next day),
+`rewardprogress_save_internal_test.go` (`TestAStaleLookNeverWindsTheProgressRowBack`), `rewardprograms_internal_test.go` (the period math,
+the streak read from the latest claim, a calendar day's place, the key), `internal/app/rewardprograms_test.go` (the routes on the real
+wiring: 401, a forged body ignored, four grants, wallet == ledger, nothing twice, 409 `seated` at a table; and the new wire — `serverTime`,
+`progressionType`, `status`, `canClaim`, `nextDay`, `period`, `nextPeriod`, each day's `state` —, a named claim and its retry answered
+ALREADY_CLAIMED, `{"programCode": 5}` 400 `invalid_json`, the named refusals, a claim of every program reporting BROKEN as an outcome).
 Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss, table_tax (§6.6: the winner's winning tax, action `<handId>:tax:<userId>`, always negative),
 milestone_reward, daily_bonus (the two retired 30 Sep 2026 — history rows only, never purged), timed_bonus (the 6-hour bonus's
 25,000, back the same evening; never purged), purchase, picture_purchase, table_picture_purchase, emoji_purchase, lucky_draw, reward_program (30 Sep 2026: a reward program's CHIPS reward, always positive, action_id `reward:<userId>:<programCode>:<claimDate>` — never purged), account_deleted, legacy_reconciliation,
@@ -2355,9 +2422,14 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
     and the month's end, February and a leap year, every reward type where its purchase would land, eight requests at once over two
     pools granting once, a repointed day keeping its snapshot, a Kolkata program dated in its own zone and week, a campaign's window,
     an empty day still counting, an unloadable zone left out, the four seeded programs), `rewardprograms_internal_test.go` (the period
-    math — week start days, month lengths, 2000 and 2100, a New York week across DST is 167 hours —, `streakAt`, `calendarAt`, the
-    claim key), `internal/app/rewardprograms_test.go` (the two routes on real wiring). Flutter: `test/reward_programs_test.dart`
-    (§8.4).
+    math — week start days, month lengths, 2000 and 2100, a New York week across DST is 167 hours —, the streak read from the latest
+    claim, a calendar day's place, the claim key), `internal/app/rewardprograms_test.go` (the two routes on real wiring, and since 1 Oct
+    2026 the progression wire, a named claim and its refusals). **The progression types** (1 Oct 2026, §7.3): `rewardprogression_test.go`
+    (the brief's U1001 week on the real store — Day 1, Day 2, a missed Wednesday, BROKEN to Sunday, Day 1 the next Monday —, a whole week
+    and COMPLETED, a sequential streak, a retry, named claims racing over two pools, the named refusals, the progress row, an older
+    database brought forward), `rewardprogress_internal_test.go` (the engine: every mode × progression, a campaign, Kolkata's midnight,
+    February), `rewardprogress_save_internal_test.go` (a stale look never winds the progress row back). Flutter:
+    `test/reward_programs_test.dart`, `weekly_login_test.dart`, `reward_progression_test.dart` and `reward_offers_test.dart` (§8.4).
   - Leftover schemas after a crash: `select nspname from pg_namespace where nspname like 'test_%'` (§4).
 - **Parity harness** (`tools/parity/`, run with `cd tools && npm run parity`): black-box `node:test` suites — `game`, `money`
   (audits the books the profile wrote), `lobby`, `stakes`, `rest`, `protocol` (raw frames via `lib/csharpJsonPort.js`), `resume`,
@@ -2552,12 +2624,12 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   block, or an older server's `welcomeChips` alone, or a grant of nothing — a returning account never has one). **A new account meets
   three things in a fixed order** (owner, the same day: "WHen user login with new account it should show first consent pop up "before
   you play", then after show pop up Welcome Rewards which user must select confirm otherwise not able to proceed then Weekly Login pop
-  up"): the no-winnings statement, then this popup, then the weekly login popup. `widgets/welcome_rewards.dart` `WelcomeRewardsPanel` is
+  up"): the no-winnings statement, then this popup, then the reward popups (one a program since 2 Oct 2026, the weekly login's first). `widgets/welcome_rewards.dart` `WelcomeRewardsPanel` is
   the consent gate's twin — a layer in main.dart's root Stack right after it (`welcome-rewards`, shown while `welcomePending` stands,
   `consentPending` is false and the screen is the lobby or a table), never a route: a tap outside does nothing (the scrim is an opaque
   `ColoredBox`), Back offers to quit as under the statement (`_BackGuard` skips the click and `closeLobbyLevel` while it is up), and the
-  one way on is its **Confirm** key (`welcome-rewards-confirm` → `GameState.confirmWelcome`, which clears the grant and offers the weekly
-  login; `offerWeeklyLogin` answers false while a welcome waits, as it does while consent is pending). The card: a gift mark and "Welcome
+  one way on is its **Confirm** key (`welcome-rewards-confirm` → `GameState.confirmWelcome`, which clears the grant and offers the reward
+  popups; `offerRewards` answers false while a welcome waits, as it does while consent is pending). The card: a gift mark and "Welcome
   rewards", "Added to your account:" (or "Welcome to King Teen Patti!" for a grant of nothing), one row a reward (`prizesOf`: chips,
   diamonds, hammers, missiles, then each picture, table picture and emoji by name, as `RewardPrize`s drawn with the reward programs'
   `rewardPrizeLabel`/`rewardPrizeIcon`/`rewardPrizeInk` — "5 Lakh chips", "Lovestruck Cat picture"; the wallet rows two to a line on a
@@ -2572,22 +2644,43 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   granted picture locked. `test/welcome_grant_test.dart` (the grant's reading and summary; the sign-in leaving it for the popup, nothing
   for a returning account, sign-out forgetting it), `test/welcome_rewards_test.dart` (the rows in the summary's order; the strings; the
   card in Hindi; the layout; nothing for nothing; the ORDER in the app as main.dart builds it — the statement, then the popup, a tap
-  outside and Back doing nothing to it, Confirm, then the weekly login, and no claim by any of it; a returning account; the state's
+  outside and Back doing nothing to it, Confirm, then the first reward popup, and no claim by any of it; a returning account; the state's
   offer; 640x360 and 592x360 ×1.25 in all five languages and both themes, no word cut, Confirm reachable).
 - **The reward programs on the phone** (30 Sep 2026; server §7.2/§7.3; the popup, the chip, the screen and the celebration §8.4).
   `GameState.loadRewardPrograms()` GETs `/api/reward-programs` whenever the lobby appears (`_RewardsChip`'s first build, once the
   resume veil is down), at every `session:ready` in the lobby (`_wire`) and when the rewards screen opens — never at a table — and
-  keeps the answer as `rewardPrograms` (`RewardProgramState` in `dtos.dart`); then `offerWeeklyLogin()` puts the weekly login popup
-  up (`weeklyLoginOffer`) when a WEEKLY login streak's today is still to collect and that day has not been offered this session
-  (`_weeklyOfferedFor`, `<code>:<today>`; the chip's tap offers it `again`). **Nothing is claimed by itself** (owner: "if user has
-  claimed it should not show when user start the app, otherwise show it" — the claim is the player's tap):
-  `claimRewardPrograms({celebrate})` POSTs `/api/reward-programs/claim` on the popup's Collect (`celebrate: false` — the popup shows
-  what was given) or the screen's (the lobby's celebration then shows `rewardsGranted`), answers the grants, takes the answer's
+  keeps the answer as `rewardPrograms` (`RewardProgramState` in `dtos.dart`); then `offerRewards()` puts up the reward popups (§8.4):
+  **one popup a program** (owner, 2 Oct 2026: "for every reward type sequmtial or calender there should be different pop up, not a
+  single pup up to collect all reward") — every program whose today can be collected (`rewardOffersDue`, the server's `canClaimToday`)
+  and has not been offered that day this session (`_offeredFor`, `<code>:<today>`; the chip's tap offers them all `again`), in the
+  server's order: `rewardOffer` is the one on screen, `rewardOfferIndex` of `rewardOfferCount` its place in the run ("2 of 3"), the
+  rest wait by code (`_offerQueue`), and `dismissRewardOffer()` — Continue, Close, a tap outside, Back — puts up the next, passing
+  over one collected meanwhile (on the rewards screen, on another phone). None while the no-winnings panel or a new account's welcome
+  waits, before the account's consent is known, or behind the rewards screen (`rewardsScreenOpen`, set while `showRewardPrograms` is
+  open: its own read would stand a popup behind it unseen). Until 2 Oct 2026 one popup, the weekly login streak's, offered itself
+  (`offerWeeklyLogin`, `weeklyLoginOffer`) and its Collect claimed EVERY program at once. **Nothing is claimed by itself** (owner: "if
+  user has claimed it should not show when user start the app, otherwise show it" — the claim is the player's tap):
+  `claimRewardPrograms({celebrate, programCode})` POSTs `/api/reward-programs/claim` naming ONE program — on a popup's Collect
+  (`celebrate: false` — the popup shows what was given) or a day's tile on the rewards screen (the lobby's celebration then shows
+  `rewardsGranted`) — answers the grants, takes the answer's
   `programs` and `user` (the wallet after), re-reads the catalogues when an item was won (`_loadPictures`), and is refused at a table
   (`room != null`; the server would answer 409 `seated`). A 404 or 503 (an older server, none running) leaves `rewardPrograms` null and
   is no failure; a lost network is one only while nothing is held (`rewardProgramsFailed`; Try again → `loadRewardPrograms()`); an
   answer to a session that has ended is dropped; sign-out and deletion forget everything, the popup included.
-  `test/reward_programs_test.dart`, `test/weekly_login_test.dart`.
+  **The progression types** (1 Oct 2026; server §7.2/§7.3): every verdict is the server's — `RewardProgramState.canClaimToday`
+  (`canClaim`, or from an older server `!claimedToday`), `status` (`isBroken`, `isCompleted`, `missedDay`), each day's `state`
+  (`RewardDayState`) and `nextDay` (`serverNextDay`); the app works out no eligibility. `program.progression` is the server's
+  `progressionType`, or from an older server RESET where `resetOnMissedDay`, else SEQUENTIAL. `rewardsDue`, `rewardOffersDue` (the
+  popups' offer) and the lobby chip read `canClaimToday`, so a BROKEN or COMPLETED cycle is never offered. `claimRewardPrograms
+  ({celebrate, programCode})` names one program (`ApiClient.claimRewardPrograms(programCode:)` sends `{"programCode": …}`, and `{}` —
+  every program — only when none is named, which nothing in this build does since 2 Oct 2026; `rewardClaimProgram` while it is out);
+  a named claim refused — `reward_program_not_found`,
+  `reward_program_not_running`, `reward_cycle_broken`, `reward_cycle_completed` — is said in the player's language (`rewardRefusalText`
+  → `notice`) and the programs are read again (a 404 that is not `reward_program_not_found` is still an older server's, null). Every
+  answer is stamped as it arrives (`rewardClock`, the tests' seam), and the next cycle's countdown counts the server's `startsInMs` from
+  that moment (`RewardNextCycle.startsAt`/`leftAt`), never the phone's clock against a date; at zero the programs are read again once
+  (`rewardCycleTurned`: not while a read is out, nor within 10 s of the last). The claim's `results` are parsed and unused.
+  `test/reward_programs_test.dart`, `test/weekly_login_test.dart`, `test/reward_progression_test.dart`.
 - **The app version gate** (owner, 28 Sep 2026; server side §7.1/§7.2 "The app version gate"; `net/app_version.dart`). The app
   **declares itself** — `appPlatformName()` (`android` | `ios` from `defaultTargetPlatform`, null elsewhere) and pubspec's version
   from `package_info_plus` (read and AWAITED at start, 2 s bound — it used to be fire-and-forget) — as `X-App-Platform` /
@@ -3154,10 +3247,18 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `test/emoji_{state,store,table}_test.dart`.
 - **The reward programs** (owner's brief, 30 Sep 2026; `screens/reward_programs_screen.dart`, server side §7.2/§7.3, the claim §8.1).
   **The lobby chip** (`_RewardsChip`, keyed `rewards-chip`) stands beside the Lucky Draw's in the bottom-left corner — the two in one Row
-  under `_luckyChip`, so `lobbyNoticeArea` keeps a toast off both: REWARDS over "Collect now", lit, while any program's today is
-  unclaimed, else the longest streak ("3 day streak") or "Collected today"; its room is kept, unseen, while the first read is out (as
-  the Lucky Draw's is); none from a server with no programs; a tap opens the weekly login popup while its day waits, else the screen.
-  **The weekly login popup** (owner, the same day: "Use this animation which shows up everyday in case of weekly login and put the
+  under `_luckyChip`, so `lobbyNoticeArea` keeps a toast off both: REWARDS over "Collect now", lit, while any program's today can be
+  collected (`canClaimToday`, the server's verdict since 1 Oct 2026), else the longest unbroken streak ("3 day streak"), "Streak broken"
+  when every program still to collect has broken its cycle (`rewardBrokenShort`), or "Collected today"; its room is kept, unseen, while the first read is out (as
+  the Lucky Draw's is); none from a server with no programs; a tap puts up again the popups of every program whose day waits
+  (`offerRewards(again: true)`), else opens the screen.
+  **The reward popups, one a program** (owner, 2 Oct 2026: "for every reward type sequmtial or calender there should be different pop
+  up, not a single pup up to collect all reward"): every program whose today waits gets a popup of its own, one after another in the
+  server's order (§8.1), each in its kind's look ("Each kind of program looks its own", below) and each collecting its own program
+  alone. The weekly login streak that RESETS (`rewardUsesOwnersCalendar`: LOGIN_STREAK, WEEKLY, RESET — the seeded WEEKLY_LOGIN) keeps
+  the owner's calendar, as described next; every other program stands its own days in the calendar's place (`RewardProgramDays`,
+  after the panel). Until then one popup, the weekly login's, collected every program at once.
+  **The weekly login's calendar** (owner, 30 Sep 2026: "Use this animation which shows up everyday in case of weekly login and put the
   prize in blue boxes, it should pop after login and if user has claimed it should not show when user start the app, otherwise show
   it"; then "Calender size should be big and it should play animation where all box one by one come up and then rewards on them
   boxes"; then the polish brief the same evening — "Premium King Teen Patti Reward Vault", not "generic calendar popup";
@@ -3177,33 +3278,56 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   30 Sep 2026: "Make Text size bigger of reward money which u show in calender"; 9.5 fixed before) — a collected day struck gold with a
   ✓ badge straddling its corner, today's ringed in gold, a touch larger, with a breathing glow, the next day in cyan glass, the days
   beyond dark with a small lock, the seventh gold over purple; a `_ProgressThread` between the days of a row, gold as far as the run
-  has come. **The panel** (`WeeklyLoginOverlay`, a `Positioned.fill` in the lobby's Stack under the celebration, while
-  `weeklyLoginOffer` stands and the resume veil is down; a tap outside, the × `LevelCloseKey` and Back — `_BackGuard` — close it):
-  the lobby's glass (`PremiumGlassPanel`, `Elevation.overlay`) with a gold edge and a soft light behind it, the calendar 60% of its
-  width (55% under 600dp inner), and on the right the reward hierarchy — the program's name in capitals, 🔥 "2 DAY STREAK" / "START
-  YOUR STREAK TODAY", what the mode means (the one line that gives way), TODAY'S REWARD over the prize in large gold, NEXT REWARD, and
-  the gold `LuckyGoldKey` **Collect now** — which claims (`claimRewardPrograms(celebrate: false)`) and turns the hero into "✓ + 20,000
-  CHIPS" (the other programs' grants under it, `rewardsAlso`), fireworks, the day's card struck gold, and the key **Continue**; a
-  claim that fails says so in the hero's place and keeps the key. **Inside a Blind or Variation level the popup takes the level's
+  has come. **The panel** (`RewardOfferOverlay`, `WeeklyLoginOverlay` until 2 Oct 2026: a `Positioned.fill` keyed
+  `reward-offer-overlay` in the lobby's Stack under the celebration, while `rewardOffer` stands and the resume veil is down, its popup
+  keyed `reward-offer-<code>` so the next program's makes its own entrance; a tap outside, the × `LevelCloseKey` and Back —
+  `_BackGuard` — put it away and bring up the next): the lobby's glass (`PremiumGlassPanel`, `Elevation.overlay`) with an edge and a
+  soft light behind it in the program's colour (`rewardProgramStyle`: the weekly login's gold), the calendar 60% of its width (55%
+  under 600dp inner), and on the right the reward hierarchy — the program's name in capitals (`reward-offer-name`, set down to two
+  lines rather than cut, `_fitTwoLines`: a server's own name, "WEEKLY SEQUENTIAL REWARDS", can be longer than any the app
+  translates), the headline in the kind's mark and ink (`reward-offer-headline`: 🔥 "2 DAY STREAK" / "START YOUR STREAK TODAY" for a
+  streak, set down to its column rather than cut — on a 640dp phone it ended "START YOUR STREAK…" until 2 Oct 2026, the line a new
+  player meets first —, "DAY 4 REWARD" for a calendar), what the mode means (the one line that gives way), TODAY'S REWARD — with
+  "2 OF 3" at the row's right end while the run holds more than one popup (`reward-offer-position`, `rewardOfferPosition`) — over
+  the prize in large gold, NEXT REWARD, and the gold `LuckyGoldKey` **Collect now** — which claims THAT program alone
+  (`claimRewardPrograms(celebrate: false, programCode:)`) and turns the hero into "✓ + 20,000 CHIPS" (an older server, which claims
+  every program, puts the others' grants under it, `rewardsAlso`), fireworks, the day's card struck gold, and the key **Continue**,
+  which brings the next program's popup; a claim that fails says so in the hero's place and keeps the key.
+  **`RewardProgramDays`** (`reward_programs_screen.dart`) is every other program's stage in the calendar's place: a card
+  (`reward-offer-stage`) washed and edged in the kind's colour over the owner's calendar card's own OPAQUE body
+  (`WeeklyCardColours.of(brightness, level).body`, the level's hue included — a translucent ground let the lobby's cards show
+  through by night until 2 Oct 2026), the kind's tag and the cycle's dates at its head
+  (`reward-offer-cycle`), then the program's own days in the shapes the rewards screen gives them — a week four over three like the
+  owner's calendar (`_WeekStage`, each row centred, its joints and its rail within the row, `_DayTile.rowStart`/`rowEnd`), a month's
+  grid filling the card (`_MonthGrid.aspect`) — where today's tile collects too. **Inside a Blind or Variation level the popup takes the level's
   colour** as the two drawers do (owner, the same day: "In day mode, when i click "Rewards" button after going into blind catalogue,
   then daily Streak background color should be changed acc to card color, same with when i go in variation catalogue"): the lobby lays
   `LevelAccent(palette: drawerPalette)` over the overlay, and the panel's wash (`tint`), its edge, the light behind it and the
   calendar card's glass (`WeeklyCardColours.of(b, level)`, `LevelColours.inHue`) take the level's hue — ice and sapphire, lavender and
   violet, by day and by night — the house gold at the front and inside Seen, and the day cards' own colours everywhere. **It waits
   behind "Before you play"** (owner: "The weekly pop should not come in background of the text "Before you Play" it should come after,
-  when i click "I confirm""): `offerWeeklyLogin` answers false until `loadConsent` has settled the account (`_consentKnownFor`) and
-  while `consentPending`; `loadConsent` offers once it finds the account clear and `acceptConsent` offers on the tap. Offered once a
-  day a session; the next start offers it again while it is still to collect. Strings `todaysReward`, `rewardsAlso`,
-  `todaysRewardTitle`, `continueKey`, `weeklyFinal` in all five languages. `test/weekly_login_test.dart` (23: the file's geometry,
+  when i click "I confirm""): `offerRewards` answers false until `loadConsent` has settled the account (`_consentKnownFor`) and
+  while `consentPending`; `loadConsent` offers once it finds the account clear and `acceptConsent` offers on the tap. Each program's
+  popup is offered once a day a session; the next start offers it again while it is still to collect. Strings `todaysReward`, `rewardsAlso`,
+  `todaysRewardTitle`, `continueKey`, `weeklyFinal` and, since 2 Oct 2026, `rewardOfferPosition` in all five languages.
+  `test/weekly_login_test.dart` (24: the file's geometry,
   layers, pops and traps; the delegates, the day states, the level's hue on the card and not on the boxes; the boxes then the prizes,
   the file held at its frame; the popup behind consent, after sign-in, not when collected; the figure's size; the level's colour inside
-  Blind and Variation and the house gold at the front and inside Seen; Collect and Continue, nothing celebrated twice, once a day, the
-  chip, a new day, a tap outside and Back, a failed claim, and 640x360 / 592x360 ×1.25 in all five languages and both themes) on
-  `test/reward_fixtures.dart` (the fake server, `rewardState(consented:)`, the fonts); pictures by hand, `test/weekly_login_shots.dart`.
+  Blind and Variation and the house gold at the front and inside Seen; one popup a program — Collect claiming its own alone, Continue
+  bringing the next's "2 of 2", an older server's claim of every program —, nothing celebrated twice, once a day, the chip, a new day,
+  a tap outside and Back walking both popups, a failed claim, and 640x360 / 592x360 ×1.25 in all five languages and both themes, a streak
+  running and one not yet begun) on `test/reward_fixtures.dart` (the fake server, `rewardState(consented:)`, the fonts, and
+  `fakeNamedClaims`, which answers a named claim with that program's grant alone); pictures by hand, `test/weekly_login_shots.dart`.
+  `test/reward_offers_test.dart` (15: five programs' popups in the server's order and each kind's look — the owner's calendar, steps
+  and chevrons, pages, the chain, a month's 31 tiles —, "n OF 5"; by night every popup blurs the lobby, not only the first, and
+  every program's card stands on an opaque ground, day and night; each popup collecting its own program by its key or by today's
+  tile and Continue bringing the next; no popup behind the rewards screen; 640x360 and 592x360 ×1.25 in all five languages and both
+  themes).
   **The screen** (`showRewardPrograms`, a page risen from the foot like the
-  Lucky Draw's; it reads again as it opens, the day may have turned; a gold **Collect now** key in its header while any program's
-  today waits, `reward-programs-collect`, which claims and closes the screen over the lobby's celebration): one `_ProgramPanel` a program — a LOGIN STREAK / CALENDAR tag
-  (gold / the blind table's sapphire), the program's name (the four seeded ones in the player's language, `rewardProgramName`; any other
+  Lucky Draw's; it reads again as it opens, the day may have turned, and offers no popup while it is open (`rewardsScreenOpen`); no
+  key collects every program — today's tile claims its own (the header's gold **Collect now**, `reward-programs-collect`, which
+  claimed every program at once, went on 2 Oct 2026)): one `_ProgramPanel` a program — a LOGIN STREAK / CALENDAR tag
+  (in its kind's colour and mark — "Each kind of program looks its own", below), the program's name (the four seeded ones in the player's language, `rewardProgramName`; any other
   by the server's `name`), the headline — **"3 day streak"** (`streakDays`; "Start your streak today" at 0) for a streak, **"Day 10
   reward"** (`calendarDayReward`) for a calendar, the brief's §27 difference kept on the screen — on a second line where the three cannot
   share one (a `Wrap`: 640dp at ×1.25 cut "Monthly Calendar Rewards" in a Row), what the mode means under it, then the days: a week's
@@ -3212,16 +3336,50 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`_MonthGrid`, the date; the page scrolls, the grid does not) — each `_DayTile` its reward's mark in its wallet's ink and its figure
   ("10,000", "×2", an item's name — `rewardPrizeShort`, `rewardPrizeIcon`, `rewardPrizeInk`; the type `_DayTile.labelSize` 13,
   `subSize` 12, `markSize` 22, `figureSize` 15.5, the figure the largest — the label ramp's 11 for all of it before), a green tick when
-  collected, a gold ring for today, faded and padlocked when not reached, faded when missed (a calendar's past day nobody claimed),
-  everything inside set down to fit (`FittedBox`) and never cut, and a `Semantics` label saying its day, its reward and its standing — and "Next reward: 1 diamond"
+  collected, a ring in its kind's colour for today, faded and padlocked when not reached, faded when missed (a calendar's past day
+  nobody claimed), every line set down to fit on its own and never cut, and a `Semantics` label saying its day, its reward and its standing — and "Next reward: 1 diamond"
   (`nextReward`: today's while it waits, tomorrow's once collected, none past the period). The dates on the tiles are the server's
-  `today` counted along the run or the period (`dateOfDay`) — labels only; every decision is the server's. **The celebration**
+  `today` counted along the run or the period (`dateOfDay`) — labels only; every decision is the server's. **The progression types**
+  (1 Oct 2026; `test/reward_progression_test.dart`, 45 tests): each panel dates its cycle under its head ("Oct 5 – Oct 11",
+  `rewardCycleLabel` — the server's `period` dates as they are, no zone arithmetic), says what a missed day does (`rewardProgramHint`:
+  BREAK `rewardBreakHint`, RESET the streak hint, a SEQUENTIAL streak the no-reset hint, a SEQUENTIAL calendar its week or month hint as
+  before), and counts down to the next period (`NextCycleCountdown`, "Next weekly rewards in 3d 8h": its own timer, a minute a tick above
+  an hour and a second below, so the screen never rebuilds for it). A BROKEN cycle heads its panel "Reward streak broken" in the error ink
+  over "You missed Day 3." and "New rewards start Monday." (the full weekday for a week, a short date for a month); COMPLETED reads "All
+  rewards collected". Every tile takes the server's `state`: CLAIMED (the tick); AVAILABLE (the ring and a gold "Collect" tag in
+  place of its weekday or date line — a tap claims that program alone, the game's ring on it while the claim is out and no other tile
+  tappable; `rewardTileCollect`); MISSED (a small ✕, in the error ink on the day that broke a cycle); LOCKED (the padlock). The next-reward
+  line is the server's `nextDay`; a streak's tiles drop their weekdays once its run is broken or finished (those dates are not on the
+  phone), and on any day past the cycle's last date (`_ProgramPanel.inCycle`: a run never crosses its cycle, so a weekly streak begun on a
+  Thursday dates Days 1–4 Thu to Sun and Days 5–7 not at all — they read "Mon, Tue, Wed" until 1 Oct 2026). The weekly login's popup takes the same states for its boxes (`weeklyDayStateOf`), every popup's hint follows its progression,
+  each is offered only while its program's `canClaimToday`, and its Collect turns to Continue if the cycle stops being collectable
+  while it is up. 33 strings in all five
+  languages (`rewardTileCollect`, `rewardBrokenShort`, `rewardBrokenTitle`, `rewardAllCollected`, `rewardBreakHint`, `rewardMissedDay`,
+  `rewardNewCycleStarts`, `rewardNextWeekIn`/`rewardNextMonthIn`, the four refusals, `month1`–`month12`, `dateDayMonth`,
+  `weekdayFull1`–`weekdayFull7`). **Each kind of program looks its own** (owner, 1 Oct 2026: "Keep different design in ui for
+  daily login, weekly calendar, for different types"; presentation only — `_ProgramLook`, `_DayShape`, `_Joint`): the mode and the
+  progression choose a colour, a mark and a shape for the days, all the lobby's own palettes. A login streak that resets is gold
+  (`paletteFor(seen)`) with a flame, its days MEDALLIONS threaded on a rail (`medallionShare` 0.40 of the tile), the rail in the
+  program's colour where the run holds; a sequential login is emerald (`privatePalette`) with stairs, its days STEPS joined by
+  chevrons, lit from a collected day to the next; a calendar is sapphire (`paletteFor(blind)`) with a calendar, its days desk-calendar
+  PAGES — a band in the program's colour carrying the weekday, the date large under it (`dateSize` 22); anything that BREAKS is violet
+  (`violetPalette`) with a link — a breaking calendar's pages joined by chain links, a breaking streak's medallions on their rail — and
+  the link (or the rail) on BOTH sides of the day whose miss broke the cycle is broken in the error ink (`link_off`), so the break shows
+  when that is Day 1, the usual case for a player who first opens a breaking calendar mid-week; a calendar that resets is gold pages.
+  The tag carries the kind's mark, the panel is washed and edged in its colour (the error's while broken), the headline in its ink;
+  each program's popup wears the same look (`rewardProgramStyle`, `RewardProgramDays`).
+  **Every tile of a row keeps to the same lines** (`fitLine`): each line is set down to the tile's width on its own, so a long prize
+  name ("Clapping Hands", "Royal Ace") never shrinks the date or the label above it, and is always as tall as its type at full size (a
+  hidden "0" holds it); a weekday line is kept wherever any day of the row has one (a streak's days past its cycle have none), and
+  room for the Collect tag (measured, `_CollectTag.heightFor`) wherever a day of the row can be collected — so every label, mark and
+  figure stands level along the row, and a page's date is one size along it. **The celebration**
   (`_RewardCelebration` → `_GrantsSummary`, keyed `rewards-celebration`): the lobby's reward overlay with a gift for its hero, "Daily
   rewards collected!", one line per grant ("+ 20,000 chips", "Clapping Hands emoji", "(already yours)" after an item the player had;
   `rewardPrizeLabel`) and the programs and days they came from, closed by its key or a tap; shown ONLY from a claim's answer with
   something in `granted` — reopening the app never shows a reward twice. 42 strings in all five languages (the weekdays' short names
-  among them). `test/reward_programs_test.dart` (40: the wire, the words in every language, GameState's every path — a read on the
-  lobby's appearance and every `session:ready`, the claim only on the player's tap —, the screen's Collect key, the chip's words and
+  among them). `test/reward_programs_test.dart` (41: the wire, the words in every language, GameState's every path — a read on the
+  lobby's appearance and every `session:ready`, the claim only on the player's tap —, today's tile claiming its own program and no
+  key claiming every program, collected or not, the chip's words and
   its place beside the Lucky Draw and clear of the foot's keys at 592x360–1280x800 ×1.0/×1.25 in both themes, the screen's headlines,
   tiles, next reward and what a screen reader hears, no line cut at 640x360 ×1.25 in all five languages and both themes, the
   celebration's lines and close, and nothing raised by a claim that gave nothing).
@@ -4046,7 +4204,11 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   near-transparent gradient body over the blur (or an opaque body when tinted), a 2dp sheen and a 1px
   top→bottom gradient hairline (`GlassHairline` painter; gold when `live`); `sigma: null` = the theme's.
   **Blur budget unchanged**: one `GlassBudget` lease, `GlassMode.auto` claimants only over static or
-  covered backdrops — never on the felt or over the lobby's drifting chips (`tinted` there).
+  covered backdrops — never on the felt or over the lobby's drifting chips (`tinted` there). **A panel that leaves the tree gives
+  its lease back at once** (`deactivate`, and asks again on `activate`; 2 Oct 2026): it used to keep it until `dispose` at the end
+  of the frame, so a panel swapped for another in one frame — one reward popup giving way to the next — found the blur held and
+  stood unblurred for its life, the lobby showing through it by night. A panel still decides once, when it mounts, and among
+  several children Flutter mounts a newcomer before it removes the one that left. `test/glass_lease_test.dart`.
   `widgets/glass_components.dart`: `tapHaptic(context)` (`HapticFeedback.lightImpact`, gated on the
   Vibration switch), `PressScale` (Listener-based 0.97 press-down; never enters the gesture arena),
   `GlassCard`, `GlassButton` (Material's Filled/Outlined/TextButton underneath → `enableFeedback`,
@@ -4495,6 +4657,10 @@ existing wallets and picture catalogues, `reward_type` open for future kinds —
 and MONTHLY periods on three generic tables, every reward through the existing wallets, ledger and catalogues, the streak derived from
 the latest claim in the program's own zone, one transaction a program, idempotent per day; `GET /api/reward-programs`,
 `POST /api/reward-programs/claim`; the lobby's REWARDS chip, the screen ("3 day streak" against "Day 10 reward") and the celebration.
+**The progression types** (owner's brief, 1 Oct 2026; §7.2, §7.3): RESET, SEQUENTIAL and BREAK on every program beside its mode, a
+fourth table (`user_reward_progress`, the standing per period, the claims still the authority), each day's state, the cycle and the next
+one's countdown on the wire, a claim of one named program, and the brief's WEEKLY_SEQUENTIAL_CAL seeded waiting. Since 2 Oct 2026
+each program has a popup of its own, in its own look, collecting it alone.
 **Report Player** (owner's brief, 27 Sep 2026; §7.2, §7.3, §8.4): a player at a table reports another at it (or one who shared
 it within 10 minutes) from the player drawer; the server derives the table, game, category, variant and hand, enforces 2
 reports per 24 hours per reporter in PostgreSQL, and files a PENDING row that changes nothing in the game. With both used the
@@ -4802,7 +4968,7 @@ deploy runbook; `steps.txt` the six-line routine.
 - **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, the founding pair since 23 Sep 2026 —
   `V1.0.0__baseline.sql` all DDL, `V1.0.1__seed.sql` DML — then DML-only seeds since 28 Sep 2026, `V1.0.2__seed-festive-capybara.sql`
   the first — applied in version order, idempotent, run at
-  every start: forty-three tables (§7.3) — the welcome grant, the reward programs, money, accounts, the app version gate's rows, the sign-in each token must carry, gameplay stats, the friends graph, the player reports, the levels, badges and one-time XP missions, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
+  every start: forty-four tables (§7.3) — the welcome grant, the reward programs, money, accounts, the app version gate's rows, the sign-in each token must carry, gameplay stats, the friends graph, the player reports, the levels, badges and one-time XP missions, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
   state — §7.3), `TableConfigs.Load`/`ExportTableConfigSQL` (the table catalogue), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table
@@ -4829,7 +4995,7 @@ deploy runbook; `steps.txt` the six-line routine.
   the three `nodejs_*` ones (§7.5 bundle at `go-server/ops/monitoring/`, `MONITORING.md`).
 - Small honest deviations: **the catalogue's art in R2** (§7.2/§7.3/§7.4; 1 Oct 2026) — `POST /api/assets/sign`, the four `R2_*`
   keys (production will not start without them), and every catalogue URL a route hands out a location in a private bucket, which a
-  client opens only through that route; **the reward programs** (§7.2/§7.3/§8.4; 30 Sep 2026) — three tables, `GET /api/reward-programs`,
+  client opens only through that route; **the reward programs** (§7.2/§7.3/§8.4; 30 Sep 2026) — three tables (four since the progression types, 1 Oct 2026), `GET /api/reward-programs`,
   `POST /api/reward-programs/claim`, `reward_program` ledger rows; nothing of a table's wire, snapshot or ledger row changed; **the app version gate** (§7.1/§7.2/§7.3/§7.4; 28 Sep 2026) — `app_versions`, `GET /api/app-config`,
   426 `update_required` / 503 `maintenance` on signed-in routes and the same two codes as `connect_error` (with data), the
   per-connection `minClientBuild`, `APP_VERSION_REQUIRED` / `APP_VERSION_CACHE_MS`; a client that declares nothing is served exactly as

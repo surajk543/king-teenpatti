@@ -295,14 +295,15 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   // never a table. reward_programs and reward_program_rewards (30 Sep 2026)
   // are the login streaks' and calendar rewards' configuration, and
   // user_reward_claims every day of them granted — an audit, as the Lucky
-  // Draw's spins are.
+  // Draw's spins are — and user_reward_progress (1 Oct 2026) where each
+  // player stands in a program's period.
   assert.deepEqual(tables, [
     'app_versions', 'badge_purchases', 'badges', 'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships',
     'hammer_purchases', 'hammer_spends', 'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends',
     'player_levels', 'player_reports', 'player_stats', 'player_variation_stats', 'player_xp', 'player_xp_claims', 'player_xp_missions', 'profile_pictures',
     'reward_program_rewards', 'reward_programs',
     'stats_flushes', 'table_categories', 'table_configs', 'table_engines', 'table_pictures', 'table_settings',
-    'user_badges', 'user_emojis', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures', 'user_reward_claims', 'user_sessions', 'user_table_choice',
+    'user_badges', 'user_emojis', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures', 'user_reward_claims', 'user_reward_progress', 'user_sessions', 'user_table_choice',
     'user_table_pictures', 'users', 'welcome_rewards', 'xp_settings', 'xp_sources',
   ], `the schema must hold money, audit, accounts, the picture catalogues and table configuration only, got ${tables.join(', ')}`);
   // Configuration, by construction: no column of the four — nor of the level

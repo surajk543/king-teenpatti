@@ -3,9 +3,12 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/auth"
 	"github.com/surajk543/king-teenpatti/go-server/internal/socket"
@@ -14,10 +17,10 @@ import (
 // The reward programs over HTTP on the real wiring (owner, 30 Sep 2026): GET
 // /api/reward-programs and POST /api/reward-programs/claim through
 // RequireAuth, the wallet limiter and rooms.WhileUnseated, PostgreSQL
-// underneath, on the owner's four seeded programs. The server decides: a
-// program, a day or a reward the body names is ignored, every program's today
-// is granted once and never again that day, the books balance, and a seated
-// player is sent to the lobby — though they may still look.
+// underneath, on the owner's seeded programs. The server decides: a day or a
+// reward the body names is ignored, every program's today is granted once
+// and never again that day, the books balance, and a seated player is sent to
+// the lobby — though they may still look.
 func TestTheRewardProgramsAreClaimedFromTheLobbyOnceADay(t *testing.T) {
 	a, database := newApp(t, nil)
 	ts := httptest.NewServer(a.Handler())
@@ -86,7 +89,8 @@ func TestTheRewardProgramsAreClaimedFromTheLobbyOnceADay(t *testing.T) {
 	chips := wallet("chips")
 
 	// A claim whose body names a program, a day and a reward of its own: the
-	// server decides regardless.
+	// program is honoured (since 1 Oct 2026 a claim may name the one it
+	// collects), the day and the reward are the server's regardless.
 	claim := postJSON(ts.URL, token, "/api/reward-programs/claim", map[string]any{
 		"programCode": "WEEKLY_LOGIN", "day": 7, "rewardType": "CHIPS", "rewardValue": 99_999_999,
 	})
@@ -190,5 +194,144 @@ func TestTheRewardProgramsAreClaimedFromTheLobbyOnceADay(t *testing.T) {
 	})
 	if res.StatusCode != http.StatusOK || len(read(body)) != 1 {
 		t.Fatalf("a seated look at the programs: %d %s", res.StatusCode, body)
+	}
+}
+
+// The progression types over HTTP (owner, 1 Oct 2026): the look carries the
+// server's clock, each program's progression, status and cycles and each
+// day's standing; a claim may name one program and is refused, by name, one
+// that does not run or whose cycle is broken; a retry is answered with the
+// claim it repeats; a body that is not JSON is refused before anything moves.
+func TestARewardClaimCanNameOneProgramAndIsRefusedOneItCannotClaim(t *testing.T) {
+	a, database := newApp(t, nil)
+	ts := httptest.NewServer(a.Handler())
+	defer ts.Close()
+	ctx := context.Background()
+	token, id := login(t, ts.URL, "reward-namer", "Namer")
+	authed := func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+token) }
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := database.Pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+
+	// The look.
+	res, body := get(t, a.Handler(), http.MethodGet, "/api/reward-programs", authed)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET: %d %s", res.StatusCode, body)
+	}
+	var view struct {
+		ServerTime int64 `json:"serverTime"`
+		Programs   []struct {
+			Program struct {
+				Code            string `json:"code"`
+				ProgressionType string `json:"progressionType"`
+			} `json:"program"`
+			Status   string `json:"status"`
+			CanClaim bool   `json:"canClaim"`
+			NextDay  int    `json:"nextDay"`
+			Period   struct {
+				StartAt   int64  `json:"startAt"`
+				EndAt     int64  `json:"endAt"`
+				StartDate string `json:"startDate"`
+				EndDate   string `json:"endDate"`
+			} `json:"period"`
+			NextPeriod *struct {
+				StartAt    int64 `json:"startAt"`
+				StartsInMs int64 `json:"startsInMs"`
+			} `json:"nextPeriod"`
+			Rewards []struct {
+				State string `json:"state"`
+			} `json:"rewards"`
+		} `json:"programs"`
+	}
+	if err := json.Unmarshal(body, &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.ServerTime <= 0 || len(view.Programs) != 1 {
+		t.Fatalf("the look: %s", body)
+	}
+	w := view.Programs[0]
+	if w.Program.Code != "WEEKLY_LOGIN" || w.Program.ProgressionType != "RESET" || w.Status != "ACTIVE" || !w.CanClaim ||
+		w.NextDay != 1 || w.Period.StartDate == "" || w.Period.EndDate == "" || w.Period.EndAt <= w.Period.StartAt ||
+		w.NextPeriod == nil || w.NextPeriod.StartAt != w.Period.EndAt || w.NextPeriod.StartsInMs <= 0 ||
+		len(w.Rewards) != 7 || w.Rewards[0].State != "AVAILABLE" || w.Rewards[1].State != "LOCKED" {
+		t.Fatalf("WEEKLY_LOGIN as the app reads it: %s", body)
+	}
+
+	// A body that is not JSON.
+	res, body = get(t, a.Handler(), http.MethodPost, "/api/reward-programs/claim", func(r *http.Request) {
+		authed(r)
+		r.Header.Set("Content-Type", "application/json")
+		r.Body = io.NopCloser(strings.NewReader(`{"programCode": 5}`))
+	})
+	if res.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), auth.CodeInvalidJSON) {
+		t.Fatalf("a programCode that is not text: %d %s", res.StatusCode, body)
+	}
+
+	// Named claims of programs it cannot claim.
+	exec(`UPDATE reward_programs SET is_active = TRUE, ends_at = 1 WHERE code = 'MONTHLY_LOGIN'`)
+	// WEEKLY_SEQUENTIAL_CAL, switched on with its week starting two days ago
+	// in its zone, whatever today is: Days 1 and 2 were required and missed,
+	// so its cycle is broken before the player first looks.
+	kolkata, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	today := int(time.Now().In(kolkata).Weekday()) // 0 Sunday
+	if today == 0 {
+		today = 7
+	}
+	weekStart := (today-2+6)%7 + 1
+	exec(`UPDATE reward_programs SET is_active = TRUE, week_start_day = $1 WHERE code = 'WEEKLY_SEQUENTIAL_CAL'`, weekStart)
+	for code, want := range map[string][2]any{
+		"NO_SUCH_PROGRAM":       {http.StatusNotFound, auth.CodeRewardProgramNotFound},
+		"WEEKLY_SEQUENTIAL":     {http.StatusNotFound, auth.CodeRewardProgramNotFound},
+		"MONTHLY_LOGIN":         {http.StatusConflict, auth.CodeRewardProgramNotRunning},
+		"WEEKLY_SEQUENTIAL_CAL": {http.StatusConflict, auth.CodeRewardCycleBroken},
+	} {
+		out := postJSON(ts.URL, token, "/api/reward-programs/claim", map[string]any{"programCode": code})
+		if out.err != nil || out.status != want[0] || out.body["error"] != want[1] {
+			t.Errorf("%s: %d %v %v, want %d %s", code, out.status, out.body, out.err, want[0], want[1])
+		}
+	}
+
+	// The one it can, by name — then again: answered with that claim.
+	first := postJSON(ts.URL, token, "/api/reward-programs/claim", map[string]any{"programCode": "WEEKLY_LOGIN"})
+	results, _ := first.body["results"].([]any)
+	if first.status != http.StatusOK || len(results) != 1 || results[0].(map[string]any)["outcome"] != "GRANTED" {
+		t.Fatalf("the named claim: %d %v", first.status, first.body)
+	}
+	again := postJSON(ts.URL, token, "/api/reward-programs/claim", map[string]any{"programCode": "WEEKLY_LOGIN"})
+	results, _ = again.body["results"].([]any)
+	if again.status != http.StatusOK || len(results) != 1 {
+		t.Fatalf("the retry: %d %v", again.status, again.body)
+	}
+	r := results[0].(map[string]any)
+	if r["outcome"] != "ALREADY_CLAIMED" || r["day"] != float64(1) || r["rewardType"] != "CHIPS" || r["claimedAt"] == nil {
+		t.Fatalf("the retry's result: %v", r)
+	}
+	if granted, _ := again.body["granted"].([]any); len(granted) != 0 {
+		t.Fatalf("the retry granted %v", granted)
+	}
+	// A claim of every program: WEEKLY_LOGIN already claimed, the broken
+	// calendar BROKEN, MONTHLY_LOGIN not running and so not there at all.
+	all := postJSON(ts.URL, token, "/api/reward-programs/claim", map[string]any{})
+	results, _ = all.body["results"].([]any)
+	outcomes := map[string]any{}
+	for _, x := range results {
+		m := x.(map[string]any)
+		outcomes[m["programCode"].(string)] = m["outcome"]
+	}
+	if all.status != http.StatusOK || len(outcomes) != 2 || outcomes["WEEKLY_LOGIN"] != "ALREADY_CLAIMED" || outcomes["WEEKLY_SEQUENTIAL_CAL"] != "BROKEN" {
+		t.Fatalf("every program: %d %v", all.status, all.body["results"])
+	}
+	var claims, progress int64
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM user_reward_claims WHERE user_id = $1`, id).Scan(&claims); err != nil || claims != 1 {
+		t.Fatalf("%d claims (%v), want 1", claims, err)
+	}
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM user_reward_progress WHERE user_id = $1 AND status = 'BROKEN'`, id).Scan(&progress); err != nil || progress != 1 {
+		t.Fatalf("%d broken progress rows (%v), want the calendar's", progress, err)
 	}
 }

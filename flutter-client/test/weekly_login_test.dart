@@ -63,12 +63,14 @@ Map<String, Object?> _claimed() => claimJson(
   chips: 1020000,
 );
 
-Finder get _overlay => find.byKey(const ValueKey('weekly-login-overlay'));
-Finder get _panel => find.byKey(const ValueKey('weekly-login-panel'));
-Finder get _collect => find.byKey(const ValueKey('weekly-login-collect'));
-Finder get _done => find.byKey(const ValueKey('weekly-login-done'));
-Finder get _close => find.byKey(const ValueKey('weekly-login-close'));
+Finder get _overlay => find.byKey(const ValueKey('reward-offer-overlay'));
+Finder get _panel => find.byKey(const ValueKey('reward-offer-panel'));
+Finder get _collect => find.byKey(const ValueKey('reward-offer-collect'));
+Finder get _done => find.byKey(const ValueKey('reward-offer-done'));
+Finder get _close => find.byKey(const ValueKey('reward-offer-close'));
 Finder _box(int day) => find.byKey(ValueKey('weekly-box-$day'));
+Finder get _headline => find.byKey(const ValueKey('reward-offer-headline'));
+Finder get _position => find.byKey(const ValueKey('reward-offer-position'));
 
 /// The lobby pumped and its read answered, the popup's entrance and the
 /// calendar's pop-in over.
@@ -121,7 +123,7 @@ PremiumGlassPanel _glass(WidgetTester tester) => tester.widget(
 Color? _base(WidgetTester tester) =>
     (tester
                 .widget<DecoratedBox>(
-                  find.byKey(const ValueKey('weekly-login-base')),
+                  find.byKey(const ValueKey('reward-offer-base')),
                 )
                 .decoration
             as BoxDecoration)
@@ -476,8 +478,8 @@ void main() {
         final state = rewardState(consented: false);
         await _pumpDue(tester, state);
         // Read, due, and yet not up: the panel covers the lobby.
-        expect(state.weeklyLoginDue, isNotNull);
-        expect(state.weeklyLoginOffer, isNull);
+        expect(state.rewardOffersDue, isNotEmpty);
+        expect(state.rewardOffer, isNull);
         expect(_overlay, findsNothing);
         await state.acceptConsent();
         await tester.pump();
@@ -514,11 +516,11 @@ void main() {
         await _pumpDue(tester, state);
         expect(tester.takeException(), isNull);
         expect(_overlay, findsOneWidget);
-        expect(state.weeklyLoginOffer?.program.code, 'WEEKLY_LOGIN');
+        expect(state.rewardOffer?.program.code, 'WEEKLY_LOGIN');
         final t = state.t;
         expect(
           tester
-              .widget<Text>(find.byKey(const ValueKey('weekly-login-headline')))
+              .widget<Text>(find.byKey(const ValueKey('reward-offer-headline')))
               .data,
           t.streakDays(2).toUpperCase(),
         );
@@ -528,7 +530,7 @@ void main() {
         );
         expect(
           tester
-              .widget<Text>(find.byKey(const ValueKey('weekly-login-today')))
+              .widget<Text>(find.byKey(const ValueKey('reward-offer-today')))
               .data,
           prize.toUpperCase(),
         );
@@ -546,7 +548,7 @@ void main() {
         final state = rewardState();
         await _pumpDue(tester, state);
         expect(_overlay, findsNothing);
-        expect(state.weeklyLoginOffer, isNull);
+        expect(state.rewardOffer, isNull);
         await unmountReward(tester, state);
       }, () => fakeRewards(sent: quiet, programs: _collected()));
     });
@@ -703,10 +705,128 @@ void main() {
       });
     }
 
-    testWidgets('Collect claims, shows what was given — the other programs\' '
-        'too — and Close puts it away; nothing is celebrated twice', (
-      tester,
-    ) async {
+    testWidgets('one popup a program: Collect claims its program alone and '
+        'shows what it gave, and Continue brings the next program\'s own '
+        'popup — "2 of 2", its own look — which collects its own; nothing is '
+        'celebrated twice', (tester) async {
+      await setRewardView(tester);
+      final sent = <http.Request>[];
+      await http.runWithClient(() async {
+        final state = rewardState();
+        await _pumpDue(tester, state);
+        final t = state.t;
+        final scheme = Theme.of(tester.element(_panel)).colorScheme;
+        // The weekly login streak first: the owner's calendar, "1 of 2".
+        expect(state.rewardOffer?.program.code, 'WEEKLY_LOGIN');
+        expect(find.byKey(const ValueKey('weekly-calendar')), findsOneWidget);
+        expect(find.byKey(const ValueKey('reward-offer-stage')), findsNothing);
+        expect(
+          tester.widget<Text>(_position).data,
+          t.rewardOfferPosition(1, 2).toUpperCase(),
+        );
+        await tester.tap(_collect);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 600));
+        await tester.pump(const Duration(seconds: 1));
+        // The claim named this program, and gave its chips alone.
+        expect(claimedPrograms(sent), ['WEEKLY_LOGIN']);
+        expect(tester.takeException(), isNull);
+        final collected = tester
+            .widget<Text>(find.byKey(const ValueKey('reward-offer-collected')))
+            .data!;
+        expect(collected, contains('20,000'));
+        expect(collected, isNot(contains('CLAPPING HANDS')));
+        expect(collected, isNot(contains(t.rewardsAlso('').trim())));
+        expect(_collect, findsNothing);
+        expect(_done, findsOneWidget);
+        expect(
+          tester.widget<Text>(_headline).data,
+          t.streakDays(3).toUpperCase(),
+        );
+        expect(state.user?.chips, 1020000);
+        expect(state.rewardsGranted, isNull);
+        expect(find.byKey(const ValueKey('rewards-celebration')), findsNothing);
+
+        // Continue: the calendar's own popup — its days as its panel draws
+        // them, sapphire, "DAY 10 REWARD", "2 of 2" — with nothing claimed.
+        await tester.tap(_done);
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        expect(state.rewardOffer?.program.code, 'MONTHLY_CALENDAR');
+        expect(
+          find.byKey(const ValueKey('reward-offer-MONTHLY_CALENDAR')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const ValueKey('weekly-calendar')), findsNothing);
+        final stage = find.byKey(const ValueKey('reward-offer-stage'));
+        expect(stage, findsOneWidget);
+        expect(
+          find.descendant(
+            of: stage,
+            matching: find.byKey(
+              const ValueKey('reward-day-MONTHLY_CALENDAR-10'),
+            ),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: stage,
+            matching: find.byIcon(Icons.calendar_month_rounded),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          tester.widget<Text>(_headline).data,
+          t.calendarDayReward(10).toUpperCase(),
+        );
+        expect(
+          tester.widget<Text>(_headline).style?.color,
+          AppTheme.paletteFor(scheme, category: 'blind', bootAmount: 0).ink,
+        );
+        expect(
+          tester.widget<Text>(_position).data,
+          t.rewardOfferPosition(2, 2).toUpperCase(),
+        );
+        expect(_collect, findsOneWidget);
+        expect(claimedPrograms(sent), ['WEEKLY_LOGIN']);
+        // Today's page collects it, as the key would: this program alone.
+        await tester.tap(
+          find.byKey(const ValueKey('reward-collect-MONTHLY_CALENDAR-10')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 600));
+        await tester.pump(const Duration(seconds: 1));
+        expect(claimedPrograms(sent), ['WEEKLY_LOGIN', 'MONTHLY_CALENDAR']);
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const ValueKey('reward-offer-collected')),
+              )
+              .data,
+          contains('CLAPPING HANDS'),
+        );
+        expect(state.rewardsGranted, isNull);
+        await tester.tap(_done);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(_overlay, findsNothing);
+        expect(state.rewardOffer, isNull);
+        // The chip says the streak: nothing is due any more.
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('rewards-chip')),
+            matching: find.text(t.streakDays(3)),
+          ),
+          findsOneWidget,
+        );
+        await unmountReward(tester, state);
+      }, fakeNamedClaims(sent: sent));
+    });
+
+    testWidgets('an older server\'s claim collects every program whichever is '
+        'named: the popup says what the others gave too, and no popup follows '
+        'for a program already collected', (tester) async {
       await setRewardView(tester);
       final sent = <http.Request>[];
       await http.runWithClient(() async {
@@ -717,43 +837,18 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 600));
         await tester.pump(const Duration(seconds: 1));
-        expect(_posts(sent), ['/api/reward-programs/claim']);
-        expect(tester.takeException(), isNull);
-        // What was given, on the popup: the day's chips, and the
-        // calendar's emoji beside it.
+        expect(claimedPrograms(sent), ['WEEKLY_LOGIN']);
         final collected = tester
-            .widget<Text>(find.byKey(const ValueKey('weekly-login-collected')))
+            .widget<Text>(find.byKey(const ValueKey('reward-offer-collected')))
             .data!;
         expect(collected, contains('20,000'));
         expect(collected, contains('Clapping Hands'));
         expect(collected, contains(t.rewardsAlso('').trim()));
-        expect(_collect, findsNothing);
-        expect(_done, findsOneWidget);
-        // The streak is three now, the wallet took the chips, the third
-        // box is collected, and the lobby's celebration stays down.
-        expect(
-          tester
-              .widget<Text>(find.byKey(const ValueKey('weekly-login-headline')))
-              .data,
-          t.streakDays(3).toUpperCase(),
-        );
-        expect(state.user?.chips, 1020000);
-        expect(state.rewardsGranted, isNull);
-        expect(find.byKey(const ValueKey('rewards-celebration')), findsNothing);
-        expect(state.weeklyLoginOffer, isNotNull);
         await tester.tap(_done);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
         expect(_overlay, findsNothing);
-        expect(state.weeklyLoginOffer, isNull);
-        // The chip says the streak: nothing is due any more.
-        expect(
-          find.descendant(
-            of: find.byKey(const ValueKey('rewards-chip')),
-            matching: find.text(t.streakDays(3)),
-          ),
-          findsOneWidget,
-        );
+        expect(state.rewardOffer, isNull);
         await unmountReward(tester, state);
       }, () => fakeRewards(sent: sent, programs: _due(), claim: _claimed()));
     });
@@ -769,30 +864,43 @@ void main() {
         () async {
           final state = rewardState();
           await _pumpDue(tester, state);
+          expect(state.rewardOffer?.program.code, 'WEEKLY_LOGIN');
+          // Put away, the next program's popup comes up; put away too,
+          // none.
+          await tester.tap(_close);
+          await tester.pump();
+          expect(state.rewardOffer?.program.code, 'MONTHLY_CALENDAR');
           expect(_overlay, findsOneWidget);
           await tester.tap(_close);
           await tester.pump();
           expect(_overlay, findsNothing);
-          // Read again (a session:ready): the same day, still unclaimed,
-          // is not put up again.
+          // Read again (a session:ready): the same days, still unclaimed,
+          // are not put up again.
           await state.loadRewardPrograms();
           await tester.pump();
           expect(_overlay, findsNothing);
-          expect(state.weeklyLoginDue, isNotNull);
-          // The chip brings it back.
+          expect(state.rewardOffersDue, hasLength(2));
+          // The chip brings them back, both.
           await tester.tap(find.byKey(const ValueKey('rewards-chip')));
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 500));
-          expect(_overlay, findsOneWidget);
+          expect(state.rewardOffer?.program.code, 'WEEKLY_LOGIN');
           expect(find.byType(RewardProgramsScreen), findsNothing);
           await tester.tap(_close);
           await tester.pump();
-          // A new day: offered.
+          expect(state.rewardOffer?.program.code, 'MONTHLY_CALENDAR');
+          await tester.tap(_close);
+          await tester.pump();
+          expect(_overlay, findsNothing);
+          // A new day for the streak: its popup alone — the calendar's day
+          // has been offered.
           today = '2026-10-08';
           await state.loadRewardPrograms();
           await tester.pump();
           await tester.pump(const Duration(milliseconds: 500));
-          expect(_overlay, findsOneWidget);
+          expect(state.rewardOffer?.program.code, 'WEEKLY_LOGIN');
+          expect(state.rewardOfferCount, 1);
+          expect(_position, findsNothing);
           await unmountReward(tester, state);
         },
         // Answered per request: the day turns while the lobby is up.
@@ -815,10 +923,16 @@ void main() {
         final state = rewardState();
         await _pumpDue(tester, state);
         expect(_overlay, findsOneWidget);
-        // A tap on the panel is the panel's; one on the scrim closes.
+        // A tap on the panel is the panel's; one on the scrim puts the
+        // popup away — and the next program's comes up, which a second tap
+        // outside puts away too.
         await tester.tap(_panel, warnIfMissed: false);
         await tester.pump();
-        expect(_overlay, findsOneWidget);
+        expect(state.rewardOffer?.program.code, 'WEEKLY_LOGIN');
+        await tester.tapAt(const Offset(4, 4));
+        await tester.pump();
+        expect(state.rewardOffer?.program.code, 'MONTHLY_CALENDAR');
+        await tester.pump(const Duration(milliseconds: 400));
         await tester.tapAt(const Offset(4, 4));
         await tester.pump();
         expect(_overlay, findsNothing);
@@ -850,11 +964,16 @@ void main() {
         await tester.pump(const Duration(seconds: 2));
         expect(find.byType(LobbyScreen), findsOneWidget);
         expect(_overlay, findsOneWidget);
-        await tester
-            .state<NavigatorState>(find.byType(Navigator).first)
-            .maybePop();
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 300));
+        // Back puts each program's popup away in turn, then nothing is
+        // over the lobby.
+        for (final next in ['MONTHLY_CALENDAR', null]) {
+          await tester
+              .state<NavigatorState>(find.byType(Navigator).first)
+              .maybePop();
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(state.rewardOffer?.program.code, next);
+        }
         expect(_overlay, findsNothing);
         expect(find.byType(LobbyScreen), findsOneWidget);
         await unmountReward(tester, state);
@@ -873,7 +992,7 @@ void main() {
           await tester.pump(const Duration(milliseconds: 600));
           expect(_posts(sent), ['/api/reward-programs/claim']);
           expect(
-            find.byKey(const ValueKey('weekly-login-note')),
+            find.byKey(const ValueKey('reward-offer-note')),
             findsOneWidget,
           );
           expect(_collect, findsOneWidget);
@@ -896,67 +1015,99 @@ void main() {
       for (final lang in AppLang.values) {
         testWidgets(
           'fits a ${screen.width.toInt()}x${screen.height.toInt()} phone at '
-          'text x1.25 in ${lang.name}, both themes, no word cut',
+          'text x1.25 in ${lang.name}, both themes, a streak running and '
+          'one not yet begun, no word cut',
           (tester) async {
             await setRewardView(tester, screen: screen, textScale: 1.25);
-            for (final brightness in Brightness.values) {
+            // Day 3 of a running streak ("2 DAY STREAK"), and Day 1 of one
+            // not yet begun ("START YOUR STREAK TODAY", the widest line a
+            // new player meets).
+            for (final (brightness, day) in [
+              for (final b in Brightness.values)
+                for (final d in const [3, 1]) (b, d),
+            ]) {
               final sent = <http.Request>[];
-              await http.runWithClient(() async {
-                final state = rewardState(lang: lang);
-                final feedback = FeedbackSettings();
-                addTearDown(feedback.dispose);
-                await tester.pumpWidget(
-                  rewardApp(
-                    state,
-                    feedback,
-                    const LobbyScreen(),
-                    brightness: brightness,
-                  ),
-                );
-                await tester.pump();
-                await tester.pump(const Duration(seconds: 1));
-                await tester.pump(const Duration(seconds: 2));
-                await tester.pump(const Duration(milliseconds: 500));
-                final reason = '${lang.name} ${brightness.name}';
-                expect(tester.takeException(), isNull, reason: reason);
-                expect(_overlay, findsOneWidget, reason: reason);
-                final view = Offset.zero & screen;
-                final panel = tester.getRect(_panel);
-                expect(view.contains(panel.topLeft), isTrue, reason: reason);
-                expect(
-                  view.contains(panel.bottomRight - const Offset(1, 1)),
-                  isTrue,
-                  reason: '$reason $panel',
-                );
-                expectRewardWhole(tester, _panel, reason);
-                // Every box inside the calendar, the calendar inside the
-                // panel.
-                final calendar = tester.getRect(
-                  find.byKey(const ValueKey('weekly-calendar')),
-                );
-                expect(panel.contains(calendar.topLeft), isTrue);
-                expect(
-                  panel.contains(calendar.bottomRight - const Offset(1, 1)),
-                  isTrue,
-                );
-                for (var day = 1; day <= 7; day++) {
-                  final box = tester.getRect(_box(day));
-                  expect(
-                    calendar.contains(box.topLeft) &&
-                        calendar.contains(box.bottomRight - const Offset(1, 1)),
-                    isTrue,
-                    reason: '$reason day $day $box in $calendar',
+              await http.runWithClient(
+                () async {
+                  final state = rewardState(lang: lang);
+                  final feedback = FeedbackSettings();
+                  addTearDown(feedback.dispose);
+                  await tester.pumpWidget(
+                    rewardApp(
+                      state,
+                      feedback,
+                      const LobbyScreen(),
+                      brightness: brightness,
+                    ),
                   );
-                }
-                // The key, whole and reachable.
-                expect(_collect, findsOneWidget, reason: reason);
-                expect(
-                  view.contains(tester.getRect(_collect).bottomRight),
-                  isTrue,
-                  reason: reason,
-                );
-                await unmountReward(tester, state);
-              }, () => fakeRewards(sent: sent, programs: _due()));
+                  await tester.pump();
+                  await tester.pump(const Duration(seconds: 1));
+                  await tester.pump(const Duration(seconds: 2));
+                  await tester.pump(const Duration(milliseconds: 500));
+                  final reason = '${lang.name} ${brightness.name} day $day';
+                  expect(tester.takeException(), isNull, reason: reason);
+                  expect(_overlay, findsOneWidget, reason: reason);
+                  final view = Offset.zero & screen;
+                  final panel = tester.getRect(_panel);
+                  expect(view.contains(panel.topLeft), isTrue, reason: reason);
+                  expect(
+                    view.contains(panel.bottomRight - const Offset(1, 1)),
+                    isTrue,
+                    reason: '$reason $panel',
+                  );
+                  expectRewardWhole(tester, _panel, reason);
+                  // The streak's line whole and inside the panel.
+                  final headline = find.byKey(
+                    const ValueKey('reward-offer-headline'),
+                  );
+                  expect(
+                    tester.widget<Text>(headline).data,
+                    (day > 1
+                            ? state.t.streakDays(day - 1)
+                            : state.t.streakStart)
+                        .toUpperCase(),
+                    reason: reason,
+                  );
+                  expect(
+                    tester.getRect(headline).right,
+                    lessThanOrEqualTo(panel.right),
+                    reason: reason,
+                  );
+                  // Every box inside the calendar, the calendar inside the
+                  // panel.
+                  final calendar = tester.getRect(
+                    find.byKey(const ValueKey('weekly-calendar')),
+                  );
+                  expect(panel.contains(calendar.topLeft), isTrue);
+                  expect(
+                    panel.contains(calendar.bottomRight - const Offset(1, 1)),
+                    isTrue,
+                  );
+                  for (var day = 1; day <= 7; day++) {
+                    final box = tester.getRect(_box(day));
+                    expect(
+                      calendar.contains(box.topLeft) &&
+                          calendar.contains(
+                            box.bottomRight - const Offset(1, 1),
+                          ),
+                      isTrue,
+                      reason: '$reason day $day $box in $calendar',
+                    );
+                  }
+                  // The key, whole and reachable.
+                  expect(_collect, findsOneWidget, reason: reason);
+                  expect(
+                    view.contains(tester.getRect(_collect).bottomRight),
+                    isTrue,
+                    reason: reason,
+                  );
+                  await unmountReward(tester, state);
+                },
+                () => fakeRewards(
+                  sent: sent,
+                  programs: _due(day: day),
+                ),
+              );
             }
           },
         );

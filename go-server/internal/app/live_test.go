@@ -526,8 +526,10 @@ func TestPostgresHoldsNoGameState(t *testing.T) {
 	// streaks' and calendars' configuration — which programs run and what each
 	// day of one gives — and user_reward_claims every reward a player has
 	// collected: an account fact written by the lobby's claim under the seat
-	// lock, never by a table, and read only to work out the next claim.
-	want := []string{"app_versions", "badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "player_levels", "player_reports", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims", "player_xp_missions", "profile_pictures", "reward_program_rewards", "reward_programs", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_reward_claims", "user_sessions", "user_table_choice", "user_table_pictures", "users", "welcome_rewards", "xp_settings", "xp_sources"}
+	// lock, never by a table, and read only to work out the next claim; and
+	// user_reward_progress (1 Oct 2026) where each player stands in a
+	// program's period, written by that claim and by a look at the programs.
+	want := []string{"app_versions", "badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends", "lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends", "player_levels", "player_reports", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims", "player_xp_missions", "profile_pictures", "reward_program_rewards", "reward_programs", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings", "user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_reward_claims", "user_reward_progress", "user_sessions", "user_table_choice", "user_table_pictures", "users", "welcome_rewards", "xp_settings", "xp_sources"}
 	if !slices.Equal(tables, want) {
 		t.Fatalf("schema tables = %v, want %v", tables, want)
 	}

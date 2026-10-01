@@ -702,6 +702,42 @@ sudo -u postgres psql gameplay -Atc "SELECT count(*) FILTER (WHERE asset_url NOT
   with the file's content type and `Cache-Control: public, max-age=31536000, immutable`.
 - **Rollback** past this build: §5, the rows move back first.
 
+### The reward progression types (1 Oct 2026) — nothing to do at the deploy; the new programs after the app
+
+Every reward program gains a progression beside its mode — RESET, SEQUENTIAL or BREAK — and the server keeps each player's
+standing per period in a fourth table, `user_reward_progress` (`CLAUDE.md` §7.2, §7.3).
+
+- **What the deploy does.** The migrate step adds `reward_programs.progression_type` — one lock on that table of six rows, once,
+  so a quiet hour as for any column — and sets it from what each program already was: RESET on every login streak with
+  `reset_on_missed_day`, SEQUENTIAL on everything else. Every running program (WEEKLY_LOGIN, RESET) plays exactly as before. It
+  creates `user_reward_progress` empty, and seeds two programs INACTIVE: WEEKLY_SEQUENTIAL (a sequential login streak, no days
+  yet) and WEEKLY_SEQUENTIAL_CAL (a CALENDAR week that BREAKS on a missed day, Asia/Kolkata, the brief's seven days). An installed
+  app sees nothing new: the routes keep every key they had and only add some, and a claim with `{}` still claims every program.
+- **Switch WEEKLY_SEQUENTIAL_CAL on only once the app that draws a broken cycle is the one players have** (published, and
+  android's `minimum_version` raised to it — "The app version gate", above). An older app shows a broken week as one still to
+  collect: "Collect now" on its chip, and a tap that gives nothing.
+
+```bash
+sudo -u postgres psql gameplay -c "SET statement_timeout = '5s'; SELECT code, mode, progression_type, period_type, timezone, is_active FROM reward_programs ORDER BY sort_order"
+# its days — the emoji and the badge by natural key (the brief's ids 101 and 5 do not exist here: Clapping Hands, ROYAL_ACE):
+sudo -u postgres psql gameplay -c "SET statement_timeout = '5s'; SELECT day_number, reward_type, reward_value, reward_ref_id FROM reward_program_rewards WHERE program_id = (SELECT id FROM reward_programs WHERE code = 'WEEKLY_SEQUENTIAL_CAL') ORDER BY day_number"
+sudo -u postgres psql gameplay -c "SET statement_timeout = '5s'; UPDATE reward_programs SET is_active = TRUE WHERE code = 'WEEKLY_SEQUENTIAL_CAL'"
+```
+
+  Read at the next request, no restart. **Switch it on on a Monday, Kolkata time**: a BREAK calendar's days are required from
+  the first day of its week, so switched on mid-week every player finds that week already broken and starts the next Monday.
+  Mid-week, give it a `starts_at` of today's midnight instead (`UPDATE reward_programs SET starts_at = (EXTRACT(EPOCH FROM
+  date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata') * 1000)::bigint, is_active = TRUE WHERE code =
+  'WEEKLY_SEQUENTIAL_CAL'`): today is then the first required day, its own date's Day (Day 3 on a Wednesday), and the days before
+  it are never offered that week.
+- **Changing a program's progression** is an UPDATE of `progression_type`, read at the next request. Do it between two periods —
+  a run in progress is judged by the new rules at once — and set `reset_on_missed_day` to match (TRUE for a RESET login streak,
+  else FALSE): it is what a rollback reads.
+- **Watch it**: `SELECT p.code, u.status, count(*) FROM user_reward_progress u JOIN reward_programs p ON p.id = u.program_id GROUP BY 1, 2`.
+  `user_reward_claims` stays the record; a progress row is a mirror the server rebuilds at the player's next look.
+- **Rollback**: an older tag never reads `progression_type` or `user_reward_progress` (both stay, harmless) and judges each program
+  by its mode and `reset_on_missed_day` alone, so a BREAK calendar plays as an ordinary calendar there.
+
 ## 4. Verify
 
 **Health** — `process.node` must start with `go`; `goroutines`/`numCpu`/`gomaxprocs` are Go-only extras:

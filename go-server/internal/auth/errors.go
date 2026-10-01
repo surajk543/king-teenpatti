@@ -72,6 +72,11 @@ const (
 	CodeInvalidActionID      = "invalid_action_id"      // 400: a spin's actionId empty or over 64 characters
 	// The reward programs (owner, 30 Sep 2026; rewardprograms.go).
 	CodeRewardProgramsUnavailable = "reward_programs_unavailable" // 503: the server runs no reward programs (no store wired)
+	// A claim that names one program (owner, 1 Oct 2026: the progression types).
+	CodeRewardProgramNotFound   = "reward_program_not_found"   // 404: no program of that code, or one switched off
+	CodeRewardProgramNotRunning = "reward_program_not_running" // 409: a campaign outside its starts_at..ends_at window
+	CodeRewardCycleBroken       = "reward_cycle_broken"        // 409: a BREAK program's required day was missed; the next period starts fresh
+	CodeRewardCycleCompleted    = "reward_cycle_completed"     // 409: every day of the period is collected
 	// The catalogue's art in R2 (owner, 1 Oct 2026; assets.go).
 	CodeAssetsUnavailable = "assets_unavailable" // 503: the server has no R2 keys to sign with
 	CodeTooManyAssets     = "too_many_assets"    // 400: more than MaxSignedAssets URLs in one request

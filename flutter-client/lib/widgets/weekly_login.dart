@@ -8,7 +8,14 @@ import 'package:provider/provider.dart';
 import '../l10n/strings.dart';
 import '../models/dtos.dart';
 import '../screens/reward_programs_screen.dart'
-    show rewardPrizeIcon, rewardPrizeInk, rewardPrizeLabel, rewardPrizeShort;
+    show
+        RewardProgramDays,
+        rewardPrizeIcon,
+        rewardPrizeInk,
+        rewardPrizeLabel,
+        rewardPrizeShort,
+        rewardProgramHint,
+        rewardProgramStyle;
 import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/depth.dart';
@@ -76,6 +83,19 @@ import '../widgets/table_tax.dart' show LevelCloseKey;
 // house gold at the front and inside Seen, where [LevelAccent.of] is null
 // and nothing changes. The day cards keep their own colours everywhere: gold
 // is what a collected day and today's mean, whatever the room.
+//
+// One popup a program (owner, 2 Oct 2026: "for every reward type sequential
+// or calender there should be different pop up, not a single pup up to
+// collect all reward"): every program whose today waits gets a popup of its
+// own, one after another in the server's order, "2 of 3" while more follow,
+// and each collects its own program alone (a named claim) — Continue, Close
+// or Back puts it away and brings the next. The weekly login streak that
+// resets keeps the owner's calendar; every other kind shows its own days as
+// its panel on the rewards screen draws them ([RewardProgramDays]) — a
+// sequential login's emerald steps, a calendar's sapphire pages, a breaking
+// cycle's violet chain, a month's dates — on a card of its colour, with its
+// mark and its words: "3 DAY STREAK" for a run, "DAY 4 REWARD" for a
+// calendar.
 
 /// Where the file lays its calendar out, in the file's own units — read off
 /// the layers (`test/weekly_login_test.dart` holds them to the file).
@@ -203,16 +223,27 @@ class WeeklyCalendarGeometry {
 enum WeeklyDayState { claimed, current, next, locked, finalDay }
 
 /// Which state day [day] is in for the program [s] ([collected] the day just
-/// collected, which the state may not say yet).
+/// collected, which the state may not say yet). Collected and collectable
+/// are the server's word wherever it sends one (`rewards[].state`); a day is
+/// drawn as today's to collect only while the server says a claim can be
+/// made ([RewardProgramState.canClaimToday]).
 WeeklyDayState weeklyDayStateOf(
   RewardProgramState s,
   int day, {
   int? collected,
 }) {
-  if (collected == day || day <= s.claimedDays) return WeeklyDayState.claimed;
-  if (day == s.currentDay && !s.claimedToday) return WeeklyDayState.current;
+  if (collected == day) return WeeklyDayState.claimed;
+  final server = s.rewardFor(day)?.state;
+  if (server == RewardDayState.claimed ||
+      (server == null && day <= s.claimedDays)) {
+    return WeeklyDayState.claimed;
+  }
+  if (server == RewardDayState.available ||
+      (server == null && day == s.currentDay && s.canClaimToday)) {
+    return WeeklyDayState.current;
+  }
   if (day == 7) return WeeklyDayState.finalDay;
-  if (day == s.currentDay + 1) return WeeklyDayState.next;
+  if (s.isActive && day == s.currentDay + 1) return WeeklyDayState.next;
   return WeeklyDayState.locked;
 }
 
@@ -978,32 +1009,111 @@ class _SuccessBadge extends StatelessWidget {
   );
 }
 
-/// The popup over the lobby: the calendar, as large as the screen allows,
-/// on the left; on the right the program's name, the streak, what the mode
-/// means, today's reward, the next one and the key that collects — then
-/// what was collected, and Continue. Shown by the lobby while
-/// [GameState.weeklyLoginOffer] stands.
-class WeeklyLoginOverlay extends StatelessWidget {
-  const WeeklyLoginOverlay({super.key});
+/// [style] set down — never below [minScale] of its size — until [words]
+/// fit [width] on two lines with no word broken across them: a server's own
+/// program name ("WEEKLY SEQUENTIAL REWARDS") can be longer than any the app
+/// translates. Measured, never worked out: a line in an Indic script stands
+/// taller and wider than its Latin neighbours.
+TextStyle _fitTwoLines(
+  BuildContext context,
+  String words,
+  TextStyle style,
+  double width, {
+  double minScale = 0.7,
+}) {
+  final scaler = MediaQuery.textScalerOf(context);
+  final direction = Directionality.of(context);
+  bool fits(TextStyle at) {
+    final whole = TextPainter(
+      text: TextSpan(text: words, style: at),
+      textDirection: direction,
+      textScaler: scaler,
+      maxLines: 2,
+    )..layout(maxWidth: width);
+    var ok = !whole.didExceedMaxLines;
+    whole.dispose();
+    // No word wider than a line: it would be broken across two.
+    for (final word in words.split(' ')) {
+      if (!ok) break;
+      final one = TextPainter(
+        text: TextSpan(text: word, style: at),
+        textDirection: direction,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      ok = one.width <= width;
+      one.dispose();
+    }
+    return ok;
+  }
+
+  final full = style.fontSize ?? 14;
+  final floor = full * minScale;
+  var size = full;
+  while (size > floor && !fits(style.copyWith(fontSize: size))) {
+    size = math.max(floor, size - 0.5);
+  }
+  return style.copyWith(fontSize: size);
+}
+
+/// Whether [p]'s popup is the owner's calendar: the weekly login streak that
+/// starts again on a missed day — what the owner's animation was made for
+/// (owner, 30 Sep 2026: "Use this animation which shows up everyday in case
+/// of weekly login"). Every other kind of program has a popup of its own
+/// look, its own days drawn as its panel draws them ([RewardProgramDays]).
+bool rewardUsesOwnersCalendar(RewardProgramInfo p) =>
+    p.isStreak && p.isWeekly && p.progression == RewardProgression.reset;
+
+/// The reward popups over the lobby (owner, 2 Oct 2026: "for every reward
+/// type sequential or calender there should be different pop up, not a
+/// single pup up to collect all reward"): one program's popup at a time —
+/// [GameState.rewardOffer] — each in its own look: its days on the left (the
+/// owner's calendar for the weekly login streak, the program's own day card
+/// for every other), and on the right its name, where it stands, what a
+/// missed day does, today's reward, the next one and the key that collects
+/// THIS program alone — then what was collected, and Continue, which puts up
+/// the next program's popup ("2 of 3" while more follow). Shown by the lobby
+/// while an offer stands.
+class RewardOfferOverlay extends StatelessWidget {
+  const RewardOfferOverlay({super.key});
 
   @override
   Widget build(BuildContext context) {
     final offer = context.select<GameState, RewardProgramState?>(
-      (s) => s.weeklyLoginOffer,
+      (s) => s.rewardOffer,
+    );
+    final position = context.select<GameState, (int, int)>(
+      (s) => (s.rewardOfferIndex, s.rewardOfferCount),
     );
     final resuming = context.select<GameState, bool>((s) => s.resuming);
     if (offer == null || resuming) return const SizedBox.shrink();
     return Positioned.fill(
-      key: const ValueKey('weekly-login-overlay'),
-      child: _WeeklyLoginScrim(offer: offer),
+      key: const ValueKey('reward-offer-overlay'),
+      // Each program's popup is a popup of its own: its own entrance, its own
+      // claim, and what that claim gave.
+      child: _RewardOfferScrim(
+        key: ValueKey('reward-offer-${offer.program.code}'),
+        offer: offer,
+        index: position.$1,
+        count: position.$2,
+      ),
     );
   }
 }
 
-class _WeeklyLoginScrim extends StatefulWidget {
-  const _WeeklyLoginScrim({required this.offer});
+class _RewardOfferScrim extends StatefulWidget {
+  const _RewardOfferScrim({
+    super.key,
+    required this.offer,
+    required this.index,
+    required this.count,
+  });
 
   final RewardProgramState offer;
+
+  /// Which of how many popups this is: "2 of 3" while more than one waits.
+  final int index;
+  final int count;
 
   /// The most of the panel's width the calendar takes: the words need the
   /// rest.
@@ -1013,10 +1123,10 @@ class _WeeklyLoginScrim extends StatefulWidget {
   static const double widest = 840;
 
   @override
-  State<_WeeklyLoginScrim> createState() => _WeeklyLoginScrimState();
+  State<_RewardOfferScrim> createState() => _RewardOfferScrimState();
 }
 
-class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
+class _RewardOfferScrimState extends State<_RewardOfferScrim>
     with SingleTickerProviderStateMixin {
   late final AnimationController _in;
 
@@ -1046,7 +1156,11 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
       _note = null;
     });
     final state = context.read<GameState>();
-    final granted = await state.claimRewardPrograms(celebrate: false);
+    // This program alone: every program waiting has a popup of its own.
+    final granted = await state.claimRewardPrograms(
+      celebrate: false,
+      programCode: widget.offer.program.code,
+    );
     if (!mounted) return;
     setState(() {
       _claiming = false;
@@ -1066,10 +1180,14 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
     final dark = b == Brightness.dark;
     final state = context.read<GameState>();
     final t = state.t;
-    // The open level's colour where the lobby has laid one over the popup
-    // (Blind, Variation); the house gold elsewhere.
+    // The program's own colour and mark — the weekly login streak's is the
+    // house gold, a sequential login's emerald, a calendar's sapphire, a
+    // breaking cycle's violet — and on the panel the open level's colour
+    // where the lobby has laid one over the popup (Blind, Variation).
+    final style = rewardProgramStyle(widget.offer.program, theme.colorScheme);
     final level = LevelAccent.of(context);
-    final accent = level?.fill ?? AppTheme.gold;
+    final accent = level?.fill ?? style.accent;
+    final owners = rewardUsesOwnersCalendar(widget.offer.program);
     // The programs as they stand now — the claim's answer replaces them —
     // so the calendar shows the day collected the moment it is.
     final program = context.select<GameState, RewardProgramState?>(
@@ -1096,7 +1214,7 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
     final nextPrize = nextDay <= shown.periodDays
         ? shown.rewardFor(nextDay)?.prize
         : null;
-    final gold = AppTheme.goldInk(b);
+    final ink = style.ink;
     final quiet = theme.colorScheme.onSurface.withValues(
       alpha: AppTheme.inkLowOn(b),
     );
@@ -1111,60 +1229,74 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
 
     // The words. Each line gives way (fewer lines) before the column could
     // overflow the calendar's height.
-    final head = Row(
+    // The program's name over its popup, two lines at most: set down to fit
+    // them before a word is cut ([_fitTwoLines]) — a server's own name can
+    // be longer than any the app translates. [nameWidth] is the room the
+    // close key leaves it.
+    final nameWords = t
+        .rewardProgramName(shown.program.code, shown.program.name)
+        .toUpperCase();
+    final nameStyle = AppTheme.label(
+      (short ? text.titleSmall : text.titleMedium)!,
+      weight: FontWeight.w600,
+    ).copyWith(letterSpacing: 1.1);
+    Widget head(double nameWidth) => Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           child: Padding(
             padding: const EdgeInsets.only(top: Space.sm),
             child: Text(
-              t
-                  .rewardProgramName(shown.program.code, shown.program.name)
-                  .toUpperCase(),
+              nameWords,
+              key: const ValueKey('reward-offer-name'),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: AppTheme.label(
-                (short ? text.titleSmall : text.titleMedium)!,
-                weight: FontWeight.w600,
-              ).copyWith(letterSpacing: 1.1),
+              style: _fitTwoLines(context, nameWords, nameStyle, nameWidth),
             ),
           ),
         ),
         const SizedBox(width: Space.xs),
         KeyedSubtree(
-          key: const ValueKey('weekly-login-close'),
+          key: const ValueKey('reward-offer-close'),
           child: LevelCloseKey(
             tooltip: t.close,
-            onTap: state.dismissWeeklyLogin,
+            onTap: state.dismissRewardOffer,
           ),
         ),
       ],
     );
+    final p = shown.program;
+    final standing = p.isStreak
+        ? (shown.claimedDays > 0
+              ? t.streakDays(shown.claimedDays)
+              : t.streakStart)
+        : t.calendarDayReward(shown.dayOfPeriod);
     final streak = Row(
       children: [
-        Icon(Icons.local_fire_department_rounded, size: 20, color: gold),
+        Icon(style.icon, size: 20, color: ink),
         const SizedBox(width: Space.xs),
+        // Set down to its column rather than cut: "START YOUR STREAK TODAY"
+        // is wider than a 640dp phone's column, and it is the line a new
+        // player meets first.
         Flexible(
-          child: Text(
-            (shown.claimedDays > 0
-                    ? t.streakDays(shown.claimedDays)
-                    : t.streakStart)
-                .toUpperCase(),
-            key: const ValueKey('weekly-login-headline'),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTheme.money(
-              (short ? text.titleMedium : text.titleLarge)!,
-              colour: gold,
-            ).copyWith(letterSpacing: 0.6),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              standing.toUpperCase(),
+              key: const ValueKey('reward-offer-headline'),
+              maxLines: 1,
+              style: AppTheme.money(
+                (short ? text.titleMedium : text.titleLarge)!,
+                colour: ink,
+              ).copyWith(letterSpacing: 0.6),
+            ),
           ),
         ),
       ],
     );
     final hint = Text(
-      shown.program.resetOnMissedDay
-          ? t.rewardStreakHint
-          : t.rewardStreakHintNoReset,
+      rewardProgramHint(t, shown.program),
       maxLines: 3,
       overflow: TextOverflow.ellipsis,
       style: text.bodySmall?.copyWith(color: quiet),
@@ -1175,7 +1307,7 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
     final Widget hero;
     if (!done) {
       hero = _RewardLine(
-        keyed: const ValueKey('weekly-login-today'),
+        keyed: const ValueKey('reward-offer-today'),
         prize: todayPrize,
         text: todayPrize == null
             ? t.rewardNothing
@@ -1193,7 +1325,7 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
           t.rewardsAlso(others.map((g) => _line(t, g)).join(' · ')),
       ];
       hero = _RewardLine(
-        keyed: const ValueKey('weekly-login-collected'),
+        keyed: const ValueKey('reward-offer-collected'),
         prize: mine != null && mine.isNotEmpty ? mine.first.prize : todayPrize,
         text: lines.join('\n'),
         collected: true,
@@ -1203,19 +1335,21 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
     final next = nextPrize == null || nextPrize.isNothing
         ? null
         : _RewardLine(
-            keyed: const ValueKey('weekly-login-next'),
+            keyed: const ValueKey('reward-offer-next'),
             prize: nextPrize,
             text: rewardPrizeLabel(t, nextPrize).toUpperCase(),
           );
-    final key = done
+    // Collect only while the server says today can be collected: a cycle
+    // that broke, or ended, meanwhile is put away with Continue instead.
+    final key = done || !shown.canClaimToday
         ? LuckyGoldKey(
-            key: const ValueKey('weekly-login-done'),
+            key: const ValueKey('reward-offer-done'),
             label: t.continueKey,
-            onTap: state.dismissWeeklyLogin,
+            onTap: state.dismissRewardOffer,
             expand: true,
           )
         : LuckyGoldKey(
-            key: const ValueKey('weekly-login-collect'),
+            key: const ValueKey('reward-offer-collect'),
             label: t.rewardsCollect,
             onTap: _claiming ? () {} : _collect,
             glyph: _claiming ? const GameLoaderRing(size: 16) : null,
@@ -1223,9 +1357,9 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
           );
 
     return GestureDetector(
-      key: const ValueKey('weekly-login-scrim'),
+      key: const ValueKey('reward-offer-scrim'),
       behavior: HitTestBehavior.opaque,
-      onTap: state.dismissWeeklyLogin,
+      onTap: state.dismissRewardOffer,
       child: ColoredBox(
         color: theme.colorScheme.scrim.withValues(alpha: dark ? 0.66 : 0.5),
         child: Stack(
@@ -1241,7 +1375,7 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
                     // more than its share of the width; the words the rest.
                     final panelW = (box.maxWidth - 2 * Space.md).clamp(
                       280.0,
-                      _WeeklyLoginScrim.widest,
+                      _RewardOfferScrim.widest,
                     );
                     final padH = short ? Space.md : Space.lg;
                     final padV = short ? Space.sm : Space.md;
@@ -1250,13 +1384,17 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
                     // A narrow panel (a 592dp phone) gives the words a
                     // little more of the width.
                     final share = innerW >= 600
-                        ? _WeeklyLoginScrim.calendarShare
-                        : _WeeklyLoginScrim.calendarShare - 0.05;
+                        ? _RewardOfferScrim.calendarShare
+                        : _RewardOfferScrim.calendarShare - 0.05;
                     final calW = math.min(
                       WeeklyCalendar.widthFor(innerH),
                       innerW * share - Space.md,
                     );
                     final calSize = WeeklyCalendar.sizeFor(calW);
+                    // The words' column: what the card and the gap beside it
+                    // leave; the name's line, what the close key leaves.
+                    final nameWidth =
+                        innerW - calW - Space.lg - Space.xs - Dim.minTouch;
                     return GestureDetector(
                       // A tap on the panel is the panel's, not the scrim's.
                       onTap: () {},
@@ -1304,7 +1442,7 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
                             SizedBox(
                               width: panelW,
                               child: DecoratedBox(
-                                key: const ValueKey('weekly-login-base'),
+                                key: const ValueKey('reward-offer-base'),
                                 decoration: BoxDecoration(
                                   // By day a solid ground under the card's
                                   // glass: the house white, or the level's
@@ -1342,7 +1480,7 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
                                   // panel, and only past the screen's
                                   // height do the words give way.
                                   child: ConstrainedBox(
-                                    key: const ValueKey('weekly-login-panel'),
+                                    key: const ValueKey('reward-offer-panel'),
                                     constraints: BoxConstraints(
                                       minHeight: calSize.height,
                                       maxHeight: math.max(
@@ -1356,14 +1494,28 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
                                             CrossAxisAlignment.stretch,
                                         children: [
                                           Center(
-                                            child: WeeklyCalendar(
-                                              key: const ValueKey(
-                                                'weekly-calendar',
-                                              ),
-                                              state: shown,
-                                              size: calSize,
-                                              collected: collectedDay,
-                                            ),
+                                            child: owners
+                                                ? WeeklyCalendar(
+                                                    key: const ValueKey(
+                                                      'weekly-calendar',
+                                                    ),
+                                                    state: shown,
+                                                    size: calSize,
+                                                    collected: collectedDay,
+                                                  )
+                                                : RewardProgramDays(
+                                                    state: shown,
+                                                    size: calSize,
+                                                    collecting: _claiming,
+                                                    // Today's day collects
+                                                    // as the key does.
+                                                    onCollect:
+                                                        done ||
+                                                            _claiming ||
+                                                            !shown.canClaimToday
+                                                        ? null
+                                                        : _collect,
+                                                  ),
                                           ),
                                           const SizedBox(width: Space.lg),
                                           Expanded(
@@ -1371,7 +1523,7 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
                                               crossAxisAlignment:
                                                   CrossAxisAlignment.stretch,
                                               children: [
-                                                head,
+                                                head(nameWidth),
                                                 const SizedBox(
                                                   height: Space.xs,
                                                 ),
@@ -1383,13 +1535,44 @@ class _WeeklyLoginScrimState extends State<_WeeklyLoginScrim>
                                                 // weighted so the intrinsic height counts it near whole.
                                                 Flexible(flex: 9, child: hint),
                                                 const Spacer(),
-                                                Text(
-                                                  t.todaysRewardTitle
-                                                      .toUpperCase(),
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: headingStyle,
+                                                // "TODAY'S REWARD", and at its
+                                                // end "1 of 3" while more
+                                                // programs wait today: the
+                                                // name above keeps its room.
+                                                Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        t.todaysRewardTitle
+                                                            .toUpperCase(),
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: headingStyle,
+                                                      ),
+                                                    ),
+                                                    if (widget.count > 1) ...[
+                                                      const SizedBox(
+                                                        width: Space.sm,
+                                                      ),
+                                                      Text(
+                                                        t
+                                                            .rewardOfferPosition(
+                                                              widget.index,
+                                                              widget.count,
+                                                            )
+                                                            .toUpperCase(),
+                                                        key: const ValueKey(
+                                                          'reward-offer-position',
+                                                        ),
+                                                        maxLines: 1,
+                                                        style: headingStyle
+                                                            .copyWith(
+                                                              color: ink,
+                                                            ),
+                                                      ),
+                                                    ],
+                                                  ],
                                                 ),
                                                 const SizedBox(
                                                   height: Space.xs,
@@ -1482,7 +1665,7 @@ class _RewardLine extends StatelessWidget {
     if (note != null) {
       return Text(
         note!,
-        key: const ValueKey('weekly-login-note'),
+        key: const ValueKey('reward-offer-note'),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: text.bodySmall?.copyWith(color: theme.colorScheme.error),

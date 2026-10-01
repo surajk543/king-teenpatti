@@ -3832,6 +3832,196 @@ class RewardPeriod {
   static const monthly = 'MONTHLY';
 }
 
+/// How a program goes on past a missed day (owner, 1 Oct 2026: "mode = WHAT
+/// triggers progress, progression_type = HOW progress behaves"). An older
+/// server sends none, and [RewardProgramInfo.progression] reads it from what
+/// that server does send.
+class RewardProgression {
+  /// A missed day sends the run back to Day 1 — the classic login streak.
+  static const reset = 'RESET';
+
+  /// A missed day costs nothing: a login program's next claim is the next
+  /// unclaimed day, and a calendar's missed date is simply missed while the
+  /// rest still wait — the calendar of 30 Sep 2026.
+  static const sequential = 'SEQUENTIAL';
+
+  /// A missed required day ends the cycle: nothing more can be claimed until
+  /// the next period starts. (`break` is a word Dart keeps for itself.)
+  static const breaks = 'BREAK';
+
+  static const values = {reset, sequential, breaks};
+}
+
+/// Where a player stands in a program's current period (`status`).
+class RewardStatus {
+  /// The cycle runs: a day can be collected today, or was.
+  static const active = 'ACTIVE';
+
+  /// Every day of the cycle has been collected.
+  static const completed = 'COMPLETED';
+
+  /// A BREAK program's required day was missed: nothing more until the next
+  /// period.
+  static const broken = 'BROKEN';
+
+  static const values = {active, completed, broken};
+}
+
+/// A day's standing as the server judges it (`rewards[].state`): the app
+/// draws it and never works it out.
+class RewardDayState {
+  static const claimed = 'CLAIMED';
+
+  /// Can be collected right now.
+  static const available = 'AVAILABLE';
+
+  /// A day that was required and not claimed — on a BROKEN cycle, the day
+  /// that broke it.
+  static const missed = 'MISSED';
+
+  /// Not reached yet, or no longer reachable.
+  static const locked = 'LOCKED';
+
+  static const values = {claimed, available, missed, locked};
+}
+
+/// What one claim did for one program (`results[].outcome`).
+class RewardOutcome {
+  static const granted = 'GRANTED';
+
+  /// Today was collected already: the claim it made is carried.
+  static const alreadyClaimed = 'ALREADY_CLAIMED';
+  static const broken = 'BROKEN';
+  static const completed = 'COMPLETED';
+}
+
+/// The clock the reward programs are counted on — when an answer arrived,
+/// and how long until the next period starts: [DateTime.now]; a test sets
+/// its own (the fake clock its pumps advance).
+DateTime Function() rewardClock = DateTime.now;
+
+/// [v] when it is one of [values]; null for anything else, so a word this
+/// build has never heard of reads as nothing rather than as a guess.
+String? _oneOf(dynamic v, Set<String> values) =>
+    v is String && values.contains(v) ? v : null;
+
+/// A date the server wrote in a program's own zone, "2026-10-05", as that
+/// calendar date at UTC midnight — for labels only; null for anything else.
+DateTime? rewardCivilDate(String text) {
+  final parts = text.split('-');
+  if (parts.length != 3) return null;
+  final y = int.tryParse(parts[0]);
+  final m = int.tryParse(parts[1]);
+  final d = int.tryParse(parts[2]);
+  if (y == null || m == null || d == null) return null;
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  final date = DateTime.utc(y, m, d);
+  // "2026-02-31" is no date: DateTime would roll it into March.
+  return date.month == m && date.day == d ? date : null;
+}
+
+/// A period as the server dates it (`period`): its bounds, and its first
+/// and last dates in the program's own zone — labels only; the app does no
+/// zone arithmetic.
+class RewardCycle {
+  const RewardCycle({
+    this.startAt = 0,
+    this.endAt = 0,
+    required this.startDate,
+    required this.endDate,
+  });
+
+  /// Epoch ms; [endAt] is exclusive — the next period's start.
+  final int startAt;
+  final int endAt;
+
+  /// "2026-10-05" and "2026-10-11": the period's first and LAST day.
+  final String startDate;
+  final String endDate;
+
+  DateTime? get firstDay => rewardCivilDate(startDate);
+  DateTime? get lastDay => rewardCivilDate(endDate);
+
+  /// The wire's `period`; null for anything that does not name both dates.
+  static RewardCycle? fromJson(Object? j) {
+    if (j is! Map) return null;
+    final cycle = RewardCycle(
+      startAt: _int(j['startAt']),
+      endAt: _int(j['endAt']),
+      startDate: _str(j['startDate']),
+      endDate: _str(j['endDate']),
+    );
+    return cycle.firstDay == null || cycle.lastDay == null ? null : cycle;
+  }
+}
+
+/// The period after this one (`nextPeriod`): when it starts, and how long
+/// until then — counted from the moment the answer arrived on this phone,
+/// never from the phone's own clock against [startAt].
+class RewardNextCycle {
+  const RewardNextCycle({
+    this.startAt = 0,
+    required this.startDate,
+    this.startsInMs,
+    required this.receivedAt,
+  });
+
+  /// Epoch ms, on the server's clock.
+  final int startAt;
+
+  /// "2026-10-12", in the program's own zone.
+  final String startDate;
+
+  /// How long until it starts, as the server counted it when it answered;
+  /// null when it said nothing that can be counted.
+  final int? startsInMs;
+
+  /// When the answer arrived, on [rewardClock].
+  final DateTime receivedAt;
+
+  DateTime? get firstDay => rewardCivilDate(startDate);
+
+  /// When it starts on this phone's clock: the server's wait added to the
+  /// moment its answer arrived, so a phone whose clock is wrong still counts
+  /// to the server's moment. Null when there is nothing to count.
+  DateTime? get startsAt {
+    final ms = startsInMs;
+    return ms == null ? null : receivedAt.add(Duration(milliseconds: ms));
+  }
+
+  /// How long until it starts at [now] — zero once it has — or null when
+  /// there is nothing to count.
+  Duration? leftAt(DateTime now) {
+    final at = startsAt;
+    if (at == null) return null;
+    final left = at.difference(now);
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  /// The wire's `nextPeriod`; null for anything else (a campaign that ends
+  /// before it). [serverTime] — the answer's own `serverTime` — counts the
+  /// wait from `startAt` where the server sent no `startsInMs`.
+  static RewardNextCycle? fromJson(
+    Object? j, {
+    required DateTime receivedAt,
+    int serverTime = 0,
+  }) {
+    if (j is! Map) return null;
+    final startAt = _int(j['startAt']);
+    final wait = j['startsInMs'];
+    return RewardNextCycle(
+      startAt: startAt,
+      startDate: _str(j['startDate']),
+      startsInMs: wait is num
+          ? wait.toInt()
+          : serverTime > 0 && startAt > 0
+          ? startAt - serverTime
+          : null,
+      receivedAt: receivedAt,
+    );
+  }
+}
+
 /// What a day gives (reward_program_rewards.reward_type): the Lucky Draw's
 /// kinds, an emoji and a badge. A kind this build does not know is drawn as
 /// a plain gift.
@@ -3962,16 +4152,23 @@ class RewardDay {
     required this.day,
     required this.prize,
     required this.claimed,
+    this.state,
   });
 
   final int day;
   final RewardPrize prize;
   final bool claimed;
 
+  /// The server's verdict on the day ([RewardDayState]), or null from a
+  /// server that sends none — then the screen reads the day from the
+  /// program's figures, as it always did.
+  final String? state;
+
   factory RewardDay.fromJson(Map<String, dynamic> j) => RewardDay(
     day: _int(j['day']),
     prize: RewardPrize.fromJson(j),
     claimed: j['claimed'] == true,
+    state: _oneOf(j['state'], RewardDayState.values),
   );
 }
 
@@ -3986,6 +4183,7 @@ class RewardProgramInfo {
     this.timezone = 'UTC',
     this.weekStartDay = 1,
     this.resetOnMissedDay = false,
+    this.progressionType = '',
     this.startsAt,
     this.endsAt,
     this.periodStart = 0,
@@ -4010,6 +4208,10 @@ class RewardProgramInfo {
   final int weekStartDay;
   final bool resetOnMissedDay;
 
+  /// The server's `progressionType` ([RewardProgression]) as sent; empty from
+  /// a server that sends none. [progression] is what the program goes by.
+  final String progressionType;
+
   /// A campaign's window (epoch ms); null on a recurring program.
   final int? startsAt;
   final int? endsAt;
@@ -4021,6 +4223,16 @@ class RewardProgramInfo {
   bool get isStreak => mode == RewardMode.loginStreak;
   bool get isWeekly => periodType == RewardPeriod.weekly;
 
+  /// What a missed day does here ([RewardProgression]): the server's word,
+  /// or — from a server that sends none — RESET where a missed day reset the
+  /// run, SEQUENTIAL otherwise (a calendar's SEQUENTIAL is the calendar it
+  /// always was: a missed date missed, the rest still waiting).
+  String get progression => RewardProgression.values.contains(progressionType)
+      ? progressionType
+      : resetOnMissedDay
+      ? RewardProgression.reset
+      : RewardProgression.sequential;
+
   factory RewardProgramInfo.fromJson(Map<String, dynamic> j) =>
       RewardProgramInfo(
         id: _int(j['id']),
@@ -4031,6 +4243,7 @@ class RewardProgramInfo {
         timezone: _str(j['timezone']).isEmpty ? 'UTC' : _str(j['timezone']),
         weekStartDay: _int(j['weekStartDay']).clamp(1, 7),
         resetOnMissedDay: j['resetOnMissedDay'] == true,
+        progressionType: _str(j['progressionType']),
         startsAt: _intOrNull(j['startsAt']),
         endsAt: _intOrNull(j['endsAt']),
         periodStart: _int(j['periodStart']),
@@ -4049,6 +4262,12 @@ class RewardProgramState {
     required this.claimedToday,
     required this.claimedDays,
     required this.rewards,
+    this.status = RewardStatus.active,
+    this.canClaim,
+    this.serverNextDay,
+    this.cycle,
+    this.nextCycle,
+    this.serverTime = 0,
   });
 
   final RewardProgramInfo program;
@@ -4063,7 +4282,9 @@ class RewardProgramState {
   final int periodDays;
 
   /// The day today's claim counts (or counted) as: a streak's consecutive
-  /// login day, a calendar's [dayOfPeriod].
+  /// login day, a calendar's [dayOfPeriod] — while the cycle runs. While it
+  /// is BROKEN, the day that was missed ("You missed Day 3"); once it is
+  /// COMPLETED, the last day.
   final int currentDay;
   final bool claimedToday;
 
@@ -4073,6 +4294,43 @@ class RewardProgramState {
 
   /// The days that carry a reward, in day order.
   final List<RewardDay> rewards;
+
+  /// Where the player stands in the cycle ([RewardStatus]): ACTIVE from a
+  /// server that sends none.
+  final String status;
+
+  /// The server's verdict: a claim now would grant today's day. Null from a
+  /// server that sends none — [canClaimToday] reads it then.
+  final bool? canClaim;
+
+  /// The server's `nextDay`: the day the next claim will count as — today's
+  /// while one can be made, tomorrow's once today is collected and the cycle
+  /// goes on — 0 for none this period. Null from a server that sends none;
+  /// [nextDay] is what the screen reads.
+  final int? serverNextDay;
+
+  /// The current period's dates ("Oct 5 – Oct 11"), or null from a server
+  /// that sends none.
+  final RewardCycle? cycle;
+
+  /// The next period, or null: a server that sends none, or a campaign that
+  /// ends before it.
+  final RewardNextCycle? nextCycle;
+
+  /// The answer's own clock, epoch ms; 0 when it sent none.
+  final int serverTime;
+
+  bool get isActive => status == RewardStatus.active;
+  bool get isBroken => status == RewardStatus.broken;
+  bool get isCompleted => status == RewardStatus.completed;
+
+  /// Whether a claim now would grant today's day: the server's word, or —
+  /// from a server that says nothing of it — whether today is still to
+  /// collect, as it always was. The app never works it out otherwise.
+  bool get canClaimToday => canClaim ?? !claimedToday;
+
+  /// The day a BROKEN cycle missed; 0 for any other.
+  int get missedDay => isBroken ? currentDay : 0;
 
   RewardDay? rewardFor(int day) {
     for (final r in rewards) {
@@ -4084,13 +4342,8 @@ class RewardProgramState {
   /// Today as the program's zone has it, at UTC midnight — for the labels'
   /// calendar arithmetic only; every decision is the server's.
   DateTime get todayDate {
-    final parts = today.split('-');
-    if (parts.length == 3) {
-      final y = int.tryParse(parts[0]);
-      final m = int.tryParse(parts[1]);
-      final d = int.tryParse(parts[2]);
-      if (y != null && m != null && d != null) return DateTime.utc(y, m, d);
-    }
+    final date = rewardCivilDate(today);
+    if (date != null) return date;
     final now = DateTime.now().toUtc();
     return DateTime.utc(now.year, now.month, now.day);
   }
@@ -4106,9 +4359,13 @@ class RewardProgramState {
   /// The ISO weekday (1 Monday … 7 Sunday) of day [k].
   int weekdayOfDay(int k) => dateOfDay(k).weekday;
 
-  /// The next day the player can earn — today's while it is unclaimed, else
-  /// tomorrow's — or null past the period's end.
+  /// The next day the player can earn — the server's `nextDay` where it
+  /// sends one (none once a cycle is broken, completed or over); else
+  /// today's while it is unclaimed, tomorrow's once collected — or null past
+  /// the period's end.
   int? get nextDay {
+    final server = serverNextDay;
+    if (server != null) return server >= 1 ? server : null;
     final next = program.isStreak
         ? (claimedToday ? currentDay + 1 : currentDay)
         : (claimedToday ? dayOfPeriod + 1 : dayOfPeriod);
@@ -4120,7 +4377,14 @@ class RewardProgramState {
     return next == null ? null : rewardFor(next);
   }
 
-  factory RewardProgramState.fromJson(Map<String, dynamic> j) {
+  /// One program off the wire. [receivedAt] is when its answer arrived (on
+  /// [rewardClock] by default) and [serverTime] that answer's own clock —
+  /// what the next period's countdown is counted from.
+  factory RewardProgramState.fromJson(
+    Map<String, dynamic> j, {
+    DateTime? receivedAt,
+    int serverTime = 0,
+  }) {
     final rewards =
         (j['rewards'] is List ? j['rewards'] as List : const [])
             .whereType<Map>()
@@ -4128,6 +4392,8 @@ class RewardProgramState {
             .where((d) => d.day >= 1)
             .toList()
           ..sort((a, b) => a.day.compareTo(b.day));
+    final canClaim = j['canClaim'];
+    final nextDay = j['nextDay'];
     return RewardProgramState(
       program: RewardProgramInfo.fromJson(
         j['program'] is Map
@@ -4141,6 +4407,16 @@ class RewardProgramState {
       claimedToday: j['claimedToday'] == true,
       claimedDays: _int(j['claimedDays']),
       rewards: rewards,
+      status: _oneOf(j['status'], RewardStatus.values) ?? RewardStatus.active,
+      canClaim: canClaim is bool ? canClaim : null,
+      serverNextDay: nextDay is num ? nextDay.toInt() : null,
+      cycle: RewardCycle.fromJson(j['period']),
+      nextCycle: RewardNextCycle.fromJson(
+        j['nextPeriod'],
+        receivedAt: receivedAt ?? rewardClock(),
+        serverTime: serverTime,
+      ),
+      serverTime: serverTime,
     );
   }
 }
@@ -4182,34 +4458,107 @@ class RewardGrant {
   );
 }
 
+/// What one claim did for one program (`results[]`): granted today's day,
+/// found it already collected (the claim made then is carried), or nothing —
+/// the cycle broken, or completed.
+class RewardClaimOutcome {
+  const RewardClaimOutcome({
+    required this.programCode,
+    required this.outcome,
+    this.day = 0,
+    this.prize,
+    this.claimedAt = 0,
+  });
+
+  final String programCode;
+
+  /// One of [RewardOutcome]; a word this build does not know is kept as sent.
+  final String outcome;
+
+  /// The day claimed, 0 where none was.
+  final int day;
+
+  /// What that day gives, where the server named it.
+  final RewardPrize? prize;
+  final int claimedAt;
+
+  factory RewardClaimOutcome.fromJson(Map<String, dynamic> j) =>
+      RewardClaimOutcome(
+        programCode: _str(j['programCode']),
+        outcome: _str(j['outcome']),
+        day: _int(j['day']),
+        prize: _str(j['rewardType']).isEmpty ? null : RewardPrize.fromJson(j),
+        claimedAt: _int(j['claimedAt']),
+      );
+}
+
 /// What one claim did: what it gave, every program after, the account after.
 class RewardClaimResult {
   const RewardClaimResult({
     required this.granted,
     required this.programs,
     this.user,
+    this.results = const [],
+    this.serverTime = 0,
   });
 
+  /// What THIS call gave — empty on a replay: what to celebrate.
   final List<RewardGrant> granted;
   final List<RewardProgramState> programs;
   final User? user;
 
-  factory RewardClaimResult.fromJson(Map<String, dynamic> j) =>
-      RewardClaimResult(
-        granted: (j['granted'] is List ? j['granted'] as List : const [])
-            .whereType<Map>()
-            .map((e) => RewardGrant.fromJson(Map<String, dynamic>.from(e)))
-            .toList(),
-        programs: rewardProgramsFromJson(j['programs']),
-        user: j['user'] is Map
-            ? User.fromJson(Map<String, dynamic>.from(j['user'] as Map))
-            : null,
-      );
+  /// What the claim did for each program it asked of; empty from a server
+  /// that sends none.
+  final List<RewardClaimOutcome> results;
+
+  /// The answer's own clock, epoch ms; 0 when it sent none.
+  final int serverTime;
+
+  /// The claim's answer; [receivedAt] is when it arrived ([rewardClock] by
+  /// default).
+  factory RewardClaimResult.fromJson(
+    Map<String, dynamic> j, {
+    DateTime? receivedAt,
+  }) => RewardClaimResult(
+    granted: (j['granted'] is List ? j['granted'] as List : const [])
+        .whereType<Map>()
+        .map((e) => RewardGrant.fromJson(Map<String, dynamic>.from(e)))
+        .toList(),
+    programs: rewardProgramsFromJson(
+      j['programs'],
+      serverTime: j['serverTime'],
+      receivedAt: receivedAt,
+    ),
+    user: j['user'] is Map
+        ? User.fromJson(Map<String, dynamic>.from(j['user'] as Map))
+        : null,
+    results: (j['results'] is List ? j['results'] as List : const [])
+        .whereType<Map>()
+        .map((e) => RewardClaimOutcome.fromJson(Map<String, dynamic>.from(e)))
+        .toList(),
+    serverTime: _int(j['serverTime']),
+  );
 }
 
 /// The programs of GET /api/reward-programs or a claim's answer.
-List<RewardProgramState> rewardProgramsFromJson(Object? programs) =>
-    (programs is List ? programs : const [])
-        .whereType<Map>()
-        .map((e) => RewardProgramState.fromJson(Map<String, dynamic>.from(e)))
-        .toList();
+/// [serverTime] is the answer's own `serverTime`; [receivedAt] when it
+/// arrived on this phone ([rewardClock] by default) — the next period's
+/// countdown is counted from that moment.
+List<RewardProgramState> rewardProgramsFromJson(
+  Object? programs, {
+  Object? serverTime,
+  DateTime? receivedAt,
+}) {
+  final at = receivedAt ?? rewardClock();
+  final server = _int(serverTime);
+  return (programs is List ? programs : const [])
+      .whereType<Map>()
+      .map(
+        (e) => RewardProgramState.fromJson(
+          Map<String, dynamic>.from(e),
+          receivedAt: at,
+          serverTime: server,
+        ),
+      )
+      .toList();
+}
