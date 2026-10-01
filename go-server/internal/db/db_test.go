@@ -132,31 +132,44 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 			}
 		}
 	}
-	// Nine, deliberately: the four of 22–26 Sep 2026, since 28 Sep 2026 the
-	// one-time missions' three on xp_sources — mission_type (whose DEFAULT
-	// keeps every source a database already has DAILY), target and scope —
-	// which a database already holding the daily XP (production's) lacks, and
-	// since 29 Sep 2026 the levels' art on player_levels, asset_url and
-	// asset_format. Each is a MISSING column a boot adds; none changes a
-	// column that is already there.
+	// Thirteen, deliberately, in the file's order: the four of 22–26 Sep 2026,
+	// since 28 Sep 2026 the one-time missions' three on xp_sources —
+	// mission_type (whose DEFAULT keeps every source a database already has
+	// DAILY), target and scope — which a database already holding the daily
+	// XP (production's) lacks, since 29 Sep 2026 the levels' art on
+	// player_levels, asset_url and asset_format, and since 1 Oct 2026 is_listed
+	// on the four catalogues a player browses — profile_pictures,
+	// table_pictures, emojis and badges — whose DEFAULT keeps every row an
+	// older database has on the shelves. Each is a MISSING column a boot adds;
+	// none changes a column that is already there.
 	wantAlters := []string{
+		"EXECUTE 'ALTER TABLE profile_pictures ADD COLUMN is_listed BOOLEAN NOT NULL DEFAULT TRUE';",
 		"EXECUTE 'ALTER TABLE users ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE';",
 		"EXECUTE 'ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE';",
+		"EXECUTE 'ALTER TABLE table_pictures ADD COLUMN is_listed BOOLEAN NOT NULL DEFAULT TRUE';",
+		"EXECUTE 'ALTER TABLE emojis ADD COLUMN is_listed BOOLEAN NOT NULL DEFAULT TRUE';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN game TEXT';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN variant TEXT';",
 		"EXECUTE 'ALTER TABLE player_levels ADD COLUMN asset_url TEXT';",
 		"EXECUTE 'ALTER TABLE player_levels ADD COLUMN asset_format TEXT CHECK (asset_format IN (''IMAGE'', ''SVG'', ''LOTTIE'', ''RIVE''))';",
+		"EXECUTE 'ALTER TABLE badges ADD COLUMN is_listed BOOLEAN NOT NULL DEFAULT TRUE';",
 		"EXECUTE 'ALTER TABLE xp_sources ADD COLUMN mission_type TEXT NOT NULL DEFAULT ''DAILY'' CHECK (mission_type IN (''DAILY'', ''ONE_TIME''))';",
 		"EXECUTE 'ALTER TABLE xp_sources ADD COLUMN target INTEGER CHECK (target >= 1)';",
 		"EXECUTE 'ALTER TABLE xp_sources ADD COLUMN scope TEXT';",
 	}
 	if strings.Join(alters, "\n") != strings.Join(wantAlters, "\n") {
-		t.Errorf("the baseline brings forward exactly users.is_bot, users.is_active, chip_ledger.game/.variant, xp_sources.mission_type/.target/.scope and player_levels.asset_url/.asset_format, got:\n%s", strings.Join(alters, "\n"))
+		t.Errorf("the baseline brings forward exactly profile_pictures/table_pictures/emojis/badges.is_listed, users.is_bot, users.is_active, chip_ledger.game/.variant, xp_sources.mission_type/.target/.scope and player_levels.asset_url/.asset_format, got:\n%s", strings.Join(alters, "\n"))
 	}
 	for _, want := range []string{"column_name = 'is_bot'", "column_name = 'is_active'", "column_name = 'game'", "column_name = 'variant'",
 		"column_name = 'mission_type'", "column_name = 'target'", "column_name = 'scope'",
 		"column_name = 'asset_url'", "column_name = 'asset_format'"} {
 		if !strings.Contains(baseline, want) {
+			t.Errorf("%s lacks the lookup %q", migrations[0].File, want)
+		}
+	}
+	// One lookup per catalogue, each on its own table.
+	for _, table := range []string{"profile_pictures", "table_pictures", "emojis", "badges"} {
+		if want := "table_name = '" + table + "' AND column_name = 'is_listed'"; !strings.Contains(baseline, want) {
 			t.Errorf("%s lacks the lookup %q", migrations[0].File, want)
 		}
 	}
@@ -168,6 +181,11 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	}
 	if ledger := squash(createTableBody(t, baseline, "chip_ledger")); !strings.Contains(ledger, "game TEXT") || !strings.Contains(ledger, "variant TEXT") {
 		t.Errorf("CREATE TABLE chip_ledger must declare game TEXT and variant TEXT:\n%s", ledger)
+	}
+	for _, table := range []string{"profile_pictures", "table_pictures", "emojis", "badges"} {
+		if body := squash(createTableBody(t, baseline, table)); !strings.Contains(body, "is_listed BOOLEAN NOT NULL DEFAULT TRUE") {
+			t.Errorf("CREATE TABLE %s must declare is_listed BOOLEAN NOT NULL DEFAULT TRUE, as its guarded block adds it:\n%s", table, body)
+		}
 	}
 	if levels := squash(createTableBody(t, baseline, "player_levels")); !strings.Contains(levels, "asset_url TEXT,") ||
 		!strings.Contains(levels, "asset_format TEXT CHECK (asset_format IN ('IMAGE', 'SVG', 'LOTTIE', 'RIVE')),") {

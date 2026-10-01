@@ -46,6 +46,10 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	execSQL(t, older, `ALTER TABLE chip_ledger DROP COLUMN game, DROP COLUMN variant`)
 	// The levels' art (29 Sep 2026) is missing from production's ladder.
 	execSQL(t, older, `ALTER TABLE player_levels DROP COLUMN asset_url, DROP COLUMN asset_format`)
+	// …and the shelves' is_listed (1 Oct 2026) from every database built before
+	// it. table_pictures and emojis are dropped whole below.
+	execSQL(t, older, `ALTER TABLE profile_pictures DROP COLUMN is_listed`)
+	execSQL(t, older, `ALTER TABLE badges DROP COLUMN is_listed`)
 	execSQL(t, older, `DROP TABLE table_configs`)
 	execSQL(t, older, `DROP TABLE table_settings`)
 	execSQL(t, older, `DROP TABLE table_categories`)
@@ -83,10 +87,21 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	t.Cleanup(d.Close)
 
 	for _, c := range [][2]string{{"users", "is_bot"}, {"users", "is_active"}, {"chip_ledger", "game"}, {"chip_ledger", "variant"},
-		{"player_levels", "asset_url"}, {"player_levels", "asset_format"}} {
+		{"player_levels", "asset_url"}, {"player_levels", "asset_format"},
+		{"profile_pictures", "is_listed"}, {"table_pictures", "is_listed"}, {"emojis", "is_listed"}, {"badges", "is_listed"}} {
 		if column(d, c[0], c[1]) != 1 {
 			t.Errorf("%s.%s is not back", c[0], c[1])
 		}
+	}
+	// Every picture and badge that was already there is still on the shelves,
+	// as is_listed's DEFAULT says: an upgrade hides nothing.
+	for _, table := range []string{"profile_pictures", "badges"} {
+		if n := countOf(t, d, `SELECT count(*) FROM `+table+` WHERE NOT is_listed`); n != 0 {
+			t.Errorf("%d rows of %s arrived unlisted after the upgrade", n, table)
+		}
+	}
+	if n := countOf(t, d, `SELECT count(*) FROM profile_pictures`); n == 0 {
+		t.Error("the upgraded database has no pictures to prove is_listed's DEFAULT on")
 	}
 	// …and the ladder that was already there has the owner's art, filled by
 	// the same boot.

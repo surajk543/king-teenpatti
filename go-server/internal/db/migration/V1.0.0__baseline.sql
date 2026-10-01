@@ -241,6 +241,16 @@ CREATE TABLE IF NOT EXISTS profile_pictures (
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at BIGINT  NOT NULL,
   updated_at BIGINT  NOT NULL,
+  -- FALSE takes a picture off the shelves (owner, 1 Oct 2026: "if it is false,
+  -- then user will not see these assets in UI or UI store"): GET /api/profiles
+  -- leaves it out for everybody but a player who already has it — an
+  -- ownership row still running, or the picture they are wearing — and nobody
+  -- can buy it. Unlike is_active it takes nothing away: whoever has it keeps
+  -- it, wears it and sees it, and a reward (the Lucky Draw, a reward program,
+  -- the welcome) can still give it, which is how a picture becomes a prize no
+  -- store sells. Last, where the guarded block below puts it on an older
+  -- database, so the column order is the same either way.
+  is_listed  BOOLEAN NOT NULL DEFAULT TRUE,
   -- Free means free and premium means it costs something. Without this a
   -- PREMIUM row at cost 0 would be a picture the buy endpoint charges nothing
   -- for and the picker still draws a padlock on.
@@ -249,6 +259,23 @@ CREATE TABLE IF NOT EXISTS profile_pictures (
     (type = 'PREMIUM' AND cost >  0)
   )
 );
+
+-- profile_pictures.is_listed for a database built before it (1 Oct 2026:
+-- every database until then, production's included). Catalogue-guarded, as
+-- users.is_bot is: only a database missing the column runs the ALTER, once,
+-- and cheaply — a NOT NULL column with a constant DEFAULT is stored in the
+-- catalogue, not written into every row. TRUE, so every picture already on
+-- offer stays on the shelves.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'profile_pictures' AND column_name = 'is_listed'
+  ) THEN
+    EXECUTE 'ALTER TABLE profile_pictures ADD COLUMN is_listed BOOLEAN NOT NULL DEFAULT TRUE';
+  END IF;
+END;
+$$;
 
 -- ------------------------------------------------------------------- users
 
@@ -539,11 +566,31 @@ CREATE TABLE IF NOT EXISTS table_pictures (
   sort_order      INTEGER NOT NULL DEFAULT 0,
   created_at      BIGINT  NOT NULL,
   updated_at      BIGINT  NOT NULL,
+  -- FALSE takes the picture off the Tables shelf (owner, 1 Oct 2026) as
+  -- profile_pictures.is_listed does a face: listed to nobody but a player who
+  -- has it — an ownership row still running, or the picture laid on their
+  -- table — and sold to nobody; nothing is taken away, and a reward can still
+  -- give it. Last, where the guarded block below puts it on an older database.
+  is_listed       BOOLEAN NOT NULL DEFAULT TRUE,
   CONSTRAINT free_table_picture_cost_check CHECK (
     (type = 'FREE'    AND cost =  0) OR
     (type = 'PREMIUM' AND cost >  0)
   )
 );
+
+-- table_pictures.is_listed for a database built before it (1 Oct 2026),
+-- guarded as profile_pictures.is_listed is above. TRUE: every table picture
+-- already on offer stays on the shelf.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'table_pictures' AND column_name = 'is_listed'
+  ) THEN
+    EXECUTE 'ALTER TABLE table_pictures ADD COLUMN is_listed BOOLEAN NOT NULL DEFAULT TRUE';
+  END IF;
+END;
+$$;
 
 -- Who has bought which premium table picture, and until when: the twin of
 -- user_profile_pictures, kept for the same reasons. A FREE row needs no row
@@ -624,11 +671,30 @@ CREATE TABLE IF NOT EXISTS emojis (
   sort_order     INTEGER NOT NULL DEFAULT 0,
   created_at     BIGINT  NOT NULL,
   updated_at     BIGINT  NOT NULL,
+  -- FALSE takes the emoji off the Emojis shelf and the table's emoji page
+  -- (owner, 1 Oct 2026) as profile_pictures.is_listed does a face: listed to
+  -- nobody but a player who owns it on a rental still running, and sold to
+  -- nobody. Whoever owns it still sends it, and a reward can still give it.
+  -- Last, where the guarded block below puts it on an older database.
+  is_listed      BOOLEAN NOT NULL DEFAULT TRUE,
   CONSTRAINT free_emoji_cost_check CHECK (
     (type = 'FREE'    AND cost =  0) OR
     (type = 'PREMIUM' AND cost >  0)
   )
 );
+
+-- emojis.is_listed for a database built before it (1 Oct 2026), guarded as
+-- profile_pictures.is_listed is. TRUE: every emoji already on offer stays.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'emojis' AND column_name = 'is_listed'
+  ) THEN
+    EXECUTE 'ALTER TABLE emojis ADD COLUMN is_listed BOOLEAN NOT NULL DEFAULT TRUE';
+  END IF;
+END;
+$$;
 
 -- Who has bought which premium emoji, and until when: the twin of
 -- user_profile_pictures, kept for the same reasons. A FREE emoji needs no row
@@ -1550,8 +1616,32 @@ CREATE TABLE IF NOT EXISTS badges (
   is_active       BOOLEAN  NOT NULL DEFAULT TRUE,
   sort_order      INTEGER  NOT NULL,
   created_at      BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
-  updated_at      BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint)
+  updated_at      BIGINT   NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
+  -- FALSE takes the badge out of the catalogue (owner, 1 Oct 2026: "if it is
+  -- false, then user will not see these assets in UI or UI store"): GET
+  -- /api/levels leaves it out, so neither the store's Badges shelf nor the
+  -- level screen's list of badges shows it. Unlike is_active it takes nothing
+  -- away: a player who holds it keeps holding it — its rate, its mark on
+  -- their picture, its card among their own badges, all read with the
+  -- account — and a reward or a Play purchase made while it was listed still
+  -- grants it. Last, where the guarded block below puts it on an older
+  -- database.
+  is_listed       BOOLEAN  NOT NULL DEFAULT TRUE
 );
+
+-- badges.is_listed for a database built before it (1 Oct 2026), guarded as
+-- profile_pictures.is_listed is. TRUE: every badge already in the catalogue
+-- stays in it.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'badges' AND column_name = 'is_listed'
+  ) THEN
+    EXECUTE 'ALTER TABLE badges ADD COLUMN is_listed BOOLEAN NOT NULL DEFAULT TRUE';
+  END IF;
+END;
+$$;
 
 -- The badges each player has been given, one row a badge (a player may hold
 -- several). Written by hand (V1.0.1's header has the statements) and by a
