@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -101,6 +102,41 @@ bool looksLikeHtml(Uint8List bytes) {
   return head.startsWith('<html') || RegExp(r'^<!doctype\s+html').hasMatch(head);
 }
 
+/// Whether [url] is a LOCATION in the catalogue's private Cloudflare R2
+/// bucket (owner, 1 Oct 2026): `https://<account>.r2.cloudflarestorage.com/<bucket>/<key>`,
+/// with no query. The server hands every catalogue file out
+/// as its location — the path the database stores, which never changes for a
+/// file — and no phone can open one as it stands: [PictureCache] asks the
+/// server to sign it ([PictureCache.signer]) and downloads the signed URL,
+/// keeping the file under the location.
+bool isAssetLocation(String url) {
+  final uri = Uri.tryParse(url);
+  return uri != null &&
+      uri.scheme == 'https' &&
+      uri.host.endsWith('.r2.cloudflarestorage.com') &&
+      !uri.hasQuery &&
+      uri.pathSegments.length >= 3;
+}
+
+/// What POST /api/assets/sign answered: each location it signed, mapped to
+/// its signed URL, and when they all stop working (ten minutes on).
+class SignedAssets {
+  const SignedAssets(this.urls, this.expiresAt);
+
+  /// Nothing signed: signed out, or a server that cannot sign.
+  static final none = SignedAssets(
+    const {},
+    DateTime.fromMillisecondsSinceEpoch(0),
+  );
+
+  final Map<String, String> urls;
+  final DateTime expiresAt;
+}
+
+/// Signs catalogue locations for a download (GameState wires
+/// ApiClient.signAssets with the session's token).
+typedef AssetSigner = Future<SignedAssets> Function(List<String> locations);
+
 /// Profile pictures, kept on the phone after the first fetch.
 ///
 /// The catalogue is a set of remote URLs (requirement 21), and without this
@@ -125,6 +161,20 @@ bool looksLikeHtml(Uint8List bytes) {
 /// bundled default picture for now and tries again on the next build, rather
 /// than being told for the rest of the session that the picture does not
 /// exist.
+///
+/// A catalogue file in the R2 bucket ([isAssetLocation]; owner, 1 Oct 2026:
+/// "backend will give signed urls valid for 10 min, UI will download and save
+/// in phone disk or cache, when user login again, it will see the path of
+/// assets is changed, so the UI will ask for new signed url for changed asset
+/// path stored in db") is kept under its LOCATION like any URL, so a file the
+/// phone has is read from its disk with no network and no signature at all.
+/// Only a location it does not have — a new file, or a file the server now
+/// names by a new path — goes to the network: [signer] asks the server for a
+/// signed URL valid ten minutes (one request for every location asked for
+/// within [signWindow], at most [signBatch] at a time), and the file is
+/// downloaded from that and written under the location.
+///
+/// At most [maxDownloads] downloads run at once, whatever their host.
 class PictureCache {
   PictureCache._();
 
@@ -141,6 +191,37 @@ class PictureCache {
 
   static Directory? _dir;
   static Future<Directory?>? _dirOpening;
+
+  /// Signs catalogue locations for a download (POST /api/assets/sign). Null —
+  /// no session wired yet, a test — signs nothing, and a location then fails
+  /// like any picture that could not be fetched.
+  static AssetSigner? signer;
+
+  /// How long locations asked for are gathered into one signing request.
+  static const signWindow = Duration(milliseconds: 30);
+
+  /// The most locations one signing request carries (the server takes 200).
+  static const signBatch = 100;
+
+  /// A signed URL with less than this left is not started on: asked again.
+  static const signedMargin = Duration(seconds: 30);
+
+  /// The signed URLs held, by location, until they stop working.
+  static final Map<String, ({String url, DateTime expiresAt})> _signed = {};
+
+  /// Locations waiting for the next signing request.
+  static final Map<String, Completer<String?>> _toSign = {};
+  static Timer? _signTimer;
+
+  /// The most downloads running at once, as a browser opens at most six
+  /// connections to one host. A first sign-in asks for every picture, emoji
+  /// and table picture at the same moment — over a hundred files, each its
+  /// own TLS connection — and all at once they crowd each other out: on the
+  /// emulator every one of 128 ran out of time (1 Oct 2026), where six at a
+  /// time bring them all in.
+  static const maxDownloads = 6;
+  static int _downloading = 0;
+  static final Queue<Completer<void>> _waitingForSlot = Queue<Completer<void>>();
 
   /// What is already in memory, or null. Synchronous on purpose: a widget can
   /// paint the picture on its first frame when it has been seen before, with
@@ -215,10 +296,29 @@ class PictureCache {
   }
 
   static Future<Uint8List?> _download(String url) async {
+    // A file of the private bucket is downloaded through a URL the server
+    // signs for it, never through the location itself. Asked for before the
+    // wait for a slot, so every location wanted at the same moment goes to
+    // the server in one request.
+    final location = isAssetLocation(url);
+    if (location && await _signedUrl(url) == null) return null;
+    await _takeSlot();
     try {
+      var from = url;
+      if (location) {
+        // The URL just signed, or a fresh one if the wait ran it down.
+        final signed = await _signedUrl(url);
+        if (signed == null) return null;
+        from = signed;
+      }
       final response = await http
-          .get(Uri.parse(url))
+          .get(Uri.parse(from))
           .timeout(const Duration(seconds: 12));
+      if (location && response.statusCode == 403) {
+        // Run out (a phone asleep past its ten minutes) or refused: the next
+        // try asks for a fresh one.
+        _signed.remove(url);
+      }
       if (response.statusCode != 200 || response.bodyBytes.isEmpty) return null;
       // A page is not a picture, and a 200 does not say which one arrived:
       // Drive answers a file that is not (yet) shared with its sign-in page.
@@ -234,6 +334,77 @@ class PictureCache {
       // Offline, DNS, TLS, a timeout, a malformed URL from a catalogue row:
       // all the same answer here, and all retried on the next build.
       return null;
+    } finally {
+      _releaseSlot();
+    }
+  }
+
+  /// Waits for one of the [maxDownloads] slots.
+  static Future<void> _takeSlot() {
+    if (_downloading < maxDownloads) {
+      _downloading++;
+      return Future<void>.value();
+    }
+    final turn = Completer<void>();
+    _waitingForSlot.add(turn);
+    return turn.future;
+  }
+
+  /// Hands the slot to the download waiting longest, or frees it.
+  static void _releaseSlot() {
+    if (_waitingForSlot.isNotEmpty) {
+      _waitingForSlot.removeFirst().complete();
+    } else {
+      _downloading--;
+    }
+  }
+
+  /// A URL [location] can be downloaded from now: one held with more than
+  /// [signedMargin] left, else asked for in the next signing request. Null
+  /// when the server would not sign it (not a file the catalogue stores,
+  /// signed out, offline).
+  static Future<String?> _signedUrl(String location) {
+    final held = _signed[location];
+    if (held != null &&
+        held.expiresAt.isAfter(DateTime.now().add(signedMargin))) {
+      return Future<String?>.value(held.url);
+    }
+    final waiting = _toSign[location];
+    if (waiting != null) return waiting.future;
+    final asked = Completer<String?>();
+    _toSign[location] = asked;
+    _signTimer ??= Timer(signWindow, () => unawaited(_signWaiting()));
+    return asked.future;
+  }
+
+  /// Sends every location waiting in requests of at most [signBatch].
+  static Future<void> _signWaiting() async {
+    _signTimer = null;
+    final waiting = Map<String, Completer<String?>>.of(_toSign);
+    _toSign.clear();
+    final locations = waiting.keys.toList();
+    for (var i = 0; i < locations.length; i += signBatch) {
+      final batch = locations.sublist(
+        i,
+        (i + signBatch).clamp(0, locations.length),
+      );
+      SignedAssets answer = SignedAssets.none;
+      final sign = signer;
+      if (sign != null) {
+        try {
+          answer = await sign(batch);
+        } catch (_) {
+          // Offline, signed out, a server that cannot sign: these files are
+          // not fetched now, and the next build that shows one asks again.
+        }
+      }
+      for (final location in batch) {
+        final url = answer.urls[location];
+        if (url != null) {
+          _signed[location] = (url: url, expiresAt: answer.expiresAt);
+        }
+        waiting[location]!.complete(url);
+      }
     }
   }
 
@@ -308,6 +479,17 @@ class PictureCache {
   static Future<void> keep(Iterable<String> urls) async {
     final dir = await _directory();
     if (dir == null) return;
+    // The locations to fetch, signed together first — one request for the
+    // lot rather than one per file as the downloads reach them.
+    final missing = <String>[
+      for (final url in urls.toSet())
+        if (isAssetLocation(url) &&
+            !_memory.containsKey(url) &&
+            !_inFlight.containsKey(url) &&
+            !_onDisk(dir, url))
+          url,
+    ];
+    if (missing.isNotEmpty) await Future.wait(missing.map(_signedUrl));
     for (final url in urls.toSet()) {
       if (url.isEmpty ||
           _memory.containsKey(url) ||
@@ -325,6 +507,15 @@ class PictureCache {
       });
       _inFlight[url] = fetch;
       await fetch;
+    }
+  }
+
+  static bool _onDisk(Directory dir, String url) {
+    try {
+      final file = File('${dir.path}/${_key(url)}');
+      return file.existsSync() && file.lengthSync() > 0;
+    } on FileSystemException {
+      return false;
     }
   }
 
@@ -355,5 +546,24 @@ class PictureCache {
   static void clearMemory() {
     _memory.clear();
     _inFlight.clear();
+    _signed.clear();
   }
+
+  /// Forgets the signer and every signature, for tests.
+  @visibleForTesting
+  static void debugResetSigning() {
+    signer = null;
+    _signed.clear();
+    _signTimer?.cancel();
+    _signTimer = null;
+    for (final waiting in _toSign.values) {
+      waiting.complete(null);
+    }
+    _toSign.clear();
+  }
+
+  /// How many downloads are running and how many wait for a slot, for tests.
+  @visibleForTesting
+  static ({int running, int waiting}) get debugDownloads =>
+      (running: _downloading, waiting: _waitingForSlot.length);
 }

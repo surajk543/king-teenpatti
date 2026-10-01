@@ -37,7 +37,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 | Node.js server | *(removed)* | The original implementation, removed from the repo on 8 Sep 2026 (`git log -- server/`, last commit `c19963b`; `multi_node` branch). Its behaviour is what §5–§7 document; its file names are what those sections cite. **No longer a rollback target at all** (12 Sep 2026): it reads and writes `users.avatar_choice`, which the schema dropped for `active_picture_id`, and knows nothing of the picture-catalogue tables — so it cannot run against this database. `ops/rollback-to-node.sh` was deleted rather than left as a recovery script that would fail when used; rolling back now means the previous **Go** tag (DEPLOY.md §5). |
 | Mobile client | `flutter-client/` | **The live client.** Flutter 3.44 / Dart 3.12, Material 3 via FlexColorScheme. Android is the shipping platform; `ios/` exists and is configured (`docs/ios-setup.md`) but has never been compiled — there is no macOS here. |
 | Browser client | `go-server/public/` | Zero-build vanilla-JS reference client served at `/` by the Go binary (`PUBLIC_DIR`) — **in dev only; production hides it** (`ROOT_REDIRECT=/dashboard/`, §7.4/§9) and serves just `privacy/`, `profiles/` from that dir. **Lags behind** — no sideshow, kick, rename, entry-cap or Indian-numbering UI. |
-| Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation and `tools/lottie/bake_loop_expressions.py` writes its `loopOut()` expressions out as keyframes, both for the phone players (§12.3). `tools/tables/make_table_pictures.py` (Python 3, stdlib) draws the 16 SVG table pictures in `go-server/public/tables/` — eight designs, a day and a night file each (§7.3); `tools/tables/make_background_pattern.py` re-encodes the owner's Background Pattern Lottie (`background-pattern.json`, 122 KB) into the two 31 KB Drive files beside it, day and night (§7.3); `tools/tables/make_thank_you_day.py` recolours the owner's Thank You Lottie into its day file, deep gold for the light ground (§7.3). |
+| Tools | `tools/` | Small Node ≥ 20 package (`npm install` first): `npm run bot` (practice bots), `npm run ramp` (staged load test), `npm run parity` / `parity:diff` (black-box suites in `tools/parity/`). Clients of the server; also lend `node_modules` to two Go interop tests. `tools/lottie/flatten_orientation.py` (Python 3, stdlib) flattens a Lottie's 3D orientation and `tools/lottie/bake_loop_expressions.py` writes its `loopOut()` expressions out as keyframes, both for the phone players (§12.3). `tools/tables/make_table_pictures.py` (Python 3, stdlib) draws the 16 SVG table pictures in `go-server/public/tables/` — eight designs, a day and a night file each (§7.3); `tools/tables/make_background_pattern.py` re-encodes the owner's Background Pattern Lottie (`background-pattern.json`, 122 KB) into the two 31 KB Drive files beside it, day and night (§7.3); `tools/tables/make_thank_you_day.py` recolours the owner's Thank You Lottie into its day file, deep gold for the light ground (§7.3). `tools/r2/migrate_drive_assets.py` (Python 3 + the AWS CLI) copied the catalogue's 130 art files from Google Drive (and `go-server/public/levels/`) into the private Cloudflare R2 bucket and wrote `tools/r2/drive-to-r2.tsv`, the record the seed's moves were written from; `tools/r2/move_back_sql.py` turns that record into the SQL a rollback past the move needs first (§7.3 "The catalogue's art in R2"). |
 | **Bot fleet** | `bot-play/` | The resident bots that keep production's lobby populated (`bot-play.service` on the game host, loopback to `:3000`). **Go since 27 Sep 2026** (module `github.com/surajk543/king-teenpatti/bot-play`, one static binary; the Node fleet it replaced is in git history, tagged `bot-play/v1.0.0`): `BOT_COUNT` bots (450 in the unit since 30 Sep 2026, 320 before — about 280 seated at once: 30–50 at each of Seen 200, Seen 50,000 and Variation 50,000, and 50–80 at Blind 200 and Blind 50,000 — `BOT_LOBBY_TABLES=seen:200,seen:50000,blind:200:fleet=50-80,blind:50000:fleet=50-80,variation:50000`, `BOT_FLEET_PER_TABLE=30,50` for the entries without their own `:fleet=FLOOR-CEILING`; owner 27 Sep 2026, and 30 Sep 2026: "add some bots which plays blind 50000, blind 200 also". A new build must be built before its unit is installed: an older binary refuses a `:fleet=` entry and the unit would restart-loop), guest devices `botplay-<6 digits>` the server marks `is_bot`, each on its own goroutine, event loop and websocket-only Socket.IO connection, in sessions of play with rests between. Six personality families (CAUTIOUS … BEGINNER) stable per identity, blind/seen play, raises up the server's ladder, hand strength from a copy of `handrank.go` pinned by a fingerprint of all 22,100 hands (variation hands read from the server's `you.hand`), log-normal reaction times ending 3 s inside the turn clock, tables from `GET /api/tables`, chat under a per-table budget, a lost ack resent with the same `actionId`; a bot broke for every table collects the lobby's 6-hour bonus (25,000, `POST /api/rewards/bonus`, `bankroll.collect_bonus`/`BOT_COLLECT_BONUS`) and looks again, where from the rewards' removal until 1 Oct 2026 it rested for good. `ops/install.sh` runs the unit as `BOT_USER` (unset: the installed fleet's user, else `deploy`) and refuses a user the host lacks — production has no `deploy` and runs the fleet as `gameplay` (a drop-in, `/etc/systemd/system/bot-play.service.d/user.conf`, since the unit as shipped restart-looped there on 217/USER). `go run ./cmd/bot-play` (`BOT_MODE=simulation BOT_SEED=12345` runs an in-process stand-in server), `go test -race ./...`; `bot-play/README.md` is the reference. Separate from `tools/bot.js`, the practice bots for manual testing. |
 | Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
 | Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
@@ -101,8 +101,9 @@ king-teenpatti/
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go,
 │   │   │                         poker.go (poker:action in, the poker:* events out — the Handler's poker.Listener); testclient/
 │   │   ├── appversion/           the app version gate (28 Sep 2026, §7.2): semver.go (Parse/Compare — the ONE version comparison), rules.go (Evaluate: NORMAL/SOFT_UPDATE/FORCE_UPDATE/MAINTENANCE, the platforms, LegacyMinClientBuild), source.go (the app_versions rows behind a TTL cache), gate.go (Gate.Admit/Check, the refusal and the GET /api/app-config body, the logs)
-│   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go, reports.go (Report Player's POST /api/reports and GET /api/reports/limit, §7.2), rewardprograms.go (GET /api/reward-programs and POST /api/reward-programs/claim, §7.2)
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — the founding PAIR since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows); since 28 Sep 2026 DML-only seeds may follow them, V1.0.2__seed-festive-capybara.sql the first (Festive Capybara) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL), luckydraw.go (the Lucky Draw: State, Spin — draw, grant and record in one transaction, §7.3), reports.go (player_reports: Submit — the limits and the insert in one transaction, §7.3), rewardprograms.go (the reward programs, §7.3: State and Claim — the period, the streak and the calendar day worked out in Go from the claims, one transaction a program) and grant.go (grantReward — the ONE grant of a reward of any kind, the Lucky Draw's and the programs'); dbtest/
+│   │   ├── assets/               the catalogue's art in a private Cloudflare R2 bucket (1 Oct 2026, §7.2 POST /api/assets/sign): sigv4.go (AWS SigV4 query presigning, stdlib only), signer.go (Signer: a location's GET link valid ten minutes, Location/Key, the bucket's and keys' shapes checked)
+│   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go, reports.go (Report Player's POST /api/reports and GET /api/reports/limit, §7.2), rewardprograms.go (GET /api/reward-programs and POST /api/reward-programs/claim, §7.2), assets.go (POST /api/assets/sign, §7.2)
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — the founding PAIR since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows); since 28 Sep 2026 DML-only seeds may follow them, V1.0.2__seed-festive-capybara.sql the first (Festive Capybara) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL), luckydraw.go (the Lucky Draw: State, Spin — draw, grant and record in one transaction, §7.3), reports.go (player_reports: Submit — the limits and the insert in one transaction, §7.3), rewardprograms.go (the reward programs, §7.3: State and Claim — the period, the streak and the calendar day worked out in Go from the claims, one transaction a program) and grant.go (grantReward — the ONE grant of a reward of any kind, the Lucky Draw's and the programs'), assets.go (Assets.Stored — which R2 locations some catalogue row names, what the sign route signs, §7.2); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js),
 │   │   │                         tableconfig.go (resolveTableCatalogue — the catalogue settled once, before anything is built from it; GET /api/tables; /health.tableConfig)
@@ -117,8 +118,9 @@ king-teenpatti/
 │   └── go.mod, go.sum
 ├── tools/                        Node package (npm install here first): bot.js, ramptest.mjs, parity.mjs, parity-diff.mjs
 │   ├── package.json              scripts: bot / ramp / parity / parity:diff; deps socket.io-client, ws, pg, jsonwebtoken
-│   └── parity/                   black-box suites (game, money, lobby, stakes, rest, protocol, resume, invalid, metrics, variation, poker) + lib/ (harness, launch, raw client,
-│                                 csharpJsonPort.js, poker5.mjs — an independent five-card and three-card evaluator, the poker suite's oracle)
+│   ├── parity/                   black-box suites (game, money, lobby, stakes, rest, protocol, resume, invalid, metrics, variation, poker) + lib/ (harness, launch, raw client,
+│   │                             csharpJsonPort.js, poker5.mjs — an independent five-card and three-card evaluator, the poker suite's oracle)
+│   └── r2/                       migrate_drive_assets.py, drive-to-r2.tsv (the record), move_back_sql.py — the catalogue's art moved from Drive to R2 (§7.3)
 ├── bot-play/                     the resident bot fleet — Go since 27 Sep 2026, module github.com/surajk543/king-teenpatti/bot-play (the Node
 │   │                             fleet is in git history, tag bot-play/v1.0.0); README.md is its reference
 │   ├── cmd/bot-play/main.go      -config (default configs/bot.yaml) / -version; server or simulation mode; waits for GET /api/tables;
@@ -890,15 +892,17 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   (a guarded `UPDATE … FROM (VALUES …)` right after the ladder's INSERT in `V1.0.1__seed.sql`), every boot: a URL added to that
   list reaches every database at its next boot, production's included, while an owner's own URL — or `''`, none on purpose —
   is never touched. **All 50 levels have art** (the owner's list, 29 Sep 2026: 14 first, the other 36 the same evening); each
-  file was checked for what a phone cannot play (§12.3) and played in the app's own Lottie player, and SIX are served by this
-  server as fixed copies in `go-server/public/levels/` (served in production like `profiles/`;
-  `TestTheLevelArtServedHereIsInThePublicDir` holds each to a Lottie with no `loopOut`): Level 1 `newbie.json` and 41
+  file was checked for what a phone cannot play (§12.3) and played in the app's own Lottie player, and SIX were fixed here
+  and served by this server from `go-server/public/levels/` until 1 Oct 2026 (the files stay there, named by no row now;
+  `TestTheLevelArtServedHereIsInThePublicDir` holds each to a Lottie with no `loopOut`, byte for byte the R2 copy the seed
+  names): Level 1 `newbie.json` and 41
   `overlord.json` (their `loopOut('pingpong')` baked, `tools/lottie/bake_loop_expressions.py`), 20 `high-roller.json` and 25
   `supreme-ace.json` (their `loopOut`s baked), 22 `royal-ace.json` (a `Math.sin` bob of the whole badge, sampled into a
   keyframe a frame) and 32 `royal-titan.json` (two paths that copied other layers' paths by expression — empty on a phone —
   given those paths). Level 20's first upload was 4.1 MB of 161 embedded images; the owner replaced it the same evening
   (43 KB), and the seed moves exactly that old URL onto the new file (`TestLevel20sFirstArtIsMovedOntoItsReplacementAndNothingElse`).
-  The other 44 are the owner's Drive files; what expressions they keep a phone skips harmlessly (overshoot and
+  The other 44 were the owner's Drive files — since 1 Oct 2026 all 50 are files in the R2 bucket, `levels/<NN>-<title>.json`
+  (§7.3 "The catalogue's art in R2"); what expressions they keep a phone skips harmlessly (overshoot and
   inertial-bounce finishes; 28's and 40's `time × Rotation Speed` spins, whose speed is 0). Heaviest now: 47 (Immortal King),
   1.6 MB of 102 embedded images. **Every level's art is kept on the phone** (owner, the same day: "Make sure you cache the all
   level icons in phone"): reading the ladder (`GameState.loadLevelLadder`, at a sign-in when not held) hands every level's
@@ -1436,6 +1440,26 @@ exactly that and never twice; idempotent by construction (the action_id is `rewa
 key. **The login does not claim, and nor does the app by itself**: the lobby reads the programs as it appears and puts the weekly
 login popup up while today's is still to collect (§8.1/§8.4); the claim is the player's tap — which is also what keeps a seated
 player's chips out of it;
+**`POST /api/assets/sign {urls:[…]}`** (owner, 1 Oct 2026: "backend will give signed urls valid for 10 min, UI will download and save
+in phone disk or cache, when user login again, it will see the path of assets is changed, so the UI will ask for new signed url for
+changed asset path stored in db"; `auth/assets.go`, `internal/assets`, `db/assets.go`) — the catalogue's art is in a PRIVATE
+Cloudflare R2 bucket (§7.3 "The catalogue's art in R2"), and every route that names a file — `/api/profiles`, `/api/table-pictures`,
+`/api/emojis`, `/api/levels`, the account's `avatarUrl`, `tablePicture`, badges and level, a seat's `avatarUrl` and `level`, a prize's
+picture — hands out its LOCATION, the URL the database stores (`https://<account>.r2.cloudflarestorage.com/<bucket>/<key>`), which
+nothing can open as it stands. A signed-in phone posts the locations it does not have on its disk and gets `{urls: {<location>:
+<signed URL>}, expiresAt}`: an AWS SigV4 query-signed GET (region `auto`, `UNSIGNED-PAYLOAD`, only `host` signed, stdlib alone),
+dated a minute back for clock skew and good for ten minutes from the answer (`X-Amz-Expires` 660–661; `expiresAt` epoch ms).
+**Only a location some catalogue row names is signed** — any row, retired or unlisted too (`db.Assets.Stored`, one query over the
+six art columns) — and anything else is left out of the map, so the route never opens another key of the bucket or another host;
+at most `auth.MaxSignedAssets` (200) a request (400 `too_many_assets`), duplicates and blanks dropped, an empty ask an empty map.
+Signed in (`RequireAuth`, so the version gate and `session_replaced` apply); it costs one query and some HMACs, and the server never
+calls R2. A server without the R2 keys answers 503 `assets_unavailable` "Pictures are not available right now." (development
+without them; production cannot start without them, §7.4). Nothing else is ever signed: a location is stable for a file's life,
+so the app keys its cache by it (§8.4) and no stored or cached answer holds a link that has run out. Tests:
+`internal/assets/*_test.go` (the AWS published example's signature, the URI encoding, ten minutes, only this bucket's keys;
+`live_test.go` against the real bucket, skipped without `R2_LIVE_KEY` — unsigned refused, signed 200, tampered refused, signed
+eleven minutes ago refused), `internal/app/assets_test.go` (the route on the real wiring; with the R2 keys in the environment a
+signed URL opens the real file);
 **A disabled account** (owner, 26 Sep 2026: "Add a flag is_active in users table by default keep its value true and
 when it is marked false, it means user is disabled … he cannot join the table also"): `users.is_active` (§7.3), switched
 off by hand — `UPDATE users SET is_active = FALSE WHERE id = …` — and back on the same way, with nothing else about the
@@ -1861,7 +1885,7 @@ Three tables:
 `users.active_picture_id` for the table, kept as a side table because a `users` column would be an `ALTER TABLE users` and a §7
 one-off on every deploy that carries it; `ON DELETE CASCADE` on the picture, so deleting a catalogue row clears the tables it was on).
 The seed holds **five rows, the owner's own art** (owner, 15 Sep 2026: "apply this only"; the fifth 24 Sep 2026), all LOTTIE, all hosted in the owner's Drive
-`table_pictures` folder (`uc?export=download&id=…`, never the `/file/d/…/view` page), all rented for chips — so sold in the lobby only
+`table_pictures` folder (`uc?export=download&id=…`, never the `/file/d/…/view` page; copied to the R2 bucket on 1 Oct 2026 — "The catalogue's art in R2", below), all rented for chips — so sold in the lobby only
 (§5.1). The first two have a night file made here, where a Drive upload travels through a tool call and size is the constraint; Welcome
 reads on both grounds and is its own night file; Thank You has a day file made here that the owner uploaded (729 KB). **Lines
 Background** — 1 lakh chips / 7 days, sort_order 75 (seeded at 10 hammers / 30 days and re-priced by the owner on 16 Sep 2026; a database
@@ -1910,7 +1934,7 @@ deep one for the dark theme's light ink; a picture's art must read on its own gr
 columns — `name`, `asset_url` UNIQUE, `asset_format` LOTTIE only, `currency` COIN|DIAMOND|HAMMER, `type` FREE|PREMIUM
 with the free-is-0 CHECK, `cost`, `duration_days`/`duration_hours`, `is_active`, `sort_order`) and **`user_emojis`**
 (`user_id`, `emoji_id`, `acquired_at`, `expires_at`, `purchases`; PK on the pair — the twin of `user_profile_pictures`;
-a FREE emoji needs no row). `V1.0.1__seed.sql`'s THE EMOJIS holds the owner's NINETEEN, every one a Drive-hosted Lottie at
+a FREE emoji needs no row). `V1.0.1__seed.sql`'s THE EMOJIS holds the owner's NINETEEN, every one a Lottie (on Drive until 1 Oct 2026, in the R2 bucket since — "The catalogue's art in R2", below) at
 **5 hammers for 30 days** (checked: no 3D, no expressions, no images), `ON CONFLICT (asset_url) DO NOTHING`: Angry,
 Dollar, Crying, Hi Face, Clapping Hands, Cowboy Hat Face, Muscle, Plane Face, Knife, Sleeping, Squinting Face with
 Tongue, Crying Face, Enraged Face, Chill Face, Face Blowing a Kiss, Kiss Face, Ok, No Face, Tongue Face (sort_order 10–190, the order they were
@@ -1941,6 +1965,32 @@ listed, sold, nor newly worn, laid or sent. The app needed no change — it draw
 (each rule per table, a reward granting an unlisted item), `internal/app/listed_test.go` (the four routes signed out, as a
 stranger and as the owner; the refusals; relisting), `db_test.go` (the thirteen guarded ALTERs, the column in each CREATE TABLE),
 `upgrade_boot_test.go` (a database without the columns brought forward, every row listed).
+
+**The catalogue's art in R2 (owner, 1 Oct 2026: "All the google drive urls(emoji, profile_pictures, table_pictures, emojis), upload
+the artifacts in RC clouldfare … update the dml with cloudstorage s3 url instead of gdrive, Flutter client app with these assets with
+signed url, and in database store the location of these uploaded assets"; and the levels this server served: "upload this also
+/levels/royal-titan.json")**. Every file the seed names — 46 profile pictures, 8 table-picture files (Welcome and Circle Background
+Pattern are one file each for day and night), 19 emojis, 7 badges and all 50 levels' art, **130 files** — was copied byte for byte
+by `tools/r2/migrate_drive_assets.py` (which refuses a web page, checks a LOTTIE row parses as one and an IMAGE row is a PNG, JPEG,
+WebP or GIF, uploads with the content type and `Cache-Control: public, max-age=31536000, immutable`, and reads each back) into the
+PRIVATE Cloudflare R2 bucket `king-teenpatti` (account `a91cb23b3b93a35dd9ea50db7b855e18`), under `profile_pictures/<slug>.<png|json>`,
+`table_pictures/<slug>[-day|-night].json`, `emojis/<slug>.json`, `badges/<code slug>.json` and `levels/<NN>-<title slug>.json`;
+`tools/r2/drive-to-r2.tsv` records each source (a Drive or `lh3.googleusercontent.com` URL, or a `/levels/…` path read from
+`go-server/public/`), key, size and sha256. **Every seed row names its LOCATION**,
+`https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/<key>` (path-style on the account's S3 endpoint;
+`V1.0.2__seed-festive-capybara.sql`'s row too), which the routes hand out unchanged and a phone opens through the sign route (§7.2).
+**A database seeded while the art was on Drive — production's — is moved at its next boot**: before each INSERT (for the levels
+after the fill, and after the two older moves, Thank You's day file and Level 20's replacement, which still name Drive URLs on
+purpose) a guarded `UPDATE … FROM (VALUES (<drive url>, <location>) …)` moves a row still at EXACTLY a source the move copied onto
+its location — never an owner's own URL, and on a conflict-key column only where no row holds the location already — so the
+INSERTs find the rows moved, ids unchanged, nothing added, and a second boot finds nothing to do. **A new file goes to a NEW key**
+(a key's bytes never change — the app keeps a file under its location for ever, §8.4) and a row names it; a row moved to a new
+location is a file every phone fetches once more. **Rolling back past the move** needs the rows moved back first, or the older
+seed — which names the Drive URLs, its conflict key — inserts every picture, table picture and emoji a second time:
+`python3 tools/r2/move_back_sql.py > move-back.sql` and psql it (DEPLOY.md §5); the Drive files must stay where they are. Tests:
+`internal/db/assets_test.go` (every location a key the move uploaded, all 130 named; a Drive-era database — and an owner's own Drive
+URL — through two boots; `Stored`), the catalogue tests (`levels_test`, `emojis_test`, `tablepictures_test`, the app's) pinning the
+locations.
 
 **The Lucky Draw (owner, 24 Sep 2026)** is three more tables in `V1.0.0__baseline.sql` (LUCKY DRAW, after `missile_spends`) and one
 draw in `V1.0.1__seed.sql` (THE LUCKY DRAW, last). **`lucky_draws`** (`code` UNIQUE, `name`, `spinner_type` TEXT default `STANDARD` —
@@ -2137,6 +2187,7 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | **`MIN_CLIENT_BUILD`** | 0 | The oldest client build allowed to play, sent to every client in `session:ready.config.minClientBuild`. A client below it is held on the update screen with no way past (Flutter `_belowMinimumBuild`/`_forceUpdate`). **0 = no floor**, which is what production runs; raise it only after the newer build is actually live in the store, or the floor locks everyone out of a version they cannot yet install. Play's own in-app check (`AppUpdate`) is a separate, best-effort nudge that fails open (a Soft Update prompt since 28 Sep 2026). **Since the app version gate (28 Sep 2026) this is the floor UNDER each connection's `minClientBuild`**, which is the larger of it and the build number the platform's `app_versions.minimum_version` translates to (§7.2) — so a raised minimum version already raises it for the installs that predate the gate, and this can stay 0. The gate's own minimum is a version, enforced by the server at every signed-in door; this key is enforced by the app alone. |
 | **`APP_VERSION_REQUIRED`** | false | **Go-only (28 Sep 2026; §7.2 "The app version gate").** true = refuse every client that declares no app platform — every install that predates the gate — with FORCE_UPDATE (REST 426 `update_required`, `connect_error update_required`). `bot`, `tool` and `web` are never refused. Turn it on ONLY once the oldest build the store still serves sends `X-App-Platform` (the first build with the gate) and the android `minimum_version` holds everything older — until then it would lock out apps nobody has updated yet (DEPLOY.md "The app version gate"). A restart applies it. |
 | **`APP_VERSION_CACHE_MS`** | 15000 | **Go-only (28 Sep 2026).** How long the `app_versions` rows are cached in the process — the longest an operator's UPDATE (a raised minimum, a maintenance) takes to be enforced. 0 reads the table on every request. A negative value stops the boot. The versions, store links, maintenance and messages themselves are NOT keys: they are the rows (§7.3). |
+| **`R2_ACCOUNT_ID`** / **`R2_ACCESS_KEY_ID`** / **`R2_SECRET_ACCESS_KEY`** / **`R2_BUCKET_NAME`** | empty | **Go-only (1 Oct 2026; §7.2 `POST /api/assets/sign`, §7.3 "The catalogue's art in R2").** The Cloudflare account, an R2 API token's S3 keys (reading the bucket is all they need: the server only signs, it never calls R2) and the bucket the catalogue's art is in. **All four or none** — a partial set stops the boot naming what is missing — and **`NODE_ENV=production` refuses to start without them**, as `gameplay -migrate` does, so a deploy without them stops before any restart (DEPLOY.md). Unset (development, tests) the sign route answers 503 `assets_unavailable` and the app draws its fallback pictures. The boot logs `asset signing enabled` with the bucket, never a key. They live in `go-server/.env` (git-ignored); `.env.example` names them empty. |
 | `SIDESHOW_TIMEOUT_MS` / `SIDESHOW_MIN_PLAYERS` † | 6000 / 3 | |
 | `DISPLAY_NAME_MAX` | 24 | also hardcoded: providers.js `.slice(0,24)`, Flutter login/lobby `maxLength: 24` |
 | `PRIVATE_BOOT` / `PRIVATE_MAX_POT` / `PRIVATE_MAX_RAISE_STEPS` † | 200 / 500000 / 2 | db: the private templates (`is_private` rows, one per category); `privateBoot`/`privateMaxPot` on the wire are the seen template's |
@@ -4330,6 +4381,20 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   (TP_Tall fetched Background Pattern's day file in the minute before the owner shared it and drew a bare felt from then on).
   `_download` now refuses `text/html` and anything `looksLikeHtml` (`<!doctype html` / `<html`, not an SVG's `<!DOCTYPE svg`),
   and `_read` deletes such a file it finds on disk and fetches again; `test/picture_cache_test.dart` pins the sniff.
+  **A catalogue file in R2 is downloaded through a ten-minute link and kept under its LOCATION** (owner, 1 Oct 2026; server
+  §7.2 `POST /api/assets/sign`, §7.3): a location (`isAssetLocation` — https, `*.r2.cloudflarestorage.com`, no query) cannot be
+  opened as it stands, so on a miss `_download` asks `PictureCache.signer` — GameState's `_signAssets`, `ApiClient.signAssets`
+  with the session's token, wired in `start()` — gathering every location asked for within `signWindow` (30 ms) into one
+  request of at most `signBatch` (100), as `keep()` signs its whole list first; it fetches the link and writes the file under
+  the location, so the next launch reads it from the disk and signs nothing (a link is never stored), and a row the server
+  moves to a new location is simply a file the phone does not have yet — "when user login again, it will see the path of assets
+  is changed, so the UI will ask for new signed url". A link is reused while more than `signedMargin` (30 s) is left (fetched
+  again when a download's wait ran it down), dropped on a 403; signed out — the cold start's anonymous catalogue read — nothing
+  is signed or fetched until the sign-in's read; sign-out clears the links with the memory. **At most `maxDownloads` (6)
+  downloads run at once**, any host: a first sign-in wants some 125 files at the same moment, each its own TLS connection, and
+  on the TP_API36 emulator all 128 of the unthrottled burst ran out of their 12 s (1 Oct 2026) while Chrome there opened the same
+  link at once; six at a time, all 124 arrived in about 90 s. `test/asset_signing_test.dart` (the signing, the batching, the
+  path change, a refusal, the 403, the retry, `keep`, the cap, a link run down while waiting).
 - **i18n**: `AppLang` × 5; `Strings(lang)` with English → key fallback. **New keys go in all five
   maps + a getter.** Teen Patti vocabulary transliterated. Still-English strings: `'YOU'`, `'Table
   ${code}'`, private-card body, picture-picker labels, `'Switch theme'`, chat `'You'`,
@@ -4377,6 +4442,9 @@ Vanilla JS IIFE (`client.js`, `style.css`, `theme.css`, `index.html`, `profiles/
 Go binary from `PUBLIC_DIR` (default `./public` from `go-server/`), with `/socket.io/socket.io.js`
 coming from the embedded bundle in `internal/app/assets/`. `localStorage tp_token/tp_device/tp_theme`;
 lobby from `session:ready`'s `config.tables` (it never calls `GET /api/tables`). No `room:kicked`, no sideshow, no rename/entry-cap/numbering.
+**No catalogue picture since 1 Oct 2026**: it puts a picture's URL straight into an `<img>`, and the catalogue's URLs are R2
+locations only the sign route opens (§7.2), so the picker's faces and a seat's worn picture are broken images (the top bar falls
+back to `/profiles/default.svg`).
 The Google button is a stub needing `AUTH_ALLOW_FAKE_PROVIDERS` (it sends **no
 idToken**; against production it is a guaranteed 401 `missing_token` — not a server fault); the Facebook button is an
 HTML comment and its handler commented out while Facebook is switched off (23 Sep 2026). Chat
@@ -4756,7 +4824,9 @@ deploy runbook; `steps.txt` the six-line routine.
   `gomaxprocs`. Grafana's former "Node.js" row is now "Runtime"; alerts
   `GameServerSchedulerLatencyHigh` / `GameServerGoroutinesHigh` / `GameServerMemoryHigh` replaced
   the three `nodejs_*` ones (§7.5 bundle at `go-server/ops/monitoring/`, `MONITORING.md`).
-- Small honest deviations: **the reward programs** (§7.2/§7.3/§8.4; 30 Sep 2026) — three tables, `GET /api/reward-programs`,
+- Small honest deviations: **the catalogue's art in R2** (§7.2/§7.3/§7.4; 1 Oct 2026) — `POST /api/assets/sign`, the four `R2_*`
+  keys (production will not start without them), and every catalogue URL a route hands out a location in a private bucket, which a
+  client opens only through that route; **the reward programs** (§7.2/§7.3/§8.4; 30 Sep 2026) — three tables, `GET /api/reward-programs`,
   `POST /api/reward-programs/claim`, `reward_program` ledger rows; nothing of a table's wire, snapshot or ledger row changed; **the app version gate** (§7.1/§7.2/§7.3/§7.4; 28 Sep 2026) — `app_versions`, `GET /api/app-config`,
   426 `update_required` / 503 `maintenance` on signed-in routes and the same two codes as `connect_error` (with data), the
   per-connection `minClientBuild`, `APP_VERSION_REQUIRED` / `APP_VERSION_CACHE_MS`; a client that declares nothing is served exactly as

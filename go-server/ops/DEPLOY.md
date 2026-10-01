@@ -652,6 +652,50 @@ sudo -u postgres psql gameplay -c "SET statement_timeout = '5s'; SELECT code, re
 - **Rollback**: an older tag ignores `welcome_rewards` (it stays, harmless) and grants `WELCOME_CHIPS` and the column defaults
   again, and serves the three rewards again.
 
+### The catalogue's art in R2 (1 Oct 2026) — the keys first, the app before the server
+
+Every profile picture, table picture, emoji, badge and level file the seed names moved from Google Drive (and the six level
+files this server served from `public/levels/`) into a PRIVATE Cloudflare R2 bucket. The database stores each file's R2
+location, and a signed-in app asks `POST /api/assets/sign` for a link that works for ten minutes (`CLAUDE.md` §7.2, §7.3).
+
+- **The four R2 keys go into production's `.env` BEFORE this build is deployed.** In production this build will not start
+  without them, and `deploy.sh`'s migrate step refuses the same way (exit 2, nothing restarted), so a forgotten key costs a
+  deploy and nothing else. A token that can only READ this bucket is enough: the server signs links and never calls R2, so
+  the token that uploaded the files need not go to the host. Edit the file in an editor, so the secret stays out of the shell
+  history, and check without printing a value:
+
+```bash
+cd /var/www/gameplay/king-teenpatti/go-server
+ls -l .env                               # note the owner: edit as that user
+sudoedit .env                            # add the four lines:
+#   R2_ACCOUNT_ID=a91cb23b3b93a35dd9ea50db7b855e18
+#   R2_ACCESS_KEY_ID=<the read-only token's access key id>
+#   R2_SECRET_ACCESS_KEY=<the read-only token's secret access key>
+#   R2_BUCKET_NAME=king-teenpatti
+sudo grep -c '^R2_[A-Z_]*=.' .env        # 4
+sudo chmod 600 .env
+```
+
+- **Release the app first.** An installed app up to 1.8.0 opens a picture's URL as it comes; given an R2 location it is
+  refused by R2 and draws its fallback face, and no emoji, table picture, badge or level art, on every screen. The app that
+  signs works against the server before this one too (it signs only R2 locations, and that server still hands out Drive
+  URLs). So: publish that build, and once Play serves it, deploy this server and raise android's `minimum_version` to it
+  ("The app version gate", above) — or accept blank pictures on older installs until they update.
+- **The deploy moves the rows.** The migrate step moves every catalogue row still at its old Drive URL (or `/levels/…` path)
+  onto its R2 location and adds none; a URL set by hand is left alone. Afterwards:
+
+```bash
+sudo journalctl -u gameplay -n 80 --no-pager | grep 'asset signing enabled'     # bucket king-teenpatti, validFor 10m0s
+sudo -u postgres psql gameplay -Atc "SELECT count(*) FILTER (WHERE asset_url NOT LIKE 'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/%'), count(*) FROM profile_pictures"
+# the first figure is the rows NOT in the bucket: 0, unless the owner added a picture by hand somewhere else
+```
+
+- **A new file goes to a NEW key** — never over an existing one: phones keep a file under its location for ever — and its
+  row names `https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/<key>`. Upload with
+  `tools/r2/migrate_drive_assets.py` (a one-row manifest) or the AWS CLI against `https://<account>.r2.cloudflarestorage.com`,
+  with the file's content type and `Cache-Control: public, max-age=31536000, immutable`.
+- **Rollback** past this build: §5, the rows move back first.
+
 ## 4. Verify
 
 **Health** — `process.node` must start with `go`; `goroutines`/`numCpu`/`gomaxprocs` are Go-only extras:
@@ -752,6 +796,23 @@ so:
 - A hand's counters wait in Redis (`kt:stats:<userId>`) for up to `STATS_FLUSH_MS` before the flusher
   moves them; a restart keeps them there for the next process, and the fresh-database procedure's
   `kt:*` wipe discards them with everything else, which is intended.
+
+**A tag before the move to R2 (1 Oct 2026) needs the catalogue's rows moved back first.** Its seed
+names the Drive URLs, and the URL is its conflict key: booted on rows that name R2 locations, it would
+insert every profile picture, table picture and emoji a second time, and hand every app locations that
+no build of that age can open. Generate the SQL while the checkout still has `tools/r2/` — before
+`deploy.sh` checks the older tag out — and run it just before the downgrade (one transaction; only rows
+still at a location the move made, so a picture added by hand is not touched):
+
+```bash
+cd /var/www/gameplay/king-teenpatti
+python3 tools/r2/move_back_sql.py > /tmp/move-back.sql
+sudo -u postgres psql gameplay -v ON_ERROR_STOP=1 -f /tmp/move-back.sql
+bash go-server/ops/deploy.sh go-server/v<the older tag> --allow-downgrade
+```
+
+The Drive files must still be where the record says (`tools/r2/drive-to-r2.tsv`); nothing deleted them.
+Coming forward again needs nothing: the newer build's migrate moves the rows back onto R2 by itself.
 
 Releases are tagged (`go-server/vX.Y.Z`, see `../README.md` §Releasing), so going back one is a
 checkout and a rebuild. One thing has to be settled **before** the checkout — who owns `users` — and

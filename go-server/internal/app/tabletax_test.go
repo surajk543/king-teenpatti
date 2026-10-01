@@ -98,8 +98,8 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 
 	// session:ready: the player's own standing, and the menu entry's flag.
 	ready, _ := rookie.c.Last(socket.EvSessionReady)
-	const newbie = `{"assetFormat":"LOTTIE","assetUrl":"/levels/newbie.json","icon":"🌱","level":1,` +
-		`"next":{"assetFormat":"LOTTIE","assetUrl":"https://drive.google.com/uc?export=download\u0026id=1X5ONeIYMh2Q6348MsQGU9YO1Ut9j0RjR","icon":"🔰","level":2,"minXp":100,"taxBps":1971,"title":"Rookie"},` +
+	const newbie = `{"assetFormat":"LOTTIE","assetUrl":"` + seededAssets + `levels/01-newbie.json","icon":"🌱","level":1,` +
+		`"next":{"assetFormat":"LOTTIE","assetUrl":"` + seededAssets + `levels/02-rookie.json","icon":"🔰","level":2,"minXp":100,"taxBps":1971,"title":"Rookie"},` +
 		`"taxBps":2000,"title":"Newbie","xp":0}`
 	if got, _ := json.Marshal(jsonPath(ready, "user.playerLevel")); string(got) != newbie {
 		t.Errorf("a new account's playerLevel: %s", got)
@@ -107,7 +107,7 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 	// Regular, everyone's by default (owner, 27 Sep 2026: "By default every
 	// user will hold this Regular badge 20 percent tax"), with its Lottie.
 	if got, _ := json.Marshal(jsonPath(ready, "user.badges")); string(got) !=
-		`[{"assetFormat":"LOTTIE","assetUrl":"https://drive.google.com/uc?export=download\u0026id=1zz4gVBpw579xeR1LLn3dBd3Os3cG8jQT","code":"REGULAR","expiresAt":0,"icon":"","isDefault":true,"taxBps":2000,"title":"Regular"}]` ||
+		`[{"assetFormat":"LOTTIE","assetUrl":"`+seededAssets+`badges/regular.json","code":"REGULAR","expiresAt":0,"icon":"","isDefault":true,"taxBps":2000,"title":"Regular"}]` ||
 		jsonPath(ready, "user.taxBps") != 2000.0 {
 		t.Errorf("a new account's badges %s and rate %v", got, jsonPath(ready, "user.taxBps"))
 	}
@@ -156,7 +156,7 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 				if seat["status"] == "empty" {
 					continue
 				}
-				if got, _ := json.Marshal(seat["level"]); string(got) != `{"assetFormat":"LOTTIE","assetUrl":"/levels/newbie.json","level":1}` {
+				if got, _ := json.Marshal(seat["level"]); string(got) != `{"assetFormat":"LOTTIE","assetUrl":"`+seededAssets+`levels/01-newbie.json","level":1}` {
 					t.Errorf("%s's snapshot: seat %v's level %s", p.id, seat["userId"], got)
 				}
 				levels++
@@ -467,7 +467,7 @@ func TestTheLevelLadderIsPublicAndWhole(t *testing.T) {
 	// rupee price, its validity, its Lottie and the Play product it is sold
 	// under.
 	if ace, kings := body.Badges[1], body.Badges[6]; ace.Code != "ROYAL_ACE" || *ace.PriceInr != 500 || ace.ValidityDays != 7 ||
-		ace.ProductID != "badge_royal_ace_499" || *ace.TaxBps != 0 || ace.AssetFormat != "LOTTIE" || !strings.HasPrefix(ace.AssetURL, "https://drive.google.com/uc?export=download&id=") ||
+		ace.ProductID != "badge_royal_ace_499" || *ace.TaxBps != 0 || ace.AssetFormat != "LOTTIE" || ace.AssetURL != seededAssets+"badges/royal-ace.json" ||
 		kings.Code != "ROYAL_KING_OF_KINGS" || *kings.PriceInr != 4500 || kings.ValidityDays != 90 ||
 		kings.ProductID != "badge_royal_king_of_kings_4499" || body.Badges[0].ProductID != "" {
 		t.Errorf("the store's badges = %+v %+v", ace, kings)

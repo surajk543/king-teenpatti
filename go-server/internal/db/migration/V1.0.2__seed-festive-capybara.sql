@@ -45,7 +45,7 @@ SELECT name, asset_url, asset_format, currency, type, cost, duration_days, durat
        (EXTRACT(EPOCH FROM now()) * 1000)::bigint,
        (EXTRACT(EPOCH FROM now()) * 1000)::bigint
   FROM (VALUES
-    ('Festive Capybara',   'https://drive.google.com/uc?export=download&id=188lHqjAKW9TcuSVGcBqn9TxU8pHsfWpX',
+    ('Festive Capybara',   'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/profile_pictures/festive-capybara.json',
      'LOTTIE', 'HAMMER', 'PREMIUM', 1::bigint, 3, 0, TRUE, 358)
   ) AS seed(name, asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order)
     ON CONFLICT (asset_url) DO NOTHING;

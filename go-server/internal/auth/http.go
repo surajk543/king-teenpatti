@@ -151,6 +151,10 @@ type Deps struct {
 	// 30 Sep 2026; rewardprograms.go). Nil → both of their endpoints answer
 	// 503 reward_programs_unavailable.
 	RewardPrograms RewardProgramStore
+	// Assets signs the catalogue's art for a phone (owner, 1 Oct 2026;
+	// assets.go). Nil (no R2 keys) → POST /api/assets/sign answers 503
+	// assets_unavailable.
+	Assets AssetSigner
 	// Friends is the social graph (Friends V1, owner 26 Sep 2026; friends.go).
 	// Nil → its eight routes are not mounted (unknown /api paths answer the
 	// JSON 404).
@@ -361,6 +365,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/emojis", methods(http.MethodGet, http.HandlerFunc(h.Emojis)))
 	mux.Handle("/api/emojis/buy", methods(http.MethodPost, wallet(h.BuyEmoji)))
 	mux.Handle("/api/levels", methods(http.MethodGet, http.HandlerFunc(h.Levels)))
+	mux.Handle("/api/assets/sign", methods(http.MethodPost, h.RequireAuth(h.SignAssets)))
 	if h.deps.Friends != nil {
 		h.registerFriends(mux, wallet)
 	}
@@ -902,6 +907,9 @@ const (
 	// The reward programs (owner, 30 Sep 2026).
 	MsgRewardProgramsUnavailable = "Rewards are not available right now."
 	MsgSeatedRewardPrograms      = "Collect your rewards from the lobby, not while you are at a table."
+	// The catalogue's art in R2 (owner, 1 Oct 2026).
+	MsgAssetsUnavailable = "Pictures are not available right now."
+	MsgTooManyAssets     = "Ask for at most 200 pictures at a time."
 	// The 6-hour bonus (30 Sep 2026): its two refusals.
 	CodeRewardNotReady = "reward_not_ready"
 	MsgRewardNotReady  = "The bonus is still recharging."

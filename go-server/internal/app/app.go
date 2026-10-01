@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/surajk543/king-teenpatti/go-server/internal/appversion"
+	"github.com/surajk543/king-teenpatti/go-server/internal/assets"
 	"github.com/surajk543/king-teenpatti/go-server/internal/auth"
 	"github.com/surajk543/king-teenpatti/go-server/internal/config"
 	"github.com/surajk543/king-teenpatti/go-server/internal/db"
@@ -237,6 +238,26 @@ func New(opts Options) (*App, error) {
 	started := opts.StartedAt
 	if started.IsZero() {
 		started = clock.Now()
+	}
+	// The catalogue's art (owner, 1 Oct 2026) is in a private Cloudflare R2
+	// bucket, and a phone asks for the files it has not downloaded to be
+	// signed for it (POST /api/assets/sign). No R2 keys (development) → that
+	// route answers 503 assets_unavailable; production refuses to start
+	// without them (config.Validate). Built first, so a key the signer cannot
+	// use stops the boot before anything has started.
+	var assetSigner auth.AssetSigner
+	if cfg.Assets.Configured() {
+		signer, err := assets.New(assets.Config{
+			AccountID:       cfg.Assets.R2AccountID,
+			AccessKeyID:     cfg.Assets.R2AccessKeyID,
+			SecretAccessKey: cfg.Assets.R2SecretAccessKey,
+			Bucket:          cfg.Assets.R2Bucket,
+		}, clock.Now)
+		if err != nil {
+			return nil, fmt.Errorf("app: %w", err)
+		}
+		assetSigner = assetSigning{Assets: db.NewAssets(opts.DB), Signer: signer}
+		logger.Info("asset signing enabled", "bucket", cfg.Assets.R2Bucket, "validFor", assets.SignedFor.String())
 	}
 
 	version := opts.Version
@@ -538,6 +559,9 @@ func New(opts Options) (*App, error) {
 		// calendar rewards, claimed under the same seat lock for the same
 		// reason — a day's reward may be chips.
 		RewardPrograms: rewardPrograms,
+		// The catalogue's art in R2 (owner, 1 Oct 2026): a stored location
+		// signed for ten minutes, for a phone to download once.
+		Assets: assetSigner,
 		// Friends V1 (owner, 26 Sep 2026): the social graph in PostgreSQL,
 		// and each friend's presence read from the live store — kt:online
 		// and the seats' playing records — in one batch per answer.

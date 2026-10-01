@@ -348,6 +348,25 @@ func TestCORSOrigin(t *testing.T) {
 
 func ptr(s string) *string { return &s }
 
+// The four R2 keys (1 Oct 2026) are read as they are and set together or not
+// at all: with none the server hands asset URLs out unsigned (development),
+// and some but not all is a mistake the boot names.
+func TestTheR2KeysAreAllOrNothing(t *testing.T) {
+	cfg := mustLoad(t, map[string]string{"R2_ACCOUNT_ID": "acct", "R2_ACCESS_KEY_ID": "key-id",
+		"R2_SECRET_ACCESS_KEY": "secret", "R2_BUCKET_NAME": "king-teenpatti"})
+	want := AssetsConfig{R2AccountID: "acct", R2AccessKeyID: "key-id", R2SecretAccessKey: "secret", R2Bucket: "king-teenpatti"}
+	if cfg.Assets != want || !cfg.Assets.Configured() {
+		t.Fatalf("Assets = %+v, want %+v", cfg.Assets, want)
+	}
+	if none := mustLoad(t, map[string]string{}); none.Assets.Configured() || len(none.Assets.Missing()) != 4 {
+		t.Fatalf("no R2 keys: %+v", none.Assets)
+	}
+	_, err := FromEnv(env(map[string]string{"R2_ACCOUNT_ID": "acct", "R2_BUCKET_NAME": "king-teenpatti"}))
+	if want := "R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY must be set with the other R2 keys"; err == nil || err.Error() != want {
+		t.Fatalf("two R2 keys of four: %v, want %q", err, want)
+	}
+}
+
 func TestProductionGuards(t *testing.T) {
 	_, err := FromEnv(env(map[string]string{"NODE_ENV": "production"}))
 	if err == nil || err.Error() != "JWT_SECRET must be set in production" {
@@ -358,8 +377,20 @@ func TestProductionGuards(t *testing.T) {
 	if err == nil || err.Error() != "AUTH_ALLOW_FAKE_PROVIDERS must be false in production" {
 		t.Errorf("fake providers in production: %v", err)
 	}
-	if _, err := FromEnv(env(map[string]string{"NODE_ENV": "production", "JWT_SECRET": strong})); err != nil {
+	r2 := map[string]string{"R2_ACCOUNT_ID": "0123456789abcdef0123456789abcdef", "R2_ACCESS_KEY_ID": "key-id",
+		"R2_SECRET_ACCESS_KEY": "secret", "R2_BUCKET_NAME": "king-teenpatti"}
+	production := map[string]string{"NODE_ENV": "production", "JWT_SECRET": strong}
+	for k, v := range r2 {
+		production[k] = v
+	}
+	if _, err := FromEnv(env(production)); err != nil {
 		t.Errorf("valid production config: %v", err)
+	}
+	// Production needs the R2 keys (1 Oct 2026): the catalogue's art is in a
+	// private bucket, and an unsigned URL is a picture no phone can open.
+	_, err = FromEnv(env(map[string]string{"NODE_ENV": "production", "JWT_SECRET": strong}))
+	if want := "R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET_NAME must be set in production"; err == nil || err.Error() != want {
+		t.Errorf("production without R2: %v, want %q", err, want)
 	}
 	// Outside production a short secret is still fine (dev, tests).
 	if _, err := FromEnv(env(map[string]string{"JWT_SECRET": "x"})); err != nil {
