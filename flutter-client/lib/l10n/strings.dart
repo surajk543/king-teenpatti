@@ -965,6 +965,24 @@ class Strings {
   String levelUpOnly(String level) =>
       _('levelUpOnly').replaceFirst('{level}', level);
 
+  /// The level-up popup (owner, 2 Oct 2026: "Congrats Player once his level
+  /// upgraded … now you will pay less tax and how much less tax u pay"): its
+  /// small heading; "You reached Level 2 · Rookie"; the line over the two
+  /// rates; "You pay 0.29% less than before"; and, where a badge already
+  /// keeps the rate lower than the level's, the two lines that say so.
+  String get levelUpKicker => _('levelUpKicker');
+  String levelUpReached(String level) =>
+      _('levelUpReached').replaceFirst('{level}', level);
+  String get levelUpPaysLess => _('levelUpPaysLess');
+  String levelUpSaved(String saved) =>
+      _('levelUpSaved').replaceFirst('{saved}', saved);
+  String levelUpBadgeKeeps(String badge, String rate) => _(
+    'levelUpBadgeKeeps',
+  ).replaceFirst('{badge}', badge).replaceFirst('{rate}', rate);
+  String levelUpLevelRate(String now, String before) => _(
+    'levelUpLevelRate',
+  ).replaceFirst('{now}', now).replaceFirst('{before}', before);
+
   /// Today's XP against the day's cap — "Today 23 / 50 XP" — and when the
   /// 24-hour window ends: "resets in 5h 12m 3s".
   String xpToday(int xp, int cap) =>
@@ -2379,6 +2397,14 @@ class Strings {
       'xpResetsIn': 'resets in {time}',
       'todayLabel': 'today',
       'levelUpOnly': 'Level up! {level}',
+      'levelUpKicker': 'Level up',
+      'levelUpReached': 'You reached {level}',
+      'levelUpPaysLess': 'You now pay less winning tax',
+      'levelUpSaved': 'You pay {saved} less than before',
+      'levelUpBadgeKeeps':
+          'Your {badge} badge already keeps your winning tax at {rate}.',
+      'levelUpLevelRate':
+          'This level\'s own rate is {now}, down from {before}.',
       'allLevelsTitle': 'All levels',
       'levelTabMine': 'My level',
       'yourLevelTitle': 'Your level',
@@ -3381,6 +3407,13 @@ class Strings {
       'xpResetsIn': '{time} में रीसेट',
       'todayLabel': 'आज',
       'levelUpOnly': 'लेवल अप! {level}',
+      'levelUpKicker': 'लेवल अप',
+      'levelUpReached': 'आप {level} पर पहुँच गए',
+      'levelUpPaysLess': 'अब आप कम जीत टैक्स देंगे',
+      'levelUpSaved': 'आप पहले से {saved} कम देंगे',
+      'levelUpBadgeKeeps':
+          'आपका {badge} बैज पहले से ही आपका जीत टैक्स {rate} पर रखता है।',
+      'levelUpLevelRate': 'इस लेवल की अपनी दर {now} है, पहले {before} थी।',
       'allLevelsTitle': 'सभी लेवल',
       'levelTabMine': 'मेरा लेवल',
       'yourLevelTitle': 'आपका लेवल',
@@ -4367,6 +4400,13 @@ class Strings {
       'xpResetsIn': '{time} পরে রিসেট',
       'todayLabel': 'আজ',
       'levelUpOnly': 'লেভেল আপ! {level}',
+      'levelUpKicker': 'লেভেল আপ',
+      'levelUpReached': 'আপনি {level}-এ পৌঁছেছেন',
+      'levelUpPaysLess': 'এখন আপনি কম জয়ের ট্যাক্স দেবেন',
+      'levelUpSaved': 'আপনি আগের চেয়ে {saved} কম দেবেন',
+      'levelUpBadgeKeeps':
+          'আপনার {badge} ব্যাজ আগে থেকেই আপনার জয়ের ট্যাক্স {rate}-এ রাখছে।',
+      'levelUpLevelRate': 'এই লেভেলের নিজের হার {now}, আগে ছিল {before}।',
       'allLevelsTitle': 'সব লেভেল',
       'levelTabMine': 'আমার লেভেল',
       'yourLevelTitle': 'আপনার লেভেল',
@@ -5358,6 +5398,13 @@ class Strings {
       'xpResetsIn': '{time} પછી રીસેટ',
       'todayLabel': 'આજે',
       'levelUpOnly': 'લેવલ અપ! {level}',
+      'levelUpKicker': 'લેવલ અપ',
+      'levelUpReached': 'તમે {level} પર પહોંચ્યા',
+      'levelUpPaysLess': 'હવે તમે ઓછો જીત ટેક્સ ચૂકવશો',
+      'levelUpSaved': 'તમે પહેલાં કરતાં {saved} ઓછો ચૂકવશો',
+      'levelUpBadgeKeeps':
+          'તમારો {badge} બેજ પહેલેથી જ તમારો જીત ટેક્સ {rate} પર રાખે છે.',
+      'levelUpLevelRate': 'આ લેવલનો પોતાનો દર {now} છે, પહેલાં {before} હતો.',
       'allLevelsTitle': 'બધા લેવલ',
       'levelTabMine': 'મારું લેવલ',
       'yourLevelTitle': 'તમારું લેવલ',
@@ -6345,6 +6392,13 @@ class Strings {
       'xpResetsIn': '{time} ਵਿੱਚ ਰੀਸੈੱਟ',
       'todayLabel': 'ਅੱਜ',
       'levelUpOnly': 'ਲੈਵਲ ਅੱਪ! {level}',
+      'levelUpKicker': 'ਲੈਵਲ ਅੱਪ',
+      'levelUpReached': 'ਤੁਸੀਂ {level} ’ਤੇ ਪਹੁੰਚ ਗਏ',
+      'levelUpPaysLess': 'ਹੁਣ ਤੁਸੀਂ ਘੱਟ ਜਿੱਤ ਟੈਕਸ ਦੇਵੋਗੇ',
+      'levelUpSaved': 'ਤੁਸੀਂ ਪਹਿਲਾਂ ਨਾਲੋਂ {saved} ਘੱਟ ਦੇਵੋਗੇ',
+      'levelUpBadgeKeeps':
+          'ਤੁਹਾਡਾ {badge} ਬੈਜ ਪਹਿਲਾਂ ਹੀ ਤੁਹਾਡਾ ਜਿੱਤ ਟੈਕਸ {rate} ’ਤੇ ਰੱਖਦਾ ਹੈ।',
+      'levelUpLevelRate': 'ਇਸ ਲੈਵਲ ਦੀ ਆਪਣੀ ਦਰ {now} ਹੈ, ਪਹਿਲਾਂ {before} ਸੀ।',
       'allLevelsTitle': 'ਸਾਰੇ ਲੈਵਲ',
       'levelTabMine': 'ਮੇਰਾ ਲੈਵਲ',
       'yourLevelTitle': 'ਤੁਹਾਡਾ ਲੈਵਲ',

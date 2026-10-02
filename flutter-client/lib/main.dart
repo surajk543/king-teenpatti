@@ -16,6 +16,7 @@ import 'state/game_state.dart';
 import 'theme/app_theme.dart';
 import 'theme/depth.dart';
 import 'theme/theme_colors.dart';
+import 'widgets/level_up_popup.dart';
 import 'widgets/lobby_music.dart';
 import 'widgets/game_loader.dart';
 import 'widgets/glass_components.dart';
@@ -115,7 +116,9 @@ class KingTeenPattiApp extends StatelessWidget {
           //
           // Beside it, above everything the Navigator shows, the bar that says
           // a daily XP mission is done (owner, 27 Sep 2026): at the top edge,
-          // on the lobby and both felts, over any sheet or dialog.
+          // on the lobby and both felts, over any sheet or dialog. And over
+          // that, the popup that congratulates a player on a new level
+          // (owner, 2 Oct 2026).
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -125,6 +128,7 @@ class KingTeenPattiApp extends StatelessWidget {
                 body: child ?? const SizedBox.shrink(),
               ),
               const XpMissionHost(),
+              const LevelUpHost(),
             ],
           ),
         ),
@@ -609,6 +613,13 @@ class _BackGuard extends StatelessWidget {
         // A reward popup over the lobby (30 Sep 2026; one a program since
         // 2 Oct 2026) is put away first, as a drawer closes — and the next
         // program's comes up.
+        // The level-up popup stands over every screen: Back puts it away
+        // before it does anything to what is under it.
+        if (state.levelUps.current case final levelUp?) {
+          state.levelUps.dismiss(levelUp.id);
+          return;
+        }
+
         if (screen == Screen.lobby && state.rewardOffer != null) {
           state.dismissRewardOffer();
           return;
