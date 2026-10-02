@@ -31,6 +31,16 @@
 	     unaffected either way. -->
 	<key>GIDClientID</key>
 	<string>$(GOOGLE_IOS_CLIENT_ID)</string>
+	<!-- The WEB client, the audience the server checks a Google token against
+	     (GOOGLE_CLIENT_IDS). It has to be HERE on iOS: the plugin passes
+	     Dart's serverClientId on only when a clientId comes with it, and
+	     otherwise Google's SDK reads this file alone - without this key the
+	     token's audience is the iOS client and the server refuses it
+	     (401 invalid_token). The same value as SocialSignIn.serverClientId
+	     and every config/*.json; test/ios_google_sign_in_test.dart holds
+	     them together. A public id, not a secret. -->
+	<key>GIDServerClientID</key>
+	<string>265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

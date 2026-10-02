@@ -14,10 +14,9 @@
 // fails, and it fails saying so.
 //
 // The server-side half is the WEB client id, because the server checks the
-// token's audience against it on both platforms. It is a dart-define that
-// needs no passing: a build with no define carries the production Web client
-// (SocialSignIn.serverClientId's default since 27 Sep 2026), and every
-// config/*.json names it too:
-//   flutter build ipa --dart-define-from-file=config/production.json
+// token's audience against it on both platforms. On iOS it is read from
+// Runner/Info.plist (GIDServerClientID), where it is written out: the plugin
+// does not pass Dart's serverClientId on without a clientId beside it.
+// Nothing to set here for it.
 GOOGLE_IOS_CLIENT_ID=
 GOOGLE_IOS_URL_SCHEME=

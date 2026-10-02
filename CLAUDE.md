@@ -215,7 +215,7 @@ king-teenpatti/
     ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext in DEBUG builds only (src/debug manifest),
     │                             no Android backup (allowBackup=false + res/xml/data_extraction_rules.xml), USE_BIOMETRIC/USE_FINGERPRINT removed
     └── ios/                      bundle id com.sungamestudio.kingteenpatti, landscape-only, status bar hidden,
-                                  NSAllowsLocalNetworking; GIDClientID + URL scheme come from Flutter/*.xcconfig.
+                                  NSAllowsLocalNetworking; GIDClientID + URL scheme come from Flutter/*.xcconfig, GIDServerClientID (the Web client) is written out in Info.plist.
                                   NO Podfile (Flutter writes one on the Mac); never built here — docs/ios-setup.md
 ```
 
@@ -4774,8 +4774,19 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   `CODE_SIGN_ENTITLEMENTS` in all three configurations). `Info.plist` answers export compliance
   (`ITSAppUsesNonExemptEncryption` false). Still Android-only: `AppUpdate` (`in_app_update` is an Android plugin; the version
   gate's Update key opens the `ios` row's `store_url`, else `storeListingUris()` with `--dart-define=APPLE_APP_ID`).
-  `test/ios_store_test.dart`. `docs/ios-setup.md` is the runbook, App Store Connect's 27 products and the review checklist
-  included.
+  `test/ios_store_test.dart`. **Google sign-in on an iPhone needs two things Android does not** (owner, 2 Oct 2026: "sign in with
+  google was not working in apple"): an **iOS** OAuth client of the Cloud project for the bundle id, its id and URL scheme in
+  `ios/Flutter/Debug.xcconfig` AND `Release.xcconfig` (`GOOGLE_IOS_CLIENT_ID` / `GOOGLE_IOS_URL_SCHEME` — **still empty in the
+  repository**: the owner creates the client, `docs/ios-setup.md` §4), and the Web client as **`GIDServerClientID` in `Info.plist`**
+  (written out there since that day): `google_sign_in_ios` builds a configuration from Dart only when a `clientId` is passed, so the
+  `serverClientId` the app passes is DROPPED on iOS and Google's SDK reads `Info.plist` alone — without the key the token's audience
+  is the iOS client and the server answers 401 `invalid_token`. With no iOS client the SDK raises ("You must specify |clientID| in
+  |GIDConfiguration|"), which reaches Dart as a bare `PlatformException`; `SocialSignIn.googleWith` (the reading of the plugin's
+  answers, apart from the call for the tests) now turns it into `SignInUnavailable` — "Google sign-in is not available in this
+  version" — where the login said "Could not reach the server". `test/ios_google_sign_in_test.dart` (the plist's key equal to
+  `SocialSignIn.serverClientId` and every `config/*.json`; an xcconfig client id, once set, with its own reversed scheme and the same
+  in both files; each answer of the plugin). `docs/ios-setup.md` is the runbook, App Store Connect's 27 products and the review
+  checklist included.
 
 ---
 
