@@ -21,7 +21,7 @@ formality.
 | App icon | every size in `AppIcon.appiconset`, rendered from `assets/app_icon.svg`, alpha stripped because Apple rejects an icon that carries one |
 | Launch screen | the app mark centred and "powered by sungamestudio.com" at the foot, on `#FAF7F0` / `#0B0B0B` — the same two colours and the same layout as `drawable/launch_background.xml` |
 | Cleartext for local dev | `NSAllowsLocalNetworking`, the narrow equivalent of Android's `usesCleartextTraffic` |
-| Google sign-in hooks | `GIDClientID` and the URL scheme, both fed from `ios/Flutter/*.xcconfig` |
+| Google sign-in hooks | `GIDClientID` and the URL scheme, both fed from `ios/Flutter/*.xcconfig`; `GIDServerClientID`, the Web client, written out in `Info.plist` |
 | Sign in with Apple | the button on the sign-in screen (iOS only), `Runner/Runner.entitlements` with the capability, and the server's `apple` provider (§4) |
 | App Store purchases | StoreKit 2 through `in_app_purchase`; each receipt goes to `POST /api/purchases/apple` (§5) |
 | iPad | runs full screen (`UIRequiresFullScreen`): a landscape-only iPad app that allowed Split View is refused at upload |
@@ -139,6 +139,10 @@ asks for it.
 
 Google needs one more OAuth client — the four Android ones and the Web one
 already registered do not cover iOS (`docs/social-login-setup.md` lists them).
+**Done on 3 Oct 2026**: the iOS client is
+`265025011940-lc1kf0u1c8untvokhn96onu4050k5nsb.apps.googleusercontent.com`,
+and both xcconfig files carry it and its URL scheme. The steps below are how
+it was made, for a second bundle id or a new Cloud project.
 
 1. Google Cloud → **Google Auth Platform → Clients → Create client → iOS**.
 2. Bundle ID: `com.sungamestudio.kingteenpatti`.
@@ -151,15 +155,32 @@ already registered do not cover iOS (`docs/social-login-setup.md` lists them).
    GOOGLE_IOS_URL_SCHEME=com.googleusercontent.apps.265025011940-xxxxxxxx
    ```
 
-4. The Web client id needs nothing more: the server checks the token's
-   audience against it on both platforms, a build with no define already
-   carries it, and every `config/*.json` names it
-   (`265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com`).
+4. Build again (`flutter build ipa …`, or Run in Xcode): the two values are
+   read into `Info.plist` at build time, so an app already on the phone keeps
+   failing until it is rebuilt.
+5. The Web client id needs nothing more: the server checks the token's
+   audience against it on both platforms, and on iOS it is written out in
+   `ios/Runner/Info.plist` as **`GIDServerClientID`**
+   (`265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com`,
+   the value every `config/*.json` names). It has to be there: on iOS the
+   plugin passes the app's own `serverClientId` on only when a `clientId` comes
+   with it, and otherwise Google's SDK reads `Info.plist` alone. Until 2 Oct
+   2026 the key was missing, so even with the iOS client set the token's
+   audience was the iOS client and the server answered 401 `invalid_token`.
 
-Left empty, the build still works and "Continue with Google" fails saying the
-provider is unavailable, which is the truth — but **do not submit it that
-way**: a reviewer who taps a button that does not work rejects the build.
-Nothing needs adding to `GOOGLE_CLIENT_IDS` on the server.
+Left empty, the build still works and "Continue with Google" fails saying
+"Google sign-in is not available in this version", which is the truth — but
+**do not submit it that way**: a reviewer who taps a button that does not work
+rejects the build. (Until 2 Oct 2026 an iPhone said "Could not reach the
+server" there instead: Google's SDK raises without its client id and the app
+read that as a network failure.) Nothing needs adding to `GOOGLE_CLIENT_IDS`
+on the server.
+
+If Google's page says **"Access blocked: authorization error"** after the
+account is chosen, the client id in the xcconfig is not an **iOS** client of
+this Cloud project, or its bundle id is not `com.sungamestudio.kingteenpatti`.
+If the app says "Google token rejected", the server's `GOOGLE_CLIENT_IDS` does
+not name the Web client above (`journalctl -u gameplay | grep 'login refused'`).
 
 ## 5. The store on iOS
 

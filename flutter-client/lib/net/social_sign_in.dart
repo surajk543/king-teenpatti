@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 // Facebook login is switched off for now (owner, 23 Sep 2026); restore this
 // import with facebook() below and the dependency in pubspec.yaml.
 // import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
@@ -85,14 +86,33 @@ class SocialSignIn {
   /// Signs in with Google and returns the OpenID token for our server.
   static Future<String?> google() async {
     if (!googleConfigured) throw const SignInUnavailable('Google');
-    if (!_googleReady) {
-      // v7 is a singleton that must be initialised once before any call.
-      await GoogleSignIn.instance.initialize(serverClientId: serverClientId);
-      _googleReady = true;
-    }
-    try {
+    return googleWith(() async {
+      if (!_googleReady) {
+        // v7 is a singleton that must be initialised once before any call.
+        //
+        // On iOS this serverClientId does NOT reach Google: the plugin builds
+        // a configuration from Dart only when a clientId comes with it, and
+        // otherwise leaves the SDK to read Info.plist — so the iOS app names
+        // the same Web client there as GIDServerClientID (2 Oct 2026; without
+        // it the token's audience was the iOS client and the server refused
+        // it). test/ios_google_sign_in_test.dart holds the two to one value.
+        await GoogleSignIn.instance.initialize(serverClientId: serverClientId);
+        _googleReady = true;
+      }
       final account = await GoogleSignIn.instance.authenticate();
-      final idToken = account.authentication.idToken;
+      return account.authentication.idToken;
+    });
+  }
+
+  /// [google]'s reading of what the plugin answers, around [authenticate] —
+  /// the call that asks the plugin for the ID token. Apart from it so a test
+  /// can hand it each answer the two platforms give.
+  @visibleForTesting
+  static Future<String?> googleWith(
+    Future<String?> Function() authenticate,
+  ) async {
+    try {
+      final idToken = await authenticate();
       if (idToken == null) {
         // Sign-in succeeded and produced a credential our server cannot check.
         // The cause is always the same one: serverClientId is absent or is not
@@ -120,6 +140,16 @@ class SocialSignIn {
         default:
           rethrow;
       }
+    } on PlatformException catch (e) {
+      // iOS: Google's SDK refuses to start without its own client id
+      // ("You must specify |clientID| in |GIDConfiguration|") or its URL
+      // scheme ("Your app is missing support for the following URL schemes"),
+      // and the plugin hands that over as a bare platform error. It is the
+      // build, not the network: left to the caller it read "Could not reach
+      // the server" on an iPhone whose build had no iOS client
+      // (ios/Flutter/*.xcconfig, docs/ios-setup.md §4).
+      debugPrint('Google sign-in: ${e.code}: ${e.message ?? ''}');
+      throw const SignInUnavailable('Google');
     }
   }
 
