@@ -42,7 +42,7 @@ A turn-based multiplayer **Teen Patti** (3-card Indian poker) game:
 | Load reports | `docs/load-reports/` | ramp-test HTML + JSON (the 2026‑09‑08 production runs, 1,000 → 4,000 players). |
 | Unity client | `unity-client/` | **Removed** (Sept 2026). A JS port of its Socket.IO parser survives as `tools/parity/lib/csharpJsonPort.js` and still exercises the raw wire protocol. |
 | Brief | `Requirements.txt` | 34 numbered requirements at lines 6–88 (**there is no #11**). Code comments cite these ("Requirement 22"). |
-| Docs | `docs/ios-setup.md` (what a Mac still has to do), `README.md`, `go-server/README.md`, `go-server/PORT_PLAN.md`, `go-server/DECISIONS.md`, `go-server/PORT_NOTES/` (incl. `specs/spec-socket-protocol.md`), `go-server/ops/DEPLOY.md`, `steps.txt` | `CLAUDE.md` is the detailed reference. |
+| Docs | **`docs/ARCHITECTURE.md`** and **`docs/architecture.html`** (2 Oct 2026, owner: "create a project architecture md file in very detail, and also create a html page with diagram explaining project flow of backend, and important piece of codes, table, switch , join, full documenatation" — the overview for an engineer new to the repository: system map, the server's layers, the table actor, one move, join, switch, a hand, the three checkpoints, the statistics pipeline, reconnects, boot, the data model, the wire and where to change things; the Markdown file with Mermaid diagrams GitHub renders, the page with the same ten diagrams as inline SVG, theme-aware and self-contained. Both are OUTPUT of `tools/docs/architecture/build.py` — edit its parts, never the two files; `--check` exits 1 when they are out of date), `docs/ios-setup.md` (what a Mac still has to do), `README.md`, `go-server/README.md`, `go-server/PORT_PLAN.md`, `go-server/DECISIONS.md`, `go-server/PORT_NOTES/` (incl. `specs/spec-socket-protocol.md`), `go-server/ops/DEPLOY.md`, `steps.txt` | `CLAUDE.md` is the detailed reference. |
 
 The server is the single authority: it deals, shuffles with `crypto/rand` (Node: `crypto.randomInt`), validates every bet
 against a ladder it recomputes itself, decides winners, and redacts state per viewer so a client never
@@ -59,6 +59,7 @@ king-teenpatti/
 ├── Requirements.txt              the numbered brief (1–34, no 11)
 ├── steps.txt                     the six-line production deploy routine (tracked)
 ├── recordings/                   empty local dir (no root .gitignore; git doesn't show it)
+├── docs/ARCHITECTURE.md, docs/architecture.html   the architecture overview, Markdown and page — generated (tools/docs/architecture/build.py)
 ├── docs/load-reports/            ramp-test reports, HTML + JSON (2026‑09‑08 production runs; formerly server/loadtest-report/)
 ├── go-server/                    THE server (§14): Go 1.27, module github.com/surajk543/king-teenpatti/go-server
 │   ├── cmd/gameplay/main.go      entrypoint: godotenv .env → config → db → app → listen; SIGTERM = graceful max(8 s, statement timeout + 5 s); -version
@@ -120,7 +121,10 @@ king-teenpatti/
 │   ├── package.json              scripts: bot / ramp / parity / parity:diff; deps socket.io-client, ws, pg, jsonwebtoken
 │   ├── parity/                   black-box suites (game, money, lobby, stakes, rest, protocol, resume, invalid, metrics, variation, poker) + lib/ (harness, launch, raw client,
 │   │                             csharpJsonPort.js, poker5.mjs — an independent five-card and three-card evaluator, the poker suite's oracle)
-│   └── r2/                       migrate_drive_assets.py, drive-to-r2.tsv (the record), move_back_sql.py — the catalogue's art moved from Drive to R2 (§7.3)
+│   ├── r2/                       migrate_drive_assets.py, drive-to-r2.tsv (the record), move_back_sql.py — the catalogue's art moved from Drive to R2 (§7.3)
+│   └── docs/architecture/        build.py (Python 3, stdlib): docs/ARCHITECTURE.md + docs/architecture.html from html/p*.html, md/p*.md and
+│                                 diagrams.py — each diagram one spec, drawn as inline SVG for the page and written as Mermaid for the
+│                                 Markdown (diag.py: Flow, Seq); `--check`, `--artifact PATH` (the page's content alone)
 ├── bot-play/                     the resident bot fleet — Go since 27 Sep 2026, module github.com/surajk543/king-teenpatti/bot-play (the Node
 │   │                             fleet is in git history, tag bot-play/v1.0.0); README.md is its reference
 │   ├── cmd/bot-play/main.go      -config (default configs/bot.yaml) / -version; server or simulation mode; waits for GET /api/tables;

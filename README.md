@@ -244,8 +244,10 @@ serialized **for each viewer** — on a blind table another player's balance is 
 so it is a real privacy boundary rather than something the client politely declines to draw. Bets
 and the pot stay public in both categories, because those are announced as they happen.
 
-Server tour, build and parity: [go-server/README.md](go-server/README.md). Architecture, the
-Node→Go file map and the concurrency rules: [go-server/PORT_PLAN.md](go-server/PORT_PLAN.md).
+How the whole project fits together, with diagrams: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+(and the same as a page, [docs/architecture.html](docs/architecture.html)).
+Server tour, build and parity: [go-server/README.md](go-server/README.md). The port's architecture
+notes, the Node→Go file map and the concurrency rules: [go-server/PORT_PLAN.md](go-server/PORT_PLAN.md).
 The Socket.IO contract, event by event:
 [go-server/PORT_NOTES/specs/spec-socket-protocol.md](go-server/PORT_NOTES/specs/spec-socket-protocol.md).
 Everything a coding session needs to know, including the gotchas: [CLAUDE.md](CLAUDE.md).
