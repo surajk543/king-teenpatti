@@ -361,9 +361,20 @@ const auditCounters = async () => {
   const { rows: users } = await query(
     `SELECT u.id, COALESCE(SUM(s.hands_played), 0) AS hands_played, COALESCE(SUM(s.hands_won), 0) AS hands_won,
             COALESCE(SUM(s.hands_lost), 0) AS hands_lost, COALESCE(SUM(s.hands_left), 0) AS hands_left,
-            COALESCE(SUM(s.total_winnings), 0) AS total_winnings, COALESCE(MAX(s.biggest_pot), 0) AS biggest_pot
+            COALESCE(SUM(s.total_winnings), 0) AS total_winnings, COALESCE(MAX(s.biggest_pot), 0) AS biggest_pot,
+            COALESCE(SUM(s.total_tax_paid), 0) AS total_tax_paid
        FROM users u LEFT JOIN player_stats s ON s.user_id = u.id
       GROUP BY u.id`);
+  // The winning tax a player has paid (2 Oct 2026; player_stats.total_tax_paid)
+  // is counted from the same settle that wrote their table_tax rows, and those
+  // rows are never purged: the two agree exactly, player by player.
+  const { rows: taxes } = await query(
+    "SELECT user_id, -SUM(delta) AS paid FROM chip_ledger WHERE reason = 'table_tax' GROUP BY user_id");
+  const taxPaid = new Map(taxes.map((tax) => [tax.user_id, Number(tax.paid)]));
+  for (const user of users) {
+    assert.equal(Number(user.total_tax_paid), taxPaid.get(user.id) ?? 0, `totalTaxPaid for ${user.id}`);
+    assert.ok(Number(user.total_tax_paid) <= Number(user.total_winnings), 'nobody pays more tax than they won');
+  }
   // There is no `hands` table to read a pot from any more, and a winner's own
   // stake is folded into their single hand_win row (delta = pot - own stake),
   // so the exact pot is not derivable from the ledger. What IS checkable:

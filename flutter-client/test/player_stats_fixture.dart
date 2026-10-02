@@ -30,6 +30,7 @@ Map<String, dynamic> statsGameJson({
   double winRate = 0,
   int? winnings,
   int? biggest,
+  int? tax,
   Map<String, int>? hands,
   List<Map<String, dynamic>>? variations,
 }) => {
@@ -40,6 +41,7 @@ Map<String, dynamic> statsGameJson({
   'winRate': winRate,
   'totalWinnings': ?winnings,
   'biggestPot': ?biggest,
+  'totalTaxPaid': ?tax,
   'hands': ?hands,
   'variations': ?variations,
 };

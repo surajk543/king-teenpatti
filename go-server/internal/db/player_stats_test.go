@@ -22,6 +22,7 @@ import (
 type statsRow struct {
 	played, won, lost, left, winnings, biggest       int64
 	trail, pureSequence, sequence, color, pair, high int64
+	taxPaid                                          int64
 	ok                                               bool
 }
 
@@ -29,10 +30,10 @@ func (f *fixture) stats(userID string, bucket game.StatsBucket) statsRow {
 	f.t.Helper()
 	var r statsRow
 	err := f.d.Pool.QueryRow(f.ctx, `SELECT hands_played, hands_won, hands_lost, hands_left, total_winnings, biggest_pot,
-	            trail, pure_sequence, sequence, color, pair, high_card
+	            trail, pure_sequence, sequence, color, pair, high_card, total_tax_paid
 	       FROM player_stats WHERE user_id = $1 AND category = $2`, userID, string(bucket)).
 		Scan(&r.played, &r.won, &r.lost, &r.left, &r.winnings, &r.biggest,
-			&r.trail, &r.pureSequence, &r.sequence, &r.color, &r.pair, &r.high)
+			&r.trail, &r.pureSequence, &r.sequence, &r.color, &r.pair, &r.high, &r.taxPaid)
 	if err == nil {
 		r.ok = true
 	}
@@ -303,7 +304,7 @@ func TestTheAccountReadSumsTheBucketsAndCarriesTheStatsPerCategory(t *testing.T)
 		sort.Strings(in)
 		return fmt.Sprint(in)
 	}
-	base := []string{"biggestPot", "handsLeft", "handsLost", "handsPlayed", "handsWon", "totalWinnings", "winRate"}
+	base := []string{"biggestPot", "handsLeft", "handsLost", "handsPlayed", "handsWon", "totalTaxPaid", "totalWinnings", "winRate"}
 	if got, want := keys(wire.Stats["teenPatti"]), sorted(append([]string{"hands"}, base...)...); got != want {
 		t.Errorf("teenPatti keys %s, want %s", got, want)
 	}
@@ -325,14 +326,15 @@ func TestTheAccountReadSumsTheBucketsAndCarriesTheStatsPerCategory(t *testing.T)
 func TestAPlayerWithNoStatisticsReadsZerosAndEmptyLists(t *testing.T) {
 	f := newFixture(t)
 	u := f.find(f.user("Fresh").ID)
-	if u.HandsPlayed != 0 || u.HandsWon != 0 || u.HandsLost != 0 || u.HandsLeftMid != 0 || u.TotalWinnings != 0 || u.BiggestPot != 0 {
+	if u.HandsPlayed != 0 || u.HandsWon != 0 || u.HandsLost != 0 || u.HandsLeftMid != 0 || u.TotalWinnings != 0 || u.BiggestPot != 0 ||
+		u.TotalTaxPaid != 0 {
 		t.Fatalf("a player with no row reads %+v", u)
 	}
 	raw, err := json.Marshal(u.Stats)
 	if err != nil {
 		t.Fatal(err)
 	}
-	const zero = `"handsPlayed":0,"handsWon":0,"handsLost":0,"handsLeft":0,"totalWinnings":0,"biggestPot":0,"winRate":0`
+	const zero = `"handsPlayed":0,"handsWon":0,"handsLost":0,"handsLeft":0,"totalWinnings":0,"totalTaxPaid":0,"biggestPot":0,"winRate":0`
 	const hands = `"hands":{"trail":0,"pureSequence":0,"sequence":0,"color":0,"pair":0,"highCard":0}`
 	want := `{"teenPatti":{` + zero + `,` + hands + `},"variation":{` + zero + `,` + hands + `,"variations":[]},"poker":{` + zero + `}}`
 	if string(raw) != want {
@@ -424,5 +426,117 @@ func TestASheetIsWhatTheAccountReads(t *testing.T) {
 	}
 	if !reflect.DeepEqual(sheet.Wire(), f.find(a.ID).Stats) {
 		t.Fatalf("sheet %+v, account %+v", sheet.Wire(), f.find(a.ID).Stats)
+	}
+}
+
+// The winning tax a player has paid (owner, 2 Oct 2026: "In player stats
+// table, also include column how much tax he totally paid … saves is redis,
+// from there backend asyc call postgres and update the database using group
+// commit"): player_stats.total_tax_paid, added per bucket by the flush's one
+// transaction like every other counter — a SUM across batches, never a
+// maximum — exactly once under the batch id, and 0 on a row that paid none.
+func TestAFlushAddsTheTaxPaidPerBucketExactlyOnce(t *testing.T) {
+	f := newFixture(t)
+	a, b := f.user("A"), f.user("B")
+	first := []game.HandStats{
+		{UserID: a.ID, Bucket: game.StatsTeenPatti, Played: 1, Won: 1, Winnings: 6000000, TaxPaid: 1200000, HasHeld: true, Held: game.Trail},
+		{UserID: a.ID, Bucket: game.StatsTeenPatti, Played: 1, Won: 1, Winnings: 4000, HasHeld: true, Held: game.Pair}, // under the floor: untaxed
+		{UserID: a.ID, Bucket: game.StatsVariation, Played: 1, Won: 1, Winnings: 9000000, TaxPaid: 900000, HasHeld: true, Held: game.Color,
+			Variation: game.VariationMuflis, VariationWon: true},
+		{UserID: a.ID, Bucket: game.StatsPoker, Played: 1, Won: 1, Winnings: 8000000},
+		{UserID: b.ID, Bucket: game.StatsTeenPatti, Played: 1, Lost: 1, HasHeld: true, Held: game.HighCard},
+	}
+	if !f.flushHands("tax-1", first...) {
+		t.Fatal("the first batch was not applied")
+	}
+	// The same batch again — its acknowledgement lost — adds nothing.
+	if f.flushHands("tax-1", first...) {
+		t.Fatal("a replayed batch was applied twice")
+	}
+	if !f.flushHands("tax-2",
+		game.HandStats{UserID: a.ID, Bucket: game.StatsTeenPatti, Played: 1, Won: 1, Winnings: 5000000, TaxPaid: 300000, HasHeld: true, Held: game.Sequence},
+	) {
+		t.Fatal("the second batch was not applied")
+	}
+	if got := f.stats(a.ID, game.StatsTeenPatti); got.taxPaid != 1500000 || got.winnings != 11004000 || got.biggest != 6000000 {
+		t.Errorf("A's Teen Patti: tax paid %d, winnings %d, biggest %d; want 1500000, 11004000 (gross), 6000000", got.taxPaid, got.winnings, got.biggest)
+	}
+	if got := f.stats(a.ID, game.StatsVariation); got.taxPaid != 900000 {
+		t.Errorf("A's Variation tax paid = %d, want 900000", got.taxPaid)
+	}
+	if got := f.stats(a.ID, game.StatsPoker); !got.ok || got.taxPaid != 0 {
+		t.Errorf("A's Poker row = %+v: poker taxes nobody", got)
+	}
+	if got := f.stats(b.ID, game.StatsTeenPatti); !got.ok || got.taxPaid != 0 {
+		t.Errorf("B lost and paid no tax: %+v", got)
+	}
+
+	// The account read: the career total at the top, each bucket's own under
+	// stats — and a StatsStore.Sheet reads the same rows.
+	u := f.find(a.ID)
+	if u.TotalTaxPaid != 2400000 || u.Stats.TeenPatti.TotalTaxPaid != 1500000 || u.Stats.Variation.TotalTaxPaid != 900000 ||
+		u.Stats.Poker.TotalTaxPaid != 0 {
+		t.Errorf("A reads totalTaxPaid %d (teenPatti %d, variation %d, poker %d), want 2400000 (1500000, 900000, 0)",
+			u.TotalTaxPaid, u.Stats.TeenPatti.TotalTaxPaid, u.Stats.Variation.TotalTaxPaid, u.Stats.Poker.TotalTaxPaid)
+	}
+	if u.TotalWinnings != 28004000 {
+		t.Errorf("totalWinnings %d: the winnings stay gross of the tax", u.TotalWinnings)
+	}
+	raw, err := json.Marshal(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"totalTaxPaid":2400000`) {
+		t.Errorf("the user object lacks its totalTaxPaid: %s", raw)
+	}
+	sheet, err := db.NewStatsStore(f.d, nil).Sheet(f.ctx, a.ID)
+	if err != nil || sheet.Totals().TotalTaxPaid != 2400000 {
+		t.Errorf("the sheet totals %d tax paid (%v), want 2400000", sheet.Totals().TotalTaxPaid, err)
+	}
+	if got := f.find(b.ID).TotalTaxPaid; got != 0 {
+		t.Errorf("B reads %d tax paid", got)
+	}
+}
+
+// A database built before the column — production's, 2 Oct 2026 — gains it at
+// its next boot (the baseline's catalogue-guarded block), every row it already
+// holds reading 0 and keeping its counters; the account read and the flush,
+// which both name the column, then work, and later boots change nothing.
+func TestABootAddsTheTaxPaidColumnToADatabaseFromBeforeIt(t *testing.T) {
+	f := newFixture(t)
+	a := f.user("A")
+	f.flushHands("before", game.HandStats{UserID: a.ID, Bucket: game.StatsTeenPatti, Played: 1, Won: 1, Winnings: 7000000,
+		TaxPaid: 1400000, HasHeld: true, Held: game.Trail})
+	column := func() int64 {
+		return f.count(`SELECT count(*) FROM information_schema.columns
+		     WHERE table_schema = $1 AND table_name = 'player_stats' AND column_name = 'total_tax_paid'`, f.d.Schema)
+	}
+	execSQL(t, f.d, `ALTER TABLE player_stats DROP COLUMN total_tax_paid`)
+	if column() != 0 {
+		t.Fatal("the column was not dropped")
+	}
+
+	reboot(t, f.d)
+	if column() != 1 {
+		t.Fatal("a boot did not add player_stats.total_tax_paid")
+	}
+	if got, want := f.stats(a.ID, game.StatsTeenPatti), (statsRow{played: 1, won: 1, winnings: 7000000, biggest: 7000000, trail: 1, ok: true}); got != want {
+		t.Errorf("the row after the upgrade = %+v, want %+v (its counters kept, the tax paid 0)", got, want)
+	}
+	if u := f.find(a.ID); u.TotalTaxPaid != 0 || u.TotalWinnings != 7000000 {
+		t.Errorf("the account reads tax %d, winnings %d after the upgrade", u.TotalTaxPaid, u.TotalWinnings)
+	}
+	// Counted from the first hand after it.
+	if !f.flushHands("after", game.HandStats{UserID: a.ID, Bucket: game.StatsTeenPatti, Played: 1, Won: 1, Winnings: 5000000,
+		TaxPaid: 1000000, HasHeld: true, Held: game.Pair}) {
+		t.Fatal("a flush after the upgrade was not applied")
+	}
+	reboot(t, f.d)
+	reboot(t, f.d)
+	if got := f.stats(a.ID, game.StatsTeenPatti); got.taxPaid != 1000000 || got.winnings != 12000000 {
+		t.Errorf("after two more boots: tax paid %d, winnings %d, want 1000000 and 12000000", got.taxPaid, got.winnings)
+	}
+	if column() != 1 {
+		t.Error("the column is not there exactly once after two more boots")
 	}
 }

@@ -41,6 +41,7 @@ Map<String, dynamic> drawerGamesJson() => {
     winRate: 43.97,
     winnings: 9990000,
     biggest: 812000,
+    tax: 1234500,
     hands: handsJson(3, 5, 29, 47, 153, 661),
   ),
   'variation': statsGameJson(
@@ -51,6 +52,7 @@ Map<String, dynamic> drawerGamesJson() => {
     winRate: 39.47,
     winnings: 94434000,
     biggest: 12500000,
+    tax: 13365500,
     hands: handsJson(24, 9, 33, 41, 91, 182),
     variations: [
       variationJson('MUFLIS', 120, 50),
@@ -71,9 +73,10 @@ Map<String, dynamic> drawerGamesJson() => {
   ),
 };
 
-/// Guest23AF1's account, as `/api/auth/me` answers it: the six totals the
-/// user object carries — 10.5 Crore won in all, a 1.25 Crore biggest pot —
-/// the three games, the level and the Regular badge.
+/// Guest23AF1's account, as `/api/auth/me` answers it: the totals the user
+/// object carries — 10.5 Crore won in all, a 1.25 Crore biggest pot, 1.46
+/// Crore of winning tax paid (12.35 Lakh at Teen Patti, 1.34 Crore at
+/// Variation) — the three games, the level and the Regular badge.
 Map<String, dynamic> guestWithStatsJson({String name = 'Guest23AF1'}) => {
   'id': 'u-guest',
   'provider': 'guest',
@@ -88,6 +91,7 @@ Map<String, dynamic> guestWithStatsJson({String name = 'Guest23AF1'}) => {
   'handsLeftMid': 75,
   'totalWinnings': 105000500,
   'biggestPot': 12500000,
+  'totalTaxPaid': 14600000,
   'stats': drawerGamesJson(),
   'playerLevel': newbieLevelJson(),
   'badges': [regularBadgeJson()],

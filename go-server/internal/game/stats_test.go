@@ -89,6 +89,12 @@ func TestAnEntryCountsWhatTheCheckpointsAlwaysCounted(t *testing.T) {
 			HandStats{UserID: "u", Bucket: StatsTeenPatti, Played: 1}},
 		{"a loser's pot takes nothing", SettleEntry{UserID: "u", Outcome: true, Pot: 500}, true,
 			HandStats{UserID: "u", Bucket: StatsTeenPatti, Lost: 1}},
+		{"a taxed winner paid the tax their entry carries", SettleEntry{UserID: "u", Outcome: true, IsWinner: true, DidChaal: true, Pot: 900, Tax: 120}, true,
+			HandStats{UserID: "u", Bucket: StatsTeenPatti, Played: 1, Won: 1, Winnings: 900, TaxPaid: 120}},
+		{"only a winner pays a tax", SettleEntry{UserID: "u", Outcome: true, DidChaal: true, Tax: 120}, true,
+			HandStats{UserID: "u", Bucket: StatsTeenPatti, Played: 1, Lost: 1}},
+		{"a tax is never negative", SettleEntry{UserID: "u", Outcome: true, IsWinner: true, Pot: 900, Tax: -5}, true,
+			HandStats{UserID: "u", Bucket: StatsTeenPatti, Won: 1, Winnings: 900}},
 	}
 	for _, c := range cases {
 		got, ok := StatsForEntry(c.entry, StatsTeenPatti)
@@ -101,6 +107,9 @@ func TestAnEntryCountsWhatTheCheckpointsAlwaysCounted(t *testing.T) {
 	}
 	if (HandStats{UserID: "u", HasHeld: true, Held: HighCard}).Empty() {
 		t.Error("a hand held is a count")
+	}
+	if (HandStats{UserID: "u", TaxPaid: 1}).Empty() {
+		t.Error("a tax paid is a count")
 	}
 }
 
@@ -468,9 +477,12 @@ func TestAHandSettledAfterItsTableIsGoneIsStillCountedOnce(t *testing.T) {
 
 // A taxed win (the winning tax, 26–27 Sep 2026) counts the whole pot once: the
 // winner's counters carry the pot they took — gross, as total_winnings always
-// has — and the table_tax row the ledger writes beside the win is money only,
-// never a second count. The hand is recorded once, after its settle.
-func TestATaxedWinCountsThePotOnceAndTheTaxNothing(t *testing.T) {
+// has — and the table_tax row the ledger writes beside the win is never a
+// second win. Since 2 Oct 2026 (owner: "also include column how much tax he
+// totally paid") the winner's counters carry that tax too — exactly the figure
+// the hand announced and the ledger withheld — and nobody else's carry any.
+// The hand is recorded once, after its settle.
+func TestATaxedWinCountsThePotOnceAndTheTaxItPaid(t *testing.T) {
 	log := &statsLog{}
 	book := newTaxBook()
 	h := newHarness(t, taxConfig(), withLedger(book.ledger), withStats(log.record))
@@ -489,7 +501,10 @@ func TestATaxedWinCountsThePotOnceAndTheTaxNothing(t *testing.T) {
 	got := statsByUser(t, log.all())
 	eq(t, got[winner].Won, int64(1), "the winner won")
 	eq(t, got[winner].Winnings, ended.Pot, "the whole pot, gross of the tax")
+	eq(t, got[winner].TaxPaid, ended.Tax, "the tax the hand announced is the tax the winner is counted as paying")
+	eq(t, got[winner].Bucket, StatsTeenPatti, "in the table's bucket")
 	eq(t, got[packer].Lost, int64(1), "the packer lost")
 	eq(t, got[packer].Winnings, int64(0), "and took nothing")
-	eq(t, len(got), 2, "the tax adds no one and nothing")
+	eq(t, got[packer].TaxPaid, int64(0), "and paid no tax")
+	eq(t, len(got), 2, "the tax adds no one")
 }

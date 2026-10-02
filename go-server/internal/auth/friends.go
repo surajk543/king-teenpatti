@@ -123,7 +123,8 @@ type PlayerResponse struct {
 // career, every bucket of player_stats summed — and the win rate,
 // round(100 · won / played, 2), 0 before a hand is played and never over 100;
 // then the same per bucket (Player stats v2, owner 27 Sep 2026). No chip
-// figure — totalWinnings and biggestPot stay off, here and in every category.
+// figure — totalWinnings, biggestPot and totalTaxPaid stay off, here and in
+// every category.
 type PlayerStatsView struct {
 	HandsPlayed int64   `json:"handsPlayed"`
 	HandsWon    int64   `json:"handsWon"`
@@ -159,7 +160,7 @@ type ProfileVariationStats struct {
 }
 
 // ProfileCategories is PlayerStatsView.Categories: the shape of user.stats
-// without totalWinnings and biggestPot.
+// without totalWinnings, biggestPot and totalTaxPaid.
 type ProfileCategories struct {
 	TeenPatti ProfileTeenPattiStats `json:"teenPatti"`
 	Variation ProfileVariationStats `json:"variation"`

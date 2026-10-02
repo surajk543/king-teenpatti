@@ -116,6 +116,10 @@ class Strings {
   String get leftMidHand => _('leftMidHand');
   String get totalWinnings => _('totalWinnings');
   String get biggestPot => _('biggestPot');
+
+  /// The Stats drawer's third chip figure: the winning tax the player has
+  /// paid (their own record only).
+  String get taxPaid => _('taxPaid');
   String get playedNote => _('playedNote');
 
   // --- player stats v2 (owner, 27 Sep 2026): a record kept game by game —
@@ -2018,6 +2022,7 @@ class Strings {
       'leftMidHand': 'Left mid-hand',
       'totalWinnings': 'Total winnings',
       'biggestPot': 'Biggest pot',
+      'taxPaid': 'Winning tax paid',
       'playedNote': 'A hand counts as played once you have made a move in it.',
       'statsAll': 'All',
       'handsHeld': 'Hands held',
@@ -3023,6 +3028,7 @@ class Strings {
       'leftMidHand': 'बीच में छोड़े',
       'totalWinnings': 'कुल जीत',
       'biggestPot': 'सबसे बड़ा पॉट',
+      'taxPaid': 'चुकाया गया जीत टैक्स',
       'playedNote': 'हाथ तभी गिना जाता है जब आपने उसमें कोई चाल चली हो।',
       'statsAll': 'सभी',
       'handsHeld': 'मिले हुए हाथ',
@@ -4013,6 +4019,7 @@ class Strings {
       'leftMidHand': 'মাঝপথে ছেড়েছেন',
       'totalWinnings': 'মোট জেতা',
       'biggestPot': 'সবচেয়ে বড় পট',
+      'taxPaid': 'দেওয়া জয়ের ট্যাক্স',
       'playedNote': 'কোনো চাল দিলে তবেই হাতটি গোনা হয়।',
       'statsAll': 'সব',
       'handsHeld': 'পাওয়া হাত',
@@ -5002,6 +5009,7 @@ class Strings {
       'leftMidHand': 'વચ્ચે છોડ્યા',
       'totalWinnings': 'કુલ જીત',
       'biggestPot': 'સૌથી મોટો પોટ',
+      'taxPaid': 'ચૂકવેલો જીત ટેક્સ',
       'playedNote': 'કોઈ ચાલ ચાલો ત્યારે જ હાથ ગણાય છે.',
       'statsAll': 'બધા',
       'handsHeld': 'મળેલા હાથ',
@@ -5986,6 +5994,7 @@ class Strings {
       'leftMidHand': 'ਵਿਚਾਲੇ ਛੱਡੇ',
       'totalWinnings': 'ਕੁੱਲ ਜਿੱਤ',
       'biggestPot': 'ਸਭ ਤੋਂ ਵੱਡਾ ਪੌਟ',
+      'taxPaid': 'ਭਰਿਆ ਜਿੱਤ ਟੈਕਸ',
       'playedNote': 'ਹੱਥ ਤਾਂ ਹੀ ਗਿਣਿਆ ਜਾਂਦਾ ਹੈ ਜਦੋਂ ਤੁਸੀਂ ਕੋਈ ਚਾਲ ਚੱਲੀ ਹੋਵੇ।',
       'statsAll': 'ਸਾਰੇ',
       'handsHeld': 'ਮਿਲੇ ਹੱਥ',

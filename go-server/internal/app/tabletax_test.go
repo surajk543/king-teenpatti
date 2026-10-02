@@ -254,6 +254,50 @@ func TestATaxingTableTaxesTheWinnerAtTheirLevelsRateOverTheSocket(t *testing.T) 
 		t.Errorf("game_table_tax_chips_total{category=blind} = %v, want %d", v, wantTax)
 	}
 
+	// The tax the winner PAID is a statistic of theirs (owner, 2 Oct 2026: "In
+	// player stats table, also include column how much tax he totally paid …
+	// saves is redis … group commit"): nothing in PostgreSQL until the stats
+	// flusher's pass, then player_stats.total_tax_paid on the winner's row of
+	// the table's bucket — exactly their table_tax ledger rows — and on the
+	// account, at the top and under stats; the loser paid none, and winnings
+	// stay gross.
+	var early int64
+	if err := database.Pool.QueryRow(ctx, `SELECT count(*) FROM player_stats`).Scan(&early); err != nil || early != 0 {
+		t.Fatalf("%d player_stats rows before any flush (%v): the settle writes money only", early, err)
+	}
+	if _, err := a.FlushStats(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var taxPaid, grossWon, ledgerTax, loserTax int64
+	if err := database.Pool.QueryRow(ctx, `SELECT
+	       (SELECT total_tax_paid FROM player_stats WHERE user_id = $1 AND category = 'TEEN_PATTI'),
+	       (SELECT total_winnings FROM player_stats WHERE user_id = $1 AND category = 'TEEN_PATTI'),
+	       (SELECT COALESCE(-SUM(delta), 0) FROM chip_ledger WHERE user_id = $1 AND reason = 'table_tax'),
+	       (SELECT COALESCE(SUM(total_tax_paid), 0) FROM player_stats WHERE user_id = $2)`,
+		winner.id, packer.id).Scan(&taxPaid, &grossWon, &ledgerTax, &loserTax); err != nil {
+		t.Fatal(err)
+	}
+	if taxPaid != wantTax || taxPaid != ledgerTax || grossWon != pot || loserTax != 0 {
+		t.Errorf("after the flush: winner's total_tax_paid %d (ledger %d, want %d), total_winnings %d (want the gross pot %d), loser's tax %d",
+			taxPaid, ledgerTax, wantTax, grossWon, pot, loserTax)
+	}
+	for path, want := range map[string]int64{"totalTaxPaid": wantTax, "stats.teenPatti.totalTaxPaid": wantTax,
+		"stats.variation.totalTaxPaid": 0, "stats.poker.totalTaxPaid": 0, "totalWinnings": pot} {
+		if got := statsOf(t, ts.URL, winner.token, path); got != float64(want) {
+			t.Errorf("the winner's %s = %v, want %d", path, got, want)
+		}
+	}
+	if got := statsOf(t, ts.URL, packer.token, "totalTaxPaid"); got != float64(0) {
+		t.Errorf("the loser's totalTaxPaid = %v", got)
+	}
+	// A second pass has nothing left to add: the tax is counted once.
+	if _, err := a.FlushStats(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := statsOf(t, ts.URL, winner.token, "totalTaxPaid"); got != float64(wantTax) {
+		t.Errorf("after a second flush the winner's totalTaxPaid = %v, want %d", got, wantTax)
+	}
+
 	// The daily XP (owner, 27 Sep 2026): the hand opened both players'
 	// windows, and the winner earned the "Win by …" of the hand they won with
 	// where one names it (a high card earns nothing) — told of it, and only

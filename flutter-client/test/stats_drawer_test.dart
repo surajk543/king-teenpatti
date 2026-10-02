@@ -19,6 +19,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:teenpatti/config/features.dart';
 import 'package:teenpatti/l10n/strings.dart';
+import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/models/player_stats.dart';
 import 'package:teenpatti/screens/friends_screen.dart';
 import 'package:teenpatti/screens/lobby_screen.dart';
@@ -168,6 +169,8 @@ void _expectScope(
       formatChips(game['totalWinnings'] as int),
     ),
     ('stats-biggest-pot', t.biggestPot, formatChips(game['biggestPot'] as int)),
+    // The winning tax the player has paid in the scope (2 Oct 2026).
+    ('stats-tax-paid', t.taxPaid, formatChips(game['totalTaxPaid'] as int)),
   ]) {
     expect(_textIn(key, label), findsOneWidget, reason: '$where $key');
     expect(_textIn(key, value), findsOneWidget, reason: '$where $key');
@@ -335,6 +338,16 @@ void _expectOldRecord(WidgetTester tester, Finder root, Strings t) {
   );
   expect(_textIn('friend-stat-0', '1,498'), findsOneWidget);
   expect(_textIn('friend-stat-4', t.winRate), findsOneWidget);
+  // Nothing of the tax another player has paid (owner, 2 Oct 2026: "other
+  // player cannot see other player tax information"): no card, no word.
+  expect(
+    find.descendant(of: root, matching: _key('stats-tax-paid')),
+    findsNothing,
+  );
+  expect(
+    find.descendant(of: root, matching: find.text(t.taxPaid)),
+    findsNothing,
+  );
 }
 
 // ------------------------------------------------------------------- main
@@ -345,6 +358,8 @@ void main() {
     await loadScriptFonts();
   });
   setUp(() => SharedPreferences.setMockInitialValues({'soundOn': false}));
+
+  group('the tax paid', taxPaidModelTests);
 
   group('one continuous profile', () {
     testWidgets('no tabs, no segmented switch and no switch of games in the '
@@ -725,11 +740,22 @@ void main() {
         final biggest = tester.getRect(_key('stats-biggest-pot'));
         expect(biggest.top, closeTo(winnings.top, 0.5));
         expect(winnings.top, greaterThan(played.bottom));
+        // Then the tax paid, a row of its own as wide as the two above
+        // together, over the quiet left-mid-hand line.
+        final tax = tester.getRect(_key('stats-tax-paid'));
+        expect(tax.top, greaterThan(winnings.bottom));
+        expect(tax.left, closeTo(winnings.left, 0.5));
+        expect(tax.right, closeTo(biggest.right, 0.5));
+        expect(
+          tester.getRect(_key('stats-left-mid-hand-text')).top,
+          greaterThan(tax.bottom),
+        );
         final gold = AppTheme.goldInk(b);
         Color? ink(String key, String text) =>
             tester.widget<Text>(_textIn(key, text)).style?.color;
         expect(ink('stats-total-winnings', formatChips(105000500)), gold);
         expect(ink('stats-biggest-pot', formatChips(12500000)), gold);
+        expect(ink('stats-tax-paid', formatChips(14600000)), gold);
         for (final (key, text) in [
           ('stats-played', '1,498'),
           ('stats-won', '610'),
@@ -777,11 +803,44 @@ void main() {
           );
         }
       }
+      // The tax paid, on its row: its name whole at the start, its figure
+      // whole at the end, the two apart, both inside the card — 1.46 Crore
+      // in all, 12.35 Lakh at Teen Patti, 1.34 Crore at Variation.
+      for (final (scope, paid) in [
+        (StatsScope.allGames, 14600000),
+        (StatsScope.teenPatti, 1234500),
+        (StatsScope.variations, 13365500),
+      ]) {
+        await _choose(tester, scope);
+        final card = tester.getRect(_key('stats-tax-paid'));
+        final name = tester.renderObject<RenderParagraph>(
+          _textIn('stats-tax-paid', Strings(AppLang.english).taxPaid),
+        );
+        final figure = tester.renderObject<RenderParagraph>(
+          _textIn('stats-tax-paid', formatChips(paid)),
+        );
+        expect(name.didExceedMaxLines, isFalse, reason: '$scope');
+        final nameAt = _onScreen(name), figureAt = _onScreen(figure);
+        expect(nameAt.left, greaterThanOrEqualTo(card.left), reason: '$scope');
+        expect(
+          nameAt.right,
+          lessThanOrEqualTo(figureAt.left),
+          reason: '$scope',
+        );
+        expect(figureAt.right, lessThanOrEqualTo(card.right), reason: '$scope');
+        // The figure stands against the card's end, the label at its start.
+        expect(
+          card.right - figureAt.right,
+          lessThan(Space.md),
+          reason: '$scope',
+        );
+      }
       await _choose(tester, StatsScope.allGames);
       expect(
         _textIn('stats-total-winnings', formatChips(105000500)),
         findsOneWidget,
       );
+      expect(formatChips(14600000), '1.46 Crore');
       expect(formatChips(105000500), '10.5 Crore');
       expect(formatChips(12500000), '1.25 Crore');
       expect(formatChips(9990000), '99.9 Lakh');
@@ -1257,5 +1316,63 @@ void main() {
         state.dispose();
       }, () => server.client);
     });
+  });
+}
+
+// ---------------------------------------------------------- the tax paid
+
+/// The winning tax a player has paid is their own figure (owner, 2 Oct 2026:
+/// "player can see how mch tax they paid in stats button, but other player
+/// cannot see other player tax information, they can see their only in UI").
+void taxPaidModelTests() {
+  test('the account reads its own tax paid, in all and game by game; a '
+      'server that does not count it yet reads 0', () {
+    final me = User.fromJson(guestWithStatsJson());
+    expect(me.totalTaxPaid, 14600000);
+    expect(me.totals.totalTaxPaid, 14600000);
+    expect(me.stats.teenPatti.totalTaxPaid, 1234500);
+    expect(me.stats.variation.totalTaxPaid, 13365500);
+    expect(me.stats.poker.totalTaxPaid, 0);
+    // Every copy of the account keeps it.
+    expect(me.withMissile(3).totalTaxPaid, 14600000);
+    expect(me.withHammer(5).totalTaxPaid, 14600000);
+    final older = User.fromJson(guestWithStatsJson()..remove('totalTaxPaid'));
+    expect(older.totalTaxPaid, 0);
+    expect(User.fromJson(newAccountJson()).totals.totalTaxPaid, 0);
+  });
+
+  test('another player\'s record never holds a tax paid, even were a server '
+      'to send one', () {
+    final sent = {
+      'teenPatti': {
+        ...statsGameJson(played: 9, won: 4, lost: 5),
+        'totalTaxPaid': 777,
+      },
+      'variation': {
+        ...statsGameJson(played: 3, won: 1, lost: 2),
+        'totalTaxPaid': 888,
+      },
+      'poker': {
+        ...statsGameJson(played: 1, won: 0, lost: 1),
+        'totalTaxPaid': 999,
+      },
+    };
+    final theirs = StatsByCategory.fromJson(sent, chips: false);
+    for (final game in [theirs.teenPatti, theirs.variation, theirs.poker]) {
+      expect(game.totalTaxPaid, 0);
+      expect(game.totalWinnings, 0);
+    }
+    expect(theirs.teenPatti.handsPlayed, 9);
+    // The same JSON as the player's own keeps it.
+    expect(StatsByCategory.fromJson(sent).teenPatti.totalTaxPaid, 777);
+  });
+
+  test('the words, in all five languages', () {
+    final words = {for (final l in AppLang.values) l: Strings(l).taxPaid};
+    expect(words[AppLang.english], 'Winning tax paid');
+    expect(words.values.toSet().length, AppLang.values.length);
+    for (final w in words.values) {
+      expect(w, isNot('taxPaid'));
+    }
   });
 }

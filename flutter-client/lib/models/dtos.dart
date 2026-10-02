@@ -312,6 +312,7 @@ class User {
     required this.handsLeftMid,
     required this.totalWinnings,
     required this.biggestPot,
+    this.totalTaxPaid = 0,
     this.stats = const StatsByCategory(),
     this.playerLevel,
     this.badges = const [],
@@ -427,6 +428,11 @@ class User {
   final int totalWinnings;
   final int biggestPot;
 
+  /// The winning tax the player has paid in every game together (2 Oct 2026;
+  /// the server's `totalTaxPaid`): their own figure, which no other player's
+  /// profile carries. 0 from a server that does not count it yet.
+  final int totalTaxPaid;
+
   /// The record game by game (player stats v2, owner, 27 Sep 2026): Teen
   /// Patti, Variation and Poker, each with its figures — the two chip figures
   /// included, this being the player's own account — Teen Patti's and
@@ -434,7 +440,7 @@ class User {
   /// are the totals of the three.
   final StatsByCategory stats;
 
-  /// The six totals above as one record — every game together, the Stats
+  /// The totals above as one record — every game together, the Stats
   /// drawer's "All". The account carries no win rate for them, and the
   /// player's own record shows none.
   CategoryStats get totals => CategoryStats(
@@ -444,6 +450,7 @@ class User {
     handsLeft: handsLeftMid,
     totalWinnings: totalWinnings,
     biggestPot: biggestPot,
+    totalTaxPaid: totalTaxPaid,
   );
 
   /// The same account with a new hammer count — what a Force Sideshow's ack
@@ -466,6 +473,7 @@ class User {
     handsLeftMid: handsLeftMid,
     totalWinnings: totalWinnings,
     biggestPot: biggestPot,
+    totalTaxPaid: totalTaxPaid,
     stats: stats,
     playerLevel: playerLevel,
     badges: badges,
@@ -494,6 +502,7 @@ class User {
     handsLeftMid: handsLeftMid,
     totalWinnings: totalWinnings,
     biggestPot: biggestPot,
+    totalTaxPaid: totalTaxPaid,
     stats: stats,
     playerLevel: standing.playerLevel,
     badges: standing.badges,
@@ -521,6 +530,7 @@ class User {
     handsLeftMid: handsLeftMid,
     totalWinnings: totalWinnings,
     biggestPot: biggestPot,
+    totalTaxPaid: totalTaxPaid,
     stats: stats,
     playerLevel: playerLevel,
     badges: badges,
@@ -550,6 +560,7 @@ class User {
     handsLeftMid: _int(j['handsLeftMid']),
     totalWinnings: _int(j['totalWinnings']),
     biggestPot: _int(j['biggestPot']),
+    totalTaxPaid: _int(j['totalTaxPaid']),
     stats: j['stats'] is Map
         ? StatsByCategory.fromJson(Map<String, dynamic>.from(j['stats'] as Map))
         : const StatsByCategory(),

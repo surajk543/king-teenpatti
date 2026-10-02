@@ -830,6 +830,21 @@ class _ScopeView extends StatelessWidget {
             ),
           ],
         ),
+        const SizedBox(height: Space.sm),
+        // The winning tax the player has paid in this scope (owner, 2 Oct
+        // 2026: "player can see how mch tax they paid in stats button") —
+        // their own figure, which this record alone draws: another player's
+        // (PlayerStatsGrid) carries no chip figure, and the model would read
+        // none for it. One row across, its name at the start and the figure
+        // at the end, so the two figures above keep their halves.
+        PerformanceStatCard(
+          key: const ValueKey('stats-tax-paid'),
+          icon: Icons.receipt_long_outlined,
+          value: formatChips(stats.totalTaxPaid),
+          label: t.taxPaid,
+          money: true,
+          wide: true,
+        ),
         const SizedBox(height: Space.md),
         _LeftMidHand(t: t, count: stats.handsLeft, ink: ink),
         const SizedBox(height: Space.xl),
@@ -919,12 +934,18 @@ class PerformanceStatCard extends StatelessWidget {
     required this.value,
     required this.label,
     this.money = false,
+    this.wide = false,
   });
 
   final IconData icon;
   final String value;
   final String label;
   final bool money;
+
+  /// A card that has a row to itself: the glyph and the label at the start,
+  /// the figure at the end, on one line where both fit (the label may take a
+  /// second line; the figure is set smaller rather than cut).
+  final bool wide;
 
   @override
   Widget build(BuildContext context) {
@@ -934,6 +955,16 @@ class PerformanceStatCard extends StatelessWidget {
       text.titleLarge!,
       fontSize: 19,
       colour: money ? ink.gold : ink.primary,
+    );
+    final name = Text(
+      label,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: AppTheme.label(
+        text.labelSmall!,
+        colour: ink.muted,
+        weight: FontWeight.w500,
+      ),
     );
     return Container(
       decoration: BoxDecoration(
@@ -957,32 +988,43 @@ class PerformanceStatCard extends StatelessWidget {
             Space.sm,
             Space.sm,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 15, color: money ? ink.gold : ink.muted),
-              const SizedBox(height: Space.xs),
-              // Set smaller rather than cut: "10.5 Crore" on a 640dp phone at
-              // text x1.25 is wider than its half of the row.
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(value, maxLines: 1, style: figure),
-              ),
-              const SizedBox(height: Space.xxs),
-              Text(
-                label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: AppTheme.label(
-                  text.labelSmall!,
-                  colour: ink.muted,
-                  weight: FontWeight.w500,
+          child: wide
+              ? Row(
+                  children: [
+                    Icon(icon, size: 15, color: money ? ink.gold : ink.muted),
+                    const SizedBox(width: Space.sm),
+                    // The label keeps three fifths of the row; the figure
+                    // the rest, against the card's end, set smaller rather
+                    // than cut.
+                    Expanded(flex: 3, child: name),
+                    const SizedBox(width: Space.sm),
+                    Expanded(
+                      flex: 2,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(value, maxLines: 1, style: figure),
+                      ),
+                    ),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 15, color: money ? ink.gold : ink.muted),
+                    const SizedBox(height: Space.xs),
+                    // Set smaller rather than cut: "10.5 Crore" on a 640dp
+                    // phone at text x1.25 is wider than its half of the row.
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(value, maxLines: 1, style: figure),
+                    ),
+                    const SizedBox(height: Space.xxs),
+                    name,
+                  ],
                 ),
-              ),
-            ],
-          ),
         ),
       ),
     );

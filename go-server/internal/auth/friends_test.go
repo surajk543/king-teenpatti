@@ -59,7 +59,7 @@ func TestAProfileShowsTheTotalsAndEachCategoryWithoutAChipFigure(t *testing.T) {
 	if string(raw) != want {
 		t.Fatalf("the profile's stats\n got %s\nwant %s", raw, want)
 	}
-	for _, chips := range []string{"totalWinnings", "biggestPot"} {
+	for _, chips := range []string{"totalWinnings", "biggestPot", "totalTaxPaid"} {
 		if strings.Contains(string(raw), chips) {
 			t.Fatalf("a profile carries %s: %s", chips, raw)
 		}

@@ -36,6 +36,7 @@ const (
 	colHandsLost     = "hands_lost"
 	colHandsLeft     = "hands_left"
 	colTotalWinnings = "total_winnings"
+	colTotalTaxPaid  = "total_tax_paid"
 	colBiggestPot    = "biggest_pot"
 	colTrail         = "trail"
 	colPureSequence  = "pure_sequence"
@@ -75,6 +76,7 @@ func Fields(h game.HandStats) live.StatsDelta {
 	add(colHandsLost, h.Lost)
 	add(colHandsLeft, h.Left)
 	add(colTotalWinnings, h.Winnings)
+	add(colTotalTaxPaid, h.TaxPaid)
 	if h.Winnings > 0 {
 		d.Max[prefix+colBiggestPot] = h.Winnings
 	}
@@ -156,6 +158,7 @@ var columnFolds = map[string]func(line *db.StatsLine, v int64){
 	colHandsLost:     func(l *db.StatsLine, v int64) { l.HandsLost += v },
 	colHandsLeft:     func(l *db.StatsLine, v int64) { l.HandsLeft += v },
 	colTotalWinnings: func(l *db.StatsLine, v int64) { l.TotalWinnings += v },
+	colTotalTaxPaid:  func(l *db.StatsLine, v int64) { l.TotalTaxPaid += v },
 	colBiggestPot:    func(l *db.StatsLine, v int64) { l.BiggestPot = max(l.BiggestPot, v) },
 	colTrail:         func(l *db.StatsLine, v int64) { l.Hands.Trail += v },
 	colPureSequence:  func(l *db.StatsLine, v int64) { l.Hands.PureSequence += v },

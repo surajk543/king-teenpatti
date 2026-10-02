@@ -45,13 +45,16 @@ type VariationTally struct {
 
 // StatsLine is one bucket's counters, one player_stats row. In a StatsDelta
 // every field is an amount to ADD but BiggestPot, which is a figure to keep
-// the larger of.
+// the larger of. TotalTaxPaid is the winning tax the player has paid in the
+// bucket (owner, 2 Oct 2026; game.HandStats.TaxPaid): the chips withheld from
+// their taxed wins, which TotalWinnings — gross — still includes.
 type StatsLine struct {
 	HandsPlayed   int64
 	HandsWon      int64
 	HandsLost     int64
 	HandsLeft     int64
 	TotalWinnings int64
+	TotalTaxPaid  int64
 	BiggestPot    int64
 	Hands         HandTally
 }
@@ -80,9 +83,9 @@ func (s *StatsSheet) line(bucket game.StatsBucket) *StatsLine {
 }
 
 // Totals is the whole career: every bucket's counters summed, the biggest pot
-// the largest. It is what the user object's six top-level counters carry
-// (handsPlayed … biggestPot, unchanged in name and meaning) and what a
-// friend's profile totals.
+// the largest. It is what the user object's top-level counters carry
+// (handsPlayed … biggestPot, unchanged in name and meaning, and totalTaxPaid)
+// and what a friend's profile totals.
 func (s StatsSheet) Totals() StatsLine {
 	var t StatsLine
 	for _, l := range []StatsLine{s.TeenPatti, s.Variation, s.Poker} {
@@ -91,6 +94,7 @@ func (s StatsSheet) Totals() StatsLine {
 		t.HandsLost += l.HandsLost
 		t.HandsLeft += l.HandsLeft
 		t.TotalWinnings += l.TotalWinnings
+		t.TotalTaxPaid += l.TotalTaxPaid
 		t.BiggestPot = max(t.BiggestPot, l.BiggestPot)
 		t.Hands.Trail += l.Hands.Trail
 		t.Hands.PureSequence += l.Hands.PureSequence
@@ -103,13 +107,15 @@ func (s StatsSheet) Totals() StatsLine {
 }
 
 // CategoryStats is one bucket on the wire (user.stats.teenPatti and its
-// siblings): the six counters and the win rate.
+// siblings): the counters and the win rate. TotalTaxPaid is the winning tax
+// paid in the bucket (always 0 at poker, which taxes nobody).
 type CategoryStats struct {
 	HandsPlayed   int64   `json:"handsPlayed"`
 	HandsWon      int64   `json:"handsWon"`
 	HandsLost     int64   `json:"handsLost"`
 	HandsLeft     int64   `json:"handsLeft"`
 	TotalWinnings int64   `json:"totalWinnings"`
+	TotalTaxPaid  int64   `json:"totalTaxPaid"`
 	BiggestPot    int64   `json:"biggestPot"`
 	WinRate       float64 `json:"winRate"`
 }
@@ -140,7 +146,8 @@ type UserStats struct {
 func categoryStats(l StatsLine) CategoryStats {
 	return CategoryStats{
 		HandsPlayed: l.HandsPlayed, HandsWon: l.HandsWon, HandsLost: l.HandsLost, HandsLeft: l.HandsLeft,
-		TotalWinnings: l.TotalWinnings, BiggestPot: l.BiggestPot, WinRate: WinRate(l.HandsWon, l.HandsPlayed),
+		TotalWinnings: l.TotalWinnings, TotalTaxPaid: l.TotalTaxPaid, BiggestPot: l.BiggestPot,
+		WinRate: WinRate(l.HandsWon, l.HandsPlayed),
 	}
 }
 
@@ -194,12 +201,14 @@ func orderVariations(tallies []VariationTally) {
 // statsColumns are the two correlated subqueries every read of a player's
 // statistics selects, against the users row aliased u: the player's
 // player_stats rows as one JSON array of arrays (category first, then the
-// twelve counters in column order) and their player_variation_stats rows as
+// twelve counters in column order, then total_tax_paid — last, the column
+// added last) and their player_variation_stats rows as
 // another ([variation, played, won]); '[]' for a player with none. Two index
 // lookups on the primary keys' leading user_id, inside the account read's one
 // round trip — the socket layer reads an account on every connect and join.
 const statsColumns = `(SELECT COALESCE(json_agg(json_build_array(s.category, s.hands_played, s.hands_won, s.hands_lost, s.hands_left,
-               s.total_winnings, s.biggest_pot, s.trail, s.pure_sequence, s.sequence, s.color, s.pair, s.high_card)), '[]'::json)::text
+               s.total_winnings, s.biggest_pot, s.trail, s.pure_sequence, s.sequence, s.color, s.pair, s.high_card,
+               s.total_tax_paid)), '[]'::json)::text
           FROM player_stats s WHERE s.user_id = u.id),
        (SELECT COALESCE(json_agg(json_build_array(v.variation, v.hands_played, v.hands_won)), '[]'::json)::text
           FROM player_variation_stats v WHERE v.user_id = u.id)`
@@ -214,14 +223,14 @@ func parseStatsSheet(buckets, variations string) (StatsSheet, error) {
 		return StatsSheet{}, fmt.Errorf("player_stats rows: %w", err)
 	}
 	for _, row := range rows {
-		if len(row) != 13 {
+		if len(row) != 14 {
 			return StatsSheet{}, fmt.Errorf("player_stats row of %d values", len(row))
 		}
 		var category string
 		if err := json.Unmarshal(row[0], &category); err != nil {
 			return StatsSheet{}, fmt.Errorf("player_stats category: %w", err)
 		}
-		var n [12]int64
+		var n [13]int64
 		for i := range n {
 			v, err := strconv.ParseInt(string(row[i+1]), 10, 64)
 			if err != nil {
@@ -235,7 +244,8 @@ func parseStatsSheet(buckets, variations string) (StatsSheet, error) {
 		}
 		*line = StatsLine{
 			HandsPlayed: n[0], HandsWon: n[1], HandsLost: n[2], HandsLeft: n[3], TotalWinnings: n[4], BiggestPot: n[5],
-			Hands: HandTally{Trail: n[6], PureSequence: n[7], Sequence: n[8], Color: n[9], Pair: n[10], HighCard: n[11]},
+			Hands:        HandTally{Trail: n[6], PureSequence: n[7], Sequence: n[8], Color: n[9], Pair: n[10], HighCard: n[11]},
+			TotalTaxPaid: n[12],
 		}
 	}
 	var vrows [][]json.RawMessage
@@ -312,6 +322,7 @@ func (d *StatsDelta) Add(h game.HandStats) {
 	line.HandsLost += h.Lost
 	line.HandsLeft += h.Left
 	line.TotalWinnings += h.Winnings
+	line.TotalTaxPaid += h.TaxPaid
 	line.BiggestPot = max(line.BiggestPot, h.Winnings)
 	if h.HasHeld {
 		switch h.Held {
@@ -358,7 +369,8 @@ func NewStatsStore(d *DB, clock func() time.Time) *StatsStore {
 //	    — no row inserted: this batch was committed before (its acknowledgement
 //	      lost), so nothing is added again and applied is false;
 //	INSERT INTO player_stats … SELECT FROM unnest(…) JOIN users ON CONFLICT DO UPDATE
-//	    — each bucket row adds the deltas, biggest_pot = GREATEST;
+//	    — each bucket row adds the deltas (total_tax_paid among them),
+//	      biggest_pot = GREATEST;
 //	INSERT INTO player_variation_stats … the same, per variation.
 //
 // The receipt is written FIRST and in the same transaction as the counters, so
@@ -402,13 +414,16 @@ func (s *StatsStore) Flush(ctx context.Context, batchID string, deltas []StatsDe
 		applied = true
 		if len(lines.userIDs) > 0 {
 			if _, err := tx.Exec(ctx, `INSERT INTO player_stats AS p (user_id, category, hands_played, hands_won, hands_lost, hands_left,
-			         total_winnings, biggest_pot, trail, pure_sequence, sequence, color, pair, high_card, created_at, updated_at)
+			         total_winnings, biggest_pot, trail, pure_sequence, sequence, color, pair, high_card, total_tax_paid,
+			         created_at, updated_at)
 			     SELECT d.user_id, d.category, d.hands_played, d.hands_won, d.hands_lost, d.hands_left,
-			            d.total_winnings, d.biggest_pot, d.trail, d.pure_sequence, d.sequence, d.color, d.pair, d.high_card, $15, $15
+			            d.total_winnings, d.biggest_pot, d.trail, d.pure_sequence, d.sequence, d.color, d.pair, d.high_card,
+			            d.total_tax_paid, $16, $16
 			       FROM unnest($1::text[], $2::text[], $3::bigint[], $4::bigint[], $5::bigint[], $6::bigint[], $7::bigint[],
-			                   $8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[])
+			                   $8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[],
+			                   $15::bigint[])
 			            AS d(user_id, category, hands_played, hands_won, hands_lost, hands_left, total_winnings, biggest_pot,
-			                 trail, pure_sequence, sequence, color, pair, high_card)
+			                 trail, pure_sequence, sequence, color, pair, high_card, total_tax_paid)
 			       JOIN users u ON u.id = d.user_id AND u.deleted_at = 0
 			      ORDER BY d.user_id, d.category
 			     ON CONFLICT (user_id, category) DO UPDATE
@@ -424,9 +439,11 @@ func (s *StatsStore) Flush(ctx context.Context, batchID string, deltas []StatsDe
 			            color          = p.color + EXCLUDED.color,
 			            pair           = p.pair + EXCLUDED.pair,
 			            high_card      = p.high_card + EXCLUDED.high_card,
+			            total_tax_paid = p.total_tax_paid + EXCLUDED.total_tax_paid,
 			            updated_at     = EXCLUDED.updated_at`,
 				lines.userIDs, lines.categories, lines.played, lines.won, lines.lost, lines.left, lines.winnings, lines.biggest,
-				lines.trail, lines.pureSequence, lines.sequence, lines.color, lines.pair, lines.highCard, at); err != nil {
+				lines.trail, lines.pureSequence, lines.sequence, lines.color, lines.pair, lines.highCard, lines.taxPaid,
+				at); err != nil {
 				return err
 			}
 		}
@@ -506,6 +523,7 @@ func mergeDeltas(deltas []StatsDelta) []*StatsDelta {
 			into.HandsLost += l.HandsLost
 			into.HandsLeft += l.HandsLeft
 			into.TotalWinnings += l.TotalWinnings
+			into.TotalTaxPaid += l.TotalTaxPaid
 			into.BiggestPot = max(into.BiggestPot, l.BiggestPot)
 			into.Hands.Trail += l.Hands.Trail
 			into.Hands.PureSequence += l.Hands.PureSequence
@@ -536,6 +554,7 @@ type statsLineColumns struct {
 	userIDs, categories                                  []string
 	played, won, lost, left, winnings, biggest           []int64
 	trail, pureSequence, sequence, color, pair, highCard []int64
+	taxPaid                                              []int64
 }
 
 func (c *statsLineColumns) add(userID, category string, l StatsLine) {
@@ -553,6 +572,7 @@ func (c *statsLineColumns) add(userID, category string, l StatsLine) {
 	c.color = append(c.color, l.Hands.Color)
 	c.pair = append(c.pair, l.Hands.Pair)
 	c.highCard = append(c.highCard, l.Hands.HighCard)
+	c.taxPaid = append(c.taxPaid, l.TotalTaxPaid)
 }
 
 // variationColumns are player_variation_stats rows as parallel arrays.

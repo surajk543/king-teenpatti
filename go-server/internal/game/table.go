@@ -3214,7 +3214,8 @@ func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showReques
 //	reason  = hand_win for the winner, hand_loss for everyone else
 //	Outcome = true: this is the row the hand's counters are computed from
 //	          (hands_played / hands_won / hands_lost / total_winnings /
-//	          biggest_pot — StatsForEntry), with the hand each player held
+//	          biggest_pot, and the winner's total_tax_paid — StatsForEntry),
+//	          with the hand each player held
 //	          and the variation (handStats); they ride the request
 //	          (SettleRequest.Stats) and reach the StatsRecorder once it has
 //	          committed — the ledger writes money only (Player stats v2)
