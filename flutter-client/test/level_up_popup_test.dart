@@ -3,7 +3,10 @@
 // in UI, and Tell in pop up that something like that now you will pay less
 // tax and how much less tax u pay tell that in pop up"): which standings
 // raise it, what it says about the winning tax, how it is put away, where it
-// waits, and that it fits every phone in every language.
+// waits, and that it fits every phone in every language — and its sound
+// (owner, the same day: "play this sound when congrats pop up comes and when
+// pop up closed, stop this sound"): `Congrats.mp3` from the moment the popup
+// appears to the moment it is put away.
 import 'dart:convert';
 import 'dart:io';
 
@@ -12,6 +15,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/main.dart' show KingTeenPattiApp;
 import 'package:teenpatti/models/dtos.dart';
@@ -110,6 +114,53 @@ Widget _app(
   ),
 );
 
+/// What the app asks the audio plugin to do, in order, past the Sound switch
+/// (which the real [FeedbackSettings] still applies): the popup's cheer, and
+/// the lobby's music that waits under it. No audio plugin runs here.
+class _Heard extends FeedbackSettings {
+  final heard = <String>[];
+
+  /// Only what was asked of the cheer, and only what was asked of the music.
+  List<String> get cheer => [
+    for (final h in heard)
+      if (h.startsWith('cheer')) h,
+  ];
+  List<String> get music => [
+    for (final h in heard)
+      if (h.startsWith('music')) h,
+  ];
+
+  // The game's other clips are not this file's business.
+  @override
+  Future<void> playClip(
+    String asset, {
+    required double volume,
+    required int voice,
+  }) async {}
+
+  @override
+  Future<void> startFanfare(String asset, {required double volume}) async =>
+      heard.add('cheer start $asset @$volume');
+
+  @override
+  Future<void> stopFanfare() async => heard.add('cheer stop');
+
+  @override
+  Future<void> startLoop(String asset, {required double volume}) async =>
+      heard.add('music start');
+
+  @override
+  Future<void> pauseLoop() async => heard.add('music pause');
+
+  @override
+  Future<void> resumeLoop() async => heard.add('music resume');
+
+  @override
+  Future<void> stopLoop() async => heard.add('music stop');
+}
+
+const _cheer = 'cheer start sound/Congrats.mp3 @0.85';
+
 Future<void> _mount(
   WidgetTester tester,
   GameState state, {
@@ -117,13 +168,14 @@ Future<void> _mount(
   Size screen = const Size(640, 360),
   double scale = 1.0,
   bool dark = true,
+  FeedbackSettings? sounds,
 }) async {
   tester.view.physicalSize = screen;
   tester.view.devicePixelRatio = 1;
   tester.platformDispatcher.textScaleFactorTestValue = scale;
   addTearDown(tester.view.reset);
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-  final feedback = await silentFeedback();
+  final feedback = sounds ?? await silentFeedback();
   addTearDown(feedback.dispose);
   await tester.pumpWidget(_app(state, feedback, home, dark));
   await tester.pump(const Duration(seconds: 1));
@@ -618,6 +670,456 @@ void main() {
       // Back went to the popup alone: nothing asks to quit the game.
       await tester.pump(const Duration(milliseconds: 600));
       expect(find.byType(Dialog), findsNothing);
+      await _unmount(tester, state);
+    });
+  });
+
+  // Its sound (owner, 2 Oct 2026: "play this sound when congrats pop up comes
+  // and when pop up closed, stop this sound").
+  group('its sound', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('the recording is in the bundle', () {
+      expect(FeedbackSettings.congratsClip, 'sound/Congrats.mp3');
+      final file = File('assets/${FeedbackSettings.congratsClip}');
+      expect(file.existsSync(), isTrue);
+      expect(file.lengthSync(), greaterThan(100 * 1024));
+      expect(
+        File('pubspec.yaml').readAsStringSync(),
+        contains('assets/sound/'),
+      );
+      expect(FeedbackSettings.congratsVolume, inInclusiveRange(0.6, 1.0));
+    });
+
+    group('the settings', () {
+      test('play it once when asked, and stop it when told', () async {
+        final f = _Heard();
+        addTearDown(f.dispose);
+        f.congrats();
+        await pumpEventQueue();
+        expect(f.heard, [_cheer]);
+        expect(f.congratsOn, isTrue);
+
+        f.stopCongrats();
+        f.stopCongrats(); // said again: nothing more to stop
+        await pumpEventQueue();
+        expect(f.heard, [_cheer, 'cheer stop']);
+        expect(f.congratsOn, isFalse);
+      });
+
+      test('stop nothing that was never started', () async {
+        final f = _Heard();
+        addTearDown(f.dispose);
+        f.stopCongrats();
+        await pumpEventQueue();
+        expect(f.heard, isEmpty);
+      });
+
+      test('keep it behind the Sound switch', () async {
+        final f = _Heard();
+        addTearDown(f.dispose);
+        await f.setSound(false);
+        f.congrats();
+        f.stopCongrats();
+        await pumpEventQueue();
+        expect(f.heard, isEmpty);
+
+        // The switch turned off while it plays stops it there.
+        await f.setSound(true);
+        f.congrats();
+        await f.setSound(false);
+        await pumpEventQueue();
+        expect(f.cheer, [_cheer, 'cheer stop']);
+        expect(f.congratsOn, isFalse);
+      });
+
+      test('start it again when asked while it plays', () async {
+        final f = _Heard();
+        addTearDown(f.dispose);
+        f.congrats();
+        f.congrats();
+        f.stopCongrats();
+        await pumpEventQueue();
+        expect(f.heard, [_cheer, _cheer, 'cheer stop']);
+      });
+
+      test('do what was asked in the order it was asked', () async {
+        final f = _Heard();
+        addTearDown(f.dispose);
+        for (var i = 0; i < 3; i++) {
+          f.congrats();
+          f.stopCongrats();
+        }
+        await pumpEventQueue();
+        expect(f.heard, [
+          _cheer,
+          'cheer stop',
+          _cheer,
+          'cheer stop',
+          _cheer,
+          'cheer stop',
+        ]);
+      });
+
+      test('the lobby\'s music waits under it and carries on after', () async {
+        final f = _Heard();
+        addTearDown(f.dispose);
+        f.lobbyMusic(playing: true);
+        f.congrats();
+        await pumpEventQueue();
+        expect(f.music, ['music start', 'music pause']);
+        expect(f.cheer, [_cheer]);
+        expect(f.musicPlaying, isFalse);
+
+        f.stopCongrats();
+        await pumpEventQueue();
+        expect(f.music, ['music start', 'music pause', 'music resume']);
+        expect(f.cheer, [_cheer, 'cheer stop']);
+        expect(f.musicPlaying, isTrue);
+      });
+
+      test('at a table there is no music to hold or to bring back', () async {
+        final f = _Heard();
+        addTearDown(f.dispose);
+        f.congrats();
+        f.stopCongrats();
+        await pumpEventQueue();
+        expect(f.heard, [_cheer, 'cheer stop']);
+      });
+
+      test('a lobby reached while it plays starts its music once it has '
+          'stopped', () async {
+        final f = _Heard();
+        addTearDown(f.dispose);
+        f.congrats();
+        f.lobbyMusic(playing: true);
+        await pumpEventQueue();
+        expect(f.music, isEmpty);
+        f.stopCongrats();
+        await pumpEventQueue();
+        expect(f.music, ['music start']);
+      });
+
+      test('the app leaving the front under it never brings the music back '
+          'for a moment, whichever is told first', () async {
+        // The popup's host is told before the music's keeper…
+        final f = _Heard();
+        addTearDown(f.dispose);
+        f.lobbyMusic(playing: true);
+        f.congrats();
+        f.stopCongrats(resumeMusic: false);
+        f.holdMusic(held: true);
+        await pumpEventQueue();
+        expect(f.cheer, [_cheer, 'cheer stop']);
+        expect(f.music, ['music start', 'music pause']);
+        // …and it carries on when the app is back.
+        f.holdMusic(held: false);
+        await pumpEventQueue();
+        expect(f.music, ['music start', 'music pause', 'music resume']);
+
+        // …or after it.
+        final g = _Heard();
+        addTearDown(g.dispose);
+        g.lobbyMusic(playing: true);
+        g.congrats();
+        g.holdMusic(held: true);
+        g.stopCongrats(resumeMusic: false);
+        await pumpEventQueue();
+        expect(g.cheer, [_cheer, 'cheer stop']);
+        expect(g.music, ['music start', 'music pause']);
+        g.holdMusic(held: false);
+        await pumpEventQueue();
+        expect(g.music, ['music start', 'music pause', 'music resume']);
+      });
+
+      test('music left for a table while it plays is stopped, not brought '
+          'back', () async {
+        final f = _Heard();
+        addTearDown(f.dispose);
+        f.lobbyMusic(playing: true);
+        f.congrats();
+        f.lobbyMusic(playing: false);
+        f.stopCongrats();
+        await pumpEventQueue();
+        expect(f.music, ['music start', 'music pause', 'music stop']);
+        expect(f.cheer, [_cheer, 'cheer stop']);
+      });
+    });
+
+    testWidgets('it starts as the popup appears, plays while it stays, and '
+        'Continue stops it at once', (tester) async {
+      final heard = _Heard();
+      final state = _atLevelOne();
+      await _mount(tester, state, sounds: heard);
+      expect(heard.cheer, isEmpty);
+      _levelUp(state);
+      await _arrive(tester);
+      expect(_popup, findsOneWidget);
+      expect(heard.cheer, [_cheer]);
+      await tester.pump(const Duration(seconds: 4));
+      expect(heard.cheer, [_cheer]);
+      await tester.tap(find.byKey(const ValueKey('level-up-continue')));
+      // Stopped as it is closed, before it has faded out.
+      await tester.pump();
+      expect(heard.cheer, [_cheer, 'cheer stop']);
+      expect(_popup, findsOneWidget);
+      await _gone(tester);
+      expect(_popup, findsNothing);
+      expect(heard.cheer, [_cheer, 'cheer stop']);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('a tap outside the popup stops it', (tester) async {
+      final heard = _Heard();
+      final state = _atLevelOne();
+      await _mount(tester, state, sounds: heard);
+      _levelUp(state);
+      await _arrive(tester);
+      await tester.tapAt(const Offset(24, 24));
+      await _gone(tester);
+      expect(_popup, findsNothing);
+      expect(heard.cheer, [_cheer, 'cheer stop']);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('the popup going by itself stops it', (tester) async {
+      final heard = _Heard();
+      final state = _atLevelOne();
+      await _mount(tester, state, sounds: heard);
+      _levelUp(state);
+      await _arrive(tester);
+      await tester.pump(LevelUpHost.hold - const Duration(seconds: 1));
+      expect(heard.cheer, [_cheer]);
+      await tester.pump(const Duration(seconds: 1));
+      await _gone(tester);
+      expect(_popup, findsNothing);
+      expect(heard.cheer, [_cheer, 'cheer stop']);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('a signed-out account takes the sound with its popup', (
+      tester,
+    ) async {
+      final heard = _Heard();
+      final state = _atLevelOne();
+      await _mount(tester, state, sounds: heard);
+      _levelUp(state);
+      await _arrive(tester);
+      state.levelUps.clear();
+      await _gone(tester);
+      expect(heard.cheer, [_cheer, 'cheer stop']);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('at a table it waits with the popup: nothing is heard before '
+        'the popup is seen', (tester) async {
+      final heard = _Heard();
+      final state = _atLevelOne()
+        ..screen = Screen.table
+        ..handleState(seenTurnRoom());
+      await _mount(tester, state, home: const TableScreen(), sounds: heard);
+      _levelUp(state);
+      await tester.pump();
+      await tester.pump(
+        LevelUpHost.tableDelay - const Duration(milliseconds: 200),
+      );
+      expect(_popup, findsNothing);
+      expect(heard.cheer, isEmpty);
+      await tester.pump(const Duration(milliseconds: 200));
+      await _arrive(tester);
+      expect(_popup, findsOneWidget);
+      expect(heard.cheer, [_cheer]);
+      await tester.tap(find.byKey(const ValueKey('level-up-continue')));
+      await _gone(tester);
+      expect(heard.cheer, [_cheer, 'cheer stop']);
+      // No lobby, so no music was held or brought back.
+      expect(heard.music, isEmpty);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('a level up put away before the popup has appeared is never '
+        'heard', (tester) async {
+      final heard = _Heard();
+      final state = _atLevelOne()
+        ..screen = Screen.table
+        ..handleState(seenTurnRoom());
+      await _mount(tester, state, home: const TableScreen(), sounds: heard);
+      _levelUp(state);
+      await tester.pump(const Duration(milliseconds: 500));
+      state.levelUps.clear();
+      await tester.pump(LevelUpHost.tableDelay);
+      await _gone(tester);
+      expect(_popup, findsNothing);
+      expect(heard.cheer, isEmpty);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('a second level up while the popup is up starts it again', (
+      tester,
+    ) async {
+      final heard = _Heard();
+      final state = _atLevelOne();
+      await _mount(tester, state, sounds: heard);
+      _levelUp(state);
+      await _arrive(tester);
+      await tester.pump(const Duration(seconds: 3));
+      state.handlePlayerLevel(_standing(_lv(3, 260)));
+      await _arrive(tester);
+      expect(_text(tester, 'level-up-level'), 'Level 3 · Beginner');
+      expect(heard.cheer, [_cheer, _cheer]);
+      await tester.tap(find.byKey(const ValueKey('level-up-continue')));
+      await _gone(tester);
+      expect(heard.cheer, [_cheer, _cheer, 'cheer stop']);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('with the Sound switch off the popup is silent', (
+      tester,
+    ) async {
+      final heard = _Heard();
+      await heard.setSound(false);
+      final state = _atLevelOne();
+      await _mount(tester, state, sounds: heard);
+      _levelUp(state);
+      await _arrive(tester);
+      expect(_popup, findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('level-up-continue')));
+      await _gone(tester);
+      expect(heard.heard, isEmpty);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('the app leaving the front stops it, and back in front the '
+        'popup stays silent', (tester) async {
+      addTearDown(
+        () => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        ),
+      );
+      final heard = _Heard();
+      final state = _atLevelOne();
+      await _mount(tester, state, sounds: heard);
+      _levelUp(state);
+      await _arrive(tester);
+      // A shade or a system dialog over the app is not leaving it.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      expect(heard.cheer, [_cheer]);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      expect(heard.cheer, [_cheer, 'cheer stop']);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(_popup, findsOneWidget);
+      expect(heard.cheer, [_cheer, 'cheer stop']);
+      // Put away now, there is nothing left to stop.
+      await tester.tap(find.byKey(const ValueKey('level-up-continue')));
+      await _gone(tester);
+      expect(heard.cheer, [_cheer, 'cheer stop']);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('a screen taken down with the popup up takes the sound with '
+        'it', (tester) async {
+      final heard = _Heard();
+      final state = _atLevelOne();
+      await _mount(tester, state, sounds: heard);
+      _levelUp(state);
+      await _arrive(tester);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      expect(heard.cheer, [_cheer, 'cheer stop']);
+      await tester.pump(const Duration(seconds: 20));
+      state.dispose();
+    });
+
+    testWidgets('in the app as main.dart builds it the lobby\'s music waits '
+        'under it, and Back stops it and brings the music back', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(640, 360);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final state = _atLevelOne();
+      final heard = _Heard();
+      addTearDown(heard.dispose);
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<GameState>.value(value: state),
+            ChangeNotifierProvider<FeedbackSettings>.value(value: heard),
+          ],
+          child: const KingTeenPattiApp(),
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(LobbyScreen), findsOneWidget);
+      expect(heard.music, ['music start']);
+      _levelUp(state);
+      await _arrive(tester);
+      expect(_popup, findsOneWidget);
+      expect(heard.cheer, [_cheer]);
+      expect(heard.music, ['music start', 'music pause']);
+      await tester.binding.handlePopRoute();
+      await _gone(tester);
+      expect(_popup, findsNothing);
+      expect(heard.cheer, [_cheer, 'cheer stop']);
+      expect(heard.music, ['music start', 'music pause', 'music resume']);
+      await _unmount(tester, state);
+    });
+
+    testWidgets('in the app, leaving the front under the popup stops it and '
+        'keeps the lobby\'s music held until the app is back', (tester) async {
+      tester.view.physicalSize = const Size(640, 360);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      addTearDown(
+        () => tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        ),
+      );
+      final state = _atLevelOne();
+      final heard = _Heard();
+      addTearDown(heard.dispose);
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<GameState>.value(value: state),
+            ChangeNotifierProvider<FeedbackSettings>.value(value: heard),
+          ],
+          child: const KingTeenPattiApp(),
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump(const Duration(seconds: 1));
+      _levelUp(state);
+      await _arrive(tester);
+      expect(heard.cheer, [_cheer]);
+      expect(heard.music, ['music start', 'music pause']);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump();
+      expect(heard.cheer, [_cheer, 'cheer stop']);
+      // Not a note of the music while the app is behind.
+      expect(heard.music, ['music start', 'music pause']);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      // Back in front: the music carries on, the popup — still up — is
+      // silent.
+      expect(_popup, findsOneWidget);
+      expect(heard.cheer, [_cheer, 'cheer stop']);
+      expect(heard.music, ['music start', 'music pause', 'music resume']);
       await _unmount(tester, state);
     });
   });

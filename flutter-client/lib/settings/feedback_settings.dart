@@ -135,6 +135,22 @@ class FeedbackSettings extends ChangeNotifier {
   _Music _musicState = _Music.off;
   Future<void> _musicQueue = Future<void>.value();
 
+  /// The level-up popup's cheer (owner, 2 Oct 2026: "play this sound when
+  /// congrats pop up comes and when pop up closed, stop this sound"). The
+  /// owner's recording, 9.6 s: a cheer that swells in its first second, holds
+  /// to its eighth and has faded by 9.3 s — about the popup's own stay
+  /// (`LevelUpHost.hold`), so a popup nobody puts away closes on its tail.
+  static const congratsClip = 'sound/Congrats.mp3';
+
+  /// How loud [congratsClip] plays. At the synthesised clips' 0.85, as the
+  /// hammer and the missile: it peaks at full scale, and holds for eight
+  /// seconds a level the winner's cheer touches for one.
+  static const congratsVolume = 0.85;
+
+  AudioPlayer? _fanfare;
+  bool _congratsOn = false;
+  Future<void> _fanfareQueue = Future<void>.value();
+
   /// How many of [dealCardClip] may sound at once. The deal sends a card
   /// every 115 ms and the clip is heard for 440 ms, so four overlap; one voice
   /// would stop each card's sound for the next one before its swish began,
@@ -198,6 +214,7 @@ class FeedbackSettings extends ChangeNotifier {
   /// is on, and the app is in front ([holdMusic]) — [lobbyMusicClip] plays in
   /// a loop; the moment it is not (a table, the sign-in screen), the music
   /// stops, and the next visit to the lobby starts it from its beginning.
+  /// It waits, where it is, under the level-up popup's cheer ([congrats]).
   /// Safe to call with the same answer again: nothing restarts.
   void lobbyMusic({required bool playing}) {
     _lobbyShowing = playing;
@@ -218,9 +235,11 @@ class FeedbackSettings extends ChangeNotifier {
 
   void _syncMusic() {
     final wanted = _sound && _lobbyShowing;
+    // The level-up popup's cheer has the room to itself: the music waits
+    // under it and carries on when the popup has closed.
     final target = !wanted
         ? _Music.off
-        : _musicHeld
+        : _musicHeld || _congratsOn
         ? _Music.paused
         : _Music.playing;
     final from = _musicState;
@@ -277,6 +296,74 @@ class FeedbackSettings extends ChangeNotifier {
   @visibleForTesting
   Future<void> stopLoop() async => _music?.stop();
 
+  /// The level-up popup has come up: [congratsClip] plays from its beginning,
+  /// once, behind the Sound switch. Asked again while it plays — the popup
+  /// taking a second level up — it starts again. While it is on, the lobby's
+  /// music waits; [stopCongrats] lets it go on.
+  void congrats() {
+    if (!_sound) return;
+    _congratsOn = true;
+    _syncMusic();
+    // One at a time, in the order asked, as the music: a start still loading
+    // must not be overtaken by the stop that follows it.
+    _fanfareQueue = _fanfareQueue.then((_) async {
+      try {
+        await startFanfare(congratsClip, volume: congratsVolume);
+      } catch (_) {
+        // A cheer that cannot play is silence, never an error on screen.
+      }
+    });
+  }
+
+  /// The level-up popup has closed — its key, a tap outside it, Back, its
+  /// time running out — or the app has left the front: the cheer stops where
+  /// it is. Nothing to do when it is not on.
+  ///
+  /// The lobby's music carries on with it, unless [resumeMusic] is false:
+  /// when it is the app leaving the front that stops the cheer, the music is
+  /// [holdMusic]'s to decide, and it must not come back for the instant
+  /// between the two being told — whichever is told first.
+  void stopCongrats({bool resumeMusic = true}) {
+    if (!_congratsOn) return;
+    _congratsOn = false;
+    _fanfareQueue = _fanfareQueue.then((_) async {
+      try {
+        await stopFanfare();
+      } catch (_) {
+        // As above.
+      }
+    });
+    if (resumeMusic) _syncMusic();
+  }
+
+  /// Whether the level-up popup's cheer is on (started and not yet stopped).
+  @visibleForTesting
+  bool get congratsOn => _congratsOn;
+
+  /// Starts [asset] from its beginning, once — the one place the cheer
+  /// reaches the audio plugin; a test overrides this and [stopFanfare] to
+  /// hear what the app asks for where no audio plugin runs.
+  ///
+  /// A player of its own in the plugin's media mode, not one of the clips'
+  /// low-latency voices: those decode a whole clip into memory, and Android's
+  /// SoundPool keeps one megabyte of it — under six seconds of this stereo
+  /// recording. It plays under the clips' own profile ([uiSound]): an
+  /// interface sound, with no audio focus.
+  @protected
+  @visibleForTesting
+  Future<void> startFanfare(String asset, {required double volume}) async {
+    final player = _fanfare ??= AudioPlayer();
+    await player.setAudioContext(uiSound);
+    await player.setReleaseMode(ReleaseMode.stop);
+    await player.stop();
+    await player.play(AssetSource(asset), volume: volume);
+  }
+
+  /// Stops the cheer; the next [startFanfare] begins it again.
+  @protected
+  @visibleForTesting
+  Future<void> stopFanfare() async => _fanfare?.stop();
+
   @override
   void dispose() {
     for (final p in _voices.values) {
@@ -285,6 +372,8 @@ class FeedbackSettings extends ChangeNotifier {
     _voices.clear();
     _music?.dispose();
     _music = null;
+    _fanfare?.dispose();
+    _fanfare = null;
     super.dispose();
   }
 
@@ -299,6 +388,8 @@ class FeedbackSettings extends ChangeNotifier {
   Future<void> setSound(bool on) async {
     _sound = on;
     notifyListeners();
+    // The switch is the cheer's as well: off stops one that is playing.
+    if (!on) stopCongrats();
     // The Sound switch is the music's too: off stops it, on starts it again
     // where the lobby is showing.
     _syncMusic();

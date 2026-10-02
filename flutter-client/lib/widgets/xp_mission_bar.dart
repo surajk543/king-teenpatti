@@ -12,6 +12,12 @@
 // ([FeedbackSettings.xpNotification]), stays [XpMissionHost.hold], and slides
 // away; its × key — or a tap anywhere on it — sends it away early. Missions arriving together wait their turn — one bar at
 // a time, never two on top of each other ([XpMissions]).
+//
+// At a table it comes a second and a half after it is raised
+// ([XpMissionHost.tableDelay]; owner, 2 Oct 2026: "Make sure this sound plays
+// when any xp completes and toast message comes"): a mission is completed at
+// a hand's end, and the winner's cheer, which starts in that same instant,
+// drowned the bar's own short sound — it was played and never heard.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -41,6 +47,19 @@ class XpMissionHost extends StatefulWidget {
   static const Duration slideIn = Duration(milliseconds: 360);
   static const Duration slideOut = Duration(milliseconds: 260);
   static const Duration between = Duration(milliseconds: 180);
+
+  /// At a table a bar that has just been raised waits this long before it
+  /// comes down. A mission is completed at a hand's end, where every phone at
+  /// the table plays the winner's cheer: loud for its first second, it
+  /// drowned the bar's sound — a tenth of a second long — when the two
+  /// started together. The bar comes, and is heard, as the cheer dies; a
+  /// level up's popup follows it (`LevelUpHost.tableDelay`). A bar that
+  /// follows another has waited already, and comes after [between] alone.
+  ///
+  /// A second and a half, not one: the first time a session plays the
+  /// winner's clip it is decoded first and starts late — over half a second
+  /// late on the emulator — and its loud second moves with it.
+  static const Duration tableDelay = Duration(milliseconds: 1500);
 
   /// The widest a bar may be on a screen [width] wide (its safe width): a
   /// slim bar in the middle of the top edge, clear of the table's corners —
@@ -98,6 +117,14 @@ class _XpMissionHostState extends State<XpMissionHost>
   Timer? _hold;
   Timer? _gap;
 
+  /// The wait at a table before a bar just raised comes down
+  /// ([XpMissionHost.tableDelay]).
+  Timer? _wait;
+
+  /// True while the queue's next bar is being brought on after the one
+  /// before it: it has waited its turn, and does not wait again.
+  bool _follows = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -118,13 +145,29 @@ class _XpMissionHostState extends State<XpMissionHost>
       if (!missions.queue.any((n) => n.id == showing.id)) _leave();
       return;
     }
-    if (_gap != null) return;
-    final next = missions.current;
+    // Between two bars, or already waiting to come down: whatever is first
+    // in the queue then is shown then.
+    if (_gap != null || _wait != null) return;
+    if (missions.current == null) return;
+    if (!_follows && context.read<GameState>().screen == Screen.table) {
+      _wait = Timer(XpMissionHost.tableDelay, () {
+        _wait = null;
+        _show();
+      });
+      return;
+    }
+    _show();
+  }
+
+  void _show() {
+    if (!mounted || _showing != null) return;
+    final next = _missions!.current;
+    // Cleared while it waited (a sign-out): there is nothing to show.
     if (next == null) return;
     setState(() => _showing = next);
     _leaving = false;
-    // Its sound as it comes down — behind the Sound switch, and nowhere
-    // without the settings (a picture harness).
+    // Its sound as it comes down — every bar's, once — behind the Sound
+    // switch, and nowhere without the settings (a picture harness).
     context.read<FeedbackSettings?>()?.xpNotification();
     _slide.forward(from: 0);
     _life.forward(from: 0);
@@ -146,11 +189,13 @@ class _XpMissionHostState extends State<XpMissionHost>
         _gap = null;
         if (!mounted) return;
         final missions = _missions!;
+        _follows = true;
         if (missions.queue.any((n) => n.id == showing.id)) {
           missions.shown(showing.id); // notifies: _changed shows the next
         } else {
           _changed();
         }
+        _follows = false;
       });
     });
   }
@@ -160,6 +205,7 @@ class _XpMissionHostState extends State<XpMissionHost>
     _missions?.removeListener(_changed);
     _hold?.cancel();
     _gap?.cancel();
+    _wait?.cancel();
     _slide.dispose();
     _life.dispose();
     super.dispose();

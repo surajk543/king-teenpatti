@@ -754,6 +754,14 @@ class GameState extends ChangeNotifier {
   /// still in the air, in the order they came.
   final List<ShowdownNews> _heldShowdowns = [];
 
+  /// `player:level` that arrived while the missiles were still in the air, in
+  /// the order they came. An award lands with the hand's end, which the
+  /// volley is holding back: the bar that says "Win by Trail" and the
+  /// level-up popup would tell the result before the cards turn over, and
+  /// their sounds would be lost under the blasts. They go out after the held
+  /// showdown ([_releaseHeldStandings]).
+  final List<Standing> _heldStandings = [];
+
   /// The pot as it stood when the missile was fired. The server settles it at
   /// once, and a plinth emptying before the missiles land would say the hand
   /// was over before the table has been shown how.
@@ -1938,6 +1946,12 @@ class GameState extends ChangeNotifier {
   void handlePlayerLevel(Standing standing) {
     final account = user;
     if (account == null) return;
+    // Behind a missile volley the hand's end is not on screen yet: the news
+    // of the award waits for it, as the cards and the winner do.
+    if (missileHoldsReveal) {
+      _heldStandings.add(standing);
+      return;
+    }
     final before = account.playerLevel;
     final paidBefore = account.paysTaxBps;
     final seen = _xpSeen;
@@ -2520,6 +2534,8 @@ class GameState extends ChangeNotifier {
         for (final news in held) {
           _applyShowdown(news);
         }
+        // The award that came with the hand's end, now that the end is seen.
+        _releaseHeldStandings();
         notifyListeners();
       }),
       Timer(MissileTiming.total(strike.count), () {
@@ -2543,6 +2559,19 @@ class GameState extends ChangeNotifier {
     missileStrike = null;
     _missileLanded = false;
     _missilePot = null;
+    // An award is the account's news, not the hand's: it is told now rather
+    // than dropped with the volley.
+    _releaseHeldStandings();
+  }
+
+  /// Lets the standings held behind a volley go, in the order they came.
+  void _releaseHeldStandings() {
+    if (_heldStandings.isEmpty) return;
+    final held = List.of(_heldStandings);
+    _heldStandings.clear();
+    for (final standing in held) {
+      handlePlayerLevel(standing);
+    }
   }
 
   /// Drops a strike and everything it was holding back, for a hand, a table
@@ -2970,6 +2999,7 @@ class GameState extends ChangeNotifier {
     xpMissions.clear();
     levelUps.clear();
     _awardsAwaitingLadder.clear();
+    _heldStandings.clear();
     _xpSeen = null;
     // The next account starts at the front, not where this one stood.
     _lobbyEngine = null;
@@ -3533,6 +3563,7 @@ class GameState extends ChangeNotifier {
     xpMissions.clear();
     levelUps.clear();
     _awardsAwaitingLadder.clear();
+    _heldStandings.clear();
     _xpSeen = null;
     screen = Screen.login;
     notifyListeners();
@@ -5411,6 +5442,7 @@ class GameState extends ChangeNotifier {
     _statsCatchUp?.cancel();
     _clearSideshow();
     _clearVariation();
+    _heldStandings.clear();
     _clearMissile();
     _resumeTimer?.cancel();
     _seatCheck?.cancel();

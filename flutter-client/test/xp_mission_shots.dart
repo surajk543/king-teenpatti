@@ -189,6 +189,8 @@ Future<void> _shoot(
     })!,
   );
   await tester.pump();
+  // At a table the bar waits for the winner's cheer to pass before it comes.
+  await tester.pump(XpMissionHost.tableDelay);
   await tester.pump(XpMissionHost.slideIn + const Duration(milliseconds: 600));
   await tester.runAsync(
     () => Future<void>.delayed(const Duration(milliseconds: 80)),
