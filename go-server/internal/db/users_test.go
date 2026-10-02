@@ -1320,8 +1320,10 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 	// bonus (owner, 30 Sep 2026: gone that morning with the other two lobby
 	// rewards, back that evening), after stats, with the four keys the
 	// four-hour bonus sent; the milestone and the daily bonus stay gone.
+	// totalTaxPaid (2 Oct 2026) is the winning tax paid in the whole career,
+	// after the six totals.
 	wantKeys := []string{"id", "provider", "displayName", "email", "avatarUrl", "providerAvatarUrl", "activePictureId", "tablePicture", "chips", "diamond", "hammer", "missile",
-		"handsPlayed", "handsWon", "handsLost", "handsLeftMid", "totalWinnings", "biggestPot", "stats", "rewards", "createdAt", "lastLoginAt", "playerLevel",
+		"handsPlayed", "handsWon", "handsLost", "handsLeftMid", "totalWinnings", "biggestPot", "totalTaxPaid", "stats", "rewards", "createdAt", "lastLoginAt", "playerLevel",
 		"badges", "taxBps"}
 	if len(m) != len(wantKeys) {
 		t.Fatalf("user has %d keys, want %d: %s", len(m), len(wantKeys), out)

@@ -271,7 +271,7 @@ func TestTheEightFriendsRoutesAnswerTheContract(t *testing.T) {
 	t.Logf("GET /api/players/{playerId}/profile (NONE): %s", raw)
 	// No chip figure on another player's profile, in any category — and of
 	// the level, its number, title and mark only: no XP, no rate, no badge.
-	for _, chips := range []string{"totalWinnings", "biggestPot", `"xp"`, "taxBps", "badges", "next"} {
+	for _, chips := range []string{"totalWinnings", "biggestPot", "totalTaxPaid", `"xp"`, "taxBps", "badges", "next"} {
 		if strings.Contains(string(raw), chips) {
 			t.Fatalf("a profile carries %s: %s", chips, raw)
 		}

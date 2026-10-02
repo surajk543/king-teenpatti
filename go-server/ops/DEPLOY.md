@@ -795,6 +795,48 @@ iOS app keeps an unbanked purchase and posts it again later), and the rows
 this build wrote — Apple accounts, `appstore:` keys, the wider CHECK — are
 ones it never reads or is indifferent to.
 
+### The tax a player has paid (2 Oct 2026) — nothing to do; one column, counted from the deploy
+
+`player_stats` gains `total_tax_paid`: the winning tax each player has paid, per
+game (`CLAUDE.md` §7.3). It travels the statistics' own road — worked out by
+the table at the hand's end, recorded in Redis once the settle has committed
+(`kt:stats:<userId>`, field `TEEN_PATTI:total_tax_paid` or
+`VARIATION:total_tax_paid`), added to PostgreSQL by the stats flusher's group
+commit every `STATS_FLUSH_MS` — and reaches the player's own account as
+`totalTaxPaid` (the career, and each game under `stats`). No other player's
+profile carries it.
+
+- **What the deploy does.** The migrate step runs one
+  `ALTER TABLE player_stats ADD COLUMN total_tax_paid BIGINT NOT NULL DEFAULT 0`
+  — a brief exclusive lock on `player_stats`, once (no rewrite: the default is
+  kept in the catalogue), so a quiet hour as for any column. The build still
+  serving while it runs is untouched: it names its columns and never reads this
+  one. `player_stats` is the app role's table, so §7 changes nothing.
+- **Counted from the deploy.** Every row starts at 0; nothing is backfilled.
+  What each player paid before it is still in the ledger, in total —
+  `SELECT user_id, -SUM(delta) FROM chip_ledger WHERE reason = 'table_tax' GROUP BY user_id`
+  — but a ledger row does not say whether its table was a Variation one, so it
+  cannot be filed per game.
+- **Checking it.** For hands settled since the deploy, once a flush interval
+  has passed, the statistic and the ledger agree player by player (substitute
+  the deploy's moment, epoch ms):
+
+```bash
+PGPASSWORD=… psql -h localhost -U gameplay_app -d gameplay <<'SQL'
+SET statement_timeout = '10s';
+SELECT count(*) FROM (
+  SELECT s.user_id FROM (SELECT user_id, SUM(total_tax_paid) paid FROM player_stats GROUP BY user_id) s
+    LEFT JOIN (SELECT user_id, -SUM(delta) paid FROM chip_ledger
+                WHERE reason = 'table_tax' AND created_at >= <deploy epoch ms> GROUP BY user_id) l USING (user_id)
+   WHERE s.paid <> COALESCE(l.paid, 0)) d;      -- expect 0 (a hand settled in the last few seconds may still be in Redis)
+SQL
+```
+
+- **Rolling back** needs nothing undone: an older build never names the column
+  (its flush inserts leave it at its default), and it drops a
+  `…:total_tax_paid` counter still pending in Redis as a field it does not know
+  — the tax of those few hands is then not counted, and no money is involved.
+
 ## 4. Verify
 
 **Health** — `process.node` must start with `go`; `goroutines`/`numCpu`/`gomaxprocs` are Go-only extras:

@@ -29,7 +29,10 @@ const uniqueStake = stakeCounter(100);
 
 const USER_KEYS = [
   'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'tablePicture', 'chips', 'diamond', 'hammer', 'missile',
-  'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'stats',
+  'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot',
+  // the winning tax paid in the whole career (2 Oct 2026; player_stats.total_tax_paid)
+  'totalTaxPaid',
+  'stats',
   // 'rewards' is the 6-hour bonus alone (owner, 30 Sep 2026: the lobby
   // rewards were removed that morning, and the bonus came back that evening);
   // the milestone and the daily bonus stay gone.
@@ -80,12 +83,12 @@ test('guest login creates an account with the welcome chip grant, in the exact p
   assert.equal(user.diamond, diamonds, "and the welcome's diamonds, the premium currency");
   assert.equal(user.hammer, hammers, "and the welcome's hammers");
   assert.equal(user.missile, missiles, "and the welcome's missile");
-  for (const counter of ['handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot']) {
+  for (const counter of ['handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot', 'totalTaxPaid']) {
     assert.equal(user[counter], 0, counter);
   }
   // The same career per bucket (Player stats v2, 27 Sep 2026): zeros, and
   // every list a list.
-  const zero = { handsPlayed: 0, handsWon: 0, handsLost: 0, handsLeft: 0, totalWinnings: 0, biggestPot: 0, winRate: 0 };
+  const zero = { handsPlayed: 0, handsWon: 0, handsLost: 0, handsLeft: 0, totalWinnings: 0, totalTaxPaid: 0, biggestPot: 0, winRate: 0 };
   const noHands = { trail: 0, pureSequence: 0, sequence: 0, color: 0, pair: 0, highCard: 0 };
   assert.deepEqual(user.stats, {
     teenPatti: { ...zero, hands: noHands },

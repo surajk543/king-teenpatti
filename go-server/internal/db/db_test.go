@@ -132,7 +132,7 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 			}
 		}
 	}
-	// Fourteen, deliberately, in the file's order: the four of 22–26 Sep 2026,
+	// Fifteen, deliberately, in the file's order: the four of 22–26 Sep 2026,
 	// since 28 Sep 2026 the one-time missions' three on xp_sources —
 	// mission_type (whose DEFAULT keeps every source a database already has
 	// DAILY), target and scope — which a database already holding the daily
@@ -142,14 +142,17 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 	// table_pictures, emojis and badges — whose DEFAULT keeps every row an
 	// older database has on the shelves — and since 1 Oct 2026 the reward
 	// programs' progression_type, whose block also gives every program it
-	// finds the progression it already had, once. Each is a MISSING column a
-	// boot adds; none changes a column that is already there.
+	// finds the progression it already had, once — and since 2 Oct 2026
+	// player_stats.total_tax_paid, the winning tax each player has paid, 0 on
+	// every row an older database holds. Each is a MISSING column a boot adds;
+	// none changes a column that is already there.
 	wantAlters := []string{
 		"EXECUTE 'ALTER TABLE profile_pictures ADD COLUMN is_listed BOOLEAN NOT NULL DEFAULT TRUE';",
 		"EXECUTE 'ALTER TABLE users ADD COLUMN is_bot BOOLEAN NOT NULL DEFAULT FALSE';",
 		"EXECUTE 'ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE';",
 		"EXECUTE 'ALTER TABLE table_pictures ADD COLUMN is_listed BOOLEAN NOT NULL DEFAULT TRUE';",
 		"EXECUTE 'ALTER TABLE emojis ADD COLUMN is_listed BOOLEAN NOT NULL DEFAULT TRUE';",
+		"EXECUTE 'ALTER TABLE player_stats ADD COLUMN total_tax_paid BIGINT NOT NULL DEFAULT 0';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN game TEXT';",
 		"EXECUTE 'ALTER TABLE chip_ledger ADD COLUMN variant TEXT';",
 		"EXECUTE 'ALTER TABLE player_levels ADD COLUMN asset_url TEXT';",
@@ -161,11 +164,12 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 		"EXECUTE 'ALTER TABLE reward_programs ADD COLUMN progression_type TEXT NOT NULL DEFAULT ''SEQUENTIAL'' CHECK (progression_type IN (''RESET'', ''SEQUENTIAL'', ''BREAK''))';",
 	}
 	if strings.Join(alters, "\n") != strings.Join(wantAlters, "\n") {
-		t.Errorf("the baseline brings forward exactly profile_pictures/table_pictures/emojis/badges.is_listed, users.is_bot, users.is_active, chip_ledger.game/.variant, xp_sources.mission_type/.target/.scope, player_levels.asset_url/.asset_format and reward_programs.progression_type, got:\n%s", strings.Join(alters, "\n"))
+		t.Errorf("the baseline brings forward exactly profile_pictures/table_pictures/emojis/badges.is_listed, users.is_bot, users.is_active, player_stats.total_tax_paid, chip_ledger.game/.variant, xp_sources.mission_type/.target/.scope, player_levels.asset_url/.asset_format and reward_programs.progression_type, got:\n%s", strings.Join(alters, "\n"))
 	}
 	for _, want := range []string{"column_name = 'is_bot'", "column_name = 'is_active'", "column_name = 'game'", "column_name = 'variant'",
 		"column_name = 'mission_type'", "column_name = 'target'", "column_name = 'scope'",
-		"column_name = 'asset_url'", "column_name = 'asset_format'", "column_name = 'progression_type'"} {
+		"column_name = 'asset_url'", "column_name = 'asset_format'", "column_name = 'progression_type'",
+		"table_name = 'player_stats' AND column_name = 'total_tax_paid'"} {
 		if !strings.Contains(baseline, want) {
 			t.Errorf("%s lacks the lookup %q", migrations[0].File, want)
 		}
@@ -345,6 +349,7 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 		"hands_left BIGINT NOT NULL DEFAULT 0", "total_winnings BIGINT NOT NULL DEFAULT 0", "biggest_pot BIGINT NOT NULL DEFAULT 0",
 		"trail BIGINT NOT NULL DEFAULT 0", "pure_sequence BIGINT NOT NULL DEFAULT 0", "sequence BIGINT NOT NULL DEFAULT 0",
 		"color BIGINT NOT NULL DEFAULT 0", "pair BIGINT NOT NULL DEFAULT 0", "high_card BIGINT NOT NULL DEFAULT 0",
+		"total_tax_paid BIGINT NOT NULL DEFAULT 0,",
 		"PRIMARY KEY (user_id, category)"} {
 		if !strings.Contains(stats, want) {
 			t.Errorf("CREATE TABLE player_stats must declare %q:\n%s", want, stats)
@@ -395,10 +400,16 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 			t.Errorf("CREATE TABLE friendships must declare %q:\n%s", want, friendships)
 		}
 	}
-	for _, table := range []string{"player_stats", "player_variation_stats", "stats_flushes", "friend_requests", "friendships"} {
+	// player_stats left this list on 2 Oct 2026: production holds the table, so
+	// its total_tax_paid arrives there through the one guarded block wantAlters
+	// names above — and through nothing else.
+	for _, table := range []string{"player_variation_stats", "stats_flushes", "friend_requests", "friendships"} {
 		if strings.Contains(outside, "ALTER TABLE "+table) || strings.Contains(baseline, "ALTER TABLE "+table+" ") {
 			t.Errorf("%s must be declared in full, never altered", table)
 		}
+	}
+	if n := strings.Count(baseline, "ALTER TABLE player_stats "); n != 1 || strings.Contains(outside, "ALTER TABLE player_stats") {
+		t.Errorf("player_stats is altered %d times; only its guarded total_tax_paid block may", n)
 	}
 	for _, table := range []string{"friend_requests", "friendships"} {
 		if strings.Contains(seed, "INTO "+table) {

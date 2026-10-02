@@ -129,6 +129,12 @@ type User struct {
 	HandsLeftMid  int   `json:"handsLeftMid"`
 	TotalWinnings int64 `json:"totalWinnings"`
 	BiggestPot    int64 `json:"biggestPot"`
+	// TotalTaxPaid is the winning tax the player has paid in their whole
+	// career (owner, 2 Oct 2026; player_stats.total_tax_paid summed): the
+	// chips withheld from their taxed wins, which TotalWinnings — gross —
+	// still counts. The player's own figure: no other player's profile
+	// carries it.
+	TotalTaxPaid int64 `json:"totalTaxPaid"`
 	// Stats is the same career per bucket — Teen Patti, Variation, Poker —
 	// with the hands held and the variations played (Player stats v2, owner
 	// 27 Sep 2026). Zeros, and no variations, for a player with no row.
@@ -584,6 +590,7 @@ func (u *Users) publicUser(r *userRow) *User {
 		HandsLeftMid:      int(totals.HandsLeft),
 		TotalWinnings:     totals.TotalWinnings,
 		BiggestPot:        totals.BiggestPot,
+		TotalTaxPaid:      totals.TotalTaxPaid,
 		Stats:             r.stats.Wire(),
 		Rewards: Rewards{
 			BonusReadyAt:    r.nextBonusAt,

@@ -73,6 +73,13 @@ type HandStats struct {
 	// took: total_winnings adds it and biggest_pot keeps the largest. 0 unless
 	// Won.
 	Winnings int64
+	// TaxPaid is the winning tax the player paid on this hand (tabletax.go;
+	// owner, 2 Oct 2026: "In player stats table, also include column how much
+	// tax he totally paid"): the chips withheld from the winner's winnings at
+	// a table that taxes its winners, which total_tax_paid adds. 0 on every
+	// hand but a taxed win — an untaxed table, winnings under the table's
+	// floor, a rate of 0, a loss, and always at poker.
+	TaxPaid int64
 	// Held is the hand the player held, as the table counted it — a
 	// variation's wild cards make the category (a pair and a joker IS a
 	// trail), and under 5-Card it is the three that played. Meaningful only
@@ -93,7 +100,7 @@ type HandStats struct {
 // table with no held hand to count).
 func (h HandStats) Empty() bool {
 	return h.Played == 0 && h.Won == 0 && h.Lost == 0 && h.Left == 0 && h.Winnings == 0 &&
-		!h.HasHeld && h.Variation == ""
+		h.TaxPaid == 0 && !h.HasHeld && h.Variation == ""
 }
 
 // StatsForEntry is the counters one ledger entry resolves — exactly the rules
@@ -101,8 +108,11 @@ func (h HandStats) Empty() bool {
 // only an Outcome row counts (a pack is money only; the hand-end row resolves
 // the packer); Played is DidChaal; Won is IsWinner; Lost is neither a win, a
 // departure nor a push; Left is LeftMidHand; Winnings is the entry's Pot when
-// it won. ok is false for a row that is not an outcome. The held hand and the
-// variation are the table's to add: an entry knows neither.
+// it won, and TaxPaid the table tax that entry carries (SettleEntry.Tax: set
+// on a taxed winner's entry alone, and written by the same settle as the
+// table_tax row, so the statistic counts exactly the tax the ledger took). ok
+// is false for a row that is not an outcome. The held hand and the variation
+// are the table's to add: an entry knows neither.
 func StatsForEntry(entry SettleEntry, bucket StatsBucket) (HandStats, bool) {
 	if !entry.Outcome {
 		return HandStats{}, false
@@ -114,6 +124,7 @@ func StatsForEntry(entry SettleEntry, bucket StatsBucket) (HandStats, bool) {
 	h.Left = statsBit(entry.LeftMidHand)
 	if entry.IsWinner {
 		h.Winnings = entry.Pot
+		h.TaxPaid = max(0, entry.Tax)
 	}
 	return h, true
 }

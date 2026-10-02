@@ -22,6 +22,14 @@ func TestAHandsFieldsNameTheColumnsTheyAreAddedTo(t *testing.T) {
 	if d.UserID != "u" || !reflect.DeepEqual(d.Add, wantAdd) || !reflect.DeepEqual(d.Max, map[string]int64{"VARIATION:biggest_pot": 900}) {
 		t.Fatalf("Fields = %+v", d)
 	}
+	// A taxed win adds the tax it paid to its bucket's total_tax_paid (2 Oct
+	// 2026) — a sum, like the winnings — and an untaxed one writes no such
+	// field at all.
+	d = Fields(game.HandStats{UserID: "u", Bucket: game.StatsTeenPatti, Won: 1, Winnings: 6000000, TaxPaid: 1200000})
+	if !reflect.DeepEqual(d.Add, map[string]int64{"TEEN_PATTI:hands_won": 1, "TEEN_PATTI:total_winnings": 6000000,
+		"TEEN_PATTI:total_tax_paid": 1200000}) || !reflect.DeepEqual(d.Max, map[string]int64{"TEEN_PATTI:biggest_pot": 6000000}) {
+		t.Fatalf("a taxed win = %+v", d)
+	}
 	// Only what moved: a loss at poker is one field.
 	d = Fields(game.HandStats{UserID: "u", Bucket: game.StatsPoker, Lost: 1})
 	if !reflect.DeepEqual(d.Add, map[string]int64{"POKER:hands_lost": 1}) || len(d.Max) != 0 {
@@ -44,10 +52,11 @@ func TestAHandsFieldsNameTheColumnsTheyAreAddedTo(t *testing.T) {
 // database is asked to add for the same hands stated directly.
 func TestWhatIsTakenFromTheLiveStoreDecodesToWhatTheHandsAddUp(t *testing.T) {
 	hands := []game.HandStats{
-		{UserID: "a", Bucket: game.StatsTeenPatti, Played: 1, Won: 1, Winnings: 3000, HasHeld: true, Held: game.Trail},
+		{UserID: "a", Bucket: game.StatsTeenPatti, Played: 1, Won: 1, Winnings: 3000, TaxPaid: 450, HasHeld: true, Held: game.Trail},
+		{UserID: "a", Bucket: game.StatsTeenPatti, Played: 1, Won: 1, Winnings: 2000, TaxPaid: 300, HasHeld: true, Held: game.Color},
 		{UserID: "a", Bucket: game.StatsTeenPatti, Played: 1, Lost: 1, HasHeld: true, Held: game.Pair},
 		{UserID: "a", Bucket: game.StatsTeenPatti, Left: 1},
-		{UserID: "a", Bucket: game.StatsVariation, Played: 1, Won: 1, Winnings: 7000, HasHeld: true, Held: game.Color,
+		{UserID: "a", Bucket: game.StatsVariation, Played: 1, Won: 1, Winnings: 7000, TaxPaid: 1400, HasHeld: true, Held: game.Color,
 			Variation: game.VariationAK47, VariationWon: true},
 		{UserID: "a", Bucket: game.StatsVariation, Lost: 1, HasHeld: true, Held: game.HighCard, Variation: game.VariationAK47},
 		{UserID: "a", Bucket: game.StatsVariation, Lost: 1, HasHeld: true, Held: game.Sequence, Variation: game.Variation("NEW_ONE")},
@@ -77,6 +86,14 @@ func TestWhatIsTakenFromTheLiveStoreDecodesToWhatTheHandsAddUp(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("%s decoded %+v, want %+v", id, got, want)
 		}
+	}
+	// The tax is summed per bucket across the hands, never kept as a maximum.
+	a, _ := Decode("a", batch.Players["a"])
+	if tp, v := a.Buckets[game.StatsTeenPatti].TotalTaxPaid, a.Buckets[game.StatsVariation].TotalTaxPaid; tp != 750 || v != 1400 {
+		t.Errorf("tax paid decoded as %d (Teen Patti) and %d (Variation), want 750 and 1400", tp, v)
+	}
+	if poker := a.Buckets[game.StatsPoker]; poker == nil || poker.TotalTaxPaid != 0 {
+		t.Errorf("poker taxes nobody: %+v", poker)
 	}
 }
 

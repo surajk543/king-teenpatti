@@ -879,7 +879,9 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   (`NewPlayer.TaxBps`) and refreshed from every hand-end settle (`SettleResult.TaxBps`); a hand pays the rate it was dealt with.
   Wire: `room:state.winnerTax` + `winnerTaxMinWinnings`, `you.taxBps` (the viewer's own; no seat carries another's), and
   `game:handEnded.tax`/`taxBps` — all ABSENT on an untaxed table, whose bytes are unchanged; menu entries carry `winnerTax` and
-  `winnerTaxMinWinnings`. Metric `game_table_tax_chips_total{category}`.
+  `winnerTaxMinWinnings`. Metric `game_table_tax_chips_total{category}`. What each player has PAID is a statistic of theirs since
+  2 Oct 2026 — `player_stats.total_tax_paid`, per game, through the statistics' Redis-then-group-commit path (§7.3), on the
+  account as `totalTaxPaid`.
 - **Levels** (`player_levels`, `db/levels.go`): 50 levels by XP alone, each with a title, an emoji and a rate — the owner's
   bracket, **20% at Level 1 down to 6% at Level 50** (round(2000 − (L−1)·1400/49) bps). Levels and XP NEVER expire; XP never
   grants a badge ("VIP Tag is not granted by XP"). A steeper slab — 30% at Level 1, 20% at Level 5, 2% at Level 50 — was asked
@@ -888,7 +890,7 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
 - **The levels' art** (owner, 29 Sep 2026: "Instead of using icons use lottie animations json for showing player Level and
   update the database according to that and UI … if there is no url, you show empty icon … meanwhile i will provide u other
   urls"): `player_levels.asset_url`/`asset_format` (the badges' twin; in the CREATE TABLE and two catalogue-guarded ALTERs —
-  nine guarded ALTERs then, thirteen since `is_listed`, fourteen since `progression_type`, §7.3), sent as `assetUrl`/`assetFormat` (omitted when none) on `user.playerLevel`, its `next`,
+  nine guarded ALTERs then, thirteen since `is_listed`, fourteen since `progression_type`, fifteen since `player_stats.total_tax_paid`, §7.3), sent as `assetUrl`/`assetFormat` (omitted when none) on `user.playerLevel`, its `next`,
   every `GET /api/levels` rung and a friend profile's `level`. **The seed fills a level's art only where `asset_url` IS NULL**
   (a guarded `UPDATE … FROM (VALUES …)` right after the ladder's INSERT in `V1.0.1__seed.sql`), every boot: a URL added to that
   list reaches every database at its next boot, production's included, while an owner's own URL — or `''`, none on purpose —
@@ -987,7 +989,7 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   complete only once … Do not remove or modify the existing DAILY behavior"; branch `one-time-missions`). `xp_sources` gains
   **`mission_type`** (`DAILY` — the DEFAULT, every source before it — | `ONE_TIME`, a CHECK), **`target`** (≥ 1) and **`scope`**
   (NULL any table, an engine `teen_patti`/`poker`, or a category `seen`…`omaha`; checked by the server) — each in the CREATE TABLE
-  AND a catalogue-guarded block, as `is_bot` (§7.3; seven guarded ALTERs then, nine since the levels' art, thirteen since `is_listed`, fourteen since `progression_type`). ONE_TIME kinds (`db.XPKind*`): `HANDS_PLAYED`,
+  AND a catalogue-guarded block, as `is_bot` (§7.3; seven guarded ALTERs then, nine since the levels' art, thirteen since `is_listed`, fourteen since `progression_type`, fifteen since `player_stats.total_tax_paid`). ONE_TIME kinds (`db.XPKind*`): `HANDS_PLAYED`,
   `HANDS_WON`, `CATEGORIES_PLAYED` (different categories) and `VARIATIONS_PLAYED` (different variations); a DAILY source keeps
   `PLAY_TIME`/`WIN_HAND`, and a row of a kind outside its type's is left out. **`player_xp_missions`** (PK `user_id, source_code`,
   → `users`/`xp_sources` CASCADE): `progress`, `seen TEXT[]` (the distinct values counted), `completed_at` (0 = open; frozen once
@@ -1581,7 +1583,7 @@ FRIENDS|SELF, requestId?}` (`requestId` only with PENDING_*); **`GET /api/player
 stats {handsPlayed, handsWon, handsLost, handsLeft, winRate, categories {teenPatti, variation, poker}}}}` (the per-game
 record since Player stats v2 — counts, the hands held and the variations played, never a chip figure) — `presence` ONLY for
 FRIENDS or SELF; `winRate` =
-round(100·won/played, 2), 0 with no hands; no total winnings or biggest pot (chip figures); **`GET /api/friends`** →
+round(100·won/played, 2), 0 with no hands; no total winnings, biggest pot or tax paid (chip figures); **`GET /api/friends`** →
 `{friends: [PlayerCard + {status, online, playing, game?, variant?, friendsSince}], total, nextCursor}` — one page (Pagination,
 above), PLAYING then ONLINE then OFFLINE, then name; **`GET /api/friends/requests`** → `{incoming, outgoing}` of `{requestId,
 player, createdAt}` (a page of each, with their totals and next cursors), PENDING only, newest first; **`POST /api/friends/requests {userId}`** → 201 `{requestId, friendStatus: PENDING_SENT}`; **`POST
@@ -1692,7 +1694,7 @@ since 28 Sep 2026, below) —
 `table_configs`). The seed was `V1.0.1__seed_profile_pictures.sql` until then; nothing records a script's name, so the
 rename changed nothing for any database. `TestMigrationsAreVersionedOrderedAndSplitByKind` (`db_test.go`) pins the pair:
 those two first, no CREATE/ALTER/INDEX in the seed, and in the baseline an `ALTER TABLE` only as an `EXECUTE` string inside a
-catalogue-guarded block (exactly fourteen: `users.is_bot`, `users.is_active` (26 Sep 2026, written straight into the baseline the same way), `chip_ledger.game`, `chip_ledger.variant`, since 28 Sep 2026 the one-time missions' `xp_sources.mission_type`, `.target` and `.scope`, since 29 Sep 2026 the levels' art, `player_levels.asset_url` and `.asset_format`, §6.6, and since 1 Oct 2026 the shelves' switch, `is_listed` on `profile_pictures`, `table_pictures`, `emojis` and `badges` — "Off the shelves" below — and the reward programs' `reward_programs.progression_type`, whose block also backfills it, "The reward programs" below). How it got here: the 14 Sep 2026 consolidation (owner, for a
+catalogue-guarded block (exactly fifteen: `users.is_bot`, `users.is_active` (26 Sep 2026, written straight into the baseline the same way), `chip_ledger.game`, `chip_ledger.variant`, since 28 Sep 2026 the one-time missions' `xp_sources.mission_type`, `.target` and `.scope`, since 29 Sep 2026 the levels' art, `player_levels.asset_url` and `.asset_format`, §6.6, and since 1 Oct 2026 the shelves' switch, `is_listed` on `profile_pictures`, `table_pictures`, `emojis` and `badges` — "Off the shelves" below — and the reward programs' `reward_programs.progression_type`, whose block also backfills it, "The reward programs" below — and since 2 Oct 2026 `player_stats.total_tax_paid`, the tax each player has paid, the statistics paragraph below). How it got here: the 14 Sep 2026 consolidation (owner, for a
 production deploy onto an EMPTY database) folded V1.0.2–V1.0.5 in and dropped the blocks that brought older databases
 forward (git history, `ccff445`); later that day `duration_hours`, `V1.0.2__timed_bonus_milestone.sql`,
 `V1.0.3__seed_new_pictures.sql`, the 9-diamond default and the HAMMER currency were folded in too, so a database built
@@ -1840,14 +1842,21 @@ sequence also. how many muflis, ak47, other gameplay type he played … store th
 group commit so that u don't call postgres db multiple times"). **`player_stats`**: one row per player per BUCKET — PK
 `(user_id, category)`, `category` TEEN_PATTI (seen and blind, public or private), VARIATION or POKER (`game.StatsBucket`, no
 CHECK: an open set) — with the six outcome counters (`hands_played` = made a voluntary bet, `hands_won`, `hands_lost`,
-`hands_left` = abandoned mid-hand, `total_winnings` = GROSS chips taken in pots won — a taxed win counts the whole pot, the
-`table_tax` row nothing — and `biggest_pot`) and the hand each player HELD at a Teen Patti or Variation hand end (`trail`,
+`hands_left` = abandoned mid-hand, `total_winnings` = GROSS chips taken in pots won — a taxed win counts the whole pot —
+and `biggest_pot`), **`total_tax_paid`** (owner, 2 Oct 2026: "In player stats table, also include column how much tax he totally
+paid, backend caluclates and put tax of each game of each player saves is redis, from there backend asyc call postgres and update
+the database using group commit": the winning tax the player has paid in the bucket, §6.6 — `game.HandStats.TaxPaid`, the
+winner's `SettleEntry.Tax`, so exactly their `table_tax` ledger rows of the hands counted; `total_winnings − total_tax_paid` is
+what those pots paid them; always 0 on a POKER row; in the CREATE TABLE and a catalogue-guarded block, so production's table gains
+it at the next boot, every row 0 — counted from that deploy, nothing backfilled, since a Teen Patti ledger row does not say whether
+its table was a Variation one) and the hand each player HELD at a Teen Patti or Variation hand end (`trail`,
 `pure_sequence`, `sequence`, `color`, `pair`, `high_card`, as the table counted it: wild cards make the category, under
 5-Card the three that played; all 0 on a POKER row). **`player_variation_stats`**: per player per variation (MUFLIS … FIVE_CARD,
 open set), `hands_played`/`hands_won`. **`stats_flushes`**: the flusher's receipts, one row per batch committed — what makes a
 batch count once. **The path** (`internal/stats`, `internal/live/stats.go`/`redis_stats.go`, `db/stats.go`): the ledger writes
 MONEY ONLY (and the settle's XP); a table works out each hand's `game.HandStats` while the cards and rules are still there,
-carries them on `SettleRequest.Stats`, and hands them to its `StatsRecorder` only once the write has COMMITTED — on the first
+carries them on `SettleRequest.Stats` (a taxed winner's with the tax that settle withholds, so the statistic is recorded exactly when the
+`table_tax` row is written), and hands them to its `StatsRecorder` only once the write has COMMITTED — on the first
 attempt or the Settler's retry, never on `duplicate_action` — so a hand counts at most once and only when its money moved (a
 leaver is counted at the leave's committed checkpoint). `stats.Recorder` queues them off the actor into the live store
 (`kt:stats:<userId>`, one round trip a hand); `stats.Flusher`, every `STATS_FLUSH_MS` (10 s), moves up to `STATS_FLUSH_BATCH`
@@ -1855,7 +1864,9 @@ leaver is counted at the leave's committed checkpoint). `stats.Recorder` queues 
 and only then finishes the batch in the live store — a crash in between replays the batch, which its receipt makes a no-op.
 Losing the live store loses the counters not yet flushed (at most one interval), as it loses the hands in play. So the figures
 TRAIL play by up to one interval: every account read sums a player's rows (`statsColumns`, two correlated subqueries; the wire
-`user` keeps the six career totals with their old keys and adds **`stats {teenPatti, variation, poker}`** per game), the
+`user` keeps the six career totals with their old keys and adds **`stats {teenPatti, variation, poker}`** per game, and since
+2 Oct 2026 **`totalTaxPaid`** beside the totals and in each game — the player's OWN account only: a profile of another player
+carries no chip figure, this one included; the app draws it in the player's own Stats drawer, §8.4), the
 HANDS_PLAYED milestone reads the sum, and the app re-reads the account when the Stats drawer opens and once more
 `GameState.statsCatchUpAfter` (11 s) after leaving a table. `DELETE /api/account` deletes the rows; pending counters are dropped
 from the live store, best effort, and a flush that still finds some adds nothing to a deleted account. **`users` has no stat
@@ -2012,7 +2023,7 @@ row has no ownership rows, so once unlisted it is shown to its wearers alone (a 
 though, being free, it can still be worn or sent by id. `is_active = FALSE` stays the stronger switch: a retired row is neither
 listed, sold, nor newly worn, laid or sent. The app needed no change — it draws what the routes send. `internal/db/listed_test.go`
 (each rule per table, a reward granting an unlisted item), `internal/app/listed_test.go` (the four routes signed out, as a
-stranger and as the owner; the refusals; relisting), `db_test.go` (the guarded ALTERs — thirteen then, fourteen since the reward progression types —, the column in each CREATE TABLE),
+stranger and as the owner; the refusals; relisting), `db_test.go` (the guarded ALTERs — thirteen then, fourteen since the reward progression types, fifteen since the tax paid —, the column in each CREATE TABLE),
 `upgrade_boot_test.go` (a database without the columns brought forward, every row listed).
 
 **The catalogue's art in R2 (owner, 1 Oct 2026: "All the google drive urls(emoji, profile_pictures, table_pictures, emojis), upload
@@ -4221,7 +4232,15 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   fading and rising in over 160ms (one `CurvedAnimation`, made and disposed with the controller); a tap outside puts it away; no route, no tabs);
   Played · Won · Lost three across (`PerformanceStatCard`: glyph, the figure at 19, the label at 10.5 — "Played",
   `statsPlayed`, not "Hands played", which took two lines at ×1.25 in a 300dp drawer); Total winnings and
-  Biggest pot two across, the only gold in the record (figure and glyph, on a card with a breath of gold); "Left mid-hand:
+  Biggest pot two across, the only gold in the record (figure and glyph, on a card with a breath of gold) — **and under them,
+  since 2 Oct 2026, "Winning tax paid"** (owner: "player can see how mch tax they paid in stats button, but other player cannot
+  see other player tax information, they can see their only in UI"; `stats-tax-paid`, a `PerformanceStatCard(wide: true)` — a
+  row of its own, a receipt glyph and the name at the start (three fifths of the row, two lines at most), the figure in the same
+  gold against the card's end, set smaller rather than cut: the scope's `CategoryStats.totalTaxPaid`, the server's `totalTaxPaid`
+  (§7.3), All Games from the account's own total; `taxPaid` in all five languages. It is the player's OWN record's alone —
+  the lobby's Stats drawer and the viewer's own drawer at a table, both `OwnRecord`; `PlayerStatsGrid`, which draws every other
+  player's record, has no such card, the profile route sends no chip figure, and `CategoryStats.fromJson(chips: false)` reads
+  none even were one sent); "Left mid-hand:
   75" as one quiet line; HAND RESULTS ("Hands held" renamed, `HandResultGrid`: two across, name at the start, count at the
   end — given only the room the name's longest word leaves, a third of the cell at least, and set smaller in it, so "Pure
   Sequence" beside "18,182" is never cut; measured round the grid, whose rows ask intrinsic heights a cell's builder cannot
@@ -4240,7 +4259,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   the theme has come from obsidian to ice, read off the lerping ground — what `_DrawerBody.dayOf` reads too), not chosen by
   brightness, so a theme change with the drawer open cross-fades them with the body instead of snapping them at its middle. The Friends page and the table's player drawer
   still draw `PlayerStatsGrid` with its four-game switch, unchanged. `test/stats_drawer_test.dart` (no tab/segmented control,
-  exactly three scopes and no Poker anywhere, each scope's figures, the head, the quiet left-mid-hand line, gold only on money,
+  exactly three scopes and no Poker anywhere, each scope's figures — the tax paid among them —, the tax card's row, its words in every language and no tax on another player's record (the Friends profile, the table's player drawer, the model), the head, the quiet left-mid-hand line, gold only on money,
   10.5 Crore fitting, empty states, the menu's semantics and anchoring, the other two places unchanged, and every scope, its end
   and the open menu at 592x360, 640x360, 844x390, 915x412 and 1280x800, ×1.0 and ×1.25, all five languages, both themes; the
   footnote's and the chosen scope's contrast by day, the badges' line, no rebuild on GameState's notifies, the cross-fade, and

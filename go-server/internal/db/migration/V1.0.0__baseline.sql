@@ -806,7 +806,12 @@ CREATE TABLE IF NOT EXISTS user_sessions (
 -- hand each player HELD at a Teen Patti or Variation hand end, as the table
 -- counted it (wild cards make the category; under 5-Card the three that
 -- played) — the six sum to the hands those buckets finished, and all six stay
--- 0 on a POKER row.
+-- 0 on a POKER row. total_tax_paid (owner, 2 Oct 2026: "In player stats table,
+-- also include column how much tax he totally paid") is the winning tax the
+-- player has paid in the bucket — the chips the table withheld from their
+-- taxed wins, the sum of their chip_ledger table_tax rows — so
+-- total_winnings − total_tax_paid is what those pots actually paid them; it
+-- stays 0 on a POKER row, since no poker room taxes a winner.
 --
 -- NOT written in the money transactions: the ledger writes money only. A
 -- hand's counters are recorded in the live store (kt:stats:<userId>) once its
@@ -831,6 +836,7 @@ CREATE TABLE IF NOT EXISTS player_stats (
   color          BIGINT NOT NULL DEFAULT 0,
   pair           BIGINT NOT NULL DEFAULT 0,
   high_card      BIGINT NOT NULL DEFAULT 0,
+  total_tax_paid BIGINT NOT NULL DEFAULT 0,
   created_at     BIGINT NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
   updated_at     BIGINT NOT NULL DEFAULT ((EXTRACT(EPOCH FROM now()) * 1000)::bigint),
   PRIMARY KEY (user_id, category)
@@ -853,6 +859,27 @@ BEGIN
     RAISE EXCEPTION 'player_stats has the go-server/v1.6.0 shape (one row per player, no category); this build keeps it per game (Player stats v2) and needs a fresh database — go-server/ops/DEPLOY.md §8';
   END IF;
 END $$;
+
+-- player_stats.total_tax_paid for a database built before it (2 Oct 2026:
+-- every database until then, production's included). Catalogue-guarded, as
+-- users.is_bot is: only a database missing the column runs the ALTER, once,
+-- and cheaply — a NOT NULL column with a constant DEFAULT is stored in the
+-- catalogue, not written into every row. 0: the tax paid is counted from the
+-- first hand settled by a build that knows the column; nothing is backfilled
+-- (the chip_ledger table_tax rows are the history of what each player paid,
+-- but a Teen Patti row does not say whether its table was a variation one, so
+-- they cannot be filed per bucket). After the refusal above, so a v1.6.0
+-- table is refused rather than altered.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema() AND table_name = 'player_stats' AND column_name = 'total_tax_paid'
+  ) THEN
+    EXECUTE 'ALTER TABLE player_stats ADD COLUMN total_tax_paid BIGINT NOT NULL DEFAULT 0';
+  END IF;
+END;
+$$;
 
 -- The Variation bucket by the variation each hand was played under (Player
 -- stats v2): one row per player per variation — MUFLIS, AK47, JOKER, HUKAM,

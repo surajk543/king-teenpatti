@@ -155,6 +155,7 @@ class CategoryStats {
     this.handsLeft = 0,
     this.totalWinnings = 0,
     this.biggestPot = 0,
+    this.totalTaxPaid = 0,
     this.winRate = 0,
     this.hands = const HandTally(),
     this.variations = const <VariationTally>[],
@@ -176,6 +177,15 @@ class CategoryStats {
   final int totalWinnings;
   final int biggestPot;
 
+  /// The winning tax the player has paid in this game (owner, 2 Oct 2026:
+  /// "player can see how mch tax they paid in stats button, but other player
+  /// cannot see other player tax information"): the chips withheld from
+  /// their taxed wins, which [totalWinnings] — gross — still counts. A chip
+  /// figure like the two above: read from the player's own account alone, 0
+  /// on another player's record whatever the server sent, and 0 from a
+  /// server that does not count it yet.
+  final int totalTaxPaid;
+
   /// Per cent of the hands played that were won, 0 to 100, to two places.
   final double winRate;
 
@@ -186,8 +196,9 @@ class CategoryStats {
   final List<VariationTally> variations;
 
   /// Read from one game's object. [chips] false reads a record that must not
-  /// carry a chip figure — another player's — so [totalWinnings] and
-  /// [biggestPot] stay 0 even were the server to send them.
+  /// carry a chip figure — another player's — so [totalWinnings],
+  /// [biggestPot] and [totalTaxPaid] stay 0 even were the server to send
+  /// them.
   factory CategoryStats.fromJson(Map<String, dynamic> j, {bool chips = true}) {
     final rate = j['winRate'];
     return CategoryStats(
@@ -197,6 +208,7 @@ class CategoryStats {
       handsLeft: _int(j['handsLeft']),
       totalWinnings: chips ? _int(j['totalWinnings']) : 0,
       biggestPot: chips ? _int(j['biggestPot']) : 0,
+      totalTaxPaid: chips ? _int(j['totalTaxPaid']) : 0,
       winRate: rate is num && rate.isFinite
           ? rate.toDouble().clamp(0.0, 100.0)
           : 0,
