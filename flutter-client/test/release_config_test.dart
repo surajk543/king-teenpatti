@@ -8,7 +8,13 @@ import 'package:flutter_test/flutter_test.dart';
 String _read(String path) => File(path).readAsStringSync();
 
 void main() {
-  test('the version is past the last tagged release, 1.9.0+19', () {
+  test('the version is past the last tagged release, 1.10.0+20', () {
+    // flutter-client/v1.10.0 is 1.10.0+20 (2 Oct 2026); 1.11.0+21 carries the
+    // lobby's music, the level-up popup with its cheer, the XP mission bar's
+    // sound heard after the winner's, the winning tax a player has paid in
+    // their own Stats drawer, a missile's tie going to the firer in the
+    // question's words, and — the iOS app — Sign in with Apple, App Store
+    // purchases and Google sign-in's iOS client.
     // flutter-client/v1.9.0 is 1.9.0+19 (1 Oct 2026); 1.10.0+20 carries the
     // reward progression types (each day's state, a broken cycle, the next
     // cycle's countdown, a day's own Collect tag), a look of its own for
@@ -57,7 +63,7 @@ void main() {
     expect(line, isNotNull);
     final build = int.parse(line!.group(4)!);
     final name = [1, 2, 3].map((i) => int.parse(line.group(i)!)).toList();
-    expect(build, greaterThan(19));
+    expect(build, greaterThan(20));
     // The name moves with it: 1.2.2 is the tagged release.
     final isAfter122 =
         name[0] > 1 ||
