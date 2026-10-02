@@ -11,6 +11,11 @@
 // tap outside it, Back, or by itself after [LevelUpHost.hold] — a level up
 // lands at a hand's end, and a popup must never keep a player from the next
 // hand.
+//
+// It comes with the owner's `Congrats.mp3` (2 Oct 2026: "play this sound when
+// congrats pop up comes and when pop up closed, stop this sound"): the cheer
+// starts as the popup appears and stops the moment it is put away, whichever
+// way ([FeedbackSettings.congrats], [FeedbackSettings.stopCongrats]).
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -18,6 +23,7 @@ import 'package:lottie/lottie.dart';
 import 'package:provider/provider.dart';
 
 import '../l10n/strings.dart';
+import '../settings/feedback_settings.dart';
 import '../state/game_state.dart';
 import '../state/level_up.dart';
 import '../theme/app_theme.dart';
@@ -188,7 +194,7 @@ class LevelUpHost extends StatefulWidget {
 }
 
 class _LevelUpHostState extends State<LevelUpHost>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   // Made in initState, never lazily (CLAUDE.md §12.3): a host that never
   // showed a popup would first read it in dispose().
   late final AnimationController _entry;
@@ -201,6 +207,10 @@ class _LevelUpHostState extends State<LevelUpHost>
   Timer? _wait;
   Timer? _hold;
 
+  /// The game's sounds, where there are any in scope (a bare widget test has
+  /// none): the popup's cheer is theirs to play and to stop.
+  FeedbackSettings? _feedback;
+
   @override
   void initState() {
     super.initState();
@@ -212,11 +222,13 @@ class _LevelUpHostState extends State<LevelUpHost>
     _fade = CurvedAnimation(parent: _entry, curve: Motion.standard);
     _settle = CurvedAnimation(parent: _entry, curve: Motion.settle);
     _scale = Tween<double>(begin: 0.92, end: 1).animate(_settle);
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _feedback = context.read<FeedbackSettings?>();
     final levelUps = context.read<GameState>().levelUps;
     if (!identical(levelUps, _levelUps)) {
       _levelUps?.removeListener(_changed);
@@ -226,10 +238,30 @@ class _LevelUpHostState extends State<LevelUpHost>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        // A phone must never go on cheering from a pocket. The popup keeps
+        // its time; back in front it is silent — a cheer picked up halfway
+        // would be noise. The lobby's music stays as it is: held for as
+        // long as the app is behind, by its own rule.
+        _feedback?.stopCongrats(resumeMusic: false);
+      case AppLifecycleState.resumed:
+      case AppLifecycleState.inactive:
+        break;
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _levelUps?.removeListener(_changed);
     _wait?.cancel();
     _hold?.cancel();
+    // A host taken down with its popup still up takes the cheer with it.
+    if (_showing != null) _feedback?.stopCongrats();
     _fade.dispose();
     _settle.dispose();
     _entry.dispose();
@@ -250,10 +282,11 @@ class _LevelUpHostState extends State<LevelUpHost>
     if (showing != null) {
       if (showing.id == next.id) return;
       // A second level up while the popup is up: the same popup now tells the
-      // whole climb, and its time starts again.
+      // whole climb, and its time — and its cheer — start again.
       setState(() => _showing = next);
       _entry.forward();
       _armHold(next);
+      _feedback?.congrats();
       return;
     }
     // Already waiting to appear: it will show whatever is current then.
@@ -273,6 +306,8 @@ class _LevelUpHostState extends State<LevelUpHost>
     setState(() => _showing = news);
     _entry.forward(from: 0);
     _armHold(news);
+    // The cheer comes with the popup — at a table, after the same wait.
+    _feedback?.congrats();
   }
 
   void _armHold(LevelUpNews news) {
@@ -281,6 +316,9 @@ class _LevelUpHostState extends State<LevelUpHost>
   }
 
   void _leave() {
+    // Closed, however it was closed: the cheer stops now, not once the popup
+    // has faded out.
+    _feedback?.stopCongrats();
     _entry.reverse().whenComplete(() {
       if (!mounted) return;
       setState(() => _showing = null);

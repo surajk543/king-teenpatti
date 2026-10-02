@@ -204,7 +204,8 @@ king-teenpatti/
     │                         Card Distribute.mp3 — each card of the deal; hammer hit.mp3 — a Force Sideshow's hammer;
     │                         Missile hit.mp3 — a missile volley; Card click.mp3 — a tap on any lobby key or card, and Back in the lobby;
     │                         winner.mp3 — a hand's winner named, heard by the whole table;
-    │                         Lobby.mp3 — the lobby's music, looped while the lobby is on screen),
+    │                         Lobby.mp3 — the lobby's music, looped while the lobby is on screen;
+    │                         Congrats.mp3 — the level-up popup's cheer, from the popup appearing to its closing),
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
     │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4),
     │                         assets/animations/Congrats!.json (Lottie 5.9.3, 1000x1000, 2.9s — the level-up popup's, §8.4)
@@ -3308,8 +3309,10 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   never restarts the art; the stars keep their colours; by day the file plays as it is, and it is never edited). It goes with
   Continue, a tap outside it (which presses nothing under it), Back (`_BackGuard`, before anything else) or by itself after
   `LevelUpHost.hold` 9 s; **at a table it waits `tableDelay` 2.2 s**, so the cards turned over and the winner's celebration are
-  seen first. Sign-out and account deletion clear it. Six strings in all five languages (`levelUpKicker`, `levelUpReached`,
-  `levelUpPaysLess`, `levelUpSaved`, `levelUpBadgeKeeps`, `levelUpLevelRate`). `test/level_up_popup_test.dart` (33: the rate paid
+  seen first. Sign-out and account deletion clear it. **It comes with the owner's `Congrats.mp3`** (the same day: "play this
+  sound when congrats pop up comes and when pop up closed, stop this sound"): the cheer starts as the popup appears and stops
+  the moment it is put away, whichever way — "Sounds", below. Six strings in all five languages (`levelUpKicker`, `levelUpReached`,
+  `levelUpPaysLess`, `levelUpSaved`, `levelUpBadgeKeeps`, `levelUpLevelRate`). `test/level_up_popup_test.dart` (56: its sound, 23 of them — below; the rate paid
   before; what raises it and what does not — the same level, a repeat, a late standing, an account refreshed first; the badge
   case; two level ups as one; the words in every language; the file's layers the recolouring relies on and the night gold's
   contrast; the popup over the lobby, Continue, a tap outside, its 9 s, the wait at a table, Back in `KingTeenPattiApp` itself;
@@ -4214,7 +4217,37 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   app is not in front (`holdMusic`: lifecycle `hidden`/`paused`/`detached` pause it, `resumed` carries on from where it was;
   `inactive` — a shade, a purchase sheet — does nothing) and it is behind the Sound switch (`setSound` and `load` re-sync it).
   The asks are queued (`_musicQueue`) so a start still loading is never overtaken by its stop. The tests' seams are
-  `startLoop`/`pauseLoop`/`resumeLoop`/`stopLoop`. `test/lobby_music_test.dart`. **Found with it, and fixed** (it predates the click, master `b7f9c27` threw it too): a
+  `startLoop`/`pauseLoop`/`resumeLoop`/`stopLoop`. `test/lobby_music_test.dart`. **The level-up popup's cheer** (owner, 2 Oct
+  2026: "play this sound when congrats pop up comes and when pop up closed, stop this sound"): **`assets/sound/Congrats.mp3`**
+  (9.6 s, stereo 44.1 kHz: a cheer that swells in its first second, holds near −16 dB to its eighth and has faded by 9.3 s;
+  it peaks at full scale), played at `FeedbackSettings.congratsVolume` 0.85 from the moment the popup APPEARS
+  (`LevelUpHost._show` → `congrats()` — at a table after the same `tableDelay`, so never before the popup is seen, and after
+  the winner's clip has died away) and stopped the moment it is PUT AWAY (`_leave` → `stopCongrats()`: Continue, a tap
+  outside, Back, sign-out, or its own 9 s, by when the clip is in its fade) — as it closes, not once it has faded out. A
+  second level up while the popup is up starts it again with the popup's time. **On a player of its own in the plugin's
+  media mode** (`startFanfare`: a default `AudioPlayer`, `ReleaseMode.stop`, the clips' own `uiSound` profile — sonification,
+  the system stream, no audio focus), never one of the clips' low-latency voices: those are Android's SoundPool, which keeps
+  one megabyte of a decoded clip — under six seconds of this recording. **The lobby's music waits under it** (`_syncMusic`:
+  `_musicHeld || _congratsOn` → paused) and carries on from where it was when the popup closes; at a table there is no music
+  to hold, and a lobby reached while it plays starts its music only once it has stopped. Behind the Sound switch (turned off
+  while it plays, it stops); the app leaving the front stops it (the host's own lifecycle observer — `hidden`/`paused`/
+  `detached`; `inactive` does nothing) and back in front the popup stays silent — that stop is `stopCongrats(resumeMusic:
+  false)`, which leaves the music to `holdMusic`, so the music never comes back for the instant between the two observers
+  being told, whichever is told first; a host taken down with its popup up stops it. The asks are queued (`_fanfareQueue`)
+  as the music's are; the tests' seams are `startFanfare`/`stopFanfare`.
+  `test/level_up_popup_test.dart` "its sound" (23: the file in the bundle; the settings — once when asked, stopped when
+  told, nothing to stop that never started, the Sound switch, asked again while playing, the order of the asks, the music
+  waiting and coming back, no music at a table, a lobby reached or left while it plays, the app leaving the front in either
+  order; the popup — heard as it appears and not before, through its stay, stopped at once by Continue, by a tap outside, by
+  its time, by sign-out; at a table only after the wait, and never for a level up put away first; started again by a second
+  level up; silent with the switch off; stopped by the app leaving the front and silent on its return; stopped with its
+  screen; and in `KingTeenPattiApp` the lobby's music pausing under it, Back bringing it back, and the music held until
+  the app returns). Heard on TP_Tall through the mixer's own track log (`adb shell
+  dumpsys media.audio_flinger`, the `AT::add`/`AT::remove` lines of the app's 44.1 kHz sonification track — `dumpsys audio`'s
+  player states read `idle` for a playing MediaPlayer on API 36 and are no check): left alone the cheer's track ran 9.02 s,
+  the popup's stay (SoundPool would have cut it at six); with Continue tapped three seconds in it was gone a quarter of a
+  second after the tap; and over the lobby the music's track left the mixer 0.12 s after the cheer's joined it and was back
+  as the popup closed. **Found with the lobby click, and fixed** (it predates the click, master `b7f9c27` threw it too): a
   tap on a category card and another on the same spot straight after — the back tile coming in over the leaving front —
   put two front levels in the rail's `AnimatedSwitcher`, each with the private card under the same `GlobalKey`
   ("Duplicate GlobalKey detected in widget tree"). `_LobbyScreenState` now makes the private card's and its code field's
