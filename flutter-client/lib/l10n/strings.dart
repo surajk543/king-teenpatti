@@ -2558,7 +2558,7 @@ class Strings {
       'fireMissileTitle': 'Fire a missile?',
       'fireMissileBody':
           'Every player still in the hand shows their cards and the best hand takes the pot. Costs 1 missile.',
-      'fireMissileNote': 'A tie goes against you.',
+      'fireMissileNote': 'If the best hand is a tie with yours, you win.',
       'fire': 'Fire',
       'missileTooLate':
           'Too late — the missile was not fired. No missile was spent.',
@@ -3570,7 +3570,7 @@ class Strings {
       'fireMissileTitle': 'मिसाइल दागें?',
       'fireMissileBody':
           'हाथ में बचे सभी खिलाड़ियों के पत्ते खुलेंगे और सबसे अच्छे पत्ते पॉट जीतेंगे। 1 मिसाइल लगेगी।',
-      'fireMissileNote': 'बराबरी पर आप हारेंगे।',
+      'fireMissileNote': 'सबसे अच्छे हाथ पर बराबरी हुई तो आप जीतेंगे।',
       'fire': 'दागें',
       'missileTooLate':
           'देर हो गई — मिसाइल नहीं दागी गई। कोई मिसाइल खर्च नहीं हुई।',
@@ -4565,7 +4565,7 @@ class Strings {
       'fireMissileTitle': 'মিসাইল ছুড়বেন?',
       'fireMissileBody':
           'হাতে থাকা সব খেলোয়াড়ের তাস খুলবে এবং সেরা হাত পট জিতবে। খরচ 1টি মিসাইল।',
-      'fireMissileNote': 'টাই হলে আপনি হারবেন।',
+      'fireMissileNote': 'সেরা হাতে টাই হলে আপনি জিতবেন।',
       'fire': 'ছুড়ুন',
       'missileTooLate':
           'দেরি হয়ে গেছে — মিসাইল ছোড়া হয়নি। কোনো মিসাইল খরচ হয়নি।',
@@ -5560,7 +5560,7 @@ class Strings {
       'fireMissileTitle': 'મિસાઇલ છોડશો?',
       'fireMissileBody':
           'હાથમાં બાકી બધા ખેલાડીઓના પત્તા ખુલશે અને શ્રેષ્ઠ હાથ પોટ જીતશે. 1 મિસાઇલ લાગશે.',
-      'fireMissileNote': 'ટાઇ થાય તો તમે હારશો.',
+      'fireMissileNote': 'શ્રેષ્ઠ હાથ પર ટાઇ થાય તો તમે જીતશો.',
       'fire': 'છોડો',
       'missileTooLate':
           'મોડું થઈ ગયું — મિસાઇલ છોડાઈ નથી. કોઈ મિસાઇલ વપરાઈ નથી.',
@@ -6558,7 +6558,7 @@ class Strings {
       'fireMissileTitle': 'ਮਿਜ਼ਾਈਲ ਚਲਾਉਣੀ ਹੈ?',
       'fireMissileBody':
           'ਹੱਥ ਵਿੱਚ ਬਾਕੀ ਸਾਰੇ ਖਿਡਾਰੀਆਂ ਦੇ ਪੱਤੇ ਖੁੱਲ੍ਹਣਗੇ ਅਤੇ ਸਭ ਤੋਂ ਵਧੀਆ ਹੱਥ ਪੌਟ ਜਿੱਤੇਗਾ। 1 ਮਿਜ਼ਾਈਲ ਲੱਗੇਗੀ।',
-      'fireMissileNote': 'ਬਰਾਬਰੀ ’ਤੇ ਤੁਸੀਂ ਹਾਰੋਗੇ।',
+      'fireMissileNote': 'ਸਭ ਤੋਂ ਵਧੀਆ ਹੱਥ ’ਤੇ ਬਰਾਬਰੀ ਹੋਈ ਤਾਂ ਤੁਸੀਂ ਜਿੱਤੋਗੇ।',
       'fire': 'ਚਲਾਓ',
       'missileTooLate':
           'ਦੇਰ ਹੋ ਗਈ — ਮਿਜ਼ਾਈਲ ਨਹੀਂ ਚਲਾਈ ਗਈ। ਕੋਈ ਮਿਜ਼ਾਈਲ ਖਰਚ ਨਹੀਂ ਹੋਈ।',

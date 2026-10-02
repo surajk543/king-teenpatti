@@ -614,9 +614,11 @@ Order of work, all on the table's actor:
    balance as it stands. A short wallet → `no_missiles`; any other failure → `persist_failed` and
    `persistError` (reason `missile_spend`). Nothing has been emitted yet.
 4. Paid: the id joins `hand.actionIDs`, the turn clock stops, and the hand resolves through
-   `resolveShowdown(active seats, 'missile', firer)` — the forced and pot-limit showdowns' path, so the
-   reveals, the settlement and the ledger rows are any showdown's. The firer takes the show payer's
-   place in the tie order: **an exact tie goes against the firer**.
+   `resolveShowdown(active seats, 'missile', nil, firer)` — the forced and pot-limit showdowns' path, so the
+   reveals, the settlement and the ledger rows are any showdown's. The firer stands FIRST in the tie
+   order: **an exact tie for the best hand goes to the firer** (owner, 2 Oct 2026; it went against them
+   until then). A firer whose hand is beaten still loses, and a tie among the others above them goes by
+   the dealer's order. A show's tie still goes against its payer, and a sideshow's against its asker.
 
 On the wire, in this order (the ack last, §11):
 

@@ -5,8 +5,9 @@ package game
 // needs three players in the hand and the turn, and no sideshow may be
 // pending; blind and seen players alike may fire; it is paid for before the
 // table changes, and a refusal — no missiles, or a wallet that cannot be
-// written — changes nothing; a retry is never charged twice; an exact tie goes
-// against the player who fired; and the next deal waits for the reveal.
+// written — changes nothing; a retry is never charged twice; an exact tie for
+// the best hand goes TO the player who fired (owner, 2 Oct 2026; against them
+// until then); and the next deal waits for the reveal.
 
 import (
 	"encoding/json"
@@ -169,10 +170,14 @@ func jsonInt(n int64) string {
 	return string(raw)
 }
 
-// An exact tie goes against the player who fired, wherever the dealer sits: the
-// firer stands where a show payer stands in the tie order. Played over three
-// hands, so the dealer moves round the table.
-func TestAMissileTieGoesAgainstThePlayerWhoFiredIt(t *testing.T) {
+// An exact tie for the best hand goes TO the player who fired, wherever the
+// dealer sits (owner, 2 Oct 2026: "when i hit missile in gametable, and
+// multiple players have same card with higher rank or there is draw, then the
+// player who hit the missile will be winner in case of draw" — it went against
+// them until then, as a show's tie goes against its payer). Played over three
+// hands, so the dealer moves round the table and the firer is once the
+// dealer's own seat, once the dealer's left, once the last in the order.
+func TestAMissileTieGoesToThePlayerWhoFiredIt(t *testing.T) {
 	h, ids, _ := missileTable(t, 3, true)
 	for hand := 1; hand <= 3; hand++ {
 		eq(t, h.handNo(), hand, "hand")
@@ -184,21 +189,54 @@ func TestAMissileTieGoesAgainstThePlayerWhoFiredIt(t *testing.T) {
 		h.setCards(others[1], "Ac", "9h", "5d")
 		h.mustAct(firer, ActionMissile, fire("tie"))
 		ended := h.lastHandEnded()
-		if *ended.WinnerID == firer {
-			t.Fatalf("hand %d: the firer won a three-way tie", hand)
+		if ended.WinnerID == nil || *ended.WinnerID != firer {
+			t.Fatalf("hand %d: the firer did not win a three-way tie: %v", hand, ended.WinnerID)
 		}
-		eq(t, h.mustSeat(firer).Status, SeatLost, "the firer loses the tie")
+		eq(t, ended.Reason, WinMissile, "the win reason")
+		eq(t, h.mustSeat(firer).Status, SeatWon, "the firer wins the tie")
+		for _, other := range others {
+			eq(t, h.mustSeat(other).Status, SeatLost, "everyone tied with the firer loses")
+		}
+		// Exactly one hand is marked the winner's in the reveal, the firer's.
+		for _, r := range h.lastShowdown().Reveals {
+			eq(t, r.Won, r.UserID == firer, "the reveal's won mark")
+		}
 		h.advance(missileConfig().NextHandDelay + missileExtra)
 	}
 
-	// A tie with one player, the third weaker: the other tied hand wins.
+	// A tie with one player, the third weaker: the firer still wins it.
 	firer := h.turnUser()
 	others := except(ids, firer)
 	h.setCards(firer, "Ks", "Kh", "4d")
 	h.setCards(others[0], "Kd", "Kc", "4s")
 	h.setCards(others[1], "2s", "7h", "9d")
 	h.mustAct(firer, ActionMissile, fire("tie-two"))
-	eq(t, *h.lastHandEnded().WinnerID, others[0], "the tied player who did not fire wins")
+	eq(t, *h.lastHandEnded().WinnerID, firer, "the firer wins a two-way tie for the best hand")
+}
+
+// The tie rule gives the firer nothing but a TIE: a firer whose hand is beaten
+// loses, and when the other players tie above them the pot goes by the
+// dealer's order (the dealer's own seat first), never to the firer.
+func TestAMissileFirerWhoIsBeatenStillLosesAndATieAboveThemGoesByTheDealer(t *testing.T) {
+	h, ids, _ := missileTable(t, 3, true)
+	for hand := 1; hand <= 3; hand++ {
+		firer := h.turnUser()
+		others := except(ids, firer)
+		h.setCards(firer, "2s", "7h", "9d")
+		h.setCards(others[0], "Kd", "Kc", "4s")
+		h.setCards(others[1], "Ks", "Kh", "4d")
+		// Whom the dealer's order prefers of the two tied hands.
+		dealer := h.view(firer).DealerSeat
+		want := others[0]
+		if h.table.distance(dealer, h.mustSeat(others[1]).SeatIndex) < h.table.distance(dealer, h.mustSeat(others[0]).SeatIndex) {
+			want = others[1]
+		}
+		h.mustAct(firer, ActionMissile, fire("beaten"))
+		ended := h.lastHandEnded()
+		eq(t, *ended.WinnerID, want, "the tied hand nearest the dealer wins")
+		eq(t, h.mustSeat(firer).Status, SeatLost, "a beaten firer loses")
+		h.advance(missileConfig().NextHandDelay + missileExtra)
+	}
 }
 
 // Blind and seen players alike may fire: a missile reveals every hand, the
