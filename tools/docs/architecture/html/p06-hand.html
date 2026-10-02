@@ -1,0 +1,88 @@
+<section id="hand">
+  <h2><span class="kicker">Flows</span>A hand</h2>
+  <p>A table is always in one of four states. Everything else (whose turn it is, a sideshow waiting for its answer, the variation being chosen) is part of the hand inside <code>BETTING</code>.</p>
+  {{svg:hand}}
+  <ul>
+    <li><b>The deal.</b> Each funded seat pays the boot into the pot (in memory), and three cards are dealt from a deck shuffled with <code>crypto/rand</code>. A seat that cannot cover the boot is not dealt in. The first to act is the player on the dealer's left; turns go clockwise by seat index.</li>
+    <li><b>Blind and seen.</b> Everyone starts blind. A blind bet costs the stake, a seen bet twice the stake. After four blind bets a player's cards turn over for them automatically.</li>
+    <li><b>The ladder.</b> The server computes the legal amounts for the player on turn (<code>betOptions</code>): the chaal, then doublings up to the table's limits and the player's stack. The client shows exactly that list; any other amount is refused.</li>
+    <li><b>The turn clock.</b> 25 seconds. A turn that runs out packs the player and counts a missed turn; three in a row removes them from the table.</li>
+    <li><b>How a hand ends.</b> Everyone but one has packed; or two players are left and one pays for a <em>show</em>; or the table's round cap or pot cap forces a showdown; or a player fires a <em>missile</em> (three or more players still in), which shows every hand at once.</li>
+    <li><b>Sideshow.</b> A seen player may ask the player who acted just before them to compare hands privately. The loser packs. Nothing is charged, and the asked player has 6 seconds to accept or decline. A <em>Force Sideshow</em> costs a hammer and cannot be declined.</li>
+  </ul>
+  {{code:go-server/internal/game/table.go|Table.act: the checks every move passes, then the dispatch (comments trimmed)}}
+func (t *Table) act(userID string, action Action, req ActRequest) (ActResult, error) {
+	if t.hand == nil {
+		return ActResult{}, NewGameError(CodeNoHand, MsgNoHand)
+	}
+	s := t.findSeat(userID)
+	if s == nil {
+		return ActResult{}, NewGameError(CodeNotSeated, MsgNotSeated)
+	}
+	if s.status != SeatActive {
+		return ActResult{}, NewGameError(CodeNotInHand, MsgNotInHand)
+	}
+	if action != ActionSee && t.variationPending() {
+		return ActResult{}, NewGameError(CodeVariationPending, MsgVariationPending)
+	}
+	if action != ActionSee && t.hand.turnSeat != s.seatIndex {
+		return ActResult{}, NewGameError(CodeNotYourTurn, MsgNotYourTurn)
+	}
+	if action != ActionSee && t.hand.sideshow != nil {
+		return ActResult{}, NewGameError(CodeSideshowPending, MsgSideshowPending)
+	}
+
+	var result ActResult
+	var err error
+	switch action {
+	case ActionSee:
+		result, err = t.see(s, false)
+	case ActionChaal:
+		result, err = t.bet(s, BetChaal, req.Amount, req.ActionID)
+	case ActionRaise:
+		result, err = t.bet(s, BetRaise, req.Amount, req.ActionID)
+	case ActionPack:
+		result = t.pack(s, PackReasonPack, true)
+	case ActionShow:
+		result, err = t.show(s, req.ActionID)
+	case ActionSideshow:
+		result, err = t.requestSideshow(s)
+	case ActionForceSideshow:
+		result, err = t.forceSideshow(s, req.ActionID)
+	case ActionMissile:
+		result, err = t.fireMissile(s, req.ActionID)
+	default:
+		return ActResult{}, Errorf(CodeUnknownAction, MsgUnknownActionFormat, string(action))
+	}
+	if err != nil {
+		return ActResult{}, err
+	}
+	if action != ActionSee {
+		s.missedTurns = 0 // a real move clears the idle count
+	}
+	return result, nil
+}
+  {{/code}}
+  <h3>Who wins an exact tie</h3>
+  <p>Hands are ranked by one function, <code>Evaluate</code>: high card, pair, color, sequence, pure sequence, trail. Suits never break a tie, so two hands can be exactly equal. The pot is never split; the rule depends on how the comparison was started.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Comparison</th><th>An exact tie goes</th></tr></thead>
+    <tbody>
+      <tr><td>Show</td><td>against the player who called the show</td></tr>
+      <tr><td>Sideshow, Force Sideshow</td><td>against the player who asked</td></tr>
+      <tr><td>Missile</td><td>to the player who fired it, when their hand ties for the best</td></tr>
+      <tr><td class="wrap">Round cap, pot cap, or a tie among the other players</td><td>to the tied seat nearest the dealer going clockwise, the dealer's own seat first</td></tr>
+    </tbody>
+  </table></div>
+  <h3>What each player is sent</h3>
+  <p>After every change the table emits <code>state</code>, and the socket layer sends each viewer their own copy, built by <code>serializeFor(viewer)</code> in <code>view.go</code>. There is no room-wide snapshot.</p>
+  <ul>
+    <li><code>you.cards</code> only once the viewer has seen their cards; every other seat carries only <code>cardCount</code>.</li>
+    <li>On blind and variation tables, and in poker rooms, other players' <code>chips</code> are <code>null</code>, never 0.</li>
+    <li><code>you.options</code> (the ladder and which keys are live) exists only for the player on turn.</li>
+    <li>Cards are revealed to everyone only at a showdown, and a sideshow's cards go to its two players alone.</li>
+  </ul>
+  <h3>Variation tables and poker rooms</h3>
+  <p>A <b>variation</b> table deals as usual, then the first player to act has 10 seconds to choose the hand's variation (Muflis, AK47, Joker, Hukam, Lowest Joker, Highest Joker, or 5-Card); if the clock runs out the server chooses Muflis. There is still one ranking: each variation is a wild-card rule and a comparison direction laid over <code>Evaluate</code> (<code>variation.go</code>).</p>
+  <p>The <b>poker family</b> (3-Card Poker, 5-Card Draw, Texas Hold'em, Omaha) lives in <code>internal/poker</code>. A poker room implements the same <code>game.Room</code> interface, runs on the same actor shell, and banks money at the same three checkpoints; it has its own events (<code>poker:*</code>) and its own five-card evaluator.</p>
+</section>

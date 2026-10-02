@@ -1,0 +1,51 @@
+<section id="system">
+  <h2><span class="kicker">Shape</span>System map</h2>
+  <p>One Go process runs the whole game. It keeps every table in memory, mirrors each table to Redis after every change, and writes chips to PostgreSQL only at three moments of a hand. Players reach it through nginx; the resident bots sit on the same host and connect over loopback.</p>
+  {{svg:system}}
+  <ul class="legend wide">
+    <li><i class="t-client"></i>clients</li><li><i class="t-edge"></i>transport and edges</li><li><i class="t-core"></i>game rules</li>
+    <li><i class="t-data"></i>state and stores</li><li><i class="t-ext"></i>outside services</li><li><i class="t-ops"></i>operations</li>
+  </ul>
+  <div class="rule"><b>The one rule everything follows</b>The server is the single authority. It shuffles with <code>crypto/rand</code>, deals, checks every bet against a ladder it recomputes itself, decides winners, and sends each player a snapshot with everybody else's cards removed. A client never receives a card or a hidden stack it should not see; it draws snapshots and forwards intent.</div>
+  <div class="scroll"><table>
+    <thead><tr><th>Part</th><th>Where</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Game server</td><td><code>go-server/</code></td><td>The only server. Rules, rooms, sockets, REST, ledger, metrics. One static binary, <code>bin/gameplay</code>.</td></tr>
+      <tr><td>Mobile client</td><td><code>flutter-client/</code></td><td>The live client. One <code>GameState</code> notifier, one websocket, no rules of its own.</td></tr>
+      <tr><td>Bot fleet</td><td><code>bot-play/</code></td><td>Resident bots that keep production's lobby populated. Plain clients of the same protocol.</td></tr>
+      <tr><td>Tools</td><td><code>tools/</code></td><td>Practice bots, the ramp load test, and the black-box parity suites.</td></tr>
+      <tr><td>Browser client</td><td><code>go-server/public/</code></td><td>A vanilla-JS smoke test of the protocol. Hidden in production.</td></tr>
+      <tr><td>PostgreSQL</td><td>host service</td><td>Wallets, the chip ledger, accounts, catalogues, table configuration, statistics. Never the table being played.</td></tr>
+      <tr><td>Redis</td><td>host service</td><td>The live store: each table's full snapshot, who sits where, presence, resume offers, statistics waiting to be flushed.</td></tr>
+      <tr><td>Cloudflare R2</td><td>private bucket</td><td>The catalogue's art. The server only signs ten-minute links; phones download and keep the files.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="layers">
+  <h2><span class="kicker">Shape</span>Inside the server</h2>
+  <p>The module is <code>go-server/</code>, and its packages form layers. The domain, <code>internal/game</code>, holds the rules and knows nothing about HTTP, SQL or Prometheus. It defines small interfaces for what it needs (a ledger, a live store, a clock, a listener for its events) and the packages around it implement them. <code>internal/app</code> is the only place that knows every piece and wires them together.</p>
+  {{svg:layers}}
+  <ul>
+    <li><b>Solid arrows</b> are calls. <b>Dashed arrows</b> mean the domain defines an interface and the package below implements it: <code>game.Ledger</code> by <code>db.Ledger</code>, <code>live.Store</code> by Redis or the in-process store, <code>game.StatsRecorder</code> by <code>stats.Recorder</code>.</li>
+    <li><code>game</code> must not import <code>metrics</code>, <code>db</code> or <code>socket</code>. Metrics reach it as function hooks; the socket layer reaches it as a <code>game.Listener</code>.</li>
+    <li>Nothing but <code>app</code> and <code>cmd</code> imports <code>socket</code> or <code>app</code>.</li>
+    <li>There is no package-level mutable state. Configuration is read once at boot into one immutable <code>config.Config</code> and passed down.</li>
+  </ul>
+  <div class="scroll"><table>
+    <thead><tr><th>Package</th><th>Holds</th></tr></thead>
+    <tbody>
+      <tr><td><code>cmd/gameplay</code></td><td>The entry point: load <code>.env</code>, config, database, app, listen; SIGTERM handling; the <code>-migrate</code>, <code>-export-table-config</code>, <code>-check-table-config</code> and <code>-version</code> flags.</td></tr>
+      <tr><td><code>internal/app</code></td><td>Composition: builds every store and service, restores rooms, mounts routes, <code>/health</code>, static files, start and shutdown.</td></tr>
+      <tr><td><code>internal/game</code></td><td><code>Table</code> (the Teen Patti rules engine), <code>RoomManager</code>, the <code>Room</code> interface, <code>Actor</code>/<code>LiveState</code>/<code>Settler</code>, hand ranking, variations, the redacted views, errors and constants.</td></tr>
+      <tr><td><code>internal/poker</code></td><td>Four poker variants as rooms beside the Teen Patti tables, built on the same actor shell and the same three checkpoints.</td></tr>
+      <tr><td><code>internal/socket</code></td><td>The game protocol: one method per event, the <code>guard</code>, per-viewer emits, the reconnect grace, resume offers.</td></tr>
+      <tr><td><code>internal/sio</code></td><td>Our own Engine.IO v4 and Socket.IO v5 server on <code>gorilla/websocket</code>. Websocket only.</td></tr>
+      <tr><td><code>internal/auth</code></td><td>REST routes, JWT (HS256), Google, Apple and guest sign-in, rate limits, pagination.</td></tr>
+      <tr><td><code>internal/db</code></td><td>The pgx pool, the embedded migrations, and every transaction: the ledger's checkpoints, users, catalogues, purchases, rewards, friends, reports, statistics.</td></tr>
+      <tr><td><code>internal/live</code></td><td>The live-store interface with two implementations, Redis and in-process memory.</td></tr>
+      <tr><td><code>internal/stats</code></td><td>The statistics pipeline: recorder (to Redis), flusher (group commit to PostgreSQL).</td></tr>
+      <tr><td><code>internal/config</code>, <code>metrics</code>, <code>util</code></td><td>Environment to one <code>Config</code> and the table catalogue contract; every <code>game_*</code> series; uuid, room codes, the JSON logger.</td></tr>
+    </tbody>
+  </table></div>
+</section>

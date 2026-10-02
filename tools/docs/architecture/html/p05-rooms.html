@@ -1,0 +1,148 @@
+<section id="join">
+  <h2><span class="kicker">Flows</span>Joining a table</h2>
+  <p>The <code>RoomManager</code> owns the lobby: which tables exist, who sits where, and every door into a seat. There are four doors (quick join, join by code, create a private table, and the automatic rejoin after a lapsed connection), and all of them end in the same two steps: reserve the seat in the manager, then <code>AddPlayer</code> on the table's actor.</p>
+  {{svg:join}}
+  <div class="scroll"><table>
+    <thead><tr><th>Check, in order</th><th>Refusal code</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Not already seated</td><td><code>already_in_room</code></td><td>One seat per player, whichever door they came in by.</td></tr>
+      <tr><td>Stake is allowed</td><td><code>invalid_stake</code></td><td>The boot must be one of the lobby's stakes.</td></tr>
+      <tr><td>Table is on the menu</td><td><code>table_not_offered</code></td><td>The category and boot pair must be a table the lobby opens. Unknown categories fold to <code>seen</code>.</td></tr>
+      <tr><td>Wallet read under the lock</td><td><code>settlement_pending</code>, <code>account_disabled</code></td><td>The seat starts from the wallet as PostgreSQL has it now, read while the player's stripe is held.</td></tr>
+      <tr><td>Chips cover the boot</td><td><code>insufficient_chips</code></td><td>Poker rooms ask for their buy-in instead.</td></tr>
+      <tr><td>Stack band</td><td><code>over_entry_cap</code>, <code>below_table_minimum</code></td><td>A table can be shut to stacks above a maximum or below a minimum. Exactly the limit is allowed.</td></tr>
+    </tbody>
+  </table></div>
+  {{code:go-server/internal/game/roommanager.go|RoomManager.QuickJoin, abridged}}
+func (rm *RoomManager) QuickJoin(user Player, opts QuickJoinOptions) (Room, error) {
+	ul := rm.userLock(user.ID) // the player's seat stripe, held from the first check
+	ul.Lock()
+	defer ul.Unlock()
+
+	if err := rm.assertNotSeated(user.ID); err != nil {
+		return nil, err
+	}
+	bootAmount := opts.BootAmount
+	if err := rm.AssertStakeAllowed(bootAmount); err != nil {
+		return nil, err
+	}
+	resolved := NormalizeCategory(opts.Category)
+	if err := rm.AssertTableOffered(bootAmount, resolved); err != nil {
+		return nil, err
+	}
+	user, err := rm.freshPlayer(user) // the wallet as it stands under that lock
+	if err != nil {
+		return nil, err
+	}
+	if user.Chips < bootAmount {
+		return nil, NewGameError(CodeInsufficientChips, msgInsufficientToJoin)
+	}
+	// … assertUnderEntryCap, assertWithinTableBand
+
+	for attempt := 0; ; attempt++ {
+		started := time.Now()
+		rm.mu.Lock()
+		// … seated meanwhile → already_in_room
+		table := rm.pickTableLocked(bootAmount, resolved, "")
+		created := table == nil
+		if created {
+			table = rm.newTableLocked(CreateTableOptions{BootAmount: bootAmount, Category: string(resolved)})
+		}
+		rm.holdLocked(table) // the seat is held before the lock is released
+		rm.mu.Unlock()
+
+		if created {
+			rm.announceCreated(table, started)
+		}
+		err := rm.seatHeld(table, user, "")
+		if err == nil {
+			return table, nil
+		}
+		// … a table opened for this join is destroyed again;
+		//   a table torn down under us is picked again
+		return nil, err
+	}
+}
+  {{/code}}
+  <ul>
+    <li><b>Which table.</b> Quick join takes the <em>fullest</em> public table of that boot and category that still has a seat (ties: the oldest), so a player arriving finds a game. Only when none has a seat is a new table created.</li>
+    <li><b>No race for the last seat.</b> The pick and the seat hold happen in one critical section. Fifty players joining at the same instant are routed by the seats that will be taken; nobody is refused <code>table_full</code> by a race.</li>
+    <li><b>Join by code</b> takes exactly 8 letters or digits, skips the menu checks (any live table can be joined by its code) and skips the stack band for a private table, where the player was invited.</li>
+    <li><b>Create</b> always opens a private table at the private boot. Its figures come from the private template of that category.</li>
+    <li><b>Where a new table's rules come from.</b> <code>config.GameConfig.Spec(category, boot, private)</code> is the one answer the table is built from, the lobby card is drawn from, and <code>GET /api/tables</code> serves. The table copies every figure into its own config and snapshot when it opens and never reads the configuration again.</li>
+  </ul>
+</section>
+
+<section id="switch">
+  <h2><span class="kicker">Flows</span>Switching tables</h2>
+  <p>A switch moves a seated player sideways to another table of the same boot and category. It is one request to the client and a careful sequence on the server, because the seat must never be lost and chips must never be duplicated on the way.</p>
+  {{svg:switch}}
+  {{code:go-server/internal/game/roommanager.go|RoomManager.SwitchTable, abridged to its decisions}}
+func (rm *RoomManager) SwitchTable(user Player) (SwitchResult, error) {
+	ul := rm.userLock(user.ID)
+	ul.Lock()
+	defer ul.Unlock()
+
+	rm.mu.Lock()
+	current, dropped := rm.seatedTableLocked(user.ID)
+	// … not seated → not_in_room; a private table → private_table
+	bootAmount, category := current.BootAmount(), current.Category()
+	target := rm.pickEmptiestTableLocked(bootAmount, category, current.ID())
+	created := false
+	if target == nil {
+		// Every other table of the kind is full, or there is none: open one for
+		// this player — but only for a pair the lobby still opens.
+		if rm.AssertStakeAllowed(bootAmount) != nil || rm.AssertTableOffered(bootAmount, category) != nil {
+			rm.mu.Unlock()
+			return SwitchResult{From: current}, Errorf(CodeNoOtherTable, msgNoOtherTableFormat, string(category))
+		}
+		target = rm.newTableLocked(CreateTableOptions{BootAmount: bootAmount, Category: string(category)})
+		created = true
+	}
+	rm.holdLocked(target)
+	rm.mu.Unlock()
+	// … seat := the player's seat at `current` (its chips, its socket id);
+	//   abandon := give the held seat back and close a table opened for this switch
+
+	// The target's boot / buy-in is checked on the stack the seat holds
+	// BEFORE the seat is given up.
+	if seat != nil {
+		if err := rm.assertAdmitsMove(target, seat.Chips); err != nil {
+			abandon() // release the hold; close a table opened for this switch
+			return SwitchResult{From: current}, err
+		}
+	}
+
+	_, vacated, err = rm.vacateSeat(user.ID, LeaveReasonMoved)
+	// The seat is the authority the moment it is given up: whatever it held is
+	// what the checkpoint has just banked.
+	moving := user
+	if vacated != nil {
+		moving.Chips = vacated.Chips
+	}
+	if current.IsEmpty() {
+		// … destroy the table that was left empty
+	}
+	if err := rm.seatHeld(target, moving, socketID); err != nil {
+		// … close a table opened for this switch, put the seat back at `current`
+		return SwitchResult{From: current}, err
+	}
+	return SwitchResult{From: current, To: target}, nil
+}
+  {{/code}}
+  <ul>
+    <li><b>Which table.</b> The other public table of the same kind with the <em>fewest</em> players; ties are drawn with <code>crypto/rand</code>, so where a switcher lands is not predictable. If every other table is full, a new one is opened for the player.</li>
+    <li><b>Chips travel with the seat, not the wallet.</b> Leaving mid-hand is a checkpoint: the stake already in the pot is banked as lost. The player is re-seated with what the old seat held at that moment. Re-seating from the wallet figure read earlier would hand the stake back.</li>
+    <li><b>What is and is not checked.</b> The seat must cover the target's boot (or a poker room's buy-in), checked before the seat is given up. The entry cap and the stack band are not applied: those decide who may sit down from the lobby, not who may move sideways.</li>
+    <li><b>Failure is safe.</b> If the target refuses the seat, the seat at the old table is restored. A table opened for the switch is closed again, so no empty table is left behind.</li>
+    <li><b>The socket follows.</b> The handler stops listening to the old room before the switch (leaving can destroy it, and "room closed" must not reach a player who is mid-move), then listens to exactly the table the result names.</li>
+  </ul>
+  <h3>Leaving, kicks and the sweeper</h3>
+  <ul>
+    <li><b>Leave</b> mid-hand is a pack plus checkpoint 2: the stake stays in the pot. If everybody leaves, the last one to leave gets the pot.</li>
+    <li><b>Idle kick.</b> A turn that times out packs the player and counts a miss; three misses in a row and the table emits <code>kick</code>. The table only emits it; the RoomManager removes the player.</li>
+    <li><b>Unfunded seats</b> are held for a grace (30 s) between hands so a player can buy chips, then shown out.</li>
+    <li><b>Consolidation.</b> Every 15 s the sweeper merges lone players waiting on idle public tables of the same kind into the oldest one, and destroys tables that have stood empty for 30 s.</li>
+    <li><b>Draining.</b> A table restored from Redis keeps the rules frozen in its snapshot. If the configuration has changed since, the table is marked draining: it plays on and can still be joined by code, but matchmaking never sends anyone to it.</li>
+  </ul>
+</section>

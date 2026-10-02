@@ -1,0 +1,96 @@
+<section id="actor">
+  <h2><span class="kicker">Flows</span>A table is an actor</h2>
+  <p>Every table owns one goroutine. Anything that reads or changes the table is a closure posted to that goroutine, and the caller waits until it has run. Two moves, a move and a turn timer, a leave and a database answer: none of them can interleave, because they queue. There is no lock inside a table.</p>
+  {{code:go-server/internal/game/actor.go|Actor.Post and Actor.Loop, abridged}}
+func (a *Actor) Post(fn func(), force bool) error {
+	if a.destroyed.Load() || (!force && a.fenced.Load()) {
+		return ErrTableDestroyed
+	}
+	done := make(chan struct{})
+	var failure error
+	job := func() {
+		defer close(done)
+		if a.after != nil {
+			defer a.after() // Table: flush the snapshot to the live store
+		}
+		defer func() {
+			if r := recover(); r != nil {
+				failure = &GameError{Code: CodeInternalError /* … */}
+			}
+		}()
+		fn()
+	}
+	// Blocked senders on an unbuffered channel are served first-in first-out.
+	select {
+	case a.posts <- job:
+	case <-a.ctx.Done():
+		return ErrTableDestroyed
+	}
+	<-done
+	return failure
+}
+
+// Loop is the actor goroutine: one closure at a time until the room is destroyed.
+func (a *Actor) Loop() {
+	for job := range a.posts {
+		job()
+		if a.destroyed.Load() {
+			return
+		}
+	}
+}
+  {{/code}}
+  <p>The same shell carries Teen Patti tables and poker rooms: <code>Actor</code> (the mailbox), <code>LiveState</code> (the Redis snapshot and its fence) and <code>Settler</code> (the hand-end retry chain) live in <code>actor.go</code>, and both <code>game.Table</code> and <code>poker.Table</code> embed them.</p>
+  <h3>The rules that keep it deadlock-free</h3>
+  <ul>
+    <li><b>Exported methods post, unexported ones never do.</b> <code>Table.Act</code> calls <code>t.run(…)</code>; <code>t.act</code>, <code>t.bet</code>, <code>t.endHand</code> run on the actor and must not call <code>run</code> again, or the goroutine waits on itself.</li>
+    <li><b>A listener never calls back into its table.</b> Events (<code>game.Listener</code>) are delivered on the actor goroutine. The kick path, which must remove a player, runs in a goroutine of its own.</li>
+    <li><b>Timers post.</b> The turn clock, the sideshow clock and the start delay fire through <code>clock.AfterFunc</code> and post a closure. Each carries a token, so a timer that fires after the turn already moved finds a different token and does nothing.</li>
+    <li><b>Panics stay local.</b> A panic inside one move becomes an <code>internal_error</code> for that move; the table keeps running.</li>
+    <li><b>Readers that cannot wait use atomics.</b> <code>PlayerCount</code>, <code>IsFull</code>, <code>State</code> and <code>Version</code> are lock-free, so the RoomManager can scan tables while holding its own mutex.</li>
+    <li><b>The RoomManager's mutex guards only its maps</b> and is never held while a table is called. Each player also has a seat-lock stripe: every door into a seat and every lobby-only wallet change takes it, so a purchase can never land between a join's wallet read and its seat.</li>
+  </ul>
+  <div class="rule"><b>After every closure</b>If the closure changed anything a player can see, the whole table is serialised once and saved to the live store under the next sequence number. A save refused as stale means another process owns the table: it is fenced, accepts nothing more, and is torn down without settling a hand it no longer owns.</div>
+</section>
+
+<section id="event">
+  <h2><span class="kicker">Flows</span>One move, from the tap to every screen</h2>
+  <p>A bet is the hot path, and it never touches PostgreSQL. The socket layer checks rate limits, the table validates and applies the move in one closure, every viewer gets their own redacted snapshot, and the snapshot is saved to Redis as the closure ends.</p>
+  {{svg:event}}
+  {{code:go-server/internal/socket/handler.go|Handler.guard, abridged: every request event passes through it}}
+func (h *Handler) guard(s *sio.Socket, event string, fn func(args []json.RawMessage) (any, error)) sio.Handler {
+	return func(args []json.RawMessage, ack sio.AckFunc) {
+		h.incMessages(event)
+		sess := sessionOf(s)
+		if sess == nil || !sess.rateLimiter.allow() || !h.userLimiterAllows(sess.user.ID) {
+			h.incSocketError(game.CodeRateLimited)
+			h.emitTo(s, EvGameError, GameErrorEvent{Code: game.CodeRateLimited, Message: MsgRateLimited})
+			if ack != nil {
+				ack(ErrorAck{OK: false, Code: game.CodeRateLimited, Message: MsgRateLimited})
+			}
+			return
+		}
+		result, err := h.call(fn, args) // recovers a panic into an internal error
+		if err != nil {
+			code, message := refusalOf(err)
+			// … count socket_errors_total{code}, and invalid_moves_total{code} for a move
+			if ack != nil {
+				ack(ErrorAck{OK: false, Code: code, Message: message})
+			}
+			h.fail(s, err) // also emitted as game:error
+			// … end the session of a deleted, disabled or replaced account
+			return
+		}
+		if ack != nil {
+			ack(result)
+		}
+	}
+}
+  {{/code}}
+  <ul>
+    <li><b>Refusals carry a code.</b> Every refusal is a <code>GameError{Code, Message}</code> with a snake_case code (<code>not_your_turn</code>, <code>invalid_bet</code>, <code>insufficient_chips</code> …). Clients compare codes, never messages. A refusal arrives twice on purpose, as the ack and as <code>game:error</code>; clients dedupe.</li>
+    <li><b>Every move is idempotent.</b> The client sends a fresh <code>actionId</code> with each move. The table remembers the ids a player used this hand and refuses a repeat with <code>duplicate_action</code>, so a retried request is never charged twice.</li>
+    <li><b>Amounts are never trusted.</b> A bet must be exactly a rung of the ladder the table computes (<code>betOptions</code>); anything else is <code>invalid_bet</code>.</li>
+    <li><b>Seeing your cards is not a move.</b> <code>see</code> is free, allowed off-turn, and does not reset the turn clock.</li>
+  </ul>
+</section>

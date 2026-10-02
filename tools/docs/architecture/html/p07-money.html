@@ -1,0 +1,124 @@
+<section id="money">
+  <h2><span class="kicker">Flows</span>Money: three checkpoints</h2>
+  <p>PostgreSQL holds the wallet (<code>users.chips</code>) and an append-only audit of every movement (<code>chip_ledger</code>). A bet is not a database transaction, and neither is the deal. The wallet is brought up to date at exactly three moments, each taking that player's chips as the live table has them.</p>
+  {{svg:money}}
+  <div class="scroll"><table>
+    <thead><tr><th>Moment</th><th>Ledger reason</th><th>action_id</th><th>Who is written</th></tr></thead>
+    <tbody>
+      <tr><td>A player packs</td><td><code>hand_packed</code></td><td><code>&lt;handId&gt;:packed:&lt;userId&gt;</code></td><td>that player</td></tr>
+      <tr><td class="wrap">A player leaves, switches or is kicked</td><td><code>hand_left</code></td><td><code>&lt;handId&gt;:left:&lt;userId&gt;</code></td><td>that player</td></tr>
+      <tr><td>The hand ends</td><td><code>hand_win</code> / <code>hand_loss</code></td><td><code>&lt;handId&gt;:settle:&lt;userId&gt;</code></td><td>everyone still at the table</td></tr>
+      <tr><td>The winner's tax</td><td><code>table_tax</code></td><td><code>&lt;handId&gt;:tax:&lt;userId&gt;</code></td><td>the winner, in the same transaction</td></tr>
+    </tbody>
+  </table></div>
+  {{code:go-server/internal/game/table.go|Table.chargeToPot: a bet moves chips in memory and nowhere else (comments trimmed)}}
+func (t *Table) chargeToPot(s *seat, amount int64, actionID, reason string) error {
+	if actionID == "" || strings.ContainsRune(actionID, reservedActionIDSeparator) {
+		actionID = util.UUID()
+	}
+	if t.actionSeen(s.userID, actionID) {
+		err := &GameError{Code: CodeDuplicateAction, Message: MsgDuplicateAction}
+		// … reported to the listener
+		return err
+	}
+	if s.chips < amount {
+		err := &GameError{Code: CodeInsufficientChips, Message: MsgInsufficientForBet}
+		// … reported to the listener
+		return err
+	}
+
+	t.rememberAction(s.userID, actionID)
+	s.chips -= amount
+	s.contributed += amount
+	t.hand.pot += amount
+	// … the hand's contribution record for this player is created or updated:
+	//   contributed, chips, and chipsWritten (what PostgreSQL last knew)
+	return nil
+}
+  {{/code}}
+  {{code:go-server/internal/db/ledger.go|applyCheckpoint: what every checkpoint writes for one player (comments trimmed)}}
+func applyCheckpoint(ctx context.Context, tx pgx.Tx, entry game.SettleEntry, handID string, at int64) (int64, error) {
+	chips, err := lockWallet(ctx, tx, entry.UserID) // SELECT chips … FOR UPDATE
+	if err != nil {
+		// … a deleted account is skipped, not failed
+		return 0, err
+	}
+
+	balance := chips + entry.Delta // a DELTA on the wallet as it is now, never an absolute
+	if balance < 0 {
+		balance = 0
+	}
+	if _, err := tx.Exec(ctx, `UPDATE users SET chips = $1, updated_at = $2 WHERE id = $3`,
+		balance, at, entry.UserID); err != nil {
+		return 0, err
+	}
+
+	// One ledger row per player per checkpoint; a taxed win is two rows:
+	// the win gross, then the tax.
+	rows := game.LedgerRows(handID, entry)
+	after := balance - entry.Delta
+	for _, row := range rows {
+		after += row.Delta
+		if err := appendLedgerFor(ctx, tx, row.UserID, handID, row.ActionID, row.Delta, after, row.Reason, at,
+			string(row.Game), string(row.Variant)); err != nil {
+			return 0, err
+		}
+	}
+	return balance, nil
+}
+  {{/code}}
+  <h3>Why it is safe</h3>
+  <ul>
+    <li><b>Deltas, never absolutes.</b> Each checkpoint writes <code>seat chips now − chips as last written</code>. A reward or purchase that credited the wallet meanwhile is therefore never overwritten.</li>
+    <li><b><code>action_id</code> is UNIQUE, and that is a mechanism.</b> If a settle commits but its answer is lost, the table resends the same request. The replay hits the unique index, the whole transaction rolls back, and the table reads <code>duplicate_action</code> as the success it is. The winner is never paid twice.</li>
+    <li><b>Resolve once, record twice.</b> A player who packed gets a <code>hand_packed</code> row when the money moves and a zero-delta <code>hand_loss</code> row at the hand end, which records the outcome.</li>
+    <li><b>The ledger is append-only.</b> A trigger refuses every UPDATE and DELETE on <code>chip_ledger</code>. The one exception is the purge job, which removes hand rows older than ten minutes inside its own guarded transaction.</li>
+    <li><b>Chips cannot change while seated except at a checkpoint.</b> Every lobby-only wallet change (a chip-priced picture, the Lucky Draw, a reward claim, account deletion) runs under the player's seat stripe and is refused <code>seated</code> at a table. A chip pack bought at a table credits the database and tops up the seat together.</li>
+    <li><b>The winning tax.</b> At a public Teen Patti table the winner pays their rate on winnings (the pot less their own chips) of 50 Lakh or more. The seat is credited the pot less the tax; the ledger writes the win gross and the tax as its own row, so a hand's rows still sum to zero.</li>
+  </ul>
+  <div class="rule"><b>The invariant to keep true</b><code>SUM(chip_ledger.delta)</code> per user equals <code>users.chips</code>. Losing Redis loses the hands in play and nothing else: every player keeps what PostgreSQL last knew. Chips can be un-made by an interrupted hand, never created.</div>
+</section>
+
+<section id="stats">
+  <h2><span class="kicker">Flows</span>Statistics: Redis first, then one group commit</h2>
+  <p>A player's record (hands played, won and lost, winnings, the winning tax they paid, the hands they held, the variations they played) is not written by the money transactions. Tables record each committed hand's counters in Redis, and a flusher adds them to PostgreSQL in batches, one transaction per batch.</p>
+  {{svg:stats}}
+  <ol class="steps">
+    <li>At the hand's end the table works out a <code>HandStats</code> per player while the cards and rules are still there, and carries them on the settle request.</li>
+    <li>Only when the ledger's transaction has <b>committed</b> does the table hand them to its <code>StatsRecorder</code>. A replay (<code>duplicate_action</code>) records nothing, so a hand counts at most once.</li>
+    <li>The recorder queues them off the actor and writes them to Redis: one hash per player, <code>kt:stats:&lt;userId&gt;</code>, one field per counter such as <code>TEEN_PATTI:hands_won</code> or <code>VARIATION:total_tax_paid</code>.</li>
+    <li>Every <code>STATS_FLUSH_MS</code> (10 s) the flusher moves up to 500 players' counters out atomically under a new batch id.</li>
+    <li>It adds them in one PostgreSQL transaction: the batch's receipt in <code>stats_flushes</code> first, then one upsert into <code>player_stats</code> and one into <code>player_variation_stats</code>.</li>
+    <li>Only after the commit is the batch finished in Redis. A crash in between replays the batch, and its receipt makes the replay add nothing.</li>
+    <li>Every account read sums the player's rows, so the figures trail play by at most one flush interval.</li>
+  </ol>
+  {{code:go-server/internal/stats/flusher.go|Flusher.flush: one batch, one transaction, exactly once (metrics trimmed)}}
+func (f *Flusher) flush(ctx context.Context, batch live.StatsBatch, report *PassReport) error {
+	deltas := make([]db.StatsDelta, 0, len(batch.Players))
+	unknown := 0
+	for userID, fields := range batch.Players {
+		delta, n := Decode(userID, fields)
+		unknown += n
+		deltas = append(deltas, *delta)
+	}
+	sort.Slice(deltas, func(i, j int) bool { return deltas[i].UserID < deltas[j].UserID })
+	// … a field this build does not know is left out and logged
+	if len(deltas) > 0 {
+		applied, err := f.db.Flush(ctx, batch.ID, deltas)
+		if err != nil {
+			return err // the batch stays taken and is retried under the same id
+		}
+		if applied {
+			report.Batches++
+			report.Players += len(deltas)
+		} else {
+			// Committed by an earlier attempt whose acknowledgement was lost:
+			// nothing is added twice, and the batch is forgotten now.
+			report.Duplicates++
+		}
+	}
+	return f.live.FinishStatsBatch(ctx, batch.ID)
+}
+  {{/code}}
+  <p>The winning tax a player has paid is their own figure: it is on their account (<code>totalTaxPaid</code>) and in their own Stats drawer, and no other player's profile carries any chip figure.</p>
+</section>

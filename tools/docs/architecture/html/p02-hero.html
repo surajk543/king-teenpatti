@@ -1,0 +1,38 @@
+<div class="shell">
+<nav class="toc" aria-label="Contents">
+  <p class="brand">King <span>Teen Patti</span></p>
+  <p class="sub">Backend architecture</p>
+  <ol>
+    <li class="part">Shape</li>
+    <li><a href="#system">System map</a></li>
+    <li><a href="#layers">Inside the server</a></li>
+    <li class="part">Flows</li>
+    <li><a href="#actor">A table is an actor</a></li>
+    <li><a href="#event">One move</a></li>
+    <li><a href="#join">Joining a table</a></li>
+    <li><a href="#switch">Switching tables</a></li>
+    <li><a href="#hand">A hand</a></li>
+    <li><a href="#money">Money</a></li>
+    <li><a href="#stats">Statistics</a></li>
+    <li><a href="#resume">Dropped connections</a></li>
+    <li><a href="#boot">Boot and shutdown</a></li>
+    <li class="part">Reference</li>
+    <li><a href="#data">Data model</a></li>
+    <li><a href="#wire">Wire protocol</a></li>
+    <li><a href="#config">Configuration</a></li>
+    <li><a href="#ops">Deploy and observe</a></li>
+    <li><a href="#map">Where to change things</a></li>
+  </ol>
+</nav>
+<main>
+<header class="hero">
+  <h1>King Teen Patti <span>architecture</span></h1>
+  <p class="lede">How the game server is put together: what runs where, how one move travels from a tap to every screen, when chips reach the database, and where each rule lives in the code.</p>
+  <dl class="facts">
+    <div><dt>Server</dt><dd>Go 1.27, one static binary<small>every table is one goroutine</small></dd></div>
+    <div><dt>Transport</dt><dd>Socket.IO over websocket<small>our own server, <code>internal/sio</code></small></dd></div>
+    <div><dt>Live state</dt><dd>Redis<small>every table's snapshot, and nowhere else</small></dd></div>
+    <div><dt>Money</dt><dd>PostgreSQL<small>three checkpoints a hand, append-only ledger</small></dd></div>
+    <div><dt>Clients</dt><dd>Flutter (Android, iOS)<small>render snapshots, forward intent</small></dd></div>
+  </dl>
+</header>

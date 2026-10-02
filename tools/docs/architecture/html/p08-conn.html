@@ -1,0 +1,27 @@
+<section id="resume">
+  <h2><span class="kicker">Flows</span>Dropped connections</h2>
+  <p>Phones lose their network, get locked, and switch apps. A seat survives all of that for a while, and after that the way back to the table survives a while longer.</p>
+  {{svg:resume}}
+  <ul>
+    <li><b>The handshake</b> carries the JWT (<code>handshake.auth.token</code>) and the app's platform and version. It is refused with a code (<code>invalid_session</code>, <code>account_disabled</code>, <code>session_replaced</code>, <code>update_required</code>, <code>maintenance</code>) and such a refusal is final; a network failure is retried by the client.</li>
+    <li><b>One live socket per account, one signed-in device.</b> Every login counts a new session (<code>user_sessions.version</code>, signed into the token as <code>sv</code>). A newer login ends the older device's socket with <code>session:replaced</code>, and the new device's connection takes over the seat.</li>
+    <li><b>The grace.</b> When a socket drops, the seat is marked disconnected and held for 60 seconds. The turn clocks keep running. Reconnect inside the grace and the server sends <code>room:joined</code> with the live hand.</li>
+    <li><b>The resume offer.</b> When the grace runs out the player leaves the table, and the table is offered back for 10 minutes: the next <code>session:ready</code> carries <code>resume</code>, and the app rejoins with <code>room:joinCode</code>. An idle kick of a player with no live socket leaves the same offer.</li>
+    <li><b>The app helps.</b> Sent to the background while seated, the Flutter app closes its socket after 8 seconds, which starts the server's grace at once instead of letting three turn clocks run out unanswered.</li>
+    <li><b>Silent drops</b> are noticed by the Engine.IO heartbeat (ping every 20 s, 25 s timeout).</li>
+  </ul>
+</section>
+
+<section id="boot">
+  <h2><span class="kicker">Flows</span>Boot, restore and shutdown</h2>
+  <p>Configuration is read once. A value that does not parse stops the binary with the key named, and production refuses to start on a weak JWT secret or without the R2 keys. Everything that is built afterwards holds the same immutable <code>Config</code> for the life of the process.</p>
+  {{svg:boot}}
+  <ul>
+    <li><b>Migrations run at every boot.</b> There is no schema history table: the server applies every embedded script every time, so each one is idempotent. <code>gameplay -migrate</code> runs the same step alone, which is what a deploy does before it restarts anything.</li>
+    <li><b>The table catalogue</b> (engines, categories and every lobby table with its figures) is read once, from PostgreSQL when <code>TABLE_CONFIG_SOURCE=db</code>, otherwise composed from the environment. An edit to the rows applies at the next restart, to tables opened after it.</li>
+    <li><b>Restore.</b> Every table snapshot in Redis is rebuilt as a running actor. The first bytes of a snapshot say which game it is, and the matching factory restores it. Seats come back disconnected and are held for the grace; timers resume with what was left of their deadlines. A turn whose deadline passed while the process was down gets a fresh clock rather than an instant timeout.</li>
+    <li><b>Without Redis</b> (<code>REDIS_URL</code> empty) the live store is in-process memory: a single instance whose tables do not survive a restart. Players rejoin; nothing is reconstructed.</li>
+    <li><b>Shutdown.</b> On SIGTERM the socket server closes first. With Redis, every table is <em>suspended</em>: its clocks stop, a final snapshot is saved, and the next process resumes the hand where it stopped. With the in-process store, every live pot is settled instead (to the first active seat, reason <code>all_left</code>), because nothing would come back. Then the statistics still waiting are flushed and the process exits, all within <code>max(8 s, statement timeout + 5 s)</code>.</li>
+  </ul>
+  <div class="rule"><b>Two owners, never</b>Every snapshot is saved under a sequence number with a compare-and-set. A process that finds a newer sequence than its own knows another process owns that table, and stops touching it.</div>
+</section>
