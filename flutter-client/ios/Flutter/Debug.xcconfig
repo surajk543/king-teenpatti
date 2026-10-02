@@ -11,12 +11,13 @@
 // The scheme is the client id with its two halves swapped — Google calls it the
 // reversed client id and prints it in the client's own panel. Left empty the
 // app still builds and guest play still works; only "Continue with Google"
-// fails, and it fails saying so.
+// fails, and it fails saying so. Set on 3 Oct 2026 to the iOS client the
+// owner created for com.sungamestudio.kingteenpatti; a public id, not a secret.
 //
 // The server-side half is the WEB client id, because the server checks the
 // token's audience against it on both platforms. On iOS it is read from
 // Runner/Info.plist (GIDServerClientID), where it is written out: the plugin
 // does not pass Dart's serverClientId on without a clientId beside it.
 // Nothing to set here for it.
-GOOGLE_IOS_CLIENT_ID=
-GOOGLE_IOS_URL_SCHEME=
+GOOGLE_IOS_CLIENT_ID=265025011940-lc1kf0u1c8untvokhn96onu4050k5nsb.apps.googleusercontent.com
+GOOGLE_IOS_URL_SCHEME=com.googleusercontent.apps.265025011940-lc1kf0u1c8untvokhn96onu4050k5nsb

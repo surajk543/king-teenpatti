@@ -139,6 +139,10 @@ asks for it.
 
 Google needs one more OAuth client — the four Android ones and the Web one
 already registered do not cover iOS (`docs/social-login-setup.md` lists them).
+**Done on 3 Oct 2026**: the iOS client is
+`265025011940-lc1kf0u1c8untvokhn96onu4050k5nsb.apps.googleusercontent.com`,
+and both xcconfig files carry it and its URL scheme. The steps below are how
+it was made, for a second bundle id or a new Cloud project.
 
 1. Google Cloud → **Google Auth Platform → Clients → Create client → iOS**.
 2. Bundle ID: `com.sungamestudio.kingteenpatti`.

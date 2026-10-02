@@ -67,18 +67,16 @@ void main() {
 
   group('the iOS client in Flutter/*.xcconfig', () {
     for (final name in ['Debug', 'Release']) {
-      test('$name: unset, or a client id with its own URL scheme', () {
+      test('$name: an iOS client id with its own URL scheme', () {
         final xcconfig = _read('ios/Flutter/$name.xcconfig');
         final id = _setting(xcconfig, 'GOOGLE_IOS_CLIENT_ID');
         final scheme = _setting(xcconfig, 'GOOGLE_IOS_URL_SCHEME');
+        // Empty, "Continue with Google" is a key that cannot work, and a
+        // reviewer who taps one rejects the build.
         expect(id, isNotNull);
-        expect(scheme, isNotNull);
-        if (id!.isEmpty) {
-          expect(scheme, isEmpty, reason: 'a scheme with no client');
-          return;
-        }
+        expect(id, isNotEmpty);
         const suffix = '.apps.googleusercontent.com';
-        expect(id, endsWith(suffix));
+        expect(id!, endsWith(suffix));
         expect(
           id,
           isNot(SocialSignIn.serverClientId),
