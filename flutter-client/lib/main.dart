@@ -16,6 +16,7 @@ import 'state/game_state.dart';
 import 'theme/app_theme.dart';
 import 'theme/depth.dart';
 import 'theme/theme_colors.dart';
+import 'widgets/lobby_music.dart';
 import 'widgets/game_loader.dart';
 import 'widgets/glass_components.dart';
 import 'widgets/glass_panels.dart';
@@ -128,7 +129,8 @@ class KingTeenPattiApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const _Root(),
+      // The lobby's music follows the screen the root is showing.
+      home: const LobbyMusic(child: _Root()),
     );
   }
 }
