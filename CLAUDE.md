@@ -3269,7 +3269,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `_awardsAwaitingLadder` while the award reads it, and is queued, in the order the awards came, when the read ends — as best it
   can when the read fails ("Daily XP mission"; an XP only for a lone mission, none for two sharing one award). **The bar** (`XpMissionHost`, in main.dart's builder in a Stack beside the toasts' Scaffold — above the
   Navigator, so over the lobby, both felts, drawers, sheets and dialogs): slides down from the top edge inside the safe area
-  (`topGap` 4dp), comes with the owner's `assets/sound/notification.mp3` (`FeedbackSettings.xpNotification`, full volume, behind the Sound switch, once a bar), stays `hold` **15 s** (owner, 27 Sep 2026: "toast message should remain for 15 seconds"; 5 s before) with a gold line draining along its foot, slides away; its **×** key (`xp-mission-close`, a 24dp disc in a 44dp target at the bar's right end — no Tooltip: the bar stands above the Navigator, with no Overlay; "give a cross button also in toast message") or a tap anywhere on it sends it early, one tap one bar; the next waits
+  (`topGap` 4dp), comes with the owner's `assets/sound/notification.mp3` (`FeedbackSettings.xpNotification`, full volume, behind the Sound switch, once a bar — every bar's: a daily win, a play-time milestone, a one-time mission, the bar that carries a level up, each bar of a queue as it comes down), stays `hold` **15 s** (owner, 27 Sep 2026: "toast message should remain for 15 seconds"; 5 s before) with a gold line draining along its foot, slides away; its **×** key (`xp-mission-close`, a 24dp disc in a 44dp target at the bar's right end — no Tooltip: the bar stands above the Navigator, with no Overlay; "give a cross button also in toast message") or a tap anywhere on it sends it early, one tap one bar; the next waits
   `between` 180 ms — never two at once. As wide as its words, centred, up to `maxWidthFor(w)`: at a table 0.6 of the safe width
   (260..440dp), clear of the Shop key and the wallet, the keys and the viewer's cards at 592x360–915x412 ×1.0/×1.25 on both felts
   (it covers the top seats' heads for the 5 s); in the lobby half (260..420dp), clear of the picture and the drawer keys — the
@@ -3279,10 +3279,31 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   bar — a Bengali Pure Sequence and "Level 44 · Supreme Overlord" with its tax at 592x360 ×1.25 — is six lines, 147dp, still
   clear of every key. The lobby cards' opaque body under the glass, gold live hairline, both themes. A `Semantics(liveRegion)`
   reads its lines. Four strings in all five languages; the Indic titles put the mission after "Mission complete:" ("मिशन पूरा:
-  Pair से जीतें"), since the mission's name is an imperative there. `test/xp_mission_toast_test.dart` (the rule, the queue, the 5 s, the tap, the level up, what
+  Pair से जीतें"), since the mission's name is an imperative there. **At a table a bar just raised waits
+  `XpMissionHost.tableDelay` 1.5 s before it comes down** (owner, 2 Oct 2026: "Make sure this sound plays when any xp
+  completes and toast message comes"). The sound was always played and, at a table, never heard: a mission is completed at
+  a hand's end, the push that raises the bar lands some 50 ms after the winner is named, and the bar's sound — a click a
+  tenth of a second long at −18 dB — started inside winner.mp3's first second, which every phone at the table plays at
+  −16 dB (on TP_Tall the two tracks joined the mixer 48 ms apart). Now the bar and its sound come as the cheer dies, and a
+  level up's popup, with its own cheer, follows at `LevelUpHost.tableDelay` 2.2 s: win, ding, fanfare. A second and a half,
+  not one: the FIRST time a session plays the winner's clip SoundPool decodes it first and it starts over half a second
+  late on the emulator, its loud second moving with it. Only a bar raised with nothing showing waits (`_wait`); the next of
+  a queue follows after `between` alone (`_follows`), an award that lands during the wait starts no second one, and in the
+  lobby — no winner's cheer there — the bar comes at once. **Behind a missile volley the award itself waits**
+  (`GameState._heldStandings`): the server settles the hand in the same breath as the missile, and its `player:level` used
+  to raise the bar ("Win by Trail") and the level-up popup while the cards were still face down and the blasts were
+  sounding. `handlePlayerLevel` now holds a standing while `missileHoldsReveal`, and lets it go after the held showdown at
+  `MissileTiming.reveal` — or at once when the volley is dropped (`_clearMissile`: the table left, a new hand); sign-out,
+  account deletion and dispose forget it. On TP_Tall (the mixer's track log): the bar's 44.1 kHz track joined 1.48 s and
+  1.47 s after the winner's on two hands — a first-hand mission and Getting Started — and the popup's cheer 2.15 s after.
+  `test/xp_mission_toast_test.dart` (the rule, the queue, the 5 s, the tap, the level up, what
   shows nothing, the forward-only baseline, the wait for the ladder, the tax on the bar, `session:ready` and `player:level` through
   `GameState.start()`'s own wiring on a fed connection, the bar in `KingTeenPattiApp` itself, over a dialog and the table drawer,
-  both felts and the lobby's corners, every language and size); pictures by hand, `test/xp_mission_shots.dart` (run like
+  both felts and the lobby's corners, every language and size; and "the bar's sound", 12: the file in the bundle, every
+  kind of completion heard as its bar comes down, the wait at a Teen Patti and a poker table with nothing heard before it
+  ends, the wait long enough for the cheer and over before the popup, at once in the lobby, the queue's next without a
+  second wait, an award during the wait, a sign-out during it, and the missile — held to the reveal, told when the volley
+  is dropped, forgotten at sign-out); pictures by hand, `test/xp_mission_shots.dart` (run like
   table_shots; `longLevel` is the tallest bar).
 - **The level-up popup** (owner, 2 Oct 2026: "Use this animation to COngrats Player once his level upgraded , show a pop in UI,
   and Tell in pop up that something like that now you will pay less tax and how much less tax u pay tell that in pop up"; app only —

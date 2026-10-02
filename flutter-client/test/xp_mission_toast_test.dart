@@ -3,8 +3,11 @@
 // is completed and xp increased"): which awards complete a mission, the queue,
 // the five seconds, the tap, the level-up line, what never shows one, and the
 // bar over the lobby and both felts at every size, text scale, language and
-// theme.
+// theme — and its sound (owner, 2 Oct 2026: "Make sure this sound plays when
+// any xp completes and toast message comes"): every bar's, once, and at a
+// table only when the winner's cheer has passed, so that it is heard.
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -20,8 +23,10 @@ import 'package:teenpatti/screens/lobby_screen.dart';
 import 'package:teenpatti/screens/table_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
+import 'package:teenpatti/state/missile_strike.dart';
 import 'package:teenpatti/state/xp_missions.dart';
 import 'package:teenpatti/widgets/buy_chips.dart';
+import 'package:teenpatti/widgets/level_up_popup.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 import 'package:teenpatti/widgets/table_chrome.dart';
 import 'package:teenpatti/widgets/xp_mission_bar.dart';
@@ -162,9 +167,10 @@ Future<void> unmount(WidgetTester tester, GameState state) async {
   state.dispose();
 }
 
-/// Down and settled.
-Future<void> arrive(WidgetTester tester) async {
+/// Down and settled — at a [table], once its wait there is over.
+Future<void> arrive(WidgetTester tester, {bool table = false}) async {
   await tester.pump();
+  if (table) await tester.pump(XpMissionHost.tableDelay);
   await tester.pump(XpMissionHost.slideIn + const Duration(milliseconds: 40));
 }
 
@@ -184,6 +190,10 @@ String titleOf(WidgetTester tester) => textOf(tester, 'xp-mission-title');
 /// Every clip the app asks the audio plugin for, past the Sound switch.
 class _Heard extends FeedbackSettings {
   final heard = <String>[];
+
+  /// How many times the bar's own sound was asked for.
+  int get dings =>
+      heard.where((clip) => clip == FeedbackSettings.xpNotificationClip).length;
 
   @override
   Future<void> playClip(
@@ -999,6 +1009,353 @@ void main() {
     });
   });
 
+  // Its sound (owner, 2 Oct 2026: "Make sure this sound plays when any xp
+  // completes and toast message comes"). It always played — and at a table
+  // was never heard: a mission is completed at a hand's end, and the bar's
+  // short sound started in the same instant as the winner's cheer.
+  group('the bar\'s sound', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    GameState atTable(Map<String, Object?> level, {bool poker = false}) =>
+        levelState(level: level, ladderRead: ladder(withMissions: true))
+          ..screen = Screen.table
+          ..handleState(poker ? pokerRoom() : seenTurnRoom());
+
+    Future<void> close(WidgetTester tester) async {
+      await tester.tap(find.byKey(const ValueKey('xp-mission-close')));
+      await tester.pump();
+      await tester.pump(
+        XpMissionHost.slideOut + const Duration(milliseconds: 50),
+      );
+      await tester.pump(XpMissionHost.between);
+    }
+
+    test('the recording is in the bundle', () {
+      expect(FeedbackSettings.xpNotificationClip, 'sound/notification.mp3');
+      expect(
+        File('assets/${FeedbackSettings.xpNotificationClip}').existsSync(),
+        isTrue,
+      );
+      expect(
+        File('pubspec.yaml').readAsStringSync(),
+        contains('assets/sound/'),
+      );
+    });
+
+    testWidgets('every kind of completion is heard as its bar comes down: a '
+        'daily win, a play-time milestone, a one-time mission and the bar '
+        'that carries a level up', (tester) async {
+      final heard = _Heard();
+      final state = levelState(
+        level: lv(1, 23, resetsAt: windowA),
+        ladderRead: ladder(withMissions: true),
+      );
+      await mount(tester, state, sound: heard);
+      expect(heard.dings, 0);
+
+      // A daily "Win by" mission.
+      state.handlePlayerLevel(
+        standing(lv(1, 24, claimed: {'WIN_PAIR': 1}, resetsAt: windowA)),
+      );
+      await arrive(tester);
+      expect(bar, findsOneWidget);
+      expect(heard.dings, 1);
+      await close(tester);
+
+      // A play-time milestone.
+      state.handlePlayerLevel(
+        standing(
+          lv(
+            1,
+            27,
+            claimed: {'WIN_PAIR': 1, 'PLAY_15_MIN': 1},
+            resetsAt: windowA,
+          ),
+        ),
+      );
+      await arrive(tester);
+      expect(bar, findsOneWidget);
+      expect(heard.dings, 2);
+      await close(tester);
+
+      // A one-time mission.
+      final firstWin = missionAt(
+        'FIRST_WIN',
+        1,
+        1,
+        completed: true,
+        xpAwarded: 10,
+      );
+      state.handlePlayerLevel(
+        standing({
+          ...lv(
+            1,
+            37,
+            claimed: {'WIN_PAIR': 1, 'PLAY_15_MIN': 1},
+            resetsAt: windowA,
+          ),
+          'missions': [firstWin],
+        }),
+      );
+      await arrive(tester);
+      expect(bar, findsOneWidget);
+      expect(titleOf(tester), contains('First Win'));
+      expect(heard.dings, 3);
+      await close(tester);
+
+      // The award that lifts the player a level: its bar says so, and is
+      // heard like any other.
+      state.handlePlayerLevel(
+        standing({
+          ...lv(
+            2,
+            105,
+            claimed: {'WIN_PAIR': 1, 'PLAY_15_MIN': 1, 'PLAY_60_MIN': 1},
+            resetsAt: windowA,
+          ),
+          'missions': [firstWin],
+        }),
+      );
+      await arrive(tester);
+      expect(bar, findsOneWidget);
+      expect(find.byKey(const ValueKey('xp-mission-tax-now')), findsOneWidget);
+      expect(heard.dings, 4);
+      // Nothing is heard twice for a bar that stays.
+      await tester.pump(const Duration(seconds: 6));
+      expect(heard.dings, 4);
+      await unmount(tester, state);
+    });
+
+    for (final poker in [false, true]) {
+      testWidgets('at a ${poker ? 'poker' : 'Teen Patti'} table the bar and '
+          'its sound wait until the winner\'s cheer has passed', (
+        tester,
+      ) async {
+        final heard = _Heard();
+        final state = atTable(lv(1, 23, resetsAt: windowA), poker: poker);
+        await mount(tester, state, home: const TableScreen(), sound: heard);
+        state.handlePlayerLevel(
+          standing(lv(1, 24, claimed: {'WIN_PAIR': 1}, resetsAt: windowA)),
+        );
+        // The account has the XP at once; only the bar waits.
+        expect(state.user!.playerLevel!.xp, 24);
+        await tester.pump();
+        await tester.pump(
+          XpMissionHost.tableDelay - const Duration(milliseconds: 100),
+        );
+        expect(bar, findsNothing);
+        expect(heard.dings, 0);
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(
+          XpMissionHost.slideIn + const Duration(milliseconds: 40),
+        );
+        expect(bar, findsOneWidget);
+        expect(heard.dings, 1);
+        expect(tester.takeException(), isNull);
+        await unmount(tester, state);
+      });
+    }
+
+    test('the wait is long enough for the winner\'s cheer, and ends before '
+        'a level up\'s popup', () {
+      // The winner's clip is loud for its first second — and starts up to
+      // half a second late the first time a session plays it; the level-up
+      // popup, with its own cheer, comes at 2.2 s.
+      expect(
+        XpMissionHost.tableDelay,
+        greaterThanOrEqualTo(const Duration(milliseconds: 1500)),
+      );
+      expect(
+        XpMissionHost.tableDelay + const Duration(milliseconds: 500),
+        lessThan(LevelUpHost.tableDelay),
+      );
+    });
+
+    testWidgets('in the lobby the bar and its sound come at once', (
+      tester,
+    ) async {
+      final heard = _Heard();
+      final state = stateAt(lv(1, 23, resetsAt: windowA));
+      await mount(tester, state, sound: heard);
+      state.handlePlayerLevel(
+        standing(lv(1, 24, claimed: {'WIN_PAIR': 1}, resetsAt: windowA)),
+      );
+      await tester.pump();
+      expect(heard.dings, 1);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(bar, findsOneWidget);
+      await unmount(tester, state);
+    });
+
+    testWidgets('at a table the next bar of the queue follows without '
+        'waiting again, and is heard as it comes', (tester) async {
+      final heard = _Heard();
+      final state = atTable(lv(1, 23, resetsAt: windowA));
+      await mount(tester, state, home: const TableScreen(), sound: heard);
+      state.handlePlayerLevel(
+        standing(
+          lv(
+            1,
+            26,
+            claimed: {'WIN_PAIR': 1, 'WIN_COLOR': 1},
+            resetsAt: windowA,
+          ),
+        ),
+      );
+      await arrive(tester, table: true);
+      expect(bar, findsOneWidget);
+      expect(heard.dings, 1);
+      final first = titleOf(tester);
+      await tester.tap(find.byKey(const ValueKey('xp-mission-close')));
+      await tester.pump();
+      await tester.pump(
+        XpMissionHost.slideOut + const Duration(milliseconds: 50),
+      );
+      await tester.pump(XpMissionHost.between);
+      // No second wait: it is on its way down already.
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(bar, findsOneWidget);
+      expect(titleOf(tester), isNot(first));
+      expect(heard.dings, 2);
+      await unmount(tester, state);
+    });
+
+    testWidgets('an award that lands while another bar is still waiting at a '
+        'table does not start a second wait', (tester) async {
+      final heard = _Heard();
+      final state = atTable(lv(1, 23, resetsAt: windowA));
+      await mount(tester, state, home: const TableScreen(), sound: heard);
+      state.handlePlayerLevel(
+        standing(lv(1, 24, claimed: {'WIN_PAIR': 1}, resetsAt: windowA)),
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      state.handlePlayerLevel(
+        standing(
+          lv(
+            1,
+            27,
+            claimed: {'WIN_PAIR': 1, 'PLAY_15_MIN': 1},
+            resetsAt: windowA,
+          ),
+        ),
+      );
+      // The first bar still comes when ITS wait is over.
+      await tester.pump(
+        XpMissionHost.tableDelay - const Duration(milliseconds: 700),
+      );
+      expect(bar, findsNothing);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump(
+        XpMissionHost.slideIn + const Duration(milliseconds: 40),
+      );
+      expect(bar, findsOneWidget);
+      expect(heard.dings, 1);
+      expect(state.xpMissions.queue, hasLength(2));
+      await unmount(tester, state);
+    });
+
+    testWidgets('a sign-out while the bar waits at a table shows nothing and '
+        'plays nothing', (tester) async {
+      final heard = _Heard();
+      final state = atTable(lv(1, 23, resetsAt: windowA));
+      await mount(tester, state, home: const TableScreen(), sound: heard);
+      state.handlePlayerLevel(
+        standing(lv(1, 24, claimed: {'WIN_PAIR': 1}, resetsAt: windowA)),
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      state.xpMissions.clear();
+      await tester.pump(XpMissionHost.tableDelay);
+      await tester.pump(XpMissionHost.slideIn);
+      expect(bar, findsNothing);
+      expect(heard.dings, 0);
+      await unmount(tester, state);
+    });
+
+    testWidgets('behind a missile volley the award waits for the reveal: '
+        'nothing is told before the cards turn over, and the bar is heard '
+        'after it', (tester) async {
+      final heard = _Heard();
+      final state = atTable(lv(1, 23, resetsAt: windowA));
+      await mount(tester, state, home: const TableScreen(), sound: heard);
+      state.handleTableAction((
+        userId: 'u1',
+        action: GameAction.missile,
+        reason: null,
+      ));
+      expect(state.missileHoldsReveal, isTrue);
+      final reveal = MissileTiming.reveal(state.missileStrike!.count);
+      // The server settles the hand in the same breath as the missile.
+      state.handlePlayerLevel(
+        standing(lv(1, 43, claimed: {'WIN_TRAIL': 1}, resetsAt: windowA)),
+      );
+      expect(state.user!.playerLevel!.xp, 23);
+      expect(state.xpMissions.queue, isEmpty);
+      await tester.pump();
+      await tester.pump(reveal - const Duration(milliseconds: 60));
+      expect(state.xpMissions.queue, isEmpty);
+      expect(bar, findsNothing);
+      expect(heard.dings, 0);
+
+      // The explosions have played out: the hand's end is seen, and the
+      // award is the account's.
+      await tester.pump(const Duration(milliseconds: 80));
+      expect(state.missileHoldsReveal, isFalse);
+      expect(state.user!.playerLevel!.xp, 43);
+      expect(state.xpMissions.queue, hasLength(1));
+      expect(bar, findsNothing);
+      expect(heard.dings, 0);
+      await tester.pump(XpMissionHost.tableDelay);
+      await tester.pump(
+        XpMissionHost.slideIn + const Duration(milliseconds: 40),
+      );
+      expect(bar, findsOneWidget);
+      expect(heard.dings, 1);
+      await tester.pump(MissileTiming.total(state.missileStrike?.count ?? 4));
+      await unmount(tester, state);
+    });
+
+    testWidgets('an award held behind a volley is told when the volley is '
+        'dropped — the table left, a new hand — never lost', (tester) async {
+      final state = atTable(lv(1, 23, resetsAt: windowA));
+      state.handleTableAction((
+        userId: 'u1',
+        action: GameAction.missile,
+        reason: null,
+      ));
+      state.handlePlayerLevel(
+        standing(lv(1, 43, claimed: {'WIN_TRAIL': 1}, resetsAt: windowA)),
+      );
+      expect(state.xpMissions.queue, isEmpty);
+      state.handleBackToLobby();
+      expect(state.missileHoldsReveal, isFalse);
+      expect(state.user!.playerLevel!.xp, 43);
+      expect(state.xpMissions.queue, hasLength(1));
+      // No timer of the volley is left to tell it a second time.
+      await tester.pump(const Duration(seconds: 10));
+      expect(state.xpMissions.queue, hasLength(1));
+      state.dispose();
+    });
+
+    testWidgets('an award held behind a volley is forgotten with the account '
+        'that signs out', (tester) async {
+      final state = atTable(lv(1, 23, resetsAt: windowA));
+      state.handleTableAction((
+        userId: 'u1',
+        action: GameAction.missile,
+        reason: null,
+      ));
+      final reveal = MissileTiming.reveal(state.missileStrike!.count);
+      state.handlePlayerLevel(
+        standing(lv(2, 105, claimed: {'WIN_TRAIL': 1}, resetsAt: windowA)),
+      );
+      await state.signOut();
+      await tester.pump(reveal + const Duration(seconds: 3));
+      expect(state.xpMissions.queue, isEmpty);
+      expect(state.levelUps.current, isNull);
+      state.dispose();
+    });
+  });
+
   group('the bar over the table', () {
     for (final poker in [false, true]) {
       testWidgets('on the ${poker ? 'poker' : 'Teen Patti'} felt it clears the '
@@ -1036,7 +1393,7 @@ void main() {
                 ),
               ),
             );
-            await arrive(tester);
+            await arrive(tester, table: true);
             final where = '$screen x$scale ${lang.englishName}';
             expect(
               find.byKey(const ValueKey('xp-mission-tax-now')),
