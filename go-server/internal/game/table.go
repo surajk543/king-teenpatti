@@ -980,8 +980,9 @@ func (t *Table) StartHand() error {
 //	           MissileWallet.SpendMissile (no_missiles passes through,
 //	           anything else is persist_failed — both leave the table as it
 //	           was); then emit action MISSILE (amount 0) and
-//	           resolveShowdown(active, WinMissile, userId): every hand in is
-//	           shown, the best takes the pot, the firer loses an exact tie.
+//	           resolveShowdown(active, WinMissile, nil, userId): every hand in
+//	           is shown, the best takes the pot, and the firer WINS an exact
+//	           tie for the best hand (owner, 2 Oct 2026; they lost it before).
 //	other    → unknown_action.
 //
 // missedTurns is reset to 0 only AFTER the move succeeded.
@@ -2874,8 +2875,9 @@ func missileRefusal(blocked string) *GameError {
 //   - then the room hears the move (game:action, amount 0) and the hand is
 //     resolved through resolveShowdown with reason missile — the same path the
 //     pot-limit and forced showdowns take, so the reveals, the settlement and
-//     the ledger rows are exactly any showdown's. The firer stands where a show
-//     payer stands in the tie order: an exact tie goes against them.
+//     the ledger rows are exactly any showdown's. The firer stands FIRST in
+//     the tie order (owner, 2 Oct 2026): an exact tie for the best hand goes
+//     to them, where a show's goes against its payer.
 //
 // No chips move for the missile itself and nothing is written to chip_ledger
 // for it; the hand end writes what every hand end writes.
@@ -2919,7 +2921,10 @@ func (t *Table) fireMissile(s *seat, actionID string) (ActResult, error) {
 	})
 
 	t.clearTurnTimer()
-	t.resolveShowdown(active, WinMissile, StrPtr(s.userID))
+	// An exact tie for the best hand goes TO the firer (owner, 2 Oct 2026:
+	// "the player who hit the missile will be winner in case of draw") — the
+	// opposite of a show, whose payer loses one.
+	t.resolveShowdown(active, WinMissile, nil, StrPtr(s.userID))
 
 	remaining := spend.Remaining
 	return ActResult{Action: string(ActionMissile), Missiles: &remaining}, nil
@@ -3045,7 +3050,7 @@ func (t *Table) show(s *seat, actionID string) (ActResult, error) {
 	})
 
 	t.clearTurnTimer()
-	t.resolveShowdown(active, WinShow, StrPtr(s.userID))
+	t.resolveShowdown(active, WinShow, StrPtr(s.userID), nil)
 	return ActResult{Action: string(ActionShow), Amount: Int64Ptr(*cost)}, nil
 }
 
@@ -3080,7 +3085,7 @@ func (t *Table) serverShowdown(reason WinReason) {
 		t.emitState()
 		return
 	}
-	t.resolveShowdown(t.activeSeats(), reason, nil)
+	t.resolveShowdown(t.activeSeats(), reason, nil, nil)
 }
 
 // runDeferredShowdown runs the showdown serverShowdown deferred, once no hand
@@ -3092,18 +3097,26 @@ func (t *Table) runDeferredShowdown() bool {
 	}
 	reason := t.hand.deferredShowdown
 	t.hand.deferredShowdown = ""
-	t.resolveShowdown(t.activeSeats(), reason, nil)
+	t.resolveShowdown(t.activeSeats(), reason, nil, nil)
 	return true
 }
 
 // resolveShowdown (_resolveShowdown): state showdown; score contenders;
-// preference for exact ties = contenders sorted by distance(dealerSeat,
-// seatIndex) ascending, minus showRequestedBy, who is appended LAST (the
-// show-payer loses a tie); pick best (first max, ties broken by preference
-// index); reveals for every contender {won}; emit showdown; losers → status
-// lost + syncContribution; endHand(best, reason, reveals). The pot is never
-// split.
-func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showRequestedBy *string) {
+// preference for exact ties = tieTo FIRST (a missile's firer wins a tie for
+// the best hand — owner, 2 Oct 2026: "when i hit missile … and multiple
+// players have same card with higher rank or there is draw, then the player
+// who hit the missile will be winner in case of draw"), then the contenders
+// sorted by distance(dealerSeat, seatIndex) ascending, minus showRequestedBy,
+// who is appended LAST (the show-payer loses a tie: "when i click show or
+// sideshow in case of draw who has taken the show or sideshow will be
+// loser" — a sideshow's asker loses in settleSideshow); pick best (first
+// max, ties broken by preference index); reveals for every contender {won};
+// emit showdown; losers → status lost + syncContribution; endHand(best,
+// reason, reveals). The pot is never split. tieTo only decides among hands
+// that TIE for the best: a firer whose hand is beaten still loses, and a tie
+// among others above them goes by the dealer's order. Both nil — a forced or
+// pot-limit showdown — is the dealer's order alone.
+func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showRequestedBy, tieTo *string) {
 	if t.hand == nil || len(contenders) == 0 {
 		return
 	}
@@ -3120,16 +3133,23 @@ func (t *Table) resolveShowdown(contenders []*seat, reason WinReason, showReques
 		scored = append(scored, scoredSeat{seat: s, hand: t.playedHand(rules, s)})
 	}
 
-	// Preference order for exact ties: the dealer's own seat first (distance
-	// 0), then the dealer's left, …; the show payer moved to the very end.
+	// Preference order for exact ties: a missile's firer at the very front;
+	// then the dealer's own seat (distance 0), the dealer's left, …; the show
+	// payer moved to the very end.
 	byDealer := make([]*seat, len(contenders))
 	copy(byDealer, contenders)
 	sort.SliceStable(byDealer, func(i, j int) bool {
 		return t.distance(t.dealerSeat, byDealer[i].seatIndex) < t.distance(t.dealerSeat, byDealer[j].seatIndex)
 	})
 	preference := make([]string, 0, len(byDealer)+1)
+	if tieTo != nil {
+		preference = append(preference, *tieTo)
+	}
 	for _, s := range byDealer {
 		if showRequestedBy != nil && s.userID == *showRequestedBy {
+			continue
+		}
+		if tieTo != nil && s.userID == *tieTo {
 			continue
 		}
 		preference = append(preference, s.userID)

@@ -499,7 +499,8 @@ Future<void> _offerHammers(BuildContext context, GameState state) async {
 /// A missile, from the key to the server (owner, 14 Sep 2026).
 ///
 /// Asked first: a missile ends the hand for everyone still in it, and a tie
-/// goes against the player who fired. A player with no missiles is not asked
+/// for the best hand goes TO the player who fired (owner, 2 Oct 2026; against
+/// them until then — the note under the question says which). A player with no missiles is not asked
 /// that — they are offered the store's Missiles shelf instead. The server has
 /// the last word on both, and when its count turns out to be 0 after all the
 /// same offer follows.
