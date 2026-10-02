@@ -198,7 +198,8 @@ king-teenpatti/
     │                         assets/sound/ (the owner's recordings, §8.4 "Sounds": see card sound.mp3 — the look at a hand;
     │                         Card Distribute.mp3 — each card of the deal; hammer hit.mp3 — a Force Sideshow's hammer;
     │                         Missile hit.mp3 — a missile volley; Card click.mp3 — a tap on any lobby key or card, and Back in the lobby;
-    │                         winner.mp3 — a hand's winner named, heard by the whole table),
+    │                         winner.mp3 — a hand's winner named, heard by the whole table;
+    │                         Lobby.mp3 — the lobby's music, looped while the lobby is on screen),
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
     │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
@@ -4145,7 +4146,20 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   picture picker, the store, the Lucky Draw page, the level popup, the Friends page. Rapid taps restart the one voice the
   clip has (`_playAsset` stops it and plays again), so each tap clicks and nothing stacks. The seam the tests hear
   through is `FeedbackSettings.playClip` (`@visibleForTesting`), after the Sound switch has decided.
-  `test/lobby_click_sound_test.dart`. **Found with it, and fixed** (it predates the click, master `b7f9c27` threw it too): a
+  `test/lobby_click_sound_test.dart`. **The lobby's music** (owner, 2 Oct 2026: "use this sound and play when player is in
+  LObby, when player joins the table, then this sound should be switced off"): **`assets/sound/Lobby.mp3`** (40.4 s, the last
+  1.5 s silent, mastered like a song — −19 dB mean, full-scale peaks), looped at `FeedbackSettings.lobbyMusicVolume` 0.8 (0.35 for its first hour — the owner: "volume is very low"; it plays on the
+  phone's MEDIA volume, often set well under the ring volume the clicks play on), on a player of its own (`startLoop`: the default media player, `ReleaseMode.loop`,
+  `FeedbackSettings.musicSound` — Android usage `game` / content `music`, iOS ambient, and NO audio focus, as no sound of this
+  game takes any: it mixes over what the player is listening to and iOS's mute switch silences it). `widgets/lobby_music.dart`
+  `LobbyMusic`, laid over `_Root` in main.dart, only says WHEN: `screen == Screen.lobby && !resuming` → `lobbyMusic(playing:)`.
+  So it plays under everything opened OVER the lobby (the store, Friends, the Lucky Draw, the drawers, the consent and reward
+  popups) and stops the moment the screen is a table (Teen Patti or poker), the sign-in screen or an update screen — and never
+  starts under a cold start's "resuming your table" veil; back in the lobby it starts from its beginning. It is HELD while the
+  app is not in front (`holdMusic`: lifecycle `hidden`/`paused`/`detached` pause it, `resumed` carries on from where it was;
+  `inactive` — a shade, a purchase sheet — does nothing) and it is behind the Sound switch (`setSound` and `load` re-sync it).
+  The asks are queued (`_musicQueue`) so a start still loading is never overtaken by its stop. The tests' seams are
+  `startLoop`/`pauseLoop`/`resumeLoop`/`stopLoop`. `test/lobby_music_test.dart`. **Found with it, and fixed** (it predates the click, master `b7f9c27` threw it too): a
   tap on a category card and another on the same spot straight after — the back tile coming in over the leaving front —
   put two front levels in the rail's `AnimatedSwitcher`, each with the private card under the same `GlobalKey`
   ("Duplicate GlobalKey detected in widget tree"). `_LobbyScreenState` now makes the private card's and its code field's

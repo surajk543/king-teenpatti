@@ -100,6 +100,41 @@ class FeedbackSettings extends ChangeNotifier {
   /// card click does.
   static const xpNotificationClip = 'sound/notification.mp3';
 
+  /// The lobby's music (owner, 2 Oct 2026: "use this sound and play when
+  /// player is in Lobby, when player joins the table, then this sound should
+  /// be switched off"). The owner's recording, 40 s, played round and round
+  /// for as long as the lobby is on screen ([lobbyMusic]).
+  static const lobbyMusicClip = 'sound/Lobby.mp3';
+
+  /// How loud the lobby's music plays, of the phone's own media volume. It
+  /// was 0.35 for its first hour, to sit under the lobby's clicks, and the
+  /// owner found it "very low" (2 Oct 2026): music plays on the phone's MEDIA
+  /// volume, which is often set well under the ring volume the clicks play
+  /// on, so a quiet mix on top of that was barely heard.
+  static const lobbyMusicVolume = 0.8;
+
+  /// The audio profile the music plays under: a game's music rather than an
+  /// interface sound, and still with NO audio focus — it never pauses what
+  /// the player is already listening to, as no clip of this game does. iOS's
+  /// ambient category also keeps it silent under the phone's mute switch.
+  @visibleForTesting
+  static final AudioContext musicSound = AudioContext(
+    android: AudioContextAndroid(
+      isSpeakerphoneOn: false,
+      stayAwake: false,
+      contentType: AndroidContentType.music,
+      usageType: AndroidUsageType.game,
+      audioFocus: AndroidAudioFocus.none,
+    ),
+    iOS: AudioContextIOS(category: AVAudioSessionCategory.ambient),
+  );
+
+  AudioPlayer? _music;
+  bool _lobbyShowing = false;
+  bool _musicHeld = false;
+  _Music _musicState = _Music.off;
+  Future<void> _musicQueue = Future<void>.value();
+
   /// How many of [dealCardClip] may sound at once. The deal sends a card
   /// every 115 ms and the clip is heard for 440 ms, so four overlap; one voice
   /// would stop each card's sound for the next one before its swish began,
@@ -159,12 +194,97 @@ class FeedbackSettings extends ChangeNotifier {
     }
   }
 
+  /// Says whether the lobby is on screen. While it is — and the Sound switch
+  /// is on, and the app is in front ([holdMusic]) — [lobbyMusicClip] plays in
+  /// a loop; the moment it is not (a table, the sign-in screen), the music
+  /// stops, and the next visit to the lobby starts it from its beginning.
+  /// Safe to call with the same answer again: nothing restarts.
+  void lobbyMusic({required bool playing}) {
+    _lobbyShowing = playing;
+    _syncMusic();
+  }
+
+  /// Holds the music while the app is not in front (the phone locked, another
+  /// app on top) and lets it go on, from where it was, when the app is back.
+  /// A phone must never keep playing a game's music from its pocket.
+  void holdMusic({required bool held}) {
+    _musicHeld = held;
+    _syncMusic();
+  }
+
+  /// Whether the lobby's music is playing right now.
+  @visibleForTesting
+  bool get musicPlaying => _musicState == _Music.playing;
+
+  void _syncMusic() {
+    final wanted = _sound && _lobbyShowing;
+    final target = !wanted
+        ? _Music.off
+        : _musicHeld
+        ? _Music.paused
+        : _Music.playing;
+    final from = _musicState;
+    if (target == from) return;
+    // Nothing to pause before it has begun: it starts when the app is back.
+    if (from == _Music.off && target == _Music.paused) return;
+    _musicState = target;
+    // One at a time, in the order asked: a start still loading must not be
+    // overtaken by the stop that follows it.
+    _musicQueue = _musicQueue.then((_) async {
+      try {
+        switch (target) {
+          case _Music.off:
+            await stopLoop();
+          case _Music.paused:
+            await pauseLoop();
+          case _Music.playing:
+            if (from == _Music.paused) {
+              await resumeLoop();
+            } else {
+              await startLoop(lobbyMusicClip, volume: lobbyMusicVolume);
+            }
+        }
+      } catch (_) {
+        // Music that cannot play is silence, never an error on screen.
+      }
+    });
+  }
+
+  /// Starts [asset] from its beginning, looping — the one place the music
+  /// reaches the audio plugin; a test overrides the four of these to hear
+  /// what the app asks for where no audio plugin runs.
+  @protected
+  @visibleForTesting
+  Future<void> startLoop(String asset, {required double volume}) async {
+    final player = _music ??= AudioPlayer();
+    await player.setAudioContext(musicSound);
+    await player.setReleaseMode(ReleaseMode.loop);
+    await player.play(AssetSource(asset), volume: volume);
+  }
+
+  /// Pauses the loop where it is ([holdMusic]).
+  @protected
+  @visibleForTesting
+  Future<void> pauseLoop() async => _music?.pause();
+
+  /// Carries the loop on from where [pauseLoop] left it.
+  @protected
+  @visibleForTesting
+  Future<void> resumeLoop() async => _music?.resume();
+
+  /// Stops the loop; the next [startLoop] begins it again.
+  @protected
+  @visibleForTesting
+  Future<void> stopLoop() async => _music?.stop();
+
   @override
   void dispose() {
     for (final p in _voices.values) {
       p.dispose();
     }
     _voices.clear();
+    _music?.dispose();
+    _music = null;
     super.dispose();
   }
 
@@ -173,11 +293,15 @@ class FeedbackSettings extends ChangeNotifier {
     _sound = prefs.getBool(_soundKey) ?? true;
     _vibrate = prefs.getBool(_vibrateKey) ?? true;
     notifyListeners();
+    _syncMusic();
   }
 
   Future<void> setSound(bool on) async {
     _sound = on;
     notifyListeners();
+    // The Sound switch is the music's too: off stops it, on starts it again
+    // where the lobby is showing.
+    _syncMusic();
     // Play the click the switch just enabled, so the setting demonstrates
     // itself rather than being taken on trust.
     if (on) tap();
@@ -337,3 +461,6 @@ class FeedbackSettings extends ChangeNotifier {
     if (mine && _vibrate) HapticFeedback.heavyImpact();
   }
 }
+
+/// What the lobby's music is doing.
+enum _Music { off, playing, paused }
