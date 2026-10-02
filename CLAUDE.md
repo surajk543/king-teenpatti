@@ -190,7 +190,8 @@ king-teenpatti/
     │   │                         rules_sheet, own_record (the lobby's Stats drawer, §8.4), level_art (a level's Lottie, §6.6),
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
     │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4),
-    │   │                         weekly_login (the reward popups, one a program: the owner's calendar for the weekly login streak, any other program's own days, the reward panel — §8.4)
+    │   │                         weekly_login (the reward popups, one a program: the owner's calendar for the weekly login streak, any other program's own days, the reward panel — §8.4),
+    │   │                         level_up_popup (the popup that congratulates a new level and says how much less winning tax is paid, with the owner's Congrats! Lottie — §8.4)
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
     │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4); CasinoTableColors (the casino table's, §8.4)
     │   ├── theme/depth.dart      the depth ladder (28 Sep 2026, §8.4): Elevation, Depth/DepthScheme (every shadow and edge light), SurfaceLight, OuterShadow
@@ -205,7 +206,8 @@ king-teenpatti/
     │                         winner.mp3 — a hand's winner named, heard by the whole table;
     │                         Lobby.mp3 — the lobby's music, looped while the lobby is on screen),
     │                         assets/animations/Fireworks.json (Lottie 5.5.7, 512x512, 2.43s — the winner's burst),
-    │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4)
+    │                         assets/animations/Lucky Draw Spinner.json (Lottie 5.10, 300x300 — the owner's prize wheel, §8.4),
+    │                         assets/animations/Congrats!.json (Lottie 5.9.3, 1000x1000, 2.9s — the level-up popup's, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
     │          reward_programs, weekly_login, reward_progression and reward_offers on reward_fixtures.dart (§8.4),
     │          casino_table, seat_ring, premium_cards (§8.4); by hand, not `_test`: table_shots and card_shots (pictures)
@@ -1123,7 +1125,8 @@ catalogue-guarded block too, and `player_xp_missions` is a plain CREATE TABLE IF
   name, "0% Winning Tax", validity, and its price on the key — the key opening Play for a Play badge, else the support popup
   (address to copy, a `mailto:` key). Every string in all five languages. A mission a `player:level` shows completed is
   announced on a bar at the top of every screen for 5 s (§8.4 "The XP mission bar"); a level up that came with one is said on
-  that bar, with the winning tax it changed ("Winning tax now 19.71%"), not in the toast.
+  that bar, with the winning tax it changed ("Winning tax now 19.71%"), not in the toast — and since 2 Oct 2026 every level up is
+  congratulated in a popup that says how much less tax the player pays (§8.4 "The level-up popup"), which replaced that toast.
 - **Also on this branch** (owner, 27 Sep 2026): a new account starts with **10 Lakh chips**, 20 hammers and 1 missile (since 30 Sep 2026
   the `welcome_rewards` rows, §7.3, seeded 5 Lakh chips)
   (`WELCOME_CHIPS` 1000000); **Blind 200 is open up to 20 Lakh** (`ENTRY_CAP_MAX_CHIPS` 2000000), **Blind 5,000 up to 20 Crore**
@@ -3275,6 +3278,38 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   `GameState.start()`'s own wiring on a fed connection, the bar in `KingTeenPattiApp` itself, over a dialog and the table drawer,
   both felts and the lobby's corners, every language and size); pictures by hand, `test/xp_mission_shots.dart` (run like
   table_shots; `longLevel` is the tallest bar).
+- **The level-up popup** (owner, 2 Oct 2026: "Use this animation to COngrats Player once his level upgraded , show a pop in UI,
+  and Tell in pop up that something like that now you will pay less tax and how much less tax u pay tell that in pop up"; app only —
+  `state/level_up.dart`, `widgets/level_up_popup.dart`). **Raised** by `GameState.handlePlayerLevel` whenever a `player:level`
+  lifts the player a level — compared against the standing last SEEN (`_xpSeen`, as the missions are), so an account
+  `/api/auth/me` refreshed first is still congratulated and a standing heard again or heard late raises nothing — as
+  `LevelUps.raise` → `LevelUpNews {from, to, paidBefore, paidNow, rateBadge}`: what was paid before is the lowest of the old
+  level's rate and the badges still running (`LevelUps.paidAt`, the server's own rule), what is paid now the server's figure
+  (`paysTaxBps`). **It replaced the level-up toast** (`levelUp`/`levelUpOnly` as a `notice`), which is no longer raised; the
+  mission bar keeps its own level-up lines. **What it says** (`LevelUpLines.of`): LEVEL UP, the level's art and name, and — where
+  the rate fell — "You now pay less winning tax", the two rates ("20% → 19.71%": the old one struck through, the new one the
+  popup's largest figure, in gold) and "You pay 0.29% less than before"; where a badge already keeps the rate below the level's,
+  "Your Royal Ace badge already keeps your winning tax at 0%." over "This level's own rate is 19.71%, down from 20%."; a ladder
+  that gives two levels one rate says nothing of tax. A second level up while it is up changes it in place into the whole climb
+  (the level and the rate it started from are kept). **The popup** (`LevelUpHost`, in main.dart's builder Stack over
+  `XpMissionHost` — above the Navigator, so over the lobby, both felts, sheets and dialogs; its own notifier, `GameState.levelUps`,
+  so the one-second tick never rebuilds it): the owner's **`assets/animations/Congrats!.json`** (`CongratsArt`: 1000 units square,
+  29 fps, 2.9 s, looping while the popup is up — the word "Congrats!" over bursts of stars and dotted rings; no 3D, expressions or
+  images; the word is three text layers named `C`, one over another, with their glyphs embedded as `chars`, so no font is needed;
+  the phone player runs no text animators, so the word stands still while the stars burst) at the card's left, and the words over
+  a gold Continue key (`LuckyGoldKey`) at its right — the art over the words below 480dp of width — on the overlay glass with a
+  gold hairline. **By night the file's word and rings — navy and indigo, about 1.3:1 on the dark popup — are drawn in gold**
+  (`CongratsArt.delegatesFor`: `ValueDelegate.color(['C'])` and `ValueDelegate.strokeColor(['B', '**'])`, one object so a rebuild
+  never restarts the art; the stars keep their colours; by day the file plays as it is, and it is never edited). It goes with
+  Continue, a tap outside it (which presses nothing under it), Back (`_BackGuard`, before anything else) or by itself after
+  `LevelUpHost.hold` 9 s; **at a table it waits `tableDelay` 2.2 s**, so the cards turned over and the winner's celebration are
+  seen first. Sign-out and account deletion clear it. Six strings in all five languages (`levelUpKicker`, `levelUpReached`,
+  `levelUpPaysLess`, `levelUpSaved`, `levelUpBadgeKeeps`, `levelUpLevelRate`). `test/level_up_popup_test.dart` (33: the rate paid
+  before; what raises it and what does not — the same level, a repeat, a late standing, an account refreshed first; the badge
+  case; two level ups as one; the words in every language; the file's layers the recolouring relies on and the night gold's
+  contrast; the popup over the lobby, Continue, a tap outside, its 9 s, the wait at a table, Back in `KingTeenPattiApp` itself;
+  and 592x360–1280x800 ×1.0/×1.25 in all five languages and both themes with the ladder's longest level name, no line cut and
+  the key on screen); `table_tax_test`'s level-up tests now expect the popup; pictures by hand, `test/level_up_shots.dart`.
 - **Emojis** (owner, 26 Sep 2026; server side §7.1/§7.2/§7.3; `widgets/emoji_shelf.dart`, `widgets/emoji_art.dart`).
   `EmojiItem`/`ChatEmoji` DTOs, `ApiClient.emojis`/`buyEmoji`, `GameConnection.sendEmoji` (`chat:emoji`), `GameState.emojis`
   (loaded with the pictures, warmed into `PictureCache`), `buyEmoji` → `bought | notEnough | refused`, `sendEmoji` sharing

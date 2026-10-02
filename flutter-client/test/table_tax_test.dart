@@ -42,6 +42,7 @@ import 'package:teenpatti/widgets/game_card.dart';
 import 'package:teenpatti/widgets/game_loader.dart';
 import 'package:teenpatti/widgets/level_art.dart';
 import 'package:teenpatti/widgets/level_screen.dart';
+import 'package:teenpatti/widgets/level_up_popup.dart';
 import 'package:teenpatti/widgets/missile_flight.dart';
 import 'package:teenpatti/widgets/picture_shelf.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
@@ -1987,22 +1988,26 @@ void main() {
           'taxBps': taxBps,
         })!;
 
-    test('player:level replaces the standing, and a level up says the rate '
-        'it brings — or the level alone where a badge keeps it lower', () {
+    test('player:level replaces the standing, and a level up is congratulated '
+        'in the popup with the rate it brings — or with the badge that keeps '
+        'it lower', () {
       final state = _lobbyState(
         level: {..._level10(), 'level': 9, 'taxBps': 1771},
       );
       state.handlePlayerLevel(standingAt10());
       expect(state.user!.playerLevel!.level, 10);
       expect(state.user!.paysTaxBps, 1743);
-      expect(
-        state.notice,
-        'Level up! Level 10 · Rising Star — your winning tax is now '
-        '17.43%.',
-      );
+      // The popup (owner, 2 Oct 2026) says it; the toast it replaced
+      // ("Level up! … your winning tax is now 17.43%.") is not raised.
+      expect(state.notice, isNull);
+      final up = state.levelUps.current!;
+      expect(up.to.level, 10);
+      expect(up.paidBefore, 1771);
+      expect(up.paidNow, 1743);
+      expect(up.savedBps, 28);
 
       // More XP, the same level: the standing is replaced and nothing said.
-      state.notice = null;
+      state.levelUps.dismiss(up.id);
       state.handlePlayerLevel(
         Standing.maybe({
           'playerLevel': {..._level10(), 'xp': 4200},
@@ -2012,6 +2017,7 @@ void main() {
       );
       expect(state.user!.playerLevel!.xp, 4200);
       expect(state.notice, isNull);
+      expect(state.levelUps.current, isNull);
       state.dispose();
 
       // A 5% badge keeps the rate at 5% through the level up.
@@ -2023,7 +2029,11 @@ void main() {
       gold.handlePlayerLevel(
         standingAt10(badges: [_regular(), _goldBadge()], taxBps: 500),
       );
-      expect(gold.notice, 'Level up! Level 10 · Rising Star');
+      expect(gold.notice, isNull);
+      final held = gold.levelUps.current!;
+      expect(held.paysLess, isFalse, reason: 'the badge keeps it at 5%');
+      expect(held.paidNow, 500);
+      expect(held.rateBadge!.code, 'GOLD');
       expect(gold.user!.badges.map((b) => b.code), ['REGULAR', 'GOLD']);
       // And a badge that runs out comes off with the next standing.
       gold.handlePlayerLevel(standingAt10());
@@ -2033,18 +2043,20 @@ void main() {
     });
 
     for (final lang in AppLang.values) {
-      test('the level-up toast reads in ${lang.englishName}', () {
+      test('the level up is told in ${lang.englishName}, in the popup', () {
         final state = _lobbyState(
           lang: lang,
           level: {..._level10(), 'level': 9, 'taxBps': 1771},
         );
         state.handlePlayerLevel(standingAt10());
         final t = Strings(lang);
-        expect(
-          state.notice,
-          t.levelUp(t.levelName(10, 'Rising Star'), '17.43%'),
-        );
-        expect(state.notice, contains('17.43%'));
+        expect(state.notice, isNull);
+        final lines = LevelUpLines.of(t, state.levelUps.current!);
+        expect(lines.level, t.levelName(10, 'Rising Star'));
+        expect(lines.headline, t.levelUpPaysLess);
+        expect(lines.before, '17.71%');
+        expect(lines.now, '17.43%');
+        expect(lines.detail, t.levelUpSaved('0.28%'));
         state.dispose();
       });
     }

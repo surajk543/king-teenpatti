@@ -29,6 +29,7 @@ import 'player_reports.dart';
 import 'quick_message_order.dart';
 import 'table_config_cache.dart';
 import 'theme_preference.dart';
+import 'level_up.dart';
 import 'xp_missions.dart';
 
 /// `update` is the Force Update screen and `maintenance` the Maintenance one
@@ -209,6 +210,12 @@ class GameState extends ChangeNotifier {
   /// screen (XpMissionHost). A notifier of its own, so the bar never rebuilds
   /// with this one's one-second tick.
   final XpMissions xpMissions = XpMissions();
+
+  /// The level the player has just reached (owner, 2 Oct 2026: "Use this
+  /// animation to COngrats Player once his level upgraded , show a pop in
+  /// UI"), held for the popup above every screen (LevelUpHost). A notifier of
+  /// its own, as [xpMissions] is.
+  final LevelUps levelUps = LevelUps();
 
   /// The standing the last `player:level` left — or the one a session began
   /// with (a sign-in, a cold start's `me()`, `session:ready`) — keyed by the
@@ -1965,14 +1972,23 @@ class GameState extends ChangeNotifier {
         xpMissions.award(baseline, level, levelLadder, levelUpTaxBps: taxNow);
       }
     }
-    final barSaysLevelUp = missions.any((m) => m.levelUp != null);
-    if (!barSaysLevelUp && before != null && level.level > before.level) {
-      // Words only: a level's mark is its art, which a toast has no place
-      // for (29 Sep 2026).
-      final name = t.levelName(level.level, level.title);
-      notice = taxNow != null
-          ? t.levelUp(name, formatTaxRate(taxNow))
-          : t.levelUpOnly(name);
+    // A level up is congratulated in a popup (owner, 2 Oct 2026), which says
+    // how much less winning tax the player pays now. It replaces the toast
+    // ("Level up! … your winning tax is now 19.71%"): compared against the
+    // standing last SEEN, as the missions are, so an account `/api/auth/me`
+    // refreshed before the push still gets its popup, and a standing heard
+    // again or heard late raises none. What was paid before is worked out
+    // from that standing's level and the badges held; what is paid now is the
+    // server's figure.
+    if (baseline != null && level.level > baseline.level) {
+      final now = user!;
+      levelUps.raise(
+        from: baseline,
+        to: level,
+        paidBefore: LevelUps.paidAt(baseline, now.badges, DateTime.now()),
+        paidNow: now.paysTaxBps ?? level.taxBps,
+        rateBadge: now.rateBadge,
+      );
     }
     notifyListeners();
   }
@@ -2952,6 +2968,7 @@ class GameState extends ChangeNotifier {
     friends.reset();
     reports.reset();
     xpMissions.clear();
+    levelUps.clear();
     _awardsAwaitingLadder.clear();
     _xpSeen = null;
     // The next account starts at the front, not where this one stood.
@@ -3514,6 +3531,7 @@ class GameState extends ChangeNotifier {
     friends.reset();
     reports.reset();
     xpMissions.clear();
+    levelUps.clear();
     _awardsAwaitingLadder.clear();
     _xpSeen = null;
     screen = Screen.login;
@@ -5388,6 +5406,7 @@ class GameState extends ChangeNotifier {
     friends.dispose();
     reports.dispose();
     xpMissions.dispose();
+    levelUps.dispose();
     _rentalWatch?.cancel();
     _statsCatchUp?.cancel();
     _clearSideshow();
