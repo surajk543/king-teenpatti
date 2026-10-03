@@ -133,8 +133,9 @@ type Deps struct {
 	// CardBackgroundChosen puts the card back a player has just chosen (nil:
 	// taken off — the default back) on their seat when they are at a table,
 	// so everybody there sees it on that player's cards at once (app:
-	// rooms.SetPlayerCardBackground; owner, 3 Oct 2026). A sweep that finds a
-	// chosen rental over calls it with nil. Nil = nobody to tell.
+	// rooms.SetPlayerCardBackground; owner, 3 Oct 2026) — a rented one with
+	// its ExpiresAt, at which the table takes it off by itself. A sweep that
+	// finds a chosen rental over calls it with nil. Nil = nobody to tell.
 	CardBackgroundChosen func(userID string, cb *game.CardBackground)
 	// AccountDeleted ends the sessions of a player who has just deleted their
 	// account (app: the socket layer disconnects every socket of that user,

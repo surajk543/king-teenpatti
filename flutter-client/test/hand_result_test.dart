@@ -192,7 +192,7 @@ Future<void> _deal(
 
 /// The viewer's tap on See cards (its move goes nowhere: there is no server).
 Future<void> _tapSee(WidgetTester tester, GameState state) async {
-  await tester.tap(find.text(state.t.seeCards.toUpperCase()));
+  await tester.tap(find.text(state.t.see.toUpperCase()));
   await tester.pump();
 }
 
@@ -2162,7 +2162,7 @@ void main() {
               lang: lang,
             );
             await _deal(tester, state);
-            expect(find.text(state.t.seeCards.toUpperCase()), findsOneWidget);
+            expect(find.text(state.t.see.toUpperCase()), findsOneWidget);
             await _tapSee(tester, state);
             await _see(tester, state, h);
             final view = Offset.zero & const Size(640, 360);

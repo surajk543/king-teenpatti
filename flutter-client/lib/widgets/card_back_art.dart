@@ -627,28 +627,61 @@ class _CardBackImageState extends State<CardBackImage> {
             : null,
       );
     } else {
-      picture = Image.asset(
-        PlayingCard.backAsset,
-        fit: BoxFit.cover,
-        width: w,
-        height: h,
-        color: tint,
-        colorBlendMode: tint == null ? null : BlendMode.color,
-        // Drawn at a fraction of its size on every card: smoothed, so its
-        // gold filigree does not shimmer as the card moves.
-        filterQuality: FilterQuality.medium,
-        gaplessPlayback: true,
-        excludeFromSemantics: true,
-      );
+      picture = _royalFoxPicture(h, tint: tint);
     }
-    return CustomPaint(
-      foregroundPainter: CardStockPainter(height: h, face: false),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(h * PlayingCard.cornerShare),
-        child: ColoredBox(color: PlayingCard.backGround, child: picture),
-      ),
-    );
+    return _onBackStock(h, picture);
   }
+}
+
+/// The bundled Royal Fox's picture for a card [height] tall, as wide as the
+/// card, recoloured by [tint] as any back is ([BlendMode.color]).
+Widget _royalFoxPicture(double height, {Color? tint}) => Image.asset(
+  PlayingCard.backAsset,
+  fit: BoxFit.cover,
+  width: height * PlayingCard.aspect,
+  height: height,
+  color: tint,
+  colorBlendMode: tint == null ? null : BlendMode.color,
+  // Drawn at a fraction of its size on every card: smoothed, so its gold
+  // filigree does not shimmer as the card moves.
+  filterQuality: FilterQuality.medium,
+  gaplessPlayback: true,
+  excludeFromSemantics: true,
+);
+
+/// [picture] printed on a back's stock, for a card [height] tall: the back's
+/// black ground under it, cut to the card's corner, and the stock's finish
+/// over it — the top edge's light and the gold cut edge
+/// ([CardStockPainter]).
+Widget _onBackStock(double height, Widget picture) => CustomPaint(
+  foregroundPainter: CardStockPainter(height: height, face: false),
+  child: ClipRRect(
+    borderRadius: BorderRadius.circular(height * PlayingCard.cornerShare),
+    child: ColoredBox(color: PlayingCard.backGround, child: picture),
+  ),
+);
+
+/// The Royal Fox — the bundled default back — as a glyph (owner, 3 Oct 2026:
+/// "show default card icon also in store"): a tiny upright card printed as
+/// every face-down card is, its corner cut and its gold edge round it,
+/// standing in a square [size] on a side — the box an [Icon] of [size]
+/// takes, so it stands where one would, as the store's Cards key and the
+/// Cards shelf's header show it. The card is [size] tall and
+/// [PlayingCard.aspect] as wide, centred.
+///
+/// Drawn as itself whatever is round it: never tinted, so a key that lights
+/// up and dims shows the same card on and off.
+class RoyalFoxGlyph extends StatelessWidget {
+  const RoyalFoxGlyph({super.key, required this.size});
+
+  /// The square's side, and the card's height.
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => SizedBox.square(
+    dimension: size,
+    child: Center(child: _onBackStock(size, _royalFoxPicture(size))),
+  );
 }
 
 /// [CardBackImage]'s picture, once decoded: the card stretched over the whole

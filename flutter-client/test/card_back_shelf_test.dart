@@ -412,8 +412,10 @@ void main() {
         find.descendant(of: key, matching: find.text(english.storeTabCards)),
         findsOneWidget,
       );
+      // Its glyph is the default back itself, the Royal Fox (owner, 3 Oct
+      // 2026: "show default card icon also in store").
       expect(
-        find.descendant(of: key, matching: find.byIcon(Icons.style_rounded)),
+        find.descendant(of: key, matching: find.byType(RoyalFoxGlyph)),
         findsOneWidget,
       );
       expect(find.byType(CardBackChoice), findsNothing);

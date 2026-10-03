@@ -91,6 +91,7 @@ func (t *Table) onFenced(err *FencedError) {
 	t.clearTurnTimer()
 	t.clearStartTimer()
 	t.clearUnfundedTimer()
+	t.clearCardBackgroundTimer()
 	if t.hand != nil && t.hand.sideshow != nil && t.hand.sideshow.timer != nil {
 		t.hand.sideshow.timer.Stop()
 		t.hand.sideshow.timer = nil
@@ -128,6 +129,9 @@ func (t *Table) suspend() {
 	t.clearTurnTimer()
 	t.clearStartTimer()
 	t.clearUnfundedTimer()
+	// The seats' card backs keep their ExpiresAt in the snapshot: the next
+	// process arms this clock again from them (resumeTimers).
+	t.clearCardBackgroundTimer()
 	if t.hand != nil && t.hand.sideshow != nil && t.hand.sideshow.timer != nil {
 		t.hand.sideshow.timer.Stop()
 		t.hand.sideshow.timer = nil
@@ -201,7 +205,10 @@ func (t *Table) Resume() error { return t.resume() }
 //   - seats marked kickPending (a kick whose removal was in flight) are
 //     kicked again so the RoomManager's hook can finish the job;
 //   - a seat in an unfunded grace (sweepUnfunded) has its timer re-armed for
-//     what is left, and is shown out at once if the grace lapsed meanwhile.
+//     what is left, and is shown out at once if the grace lapsed meanwhile;
+//   - a seat's rented card back whose term ended meanwhile comes back as the
+//     default back, and the card-back clock is armed for what is left of the
+//     earliest term still running (armCardBackgroundTimer).
 //
 // With a live store the restored table saves one snapshot straight away
 // (seq + 1), which is how a process that is still writing this table learns
@@ -273,8 +280,12 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 		}
 		// A card back no client could draw (a snapshot planted by hand, or
 		// written by a build with other rules) is dropped as a bad level is:
-		// the seat wears the default back and the table is restored.
-		s.cardBackground = ss.CardBackground.forSeat()
+		// the seat wears the default back and the table is restored. So is a
+		// rental whose term ended while the process was down — its moment
+		// has passed, and the default back is what that seat wears now;
+		// one still running comes back with its ExpiresAt, and resumeTimers
+		// arms the card-back clock for what is left of it.
+		s.cardBackground = t.seatCardBackground(ss.CardBackground)
 		if ss.AvatarURL != nil {
 			s.avatarURL = StrPtr(*ss.AvatarURL)
 		}
@@ -491,6 +502,11 @@ func (t *Table) resumeTimers() {
 	// A short-stacked seat's grace kept running while the process was down:
 	// re-arm it for what is left, or show the seat out now if it has lapsed.
 	t.armUnfundedTimer()
+	// So did every rented card back's term: the clock is armed for what is
+	// left of the earliest (a back that ran out meanwhile was dropped as the
+	// seats came back, and one that runs out between then and now goes at
+	// once).
+	t.armCardBackgroundTimer()
 }
 
 // armSideshowTimer arms the expiry of a pending request for d (requestSideshow

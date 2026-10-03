@@ -410,10 +410,15 @@ func (c *CardBackgrounds) Use(ctx context.Context, userID string, id *int64) (*U
 // lapses. What does need one is the choice row, and the copy on the
 // player's seat: the row is deleted here — a renewal then starts on the
 // default back until the player chooses again — and the caller tells the
-// seat when it had to (RoomManager.SetPlayerCardBackground with nil), which
-// no read of the account would ever do. Called where the other sweeps are: at
-// login, on /api/auth/me, and when this catalogue is listed. Free card backs
-// are never touched.
+// seat when it had to (RoomManager.SetPlayerCardBackground with nil). The
+// seat's copy carries the rental's ExpiresAt (the account's cardBackground
+// does), and its table takes it off at that moment by itself (owner, 3 Oct
+// 2026: "when validity of premium card expires, it restores default card"),
+// so the word to the seat is for a copy that says otherwise: one restored
+// from a snapshot written before card backs carried their expiry, or a
+// rental ended early by hand. Called where the other sweeps are: at login,
+// on /api/auth/me, and when this catalogue is listed. Free card backs are
+// never touched.
 func (c *CardBackgrounds) ExpireLapsed(ctx context.Context, userID string) (bool, error) {
 	tag, err := c.db.Pool.Exec(ctx, `
 		DELETE FROM user_cards_background_choice c

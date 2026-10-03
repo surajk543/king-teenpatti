@@ -22,9 +22,14 @@ import (
 // come off (Deps.CardBackgroundChosen with nil → RoomManager
 // .SetPlayerCardBackground → Table.SetCardBackground), so every viewer sees
 // the default back on that player's cards the moment the sweep finds the
-// rental over — tablePictureLapsed's twin. For a player in the lobby the hook
-// does nothing, and their next seat reads the account, which no longer
-// carries it (db.userFromAt).
+// rental over — tablePictureLapsed's twin. The table has normally done so
+// already, by itself, at the rental's ExpiresAt (the seat's copy carries it;
+// owner, 3 Oct 2026: "when validity of premium card expires, it restores
+// default card"); this is for a seat whose copy says otherwise — one restored
+// from a snapshot written before card backs carried their expiry, or a rental
+// ended early by hand. For a player in the lobby the hook does nothing, and
+// their next seat reads the account, which no longer carries it
+// (db.userFromAt).
 func (h *Handler) cardBackgroundLapsed(userID string) {
 	if h.deps.CardBackgroundChosen != nil {
 		h.deps.CardBackgroundChosen(userID, nil)

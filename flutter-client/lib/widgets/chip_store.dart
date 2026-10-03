@@ -16,6 +16,7 @@ import '../theme/depth.dart';
 import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
 import 'avatar.dart';
+import 'card_back_art.dart';
 import 'card_back_shelf.dart';
 import 'edge_fade.dart';
 import 'emoji_shelf.dart';
@@ -773,11 +774,17 @@ class _StoreTabs extends StatelessWidget {
           builder: (context, lit, _) => Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                shelf.icon,
-                size: iconSize,
-                color: Color.lerp(quiet, champagne, lit),
-              ),
+              if (shelf.icon case final icon?)
+                Icon(
+                  icon,
+                  size: iconSize,
+                  color: Color.lerp(quiet, champagne, lit),
+                )
+              else
+                // The Cards shelf's glyph is its default back itself, in
+                // the box the other glyphs stand in and in its own colours,
+                // on and off alike ([_shelves]).
+                const RoyalFoxGlyph(size: iconSize),
               const SizedBox(height: iconGap),
               Text(
                 shelf.label,
@@ -840,8 +847,12 @@ class _StoreTabs extends StatelessWidget {
     );
   }
 
-  /// The keys in header order, with what each one shows.
-  static List<({StoreTab tab, IconData icon, String label})> _shelves(
+  /// The keys in header order, with what each one shows: a glyph over a
+  /// word. A null glyph is the Cards key's, which shows the Royal Fox itself
+  /// — the default back, a tiny card ([RoyalFoxGlyph]; owner, 3 Oct 2026:
+  /// "show default card icon also in store") — where every other key has an
+  /// icon.
+  static List<({StoreTab tab, IconData? icon, String label})> _shelves(
     Strings t,
     bool animatedOnly,
   ) => [
@@ -871,8 +882,8 @@ class _StoreTabs extends StatelessWidget {
     ),
     // Offered in the lobby and at a table alike (owner, 3 Oct 2026): a back
     // priced in hammers may be bought mid-sitting, and goes straight onto
-    // the player's cards.
-    (tab: StoreTab.cards, icon: Icons.style_rounded, label: t.storeTabCards),
+    // the player's cards. Its glyph is the Royal Fox (null: no icon).
+    (tab: StoreTab.cards, icon: null, label: t.storeTabCards),
     // Offered in the lobby and at a table alike: an emoji priced in hammers
     // or diamonds may be bought mid-sitting, and sent at once.
     (
@@ -1269,10 +1280,12 @@ class _ChipStoreState extends State<_ChipStore> {
     final champagne = theme.brightness == Brightness.dark
         ? AppTheme.goldBright
         : AppTheme.goldDeep;
+    // A null glyph is drawn as itself: the Chips shelf's poker chip, and
+    // the Cards shelf's default back, the Royal Fox, as its key shows it.
     final (IconData? glyph, Color glyphInk) = switch (tab) {
       StoreTab.pictures => (Icons.face_rounded, champagne),
       StoreTab.tables => (Icons.table_bar_rounded, champagne),
-      StoreTab.cards => (Icons.style_rounded, champagne),
+      StoreTab.cards => (null, champagne),
       StoreTab.emojis => (Icons.emoji_emotions_rounded, champagne),
       StoreTab.badges => (Icons.workspace_premium_rounded, champagne),
       StoreTab.diamonds => (
@@ -1385,12 +1398,14 @@ class _ChipStoreState extends State<_ChipStore> {
                             transitionBuilder: _fadeScale,
                             child: KeyedSubtree(
                               key: ValueKey(tab),
-                              child: glyph == null
-                                  ? const PokerChip(
+                              child: glyph != null
+                                  ? Icon(glyph, size: 22, color: glyphInk)
+                                  : onCards
+                                  ? const RoyalFoxGlyph(size: 22)
+                                  : const PokerChip(
                                       colour: AppTheme.gold,
                                       size: 22,
-                                    )
-                                  : Icon(glyph, size: 22, color: glyphInk),
+                                    ),
                             ),
                           ),
                         ),

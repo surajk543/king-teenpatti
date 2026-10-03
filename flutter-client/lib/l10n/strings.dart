@@ -1662,7 +1662,16 @@ class Strings {
           .replaceAll('{chips}', chips)
           .replaceAll('{missiles}', '$missiles')
           .replaceAll('{hammers}', '$hammers');
+
+  /// What a screen reader hears for the key over the viewer's blind hand,
+  /// beside the blind moves left: the fuller words, which [see] shortens on
+  /// the key itself.
   String get seeCards => _('seeCards');
+
+  /// The word on that key (owner, 3 Oct 2026: "instead of showing See cards
+  /// text, only show text 'See'"), set in the key's capitals: "SEE". The
+  /// cards it turns are right under it, so the verb alone says it.
+  String get see => _('see');
   String get blindMovesLeft => _('blindMovesLeft');
   String get blindMovesLabel => _('blindMovesLabel');
   String get lastBlindMove => _('lastBlindMove');
@@ -2669,6 +2678,7 @@ class Strings {
       'premiumAddedOneMissile':
           'Premium Package added: {chips} chips, 1 missile and {hammers} hammers',
       'seeCards': 'See cards',
+      'see': 'See',
       'blindMovesLeft': 'blind moves left',
       'blindMovesLabel': 'Blind moves left',
       'lastBlindMove': 'last blind move',
@@ -3693,6 +3703,7 @@ class Strings {
       'premiumAddedOneMissile':
           'प्रीमियम पैकेज जुड़ गया: {chips} चिप्स, 1 मिसाइल और {hammers} हथौड़े',
       'seeCards': 'पत्ते देखें',
+      'see': 'देखें',
       'blindMovesLeft': 'ब्लाइंड चालें बाकी',
       'blindMovesLabel': 'ब्लाइंड चालें बाकी',
       'lastBlindMove': 'आख़िरी ब्लाइंड चाल',
@@ -4705,6 +4716,7 @@ class Strings {
       'premiumAddedOneMissile':
           'প্রিমিয়াম প্যাকেজ যোগ হয়েছে: {chips} চিপ, 1টি মিসাইল ও {hammers}টি হাতুড়ি',
       'seeCards': 'তাস দেখুন',
+      'see': 'দেখুন',
       'blindMovesLeft': 'ব্লাইন্ড চাল বাকি',
       'blindMovesLabel': 'ব্লাইন্ড চাল বাকি',
       'lastBlindMove': 'শেষ ব্লাইন্ড চাল',
@@ -5714,6 +5726,7 @@ class Strings {
       'premiumAddedOneMissile':
           'પ્રીમિયમ પૅકેજ ઉમેરાયું: {chips} ચિપ્સ, 1 મિસાઇલ અને {hammers} હથોડી',
       'seeCards': 'પત્તા જુઓ',
+      'see': 'જુઓ',
       'blindMovesLeft': 'બ્લાઇન્ડ ચાલ બાકી',
       'blindMovesLabel': 'બ્લાઇન્ડ ચાલ બાકી',
       'lastBlindMove': 'છેલ્લી બ્લાઇન્ડ ચાલ',
@@ -6731,6 +6744,7 @@ class Strings {
       'premiumAddedOneMissile':
           'ਪ੍ਰੀਮੀਅਮ ਪੈਕੇਜ ਜੁੜ ਗਿਆ: {chips} ਚਿੱਪਾਂ, 1 ਮਿਜ਼ਾਈਲ ਅਤੇ {hammers} ਹਥੌੜੇ',
       'seeCards': 'ਪੱਤੇ ਵੇਖੋ',
+      'see': 'ਵੇਖੋ',
       'blindMovesLeft': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਬਾਕੀ',
       'blindMovesLabel': 'ਬਲਾਈਂਡ ਚਾਲਾਂ ਬਾਕੀ',
       'lastBlindMove': 'ਆਖ਼ਰੀ ਬਲਾਈਂਡ ਚਾਲ',

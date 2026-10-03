@@ -428,12 +428,15 @@ class User {
   /// profile_pictures"), or null for the bundled Royal Fox
   /// (`PlayingCard.backAsset`), which is everybody's and nobody's row. The
   /// server joins it only while its rental runs, so a lapsed one reads as
-  /// none the moment it lapses. An older server sends none.
+  /// none the moment it lapses — and it says when that is
+  /// ([CardBackArt.expiresAt]), so the phone lets go of it then too. An older
+  /// server sends none.
   final CardBackArt? cardBackground;
 
   /// Which [CardBackground] is chosen, or null: what the store's Cards tab
-  /// ticks — "In use" on the Royal Fox tile when null.
-  int? get activeCardBackgroundId => cardBackground?.id;
+  /// ticks — "In use" on the Royal Fox tile when null, as it is from the
+  /// moment the chosen back's rental runs out ([liveCardBack]).
+  int? get activeCardBackgroundId => liveCardBack(cardBackground)?.id;
   final int handsPlayed;
   final int handsWon;
   final int handsLost;
@@ -3527,8 +3530,19 @@ class CardCrop {
 ///
 /// Null wherever one is expected means the bundled Royal Fox
 /// (`PlayingCard.backAsset`), the free default, which is not a row.
+///
+/// A rented back runs out ([expiresAt]; owner, 3 Oct 2026: "when validity
+/// of premium card expires, it restores default card"), and from that
+/// moment it is the Royal Fox again: everything that draws a worn back reads
+/// it through [liveCardBack], on the phone's own clock, without waiting for
+/// the server's next word.
 class CardBackArt {
-  const CardBackArt({this.id, required this.url, this.crop});
+  const CardBackArt({
+    this.id,
+    required this.url,
+    this.crop,
+    this.expiresAt = 0,
+  });
 
   /// The catalogue row it is, where known.
   final int? id;
@@ -3543,10 +3557,26 @@ class CardBackArt {
   /// card.
   final CardCrop? crop;
 
-  /// A card back off the wire (`{id, url, assetFormat, crop?}`), or null —
-  /// the Royal Fox — when [raw] is not one: absent, null, not an object,
-  /// naming no picture, or in a format other than IMAGE (a back is a raster;
-  /// a file this build cannot draw is no back rather than a broken card).
+  /// When the wearer's rental of this back runs out, epoch ms; 0 when it
+  /// never does — a back bought for ever, or one from a server that sends no
+  /// expiry. The server takes a back off every seat at this moment, and the
+  /// account stops carrying it; the phone does not wait for either
+  /// ([expiredAt]).
+  final int expiresAt;
+
+  /// Whether this back's rental has run out by [now]: at or after its
+  /// [expiresAt], to the millisecond — the server's own rule, which lets go
+  /// of a back at exactly the moment the account stops carrying it. Never
+  /// for a back with no expiry.
+  bool expiredAt(DateTime now) =>
+      expiresAt > 0 && now.millisecondsSinceEpoch >= expiresAt;
+
+  /// A card back off the wire (`{id, url, assetFormat, crop?, expiresAt?}`),
+  /// or null — the Royal Fox — when [raw] is not one: absent, null, not an
+  /// object, naming no picture, or in a format other than IMAGE (a back is a
+  /// raster; a file this build cannot draw is no back rather than a broken
+  /// card). An expiry that is not a whole moment after the epoch — absent,
+  /// not a number, 0 or less — is none.
   static CardBackArt? fromJson(Object? raw) {
     if (raw is! Map) return null;
     final url = raw['url'];
@@ -3557,10 +3587,14 @@ class CardBackArt {
         format.trim().toUpperCase() != 'IMAGE') {
       return null;
     }
+    final expiry = raw['expiresAt'];
     return CardBackArt(
       id: _intOrNull(raw['id']),
       url: url.trim(),
       crop: CardCrop.fromJson(raw['crop']),
+      expiresAt: expiry is num && expiry.isFinite && expiry > 0
+          ? expiry.toInt()
+          : 0,
     );
   }
 
@@ -3569,14 +3603,31 @@ class CardBackArt {
       other is CardBackArt &&
       other.id == id &&
       other.url == url &&
-      other.crop == crop;
+      other.crop == crop &&
+      other.expiresAt == expiresAt;
 
   @override
-  int get hashCode => Object.hash(id, url, crop);
+  int get hashCode => Object.hash(id, url, crop, expiresAt);
 
   @override
-  String toString() => 'CardBackArt($id, $url, $crop)';
+  String toString() => 'CardBackArt($id, $url, $crop, $expiresAt)';
 }
+
+/// The clock a card back's rental is read against ([liveCardBack],
+/// [CardBackground.lapsedAt], and the moment GameState wakes for the next one
+/// to run out): [DateTime.now]; a test sets its own (the fake clock its pumps
+/// advance).
+DateTime Function() cardBackClock = DateTime.now;
+
+/// [art] while its rental runs, or null — the bundled Royal Fox — once it has
+/// run out by [now] ([cardBackClock] when null): what a seat's cards and the
+/// viewer's own show, and what the store ticks, from the moment a back's
+/// [CardBackArt.expiresAt] passes (owner, 3 Oct 2026: "when validity of
+/// premium card expires, it restores default card") — before the server's
+/// next room:state says so, and whatever a late one still carries. One
+/// comparison: cheap enough for every build.
+CardBackArt? liveCardBack(CardBackArt? art, [DateTime? now]) =>
+    art != null && art.expiredAt(now ?? cardBackClock()) ? null : art;
 
 /// One row of the card-back catalogue (`GET /api/card-backgrounds`, owner
 /// 3 Oct 2026): a back a player can buy and wear on their cards, which every
@@ -3637,15 +3688,32 @@ class CardBackground {
   final int sortOrder;
 
   /// Whether this player may wear it: every free row, and the premium ones
-  /// they have bought whose rental is running. Decided by the server.
+  /// they have bought whose rental is running. Decided by the server — until
+  /// the rental's own moment comes ([lapsedAt]).
   final bool owned;
 
   /// Epoch ms this player's rental runs out; 0 when they do not own it, or
   /// own it for ever.
   final int expiresAt;
 
+  /// Whether this player's rental of it has run out by [now] — owned, as the
+  /// server last said, but at or past its [expiresAt]: the tile goes back to
+  /// its padlock and price at that moment (owner, 3 Oct 2026: "when validity
+  /// of premium card expires, it restores default card"), before the
+  /// catalogue is read again. A free back never does: the catalogue may still
+  /// report the term of an ownership row left from a time it was sold, but a
+  /// free back is everybody's, and the account carries it with no term.
+  bool lapsedAt(DateTime now) =>
+      owned &&
+      !free &&
+      expiresAt > 0 &&
+      now.millisecondsSinceEpoch >= expiresAt;
+
   bool get free => type == 'FREE';
-  bool get locked => !owned;
+
+  /// Not this player's to wear now: never bought, or a rental that has run
+  /// out by [cardBackClock].
+  bool get locked => !owned || lapsedAt(cardBackClock());
   bool get rented => durationDays > 0 || durationHours > 0;
   bool get pricedInDiamonds => currency == PictureCurrency.diamond;
   bool get pricedInHammers => currency == PictureCurrency.hammer;

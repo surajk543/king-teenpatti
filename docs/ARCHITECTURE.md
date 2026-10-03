@@ -193,8 +193,9 @@ What `app.New` does, in order (the order matters; each step uses the one before 
 3. **The table catalogue.** Engines, categories and every lobby table with its figures: from PostgreSQL
    when `TABLE_CONFIG_SOURCE=db`, otherwise composed from the environment keys. It is laid over the
    config once, before anything is built from it. The app version gate's rows are loaded here too.
-4. **Stores, tokens, providers.** `db.NewUsers`, the ledger, pictures, emojis, hammers, missiles, the
-   Lucky Draw, reward programs, friends; JWT tokens; the Google and Apple verifiers.
+4. **Stores, tokens, providers.** `db.NewUsers`, the ledger, pictures, table pictures, card backs,
+   emojis, hammers, missiles, the Lucky Draw, reward programs, friends; JWT tokens; the Google and Apple
+   verifiers.
 5. **The realtime pair.** `socket.New` (the handler) and `game.NewRoomManager` depend on each other: the
    manager emits events the handler broadcasts, the handler calls the manager for every join. They are
    wired together here, with the XP tracker and the statistics recorder.
@@ -371,7 +372,11 @@ first keys (`game`, `roomId`, `createdAt`) and dispatches on `game`.
 
 - **Seats** (up to 5): the player's id and name, `chips`, `status` (active, packed, won, lost, sitting
   out), `isBlind`, `blindMoves`, `cards`, `contributed`, `connected`, `missedTurns`, the tax rate and the
-  level captured when they sat down.
+  level captured when they sat down, and the card back the player has chosen (`CardBackground`, in
+  `cardbackground.go`). A rented card back carries the moment it runs out. The table keeps one timer, for
+  the earliest of those moments among its seats, armed again whenever a seat's back changes (a choice, a
+  sit-down, a move) and at a restore. When it fires, every back that has run out is taken off its seat
+  and the table emits state, so everyone sees the default back on those cards again.
 - **A hand** (nil between hands): `id`, `handNo`, `pot`, `stake`, `round`, `turnSeat`, the turn's
   deadline and token, the pending sideshow, the variation window, and a **contribution record per
   player** — what they put in, the chips they hold, and `chipsWritten`, the chips PostgreSQL last knew.
@@ -533,6 +538,12 @@ After every change the table emits `state`, and the socket layer sends each view
 - On blind and variation tables, and in poker rooms, other players' `chips` are `null` (never 0) and
   `chipsHidden` is true.
 - `you.options`, `you.missedTurns` and `you.taxBps` exist only in the viewer's own `you`.
+- Each seat's picture (`avatarUrl`) and card back are public, in every viewer's copy. The card back,
+  `cardBackground {id, url, assetFormat, crop?, expiresAt?}`, is the one that player chose, and the app
+  draws it on that seat's face-down cards (`crop` is where the card sits in the picture). A seat without
+  one carries no key, and its cards wear the app's bundled default back, as every card in a poker room
+  does. `expiresAt` is when a rented back runs out: the app draws the default from that moment, and the
+  table takes the back off the seat ([§4.2](#42-table-seats-and-a-hand)).
 - A sideshow's cards go to its two players; everyone's cards are public only in a showdown's reveals.
 - The full server-side state (`snapshot.go`: every card, every deadline) goes to Redis only, never to a
   client and never to PostgreSQL.
@@ -742,12 +753,12 @@ names, sends `room:joined`, and broadcasts state to both tables.
 ### 5.7 Seat locks and lobby-only wallet changes
 
 A seated player's chips may change only at the three checkpoints. To make that true, every lobby-only
-wallet change — a chip-priced picture, the Lucky Draw, the six-hour bonus, a reward-program claim,
-account deletion — runs inside `RoomManager.WhileUnseated(userID, fn)`: it takes the player's stripe,
-answers false (the caller returns `409 seated`) if they are seated or their last hand is still being
-settled, and otherwise runs the work while holding the stripe. Every join reads the wallet under the same
-stripe, so the two can never interleave. A chip pack bought at a table is the exception by design:
-`CreditBoughtChips` credits the database and tops up the seat together.
+wallet change — a chip-priced picture, emoji or card back, the Lucky Draw, the six-hour bonus, a
+reward-program claim, account deletion — runs inside `RoomManager.WhileUnseated(userID, fn)`: it takes
+the player's stripe, answers false (the caller returns `409 seated`) if they are seated or their last
+hand is still being settled, and otherwise runs the work while holding the stripe. Every join reads the
+wallet under the same stripe, so the two can never interleave. A chip pack bought at a table is the
+exception by design: `CreditBoughtChips` credits the database and tops up the seat together.
 
 ---
 
@@ -891,13 +902,13 @@ select count(*) from users u
 
 ### 7.1 PostgreSQL
 
-Forty-four tables, none of them game state.
+Forty-seven tables, none of them game state.
 
 | Group | Tables |
 |---|---|
 | Accounts | `users`, `user_sessions`, `user_milestones` |
 | Money | `chip_ledger`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases`, `missile_spends`, `badge_purchases` |
-| Catalogues and ownership | `profile_pictures`, `user_profile_pictures`, `table_pictures`, `user_table_pictures`, `user_table_choice`, `emojis`, `user_emojis` |
+| Catalogues and ownership | `profile_pictures`, `user_profile_pictures`, `table_pictures`, `user_table_pictures`, `user_table_choice`, `cards_background`, `user_cards_background`, `user_cards_background_choice`, `emojis`, `user_emojis` |
 | Table configuration | `table_engines`, `table_categories`, `table_settings`, `table_configs` |
 | Statistics | `player_stats`, `player_variation_stats`, `stats_flushes` |
 | Progression | `player_levels`, `badges`, `user_badges`, `xp_sources`, `xp_settings`, `player_xp`, `player_xp_claims`, `player_xp_missions` |
@@ -1127,8 +1138,8 @@ sequenceDiagram
 |---|---|
 | Sign-in | `POST /api/auth/login` (google, apple, guest), `GET /api/auth/me`, `DELETE /api/account` |
 | Lobby | `GET /api/tables` (the catalogue this process enforces, with an ETag), `GET /api/app-config` |
-| Profile | `POST /api/profile/name`, `/api/profile/avatar`, `/api/profile/picture/buy`; `GET /api/profiles`, `/api/table-pictures`, `/api/emojis`, `/api/levels`; `POST /api/assets/sign` |
-| Store | `POST /api/purchases/google`, `/api/purchases/apple`, `/api/store/missiles`, `/api/table-pictures/buy`, `/api/emojis/buy` |
+| Profile | `POST /api/profile/name`, `/api/profile/avatar`, `/api/profile/picture/buy`; `GET /api/profiles`, `/api/table-pictures`, `/api/card-backgrounds`, `/api/emojis`, `/api/levels`; `POST /api/table-pictures/use`, `/api/card-backgrounds/use`; `POST /api/assets/sign` |
+| Store | `POST /api/purchases/google`, `/api/purchases/apple`, `/api/store/missiles`, `/api/table-pictures/buy`, `/api/card-backgrounds/buy`, `/api/emojis/buy` |
 | Rewards | `GET /api/lucky-draw`, `POST /api/lucky-draw/spin`, `GET /api/reward-programs`, `POST /api/reward-programs/claim`, `POST /api/rewards/bonus` |
 | Social | `/api/friends`, `/api/friends/requests`, `/api/players/{id}`, `/api/players/{id}/profile`, `/api/reports` |
 | Operations | `GET /health`, `GET /metrics` |

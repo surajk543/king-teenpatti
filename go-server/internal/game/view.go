@@ -305,7 +305,9 @@ type SeatView struct {
 	// 2026; CardBackground), drawn on their face-down cards for everybody at
 	// the table — public, like AvatarURL. ABSENT, not null, when they have
 	// chosen none (their cards wear the default back), so every snapshot
-	// without one is byte for byte what it was. Teen Patti tables only.
+	// without one is byte for byte what it was. Teen Patti tables only. A
+	// rented one carries its expiresAt (present only when it runs out) and
+	// leaves every viewer's snapshot the moment it does.
 	CardBackground *CardBackground `json:"cardBackground,omitempty"`
 }
 

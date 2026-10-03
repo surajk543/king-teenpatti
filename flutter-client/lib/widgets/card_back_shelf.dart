@@ -17,6 +17,13 @@
 /// One card back is bought at a time ([GameState.buyCardBackground]): while
 /// one is with the server its card wears the game's ring and no tile takes a
 /// tap until the answer comes back, as on the Emojis shelf.
+///
+/// A rental that runs out while the shelf is open (owner, 3 Oct 2026: "when
+/// validity of premium card expires, it restores default card") turns back
+/// to its padlock and price at that very moment, and the Royal Fox to "In
+/// use" if it was the back on the player's cards: both are read on the
+/// card-back clock ([CardBackground.locked], [User.activeCardBackgroundId]),
+/// and GameState wakes the store then and reads the catalogue again.
 library;
 
 import 'dart:async';
@@ -110,6 +117,8 @@ Widget cardBackShelf({
   ValueChanged<StoreTab>? openStore,
 }) {
   final cards = cardShelfOrder(state.cardBackgrounds);
+  // The chosen back while it runs: none — the Royal Fox in use — from the
+  // moment its rental runs out.
   final chosen = state.user?.activeCardBackgroundId;
   // One card back is bought at a time (GameState.buyCardBackground refuses a
   // second), so while one is with the server no tile takes a tap: not a
@@ -537,7 +546,7 @@ class CardBackChoice extends StatelessWidget {
         ? t.cardBackDefaultHint
         : locked
         ? (c.rented ? t.rentalTerm(c.durationDays, c.durationHours) : null)
-        : rentalTagLeft(t, c.expiresAt, DateTime.now());
+        : rentalTagLeft(t, c.expiresAt, cardBackClock());
     final live = !busy && onTap != null;
 
     return PressScale(

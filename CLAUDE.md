@@ -88,11 +88,14 @@ king-teenpatti/
 │   │   │   ├── table_variation.go  the variation WINDOW: who chooses, the server's clock, closeVariation (exactly once), SelectVariation, snapshot/restore
 │   │   │   ├── deck.go           52 cards, crypto/rand shuffle, 2-char wire codes ("As","Td")
 │   │   │   ├── chat.go           in-memory per-room chat buffer (actor-owned)
+│   │   │   ├── cardbackground.go  the card back a seat wears (3 Oct 2026, §6.1): CardBackground {ID, URL, Format, Crop, ExpiresAt}/CardCrop, forSeat +
+│   │   │   │                     seatCardBackground (the ONE rule: drawable and not run out), Table.SetCardBackground, the table's card-back clock
+│   │   │   │                     (armCardBackgroundTimer → expireCardBackgrounds: a lapsed rental back to the default the moment it lapses)
 │   │   │   ├── constants.go      Category / TableState / SeatState / Action / WinReason + verbatim messages
 │   │   │   ├── errors.go         GameError, every snake_case code and refusal message
 │   │   │   ├── ledger.go         Ledger interface (Checkpoint/Settle — the three checkpoints, §5.1) + MemoryLedger for unit tests
 │   │   │   ├── clock.go          Clock interface, RealClock, Millis;  testclock/ = deterministic clock (Advance)
-│   │   │   └── *_test.go         table, tablerules, sideshow, settlement, roommanager, handrank, deck, chat, wire, tablecatalogue, review_*, interop (needs NODE_REFERENCE_DIR)
+│   │   │   └── *_test.go         table, tablerules, sideshow, settlement, roommanager, handrank, deck, chat, wire, tablecatalogue, cardbackground(_rooms, _expiry, _expiry_rooms), review_*, interop (needs NODE_REFERENCE_DIR)
 │   │   ├── poker/                THE POKER FAMILY (§6.5; Go only, owner 19 Sep 2026): variant.go (the four VariantConfigs, streets, actions, win reasons),
 │   │   │                         eval5.go (Evaluate5 / BestOf / BestHoldem / BestOmaha — the five-card ranking), eval3.go (3-Card Poker's, over game.Evaluate),
 │   │   │                         pot.go (SidePots, Award), table.go (the room: seats, join/leave, clocks, the three checkpoints), hand.go (the deal, the streets,
@@ -102,9 +105,9 @@ king-teenpatti/
 │   │   ├── socket/               the game protocol on sio: handler.go (Attach, guard, one method per event, grace, resume offers), wire.go (every event/ack), payload.go,
 │   │   │                         poker.go (poker:action in, the poker:* events out — the Handler's poker.Listener); testclient/
 │   │   ├── appversion/           the app version gate (28 Sep 2026, §7.2): semver.go (Parse/Compare — the ONE version comparison), rules.go (Evaluate: NORMAL/SOFT_UPDATE/FORCE_UPDATE/MAINTENANCE, the platforms, LegacyMinClientBuild), source.go (the app_versions rows behind a TTL cache), gate.go (Gate.Admit/Check, the refusal and the GET /api/app-config body, the logs)
-│   │   ├── assets/               the catalogue's art in a private Cloudflare R2 bucket (1 Oct 2026, §7.2 POST /api/assets/sign): sigv4.go (AWS SigV4 query presigning, stdlib only), signer.go (Signer: a location's GET link valid ten minutes, Location/Key, the bucket's and keys' shapes checked)
-│   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Apple/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go, reports.go (Report Player's POST /api/reports and GET /api/reports/limit, §7.2), rewardprograms.go (GET /api/reward-programs and POST /api/reward-programs/claim, §7.2), assets.go (POST /api/assets/sign, §7.2)
-│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — the founding PAIR since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows); since 28 Sep 2026 DML-only seeds may follow them, V1.0.2__seed-festive-capybara.sql the first (Festive Capybara) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL), luckydraw.go (the Lucky Draw: State, Spin — draw, grant and record in one transaction, §7.3), reports.go (player_reports: Submit — the limits and the insert in one transaction, §7.3), rewardprograms.go (the reward programs, §7.3: State and Claim — the period, the streak and the calendar day worked out in Go from the claims, one transaction a program; a claim may name one program) and rewardprogress.go (progressAt — the ONE statement of the progression rules, RESET / SEQUENTIAL / BREAK × LOGIN_STREAK / CALENDAR, pure; the progress row's upsert lives in rewardprograms.go) and grant.go (grantReward — the ONE grant of a reward of any kind, the Lucky Draw's and the programs'), assets.go (Assets.Stored — which R2 locations some catalogue row names, what the sign route signs, §7.2); dbtest/
+│   │   ├── assets/               the catalogue's art in a private Cloudflare R2 bucket (1 Oct 2026, §7.2 POST /api/assets/sign): sigv4.go (AWS SigV4 query presigning, stdlib only), signer.go (Signer: a location's GET link valid ten minutes, Location/Key, the bucket's and keys' shapes checked — since 3 Oct 2026 a file name may hold capitals and spaces written %20, the owner's card backs)
+│   │   ├── auth/                 tokens.go (JWT HS256), providers.go (Google/Apple/guest/fake; Facebook commented out — switched off 23 Sep 2026, §7.2), http.go (routes, RequireAuth, WriteError), handlers.go (the 8 REST handlers), text.go, reports.go (Report Player's POST /api/reports and GET /api/reports/limit, §7.2), rewardprograms.go (GET /api/reward-programs and POST /api/reward-programs/claim, §7.2), assets.go (POST /api/assets/sign, §7.2), cardbackgrounds.go (GET /api/card-backgrounds, POST …/use and …/buy, §7.2)
+│   │   ├── db/                   db.go (pgxpool, search_path as connection param, WithTx, DropSchema, Migrations, Options.SkipMigrations), migration/ (embedded, Flyway-named V<version>__<name>.sql, applied in version order — the founding PAIR since 23 Sep 2026: V1.0.0__baseline.sql = all DDL (users.is_bot, chip_ledger.game/variant with the guarded blocks that add them to an older database, the four table-configuration tables) and V1.0.1__seed.sql = DML (the 45 pictures, the engines and categories, table_settings, the table_configs rows); since 28 Sep 2026 DML-only seeds may follow them, V1.0.2__seed-festive-capybara.sql the first (Festive Capybara) — §7.3), ledger.go (THE money transactions: Checkpoint / Settle), users.go (login upsert, rewards, names, the worn picture), pictures.go (the catalogue, ownership and the chip purchase), tableconfigs.go (TableConfigs.Load — the table catalogue as the database holds it — and ExportTableConfigSQL), luckydraw.go (the Lucky Draw: State, Spin — draw, grant and record in one transaction, §7.3), reports.go (player_reports: Submit — the limits and the insert in one transaction, §7.3), rewardprograms.go (the reward programs, §7.3: State and Claim — the period, the streak and the calendar day worked out in Go from the claims, one transaction a program; a claim may name one program) and rewardprogress.go (progressAt — the ONE statement of the progression rules, RESET / SEQUENTIAL / BREAK × LOGIN_STREAK / CALENDAR, pure; the progress row's upsert lives in rewardprograms.go) and grant.go (grantReward — the ONE grant of a reward of any kind, the Lucky Draw's and the programs'), assets.go (Assets.Stored — which R2 locations some catalogue row names, what the sign route signs, §7.2), cardbackgrounds.go (the card backs, §7.3: CardBackgrounds — List, Find, Buy, BuyAtTable, Use, ExpireLapsed — TablePictures one for one); dbtest/
 │   │   ├── metrics/              names.go (every game_* metric), metrics.go (registry, Bind*, Handler, HTTPMiddleware, SafeLabel)
 │   │   ├── app/                  app.go (mux, REST, socket endpoint, Start/Shutdown), health.go, static.go (PUBLIC_DIR + embedded assets/socket.io.min.js),
 │   │   │                         tableconfig.go (resolveTableCatalogue — the catalogue settled once, before anything is built from it; GET /api/tables; /health.tableConfig)
@@ -166,7 +169,7 @@ king-teenpatti/
     │   │     `tableScaffold`/`lobbyScaffold` GlobalKeys: main.dart `_BackGuard` closes an open drawer/endDrawer first; only then asks leave (table) / quit (lobby).
     │   │     `_armSeatCheck()`: on a warm `session:ready` while `room != null`, if no snapshot follows within 1.8s the seat is gone (server restarted / room closed) → lobby + t.tableLost. Cold start uses the `resuming` veil instead.
     │   ├── theme/app_theme.dart `AppTheme.paletteFor(scheme, category, bootAmount)` → TablePalette: one accent a game mode at every stake (24 Sep 2026) — seen=gold, blind=sapphire(tertiary), variation=violet (`violetPalette`), poker=teal; `privatePalette` = emerald (scheme.primary); `TablePalette.ink` = the accent as type on a card; used by lobby card, felt, _CategoryTag ("BLIND · 5,000")
-    │   ├── screens/table_screen.dart `_OwnBetRow` (the SEE CARDS pill — widgets/see_cards_button.dart `SeeCardsButton`, with `BlindDots`, the blind bets left as dots under its words — above the viewer's own cards, and their bet badge beside it; §8.4 "The VIP table"; the missed-turns box over the Pack key was removed 13 Sep 2026, owner), `_BetFlights` (chip from seat to pot on every contributed increase), `_AmbientGlow`
+    │   ├── screens/table_screen.dart `_OwnBetRow` (the SEE pill — widgets/see_cards_button.dart `SeeCardsButton`, "SEE CARDS" until the owner's follow-up of 3 Oct 2026, with `BlindDots`, the blind bets left as dots under its word — above the viewer's own cards, and their bet badge beside it; §8.4 "The VIP table"; the missed-turns box over the Pack key was removed 13 Sep 2026, owner), `_BetFlights` (chip from seat to pot on every contributed increase), `_AmbientGlow`; `_OwnHand` draws the viewer's cards in their seat's back (`GameState.ownCardBack`, §8.4 "The card backs")
     │   ├── screens/lobby_screen.dart `_DriftingChips` ambient background
     │   └── widgets/seat_pod.dart `BubbleSide {above,left,right}`: chat bubble hung off the column END in a zero-height OverflowBox — rim seats grow it up over their own cards/badge (max 1.7×podW, pointer tail up at the pod), the viewer's grows up from the column top (2.1×podW, tail down). Pods paint AFTER tag/pot/status in the felt Stack so a bubble is never hidden.
     │   │     GameState: bubbles hold `bubbleFor` = 8s; a second line from the same player queues in `_bubbleQueue` and shows when the first expires; `_clearBubbles()` on leave/kick.
@@ -191,7 +194,11 @@ king-teenpatti/
     │   │                         variation_prompt (the variation table's on-felt picker, "is selecting" line, announcement, wild-card edge — §8.4),
     │   │                         wild_transform (a wild card of the viewer's own hand turning into the card it played as — §8.4),
     │   │                         weekly_login (the reward popups, one a program: the owner's calendar for the weekly login streak, any other program's own days, the reward panel — §8.4),
-    │   │                         level_up_popup (the popup that congratulates a new level and says how much less winning tax is paid, with the owner's Congrats! Lottie — §8.4)
+    │   │                         level_up_popup (the popup that congratulates a new level and says how much less winning tax is paid, with the owner's Congrats! Lottie — §8.4),
+    │   │                         card_back_art (3 Oct 2026, §8.4 "The card backs": CardBackImage — a card back drawn from its picture's crop, the Royal Fox
+    │   │                         meanwhile — CardBackImages, the one decode a picture, paintCardBack for the deal's painter, and RoyalFoxGlyph,
+    │   │                         the Cards key's tiny default card), card_back_shelf (the store's Cards shelf), see_cards_button (the SEE pill
+    │   │                         over the viewer's cards, §8.4 "The VIP table")
     │   ├── theme/app_theme.dart  FlexColorScheme + shadow/lift helpers, Space/Radii/Motion/Breaks/Dim, Inter
     │   ├── theme/theme_colors.dart  GlassColors ThemeExtension (obsidian / frosted-ice tokens, §8.4); CasinoTableColors (the casino table's, §8.4)
     │   ├── theme/depth.dart      the depth ladder (28 Sep 2026, §8.4): Elevation, Depth/DepthScheme (every shadow and edge light), SurfaceLight, OuterShadow
@@ -199,7 +206,7 @@ king-teenpatti/
     │   ├── widgets/level_accent.dart  LevelAccent/LevelColours (30 Sep 2026, §8.4 "The Settings drawer"): the open lobby level's colour in the two lobby drawers
     │   ├── state/theme_preference.dart  themeMode read/write (+ legacy darkMode); state/consent.dart  the no-winnings flag
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
-    ├── assets/card_back.jpg (the owner's Royal Fox, §8.4 "The playing cards"), assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/ (synthesised clips),
+    ├── assets/card_back.jpg (the owner's Royal Fox — the DEFAULT back, worn by every player who has chosen none from the store's Cards shelf; §8.4 "The playing cards", "The card backs"), assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/ (synthesised clips),
     │                         assets/sound/ (the owner's recordings, §8.4 "Sounds": see card sound.mp3 — the look at a hand;
     │                         Card Distribute.mp3 — each card of the deal; hammer hit.mp3 — a Force Sideshow's hammer;
     │                         Missile hit.mp3 — a missile volley; Card click.mp3 — a tap on any lobby key or card, and Back in the lobby;
@@ -211,7 +218,9 @@ king-teenpatti/
     │                         assets/animations/Congrats!.json (Lottie 5.9.3, 1000x1000, 2.9s — the level-up popup's, §8.4)
     ├── test/  number_format, connection_failure, consent, theme_preference, … poker_table (§8.4), table_config_{dtos,cache,menu}, table_engines (§8.1),
     │          reward_programs, weekly_login, reward_progression and reward_offers on reward_fixtures.dart (§8.4),
-    │          casino_table, seat_ring, premium_cards (§8.4); by hand, not `_test`: table_shots and card_shots (pictures)
+    │          casino_table, seat_ring, premium_cards (§8.4), card_backgrounds, card_back_expiry, card_back_art, card_back_table,
+    │          card_back_shelf and store_cards_glyph on card_background_fixtures.dart (§8.4 "The card backs"), see_key (§8.4 "The VIP table");
+    │          by hand, not `_test`: table_shots, store_shots and card_shots (pictures)
     ├── android/                  applicationId com.sungamestudio.kingteenpatti, sensorLandscape, cleartext in DEBUG builds only (src/debug manifest),
     │                             no Android backup (allowBackup=false + res/xml/data_extraction_rules.xml), USE_BIOMETRIC/USE_FINGERPRINT removed
     └── ios/                      bundle id com.sungamestudio.kingteenpatti, landscape-only, status bar hidden,
@@ -434,15 +443,20 @@ and the transactions that DO run have this shape:
   returns **409 `seated`** before any DB work, matching the rule display name already had, and
   `POST /api/profile/picture/buy` refuses a **COIN** picture to a seated player with the same 409 —
   decided inside the purchase transaction (`db.Pictures.BuyAtTable` → `ErrPictureAtTable`), from the
-  row being charged. That closes the concurrent-credit hole at its source; the delta above is the
+  row being charged — as `POST /api/card-backgrounds/buy` refuses a COIN card back since 3 Oct 2026
+  (`db.CardBackgrounds.BuyAtTable`, the same error; no seeded back is priced in chips, §7.3). That closes the concurrent-credit hole at its source; the delta above is the
   belt to that pair of braces. Its real value is that it makes an invariant true: *a seated player's
   chips cannot change except at these three moments.* **Diamonds are outside it** (owner, 13 Sep
   2026): nothing at a table reads or writes `users.diamond`, so a DIAMOND picture may be bought at
   the table, and any picture may be worn there (`POST /api/profile/avatar` → `Deps.PictureWorn` →
-  `RoomManager.SetPlayerAvatar` → `Table.SetAvatar`, which updates the seat and emits state).
+  `RoomManager.SetPlayerAvatar` → `Table.SetAvatar`, which updates the seat and emits state). **So are hammers** (a HAMMER
+  picture since 14 Sep 2026), and so is a **card back** (owner, 3 Oct 2026): every seeded back costs hammers, which no seat
+  holds, so it is bought at a table as in the lobby, with no ledger row — a hammer back sits outside the three checkpoints
+  exactly as a hammer picture does — and any back the player owns is put on there (`POST /api/card-backgrounds/use` →
+  `Deps.CardBackgroundChosen` → `RoomManager.SetPlayerCardBackground` → `Table.SetCardBackground`, seat and state, §6.1).
   **The lobby side is serialised with taking a seat** (13 Sep 2026, after a race that could create chips): every lobby door
   (quickJoin, joinCode, create, the resume auto-join) reads the wallet (`RoomManagerOptions.LoadPlayer`) under the player's
-  seat-lock stripe, and every lobby-only wallet change — a COIN picture, the Lucky Draw spin (the rewards too, until they went on 30 Sep 2026), and since 24 Sep 2026 `DELETE /api/account`
+  seat-lock stripe, and every lobby-only wallet change — a COIN picture (and since 3 Oct 2026 a COIN card back), the Lucky Draw spin (the rewards too, until they went on 30 Sep 2026), and since 24 Sep 2026 `DELETE /api/account`
   (§7.2) — runs inside `RoomManager.WhileUnseated` under the same stripe, as does a Play chip pack (`CreditBoughtChips`: the database credit and the seat top-up together), each
   on a context of its own rather than the request's. A purchase can therefore never land between a join's wallet read and its
   seat. While a table's refused hand-end settle is still retrying (`TableOptions.SettlementOwed` → the manager's `owed` count)
@@ -608,13 +622,57 @@ showRequestedBy, sideshow, lastDeparture, turnDeadline, turnToken, contributions
   runs the instant a hand ends (`endHand → maybeStart`), so without it a player buying chips could
   never beat the kick; `Table.CreditChips` drops the grace once the boot is covered and calls
   `maybeStart`. A seat sitting a hand out is shown out mid-hand when its grace lapses.
+- **Card backs** (owner, 3 Oct 2026: "Add a table cards_background which users can buy just like user can buy
+  profile_pictures … add one more tab Cards in Store which user can buy"; decided with the owner: everyone at the table sees
+  each player's back on that player's face-down cards; Go only, `cardbackground.go` — the catalogue §7.2/§7.3, the app §8.4
+  "The card backs"). A seat carries the back its player has chosen, `seat.cardBackground`: a
+  `game.CardBackground {ID, URL, Format, Crop *CardCrop, ExpiresAt}` — `URL` the catalogue row's R2 location, `Crop` the card's rectangle inside its picture
+  as fractions of it (nil: the whole picture is the card), `ExpiresAt` the rental's end in epoch ms (0: never) — taken at every
+  sit-down from `NewPlayer.CardBackground` (← `game.Player.CardBackground` ← `db.User.Player()`, the account's choice, which
+  the account read joins only while its rental runs) and changed by `Table.SetCardBackground` (posted with `run`;
+  `seatUpdated` and state, so every viewer sees it at once — mid-hand too, nothing about the hand changes; nil takes it off).
+  None is the default back, the app's bundled Royal Fox. **One rule wherever a back reaches a seat** (a sit-down, a move, a
+  change, a restore): `forSeat` keeps a copy only of a back a client can draw — an https URL with a host, `Format` exactly
+  `IMAGE` (`game.CardBackgroundFormat`), a crop nil or finite with 0 ≤ x, 0 ≤ y, 0 < w, 0 < h, x+w ≤ 1, y+h ≤ 1 (the
+  catalogue's own CHECKs), no negative expiry — and `Table.seatCardBackground` adds that it has not run out; anything else is
+  the default back, never a refusal (so a NaN never stops a snapshot marshalling, and a restored snapshot's bad or lapsed back
+  is dropped, never a refused table). Kept in the snapshot (`SnapshotSeat.cardBackground`), carried by a switch (re-seated
+  from the account's `Player`) and a consolidation move (`SeatInfo.CardBackground`); as with the worn picture and the laid
+  table picture, a `use` that lands in the middle of a switch can leave the new seat on the previous back until the next
+  change. **A rental runs out at the table** (owner, 3 Oct 2026: "when validity of premium card expires, it restores default
+  card"): the table keeps ONE card-back clock (`armCardBackgroundTimer` — the unfunded grace's pattern, `cardBackgroundTimerGen`
+  dropping a late callback) for the earliest `ExpiresAt` among its seats; when it fires, `expireCardBackgrounds` takes off every
+  back whose moment has come (`seatUpdated` for each, one state: every viewer sees the Royal Fox on those cards at once, and the
+  snapshot is saved without them), judging each seat by the back it wears NOW — one renewed (a later `ExpiresAt`) or replaced
+  meanwhile stays — and re-arms. Re-armed whenever the seats' backs change (a sit-down or a move's arrival, a departure,
+  `SetCardBackground`), on a restore (`resumeTimers`: what is left of the earliest term; a term that ended while the process
+  was down is the default back from the start) and after each firing; stopped by destroy, suspend and a fence
+  (`clearCardBackgroundTimer`). The expiry is the account's own rule to the millisecond (`expiredAt`: at or past
+  `ExpiresAt`; the account joins a rental while `expires_at > now`), so a seat lets go of a back at exactly the moment the
+  account stops carrying it. Until this a lapsed rental left the seat only at that player's next sweep (login,
+  `/api/auth/me`, `GET /api/card-backgrounds`, §7.2); the sweeps still tell the seat, now for a copy that says otherwise — a
+  seat restored from a snapshot written before backs carried their expiry, a rental ended early by hand. Teen Patti tables
+  only: `RoomManager.SetPlayerCardBackground` does nothing in the lobby or at a poker room, and a poker view carries none.
+  `internal/game/cardbackground_test.go` (every viewer sees each seat's back; a table where nobody has chosen one sends what it
+  always did; a choice mid-hand and nil taking it off; the snapshot round trip and a restore; an undrawable back dropped and the
+  table restored; the catalogue's checks; a seat's own copy), `cardbackground_rooms_test.go` (a switch and a consolidation move
+  take the back along; `SetPlayerCardBackground` at a Teen Patti table and, doing nothing, at a poker room; the backs returning
+  with their tables after a restart), `cardbackground_expiry_test.go` (a rented back leaving every viewer's snapshot the moment
+  it runs out; a renewed one staying until its new moment and a replaced one kept; each seat's at its own moment; a back
+  arriving run out is the default back; a departing player's term leaving the clock with them; a restore dropping a back that
+  ran out while the process was down and taking one still running off on time; destroy, suspend and a fence stopping the
+  clock; on the real clock a back coming off by itself and a gone table never touched; to the millisecond),
+  `cardbackground_expiry_rooms_test.go` (a moved back still coming off when its rental ends; after a restart a rented back
+  still coming off on time), `internal/app/cardbackground_expiry_test.go`
+  (`TestARentedCardBackLeavesEveryViewersTableAtItsMomentWithNoRequest`).
 - **`serializeFor` redaction (do not break)**: `you.cards` only when `!viewer.isBlind`; other seats
   carry only `cardCount`; on BLIND **and VARIATION** tables (`Category.HidesChips`; variation since 18 Sep 2026, owner:
   "no one can see other player amount") others' `chips` is **`null`** (not 0) + `chipsHidden:true`;
   `you.hand {handName, category, wild, playsAs}` (Go only, §6.4) is the viewer's OWN hand as the variation counts it and
   is in `you` alone, present only once they have seen their cards AND the variation is chosen;
   `missedTurns/maxMissedTurns/options` (and `unfundedDeadline` while a short seat is held) only in `you`; `sideshow` carries ids/seats/`expiresAt`, never
-  cards. Public everywhere: `lastBet, lastAction, contributed, isBlind, connected, status`.
+  cards. Public everywhere: `lastBet, lastAction, contributed, isBlind, connected, status`, a seat's `level` (§6.6) and, at
+  a Teen Patti table, its `cardBackground` (3 Oct 2026, above — absent when the seat wears the default back).
 - `_snapshot()` is the *server-side* full state (cards and the hand's per-player unbanked bets
   included) saved to the **live store (Redis) only** — never to PostgreSQL, never to a client.
 - **Events**: `state, seatUpdated, chat, handStarted, cards, turn, action, showdown, handEnded, kick,
@@ -1205,7 +1263,7 @@ user survives a reconnect, which used to reset the count (`userLimiters`, pruned
 | Server → client | Audience |
 |---|---|
 | `session:ready {user, config}` / `session:replaced` — `config` is the table-wide figures + `LobbyOptions` + `welcomeChips`/`minClientBuild`, and since 23 Sep 2026 **`tableConfigVersion`** (the ONLY change to it: the version of the table catalogue this server enforces, `GET /api/tables`' `version`/ETag, §7.2; `""` only on a server with no rooms). A client holding that version keeps its catalogue; one holding another fetches it again. `config` still carries the whole menu (`tables`), so an installed app older than the catalogue needs nothing new | socket |
-| `room:joined` / `room:state` — `serializeFor(viewer)`; a Teen Patti snapshot carries `tablePicture` (the picture the table shows, §7.2; null when none; absent from a poker snapshot) | **per viewer** |
+| `room:joined` / `room:state` — `serializeFor(viewer)`; a Teen Patti snapshot carries `tablePicture` (the picture the table shows, §7.2; null when none; absent from a poker snapshot) and, on each seat whose player has chosen one, **`seats[].cardBackground {id, url, assetFormat, crop?, expiresAt?}`** (Go only, 3 Oct 2026, §6.1 — below) | **per viewer** |
 | `room:moved {fromRoomId, toRoomId, code, message}` — **no `state`**; the snapshot is the `room:joined` that follows | socket |
 | `room:left` / `room:closed` / `room:kicked {roomId, reason, message}` | socket |
 | `game:handStarted {…participants}` then per-socket `player:hand` | room |
@@ -1251,6 +1309,18 @@ played this; the best was that" with no second ranking. A seat also carries a pu
 still choosing, so the table can say who it is waiting on — never WHICH cards they are choosing between; showdown `reveals[]` and the two sideshow-reveal hands gain
 `best` only under FIVE_CARD, where `cards` holds all five — (never null arrays; ABSENT on seen and blind tables, while the viewer
 is blind, and until the variation is chosen) — what the Flutter table turns the viewer's wild cards into.
+**Card backs on the wire** (Go only, owner 3 Oct 2026; §6.1, §7.2):
+`room:state.seats[].cardBackground {id, url, assetFormat, crop?: {x, y, w, h}, expiresAt?}` — `game.CardBackground` itself: `url` the R2 location (§7.2 `POST /api/assets/sign`),
+`assetFormat` always `IMAGE`, `crop` the card's rectangle inside the picture as fractions of it (absent: the whole picture is
+the card), `expiresAt` the rental's end in epoch ms (absent when the back never runs out) — PUBLIC, the same on every viewer's
+snapshot, the viewer's own seat included (nothing is added to `you`), because everybody at the table sees each player's back
+on that player's face-down cards; **ABSENT (not null)** on a seat that wears the default back and on an empty chair, so a
+table where nobody has chosen one sends exactly the bytes it did, and never on a poker room's snapshot (its felt keeps the
+default back). The account carries the same object as **`user.cardBackground`** (`session:ready.user`, the login, `me`, every
+`{user}` answer; null for the default back, and the moment a rental lapses — §7.2). The table takes a back off its seat the
+moment its `expiresAt` passes and sends every viewer the snapshot that says so (§6.1); the app does not wait for that — it draws
+the default from the same moment by its own clock (§8.1, §8.4 "The card backs"). An installed app from before ignores both keys (its DTOs read what they know) and
+draws every card in its own bundled back, so nothing asks for a raised `MIN_CLIENT_BUILD`.
 Input guards (`socket/index.js`): `game:action.amount` must be a JS number and safe integer (strings/arrays/booleans → `invalid_bet`);
 rate-limited requests are acked `{ok:false, code:'rate_limited'}`; `RoomManager.join()` asserts one seat per player (also closes
 `room:create` to a seated player); `player:requestCards` outside a table → `not_in_room`. Covered by `internal/socket/invalidmoves_test.go` and `tools/parity/invalid.test.js`.
@@ -1275,8 +1345,9 @@ diamonds, hammers, missiles, pictures, tablePictures, emojis}`, what the `welcom
 route's shape with `owned:true`; `welcomeChips` is its chips (0 for a returning player) (**Facebook is switched off for now** — owner, 23 Sep 2026, `94061a2`:
 `VerifyFacebook` and its `case` are commented out, so `provider:"facebook"` with an `accessToken` answers 400
 `unknown_provider`, fake path included; the app draws no Facebook button; `docs/social-login-setup.md` §2 says what to
-uncomment); `GET /api/auth/me` (takes off a worn rental that has run out, as
-login and `GET /api/profiles` do — a saved session comes back through here, never through login); **two of the three lobby
+uncomment); `GET /api/auth/me` (takes off a worn rental that has run out — the worn picture, the laid table picture and,
+since 3 Oct 2026, the chosen card back — as login does, and the catalogue routes each for its own — a saved session comes
+back through here, never through login); **two of the three lobby
 rewards are gone** (owner, 30 Sep 2026: "Remove 24-hour daily reward, 4-hour bonus, and milestone reward") — the milestone (25,000
 chips every 25 hands) and the daily bonus (1,00,000 chips + 1 hammer): `POST /api/rewards/milestone|daily` answer the JSON 404
 of any unknown `/api/*` route — **and the third is back the same evening as the 6-hour bonus** (owner: "IN Top left Add Again
@@ -1354,8 +1425,9 @@ table (`db.Keyset`, `(created_at, id) < (at, id)`, one row over the limit to kno
 reports: a row added at the top while the player scrolls neither repeats one nor hides one). The requests' first answer is
 both boxes' first pages with `incomingTotal`/`outgoingTotal`/`nextIncoming`/`nextOutgoing`; the next page of a box is
 `?box=incoming|outgoing&cursor=…` → `{requests, total, nextCursor}` (a cursor with no box, or an unknown box, is
-`invalid_page`). The catalogues — `/api/profiles`, `/api/emojis`, `/api/table-pictures`, `/api/levels` (since 28 Sep 2026 with
-the one-time `missions` beside `xpSources`, §6.6), `/api/tables` — are fixed sets the app needs whole and stay one answer. An installed app from before reads only the first page of each (20).
+`invalid_page`). The catalogues — `/api/profiles`, `/api/emojis`, `/api/table-pictures`, `/api/card-backgrounds` (3 Oct 2026),
+`/api/levels` (since 28 Sep 2026 with the one-time `missions` beside `xpSources`, §6.6), `/api/tables` — are fixed sets the app
+needs whole and stay one answer. An installed app from before reads only the first page of each (20).
 `internal/auth/pagination_test.go`, `internal/db/friends_test.go` (`TestPendingRequestsComeAPageAtATimeNewestFirst`),
 `internal/db/reports_test.go`, `internal/app/pagination_test.go` (25 requests, friends and reports, 20 then 5, every refusal);
 **`GET /api/tables`** (Go only, 23 Sep 2026; `app/tableconfig.go` `tablesHandler`) — **the table catalogue this
@@ -1402,6 +1474,55 @@ copy is in the snapshot (`SnapshotSeat.tablePicture`), so a restart keeps it. **
 and the poker felt has the board where the picture would go, so a poker snapshot has no `tablePicture` key, `SetPlayerTablePicture`
 does nothing at a poker room, and the choice waits on the account for the next Teen Patti table — the app says so
 (`tablePokerNote`, the Tables shelf's blurb at a poker room and the notice after laying there).
+**`GET /api/card-backgrounds`** / **`POST /api/card-backgrounds/use {cardBackgroundId|null}`** /
+**`POST /api/card-backgrounds/buy {cardBackgroundId}`** (owner, 3 Oct 2026: "Add a table cards_background which users can buy just like user can buy
+profile_pictures, cards background images are stored in r2 storage in cards folder … add one more tab Cards in Store which user
+can buy, in database store its path … keep the price of all cards 5 Hammers validity 10 days"; `auth/cardbackgrounds.go`,
+`db/cardbackgrounds.go`; the tables and the seed in §7.3, the seat in §6.1, the app in §8.4 "The card backs") — the table
+pictures' three routes again, for the back of a player's cards, with the profile picture's visibility. **The catalogue** (token
+optional, a bad one ignored; never version-gated — it is not behind `RequireAuth`):
+`{cardBackgrounds:[{id, name, url, assetFormat, crop?, currency, type, cost, durationDays, durationHours, sortOrder, owned, expiresAt}]}` (never null; `crop` absent
+on a row without one; `url` the R2 location), active rows in `sort_order` then `id`, an unlisted one only to a viewer who has it — owned
+and running, or chosen (§7.3 "Off the shelves"); a signed-in read first sweeps that viewer's lapsed choice and tells the seat.
+The default back — the app's bundled Royal Fox — is no row of it. **Choosing** (`RequireAuth`; the id a number or its text,
+null, absent or `{}` takes the back off — the default): 400 `unknown_card_background` "That card back is not available." (no
+such row, or an id that is not a positive integer), 400 `picture_retired` "That card back is no longer available.", 403
+`picture_locked` "Unlock that card back before you can use it." (not bought, or its rental over), else 200 `{user}` — that key
+alone — whose `cardBackground` is what the cards now wear. **Allowed while seated**: a back moves no wallet, so the choice goes
+straight onto the seat (`Deps.CardBackgroundChosen` → `RoomManager.SetPlayerCardBackground` → `Table.SetCardBackground`, §6.1),
+mid-hand too. **Buying** (the `wallet(…)` limiter; `{user, cardBackground, charged, spent}`; buying does not put it on — that is
+`/use`): in the lobby `Buy` under `Deps.WhileUnseated`, at a table `BuyAtTable`. A HAMMER or DIAMOND row is paid from its
+`users` column with **no ledger row** (the ownership row its receipt), in either; a COIN row through `chip_ledger`, reason
+**`card_background_purchase`**, action_id `cardbg:<userId>:<cardBackgroundId>:<n>` (`n` = that pair's `purchases`, so a lapsed
+rental can be bought again), LOBBY-ONLY (409 `seated` "You can only buy a chip-priced card back in the lobby."); owned and
+running → `charged:false`; a lapsed rental renewed from now. Refusals 400 `unknown_card_background` / `picture_retired` (retired,
+or unlisted and not theirs) / `picture_free` ("That card back is free — just choose it."), 409 `picture_chips` in the words of
+the wallet that is short ("You need 5 hammers to unlock this card back.", "You need 1 hammer …", or the chips' or diamonds'
+sentence). **The account** carries the choice as **`user.cardBackground {id, url, assetFormat, crop?, expiresAt?}`**
+(`game.CardBackground`, right after `tablePicture`; null for the default back):
+`LEFT JOIN user_cards_background_choice`/`cards_background` in `userFromAt`, **joined only while the rental still runs** (a FREE row, or a
+premium one whose ownership row's `expires_at` is 0 or ahead), so a lapsed back reads as none the instant it lapses, sweep or no
+sweep, and no seat built from the account (`User.Player` → `NewPlayer.CardBackground`) starts with it; its `expiresAt` is that
+instant (the running rental's own `expires_at`, joined for a PREMIUM row only; absent for a free back or one bought for ever),
+which every seat built from the account goes by (owner, 3 Oct 2026: "when validity of premium card expires, it restores default
+card"; §6.1). **The sweeps** (`CardBackgrounds.ExpireLapsed`, which deletes the choice row — a renewal starts on the default
+back): login and `me` (`takeOffLapsedPicture`, beside the worn picture and the laid table picture) and
+`GET /api/card-backgrounds`; one that finds the rental over still tells the seat (`cardBackgroundLapsed` →
+`Deps.CardBackgroundChosen(user, nil)`), though the table has normally done so already, by itself, at the rental's `expiresAt`
+(§6.1) — the word is for a seat whose copy says otherwise (restored from a snapshot written before backs carried their expiry,
+or a rental ended early by hand). `DELETE /api/account` deletes the choice with the rest (the purchases stay, as every receipt
+does). The three are labelled by pattern in the metrics (no id is in a path). Tests: `internal/db/cardbackgrounds_test.go` (the owner's thirteen for ten days; a row marshalled with its crop and
+without one; the CHECKs on the crop and the format; five hammers taken, no ledger row, and a second buy charging nothing; a
+chip-priced back through the ledger and only in the lobby; a chosen back on the account and every seat built from it; the
+account's back saying when its rental runs out; a lapsed back gone from the account before any sweep, then bought afresh; an
+unlisted one shown only to whoever has it and sold to nobody; unknown, free and retired refused; deletion),
+`internal/auth/cardbackgrounds_test.go` (on a fake store: the catalogue with its crop and an optional token, a choice telling
+the seat and taken off, the money rules, the sweeps at `me`, login and the listing telling the seat, no store at all), `internal/app/cardbackgrounds_test.go` (the real wiring over real sockets: the
+catalogue signed out, to a stranger and to its owner; a back chosen mid-hand on that player's seat for every viewer, the hand,
+state and pot untouched, every refusal, null taking it off, a lapse swept at `me` off the seat, deletion; a back chosen in the
+lobby on the seat sat down in; the route labels; the sign route signing a seeded location; and, with the R2 keys set,
+`TestASignedCardBackOpensTheOwnersRealJPEG` — every location the catalogue serves signed and opened as a JPEG from the real
+bucket, and refused unsigned).
 **`POST /api/purchases/google {productId, purchaseToken}`** — verifies the token with Google and banks
 the pack through a `purchase` ledger row (action_id `gplay:<token>`), so a replay credits once. The same endpoint sells
 **diamond packs** (owner, 13 Sep 2026): `diamonds_1_49`, `diamonds_5_199`, `diamonds_20_699`, `diamonds_100_2999`
@@ -1503,22 +1624,30 @@ it. Since 2 Oct 2026 no surface of the app claims every program at once; the rou
 in phone disk or cache, when user login again, it will see the path of assets is changed, so the UI will ask for new signed url for
 changed asset path stored in db"; `auth/assets.go`, `internal/assets`, `db/assets.go`) — the catalogue's art is in a PRIVATE
 Cloudflare R2 bucket (§7.3 "The catalogue's art in R2"), and every route that names a file — `/api/profiles`, `/api/table-pictures`,
-`/api/emojis`, `/api/levels`, the account's `avatarUrl`, `tablePicture`, badges and level, a seat's `avatarUrl` and `level`, a prize's
-picture — hands out its LOCATION, the URL the database stores (`https://<account>.r2.cloudflarestorage.com/<bucket>/<key>`), which
+`/api/card-backgrounds` (3 Oct 2026), `/api/emojis`, `/api/levels`, the account's `avatarUrl`, `tablePicture`, `cardBackground`,
+badges and level, a seat's `avatarUrl`, `level` and `cardBackground`, a prize's picture — hands out its LOCATION, the URL the database stores (`https://<account>.r2.cloudflarestorage.com/<bucket>/<key>`), which
 nothing can open as it stands. A signed-in phone posts the locations it does not have on its disk and gets `{urls: {<location>:
 <signed URL>}, expiresAt}`: an AWS SigV4 query-signed GET (region `auto`, `UNSIGNED-PAYLOAD`, only `host` signed, stdlib alone),
 dated a minute back for clock skew and good for ten minutes from the answer (`X-Amz-Expires` 660–661; `expiresAt` epoch ms).
 **Only a location some catalogue row names is signed** — any row, retired or unlisted too (`db.Assets.Stored`, one query over the
-six art columns) — and anything else is left out of the map, so the route never opens another key of the bucket or another host;
-at most `auth.MaxSignedAssets` (200) a request (400 `too_many_assets`), duplicates and blanks dropped, an empty ask an empty map.
+seven art columns, `cards_background.asset_url` the seventh since 3 Oct 2026: a retired card back stays on its chooser's cards and
+on every viewer's) — and anything else is left out of the map, so the route never opens another key of the bucket or another host.
+**The key must have the bucket's shape too** (`assets.keyPattern`): a folder of lower-case letters, digits, `-` and `_`, any
+segments after it of those and `.`, and a file name that may also hold capitals and spaces written `%20` — widened on 3 Oct 2026
+for the card backs, whose keys are the owner's own file names ("cards/Royal Owl with fox.jpg") — a space only between two other
+characters, and no raw space, other `%`-escape (`%2F`, `%2e`, `%25` …), empty segment or `..`. `Signer.Key` returns the DECODED
+key, which the presigning encodes once into the signed path (`/king-teenpatti/cards/Brutal%20Demon.jpg`), and `Location` writes a
+space `%20`, so the two undo each other; every key the old rule took is still taken unchanged. At most `auth.MaxSignedAssets` (200) a request (400 `too_many_assets`), duplicates and blanks dropped, an empty ask an empty map.
 Signed in (`RequireAuth`, so the version gate and `session_replaced` apply); it costs one query and some HMACs, and the server never
 calls R2. A server without the R2 keys answers 503 `assets_unavailable` "Pictures are not available right now." (development
 without them; production cannot start without them, §7.4). Nothing else is ever signed: a location is stable for a file's life,
 so the app keys its cache by it (§8.4) and no stored or cached answer holds a link that has run out. Tests:
-`internal/assets/*_test.go` (the AWS published example's signature, the URI encoding, ten minutes, only this bucket's keys;
-`live_test.go` against the real bucket, skipped without `R2_LIVE_KEY` — unsigned refused, signed 200, tampered refused, signed
-eleven minutes ago refused), `internal/app/assets_test.go` (the route on the real wiring; with the R2 keys in the environment a
-signed URL opens the real file);
+`internal/assets/*_test.go` (the AWS published example's signature, the URI encoding, ten minutes, only this bucket's keys; since
+the card backs a location keeping its owner's file name signed, 22 refused shapes, `TestEveryKeyTheOldRuleTookIsStillTakenUnchanged`
+over 20,000 generated keys, Location and Key undoing each other; `live_test.go` against the real bucket, skipped without
+`R2_LIVE_KEY` — `R2_LIVE_KEY='cards/Royal Owl with fox.jpg'` takes a spaced key — unsigned refused, signed 200, tampered refused,
+signed eleven minutes ago refused), `internal/app/assets_test.go` (the route on the real wiring; with the R2 keys in the
+environment a signed URL opens the real file);
 **A disabled account** (owner, 26 Sep 2026: "Add a flag is_active in users table by default keep its value true and
 when it is marked false, it means user is disabled … he cannot join the table also"): `users.is_active` (§7.3), switched
 off by hand — `UPDATE users SET is_active = FALSE WHERE id = …` — and back on the same way, with nothing else about the
@@ -1539,8 +1668,8 @@ row lock, so two logins at once number themselves one after the other); the acco
 is the one comparison: `RequireAuth` answers **401 `session_replaced`** "Your account has been signed in on another device." for
 any other figure (after the disabled check), and the handshake the same code. A token from before sessions were counted carries no
 `sv` (0), as does an account with no row, so every session alive at the deploy stays good until that account's next login. The
-catalogues' optional-token routes (`/api/profiles`, `/api/table-pictures`, `/api/emojis`) only read `owned` for the token's
-subject and do not check it. The last device to sign in is the one that plays; signing in again on the first takes the account
+catalogues' optional-token routes (`/api/profiles`, `/api/table-pictures`, `/api/card-backgrounds`, `/api/emojis`) only read
+`owned` for the token's subject and do not check it. The last device to sign in is the one that plays; signing in again on the first takes the account
 back the same way. `internal/app/singlesession_test.go` (a Google account mid-hand: the first socket told and ended before the
 second connects, its token refused at `me`, a wallet door and the handshake, the new socket handed the same room and hand and
 the seat kept past the grace; a token without `sv` good until the next login; three sign-ins in a row; a late hand-over never
@@ -1566,7 +1695,8 @@ nothing internal — the versions, store links and messages are what the listing
 `{error, message}` shape with two `omitempty` fields added to `ErrorResponse`; `message` is the row's, else the server's
 ("A new version of King Teen Patti is required to continue playing." / "King Teen Patti is temporarily unavailable. Please try again
 later."). **Never gated**: the login (so an old app can learn it must update), `/api/app-config`, `/health`, `/metrics`, static files and
-the public catalogues (`/api/tables`, `/api/profiles`, `/api/table-pictures`, `/api/emojis`, `/api/levels`). The rows are read through
+the public catalogues (`/api/tables`, `/api/profiles`, `/api/table-pictures`, `/api/card-backgrounds` since 3 Oct 2026,
+`/api/emojis`, `/api/levels` — `appversion_test.go`'s public list names each). The rows are read through
 a cache of `APP_VERSION_CACHE_MS` (15 s; `appversion.Source` — one read per TTL however busy, a failed read keeps the last good one, and
 before the first read the gate is open, which a boot's own read makes moot). Counted and logged (§7.5): `APP_VERSION_CHECK` /
 `SOFT_UPDATE_DETECTED` per check, `FORCE_UPDATE_REJECTED` / `MAINTENANCE_REJECTED` per REST refusal and `WEBSOCKET_VERSION_REJECTED` per
@@ -1753,7 +1883,8 @@ owns `users`.
 are parsed to JS numbers** (`pg.types.setTypeParser(20|1700)`) — without that, `chips` and `SUM()`
 come back as strings.
 
-Tables — **there are exactly forty-four, and none of them is game state** (the reward programs' four — `reward_programs`, `reward_program_rewards` and `user_reward_claims` since 30 Sep 2026, `user_reward_progress` since 1 Oct 2026 — in their own paragraph after the welcome) (`welcome_rewards` since 30 Sep 2026, what a new account is granted, in its own paragraph after the app versions) (`app_versions` since 28 Sep 2026, the app version gate's configuration, in its own paragraph just before the ledger reasons) (`player_xp_missions` since 28 Sep 2026, each player's one-time XP missions, §6.6) (`user_sessions` since 28 Sep 2026, the sign-in each token must carry, in its own paragraph after the player reports) (Report Player's `player_reports` since 27 Sep 2026, moderation audit, in its own paragraph after the friends graph) (Player stats v2's `player_variation_stats` and
+Tables — **there are exactly forty-seven, and none of them is game state** (the card backs' three — `cards_background`,
+`user_cards_background` and `user_cards_background_choice` since 3 Oct 2026 — in their own paragraph after the table pictures) (the reward programs' four — `reward_programs`, `reward_program_rewards` and `user_reward_claims` since 30 Sep 2026, `user_reward_progress` since 1 Oct 2026 — in their own paragraph after the welcome) (`welcome_rewards` since 30 Sep 2026, what a new account is granted, in its own paragraph after the app versions) (`app_versions` since 28 Sep 2026, the app version gate's configuration, in its own paragraph just before the ledger reasons) (`player_xp_missions` since 28 Sep 2026, each player's one-time XP missions, §6.6) (`user_sessions` since 28 Sep 2026, the sign-in each token must carry, in its own paragraph after the player reports) (Report Player's `player_reports` since 27 Sep 2026, moderation audit, in its own paragraph after the friends graph) (Player stats v2's `player_variation_stats` and
 `stats_flushes` since 27 Sep 2026, in the statistics paragraph below) (the emojis' two since 26 Sep 2026, below the Lucky Draw's paragraph; `player_stats`, `friend_requests` and `friendships` since the same day, Friends V1, §7.2; and eight of levels, badges and the daily XP since 27 Sep 2026 — `player_levels`, `badges`, `user_badges`, `badge_purchases`, `xp_sources`, `xp_settings`, `player_xp`, `player_xp_claims`, §6.6): ten of accounts, money and the picture
 catalogue, three of the table pictures (`table_pictures`, `user_table_pictures`, `user_table_choice` — the paragraph after the
 `users` trigger below; merged 23 Sep 2026) (`user_milestones`, `diamond_purchases`, `hammer_purchases`, `hammer_spends`, `missile_purchases` and
@@ -2003,6 +2134,54 @@ that day; the owner took their rows out, keeping the catalogue to their own art 
 one is the seeded row's shape with the two `/tables/` paths (the DAY file a pale cloth for the light theme's dark ink, the NIGHT file a
 deep one for the dark theme's light ink; a picture's art must read on its own ground or the words on the table go with it).
 
+**The card backs (owner, 3 Oct 2026: "Add a table cards_background which users can buy just like user can buy profile_pictures,
+cards background images are stored in r2 storage in cards folder, you can pick images from there and add one more tab Cards in
+Store which user can buy, in database store its path, just like you are storing for profile_pictures table, implement same
+functionality, keep the price of all cards 5 Hammers validity 10 days"; and that evening, of the Flower backs, "keep the cost of
+those 2 hammer validity 10 days")** are three more tables in `V1.0.0__baseline.sql` (CARD BACKS, right after the table pictures
+and before the emojis) and thirteen rows in `V1.0.1__seed.sql` (THE CARD BACKS, after the table pictures and before the table
+catalogue) — the table pictures again, with the profile picture's visibility (§6.1, §7.2). Plain `CREATE TABLE IF NOT EXISTS`
+and one guarded index, nothing altered and nothing on `users`, so an existing database — production's — gains them at its next
+boot as `gameplay_app` (under DEPLOY.md §7 the two that name a player need only the REFERENCES grant; `handover_boot_test.go`
+re-creates them there and buys and chooses a back), and a rollback to an older tag leaves them in place, unread.
+**`cards_background`**: `profile_pictures`' columns (`name`; `asset_url` UNIQUE, the seed's conflict key — no day/night pair, a
+card is printed stock and reads on either ground; `currency` COIN|DIAMOND|HAMMER; `type` FREE|PREMIUM with
+`free_card_background_cost_check`; `cost`; `duration_days`/`duration_hours`; `is_active`; `is_listed`, declared with the table, so
+no guarded block brings it forward and the count of fifteen stands; `sort_order`; timestamps) with `asset_format` CHECKed to
+`IMAGE` alone (a raster is all a back is drawn from, `game.CardBackgroundFormat`) and the card's place in its picture,
+`crop_x`/`crop_y`/`crop_w`/`crop_h` DOUBLE PRECISION — all four or none (`card_background_crop_check`; none: the whole picture is
+the card), and set, `0 ≤ x`, `0 ≤ y`, `0 < w`, `0 < h`, `x + w ≤ 1`, `y + h ≤ 1`, which a NaN or an infinity fails;
+**`user_cards_background`** (`user_id`, `card_background_id`, `acquired_at`, `expires_at` — 0 for ever —, `purchases` ≥ 1, PK on the
+pair, the guarded `idx_owned_cards_background_expiry`: `user_table_pictures`' twin, a FREE row needing none, a lapsed rental a row
+whose `expires_at` has passed, never deleted) and **`user_cards_background_choice`** (`user_id` PK → `card_background_id`,
+`chosen_at`: the back each player has chosen, one row or none — `user_table_choice`'s twin, off `users` for its reason;
+`ON DELETE CASCADE` on the back, so deleting a catalogue row puts the default on whoever had chosen it). **The default back is NO row**: the
+owner's Royal Fox, bundled with the app (`flutter-client/assets/card_back.jpg`; the bucket holds it too, `cards/Royal Fox.jpg`,
+which no row names), worn by every player who has chosen nothing — the table pictures' "Flowing chips". **The seed** holds the
+rest of the owner's `cards/` folder, every one PREMIUM, priced in HAMMERS and rented for 10 days — so sold at a table as in the
+lobby (§5.1): Brutal Demon, Demon Hell, Dragon Hunter, Royal Lion, Royal Majestic Fox, Royal Owl with Fox, Royal Tiger and Royal
+White Tiger at **5 hammers** (sort_order 10–80), and Flower 1–5, uploaded that evening, at **2** (90–130). Each `asset_url` is the
+file's LOCATION, its key written with each space `%20` (the one escape a location carries; the capitals, and "Royal Owl with
+fox.jpg"'s lower-case f, are the owner's own file names). Each file is a 1024×1024 JPEG product shot — the card on a dark ground,
+at a different size and place in each — so every row carries the CARD's rectangle, **measured by hand**: no ground showing at any
+edge under the game's card corner (`PlayingCard.cornerShare`, 0.058 of the height), exactly the card's 5:7 in pixels (a client
+draws the crop stretched to its card), and on Flower 1 and Flower 4, white-bordered cards, the white border whole.
+`ON CONFLICT (asset_url) DO NOTHING`, so an owner's UPDATE survives every boot — re-pricing
+(`UPDATE cards_background SET currency = 'DIAMOND', cost = 2 WHERE name = 'Royal Tiger'`), a longer term, `is_listed` or
+`is_active` (the seed's header has each). **A new back** is a file uploaded to `cards/` and a row appended to the seed (or
+INSERTed by hand), measured the same way; it reaches every database at its next boot. **A back's file never changes under its
+key** (the app keeps a file under its location for ever, §8.4), so a replaced picture goes to a NEW key — and `asset_url` being
+the seed's conflict key, a seeded row is moved there IN THE SEED: a guarded
+`UPDATE … SET asset_url = <new> WHERE asset_url = <old>` (only where no row holds the new location yet) before the INSERT, and
+the VALUES line naming the new location — the R2
+move's pattern (below; Thank You's day file, Level 20's replacement), which moves every database at its own next boot and
+inserts the new location straight into a fresh one. Never an UPDATE by hand alone: the next boot inserts the old location again,
+a second row on the shelf (proved on a throwaway schema in the 3 Oct 2026 review: two active, listed Brutal Demons); nor a new
+VALUES line alone, which adds the new location beside the old. `TestTheSeededCardBacksAreTheOwnersThirteenForTenDays`; `db_test.go`
+(the three in their place and order, every column and CHECK, never altered; the seed after the table pictures, ON CONFLICT on the
+location, nobody's ownership or choice); `bootlock_test.go`, `upgrade_boot_test.go` (a database without them brought forward,
+an existing account reading the default and then buying and choosing one).
+
 **The emojis (owner, 26 Sep 2026)** are two more tables in `V1.0.0__baseline.sql`: **`emojis`** (`profile_pictures`'
 columns — `name`, `asset_url` UNIQUE, `asset_format` LOTTIE only, `currency` COIN|DIAMOND|HAMMER, `type` FREE|PREMIUM
 with the free-is-0 CHECK, `cost`, `duration_days`/`duration_hours`, `is_active`, `sort_order`) and **`user_emojis`**
@@ -2018,24 +2197,28 @@ given; the names are the Drive titles without "Emoji" — the app never shows a 
 column flag is_listed, by default it is true, if it is false, then user will not see these assets in UI or UI store")**:
 `is_listed BOOLEAN NOT NULL DEFAULT TRUE` on `profile_pictures`, `table_pictures`, `emojis` and `badges` — the last column of
 each CREATE TABLE and a catalogue-guarded block after it, so an existing database gains it at its next boot with every row
-listed (one ACCESS EXCLUSIVE lock per table, once: deploy at a quiet hour). Switched with an UPDATE that the next request reads, no
-restart — `UPDATE profile_pictures SET is_listed = FALSE WHERE name = 'Cool Cat'` (the seed's header has all four). **Hidden,
-never taken away**: an unlisted row leaves `GET /api/profiles`, `/api/table-pictures` and `/api/emojis` (so the picker, every store
-shelf and the table's emoji page) and `GET /api/levels`' `badges` (the store's Badges shelf, the level screen's list) for everybody
-who does not have it — signed out, or signed in as anybody else — and stays on the shelf of whoever does: an ownership row still
-running, and for a profile picture the one worn, for a table picture the one laid (`pictureShelfExpr`, `tablePictureShelfExpr`,
-`emojiShelfExpr` in `internal/db`). A badge's holders read it, rate and art, from their own account (`user.badges`), which never
+listed (one ACCESS EXCLUSIVE lock per table, once: deploy at a quiet hour) — and since 3 Oct 2026 on the card backs'
+`cards_background` too, declared with the column in its CREATE TABLE (a table no older database has, so no guarded block: the
+count of fifteen stands). Switched with an UPDATE that the next request reads, no
+restart — `UPDATE profile_pictures SET is_listed = FALSE WHERE name = 'Cool Cat'` (the seed's header has all five). **Hidden,
+never taken away**: an unlisted row leaves `GET /api/profiles`, `/api/table-pictures`, `/api/card-backgrounds` and `/api/emojis`
+(so the picker, every store shelf and the table's emoji page) and `GET /api/levels`' `badges` (the store's Badges shelf, the level
+screen's list) for everybody who does not have it — signed out, or signed in as anybody else — and stays on the shelf of whoever
+does: an ownership row still running, and for a profile picture the one worn, for a table picture the one laid, for a card back
+the one chosen (`pictureShelfExpr`, `tablePictureShelfExpr`, `cardBackgroundShelfExpr`, `emojiShelfExpr` in `internal/db`). A badge's holders read it, rate and art, from their own account (`user.badges`), which never
 read the catalogue. **Not sold**: a buy is refused AFTER the owned check (a second tap on something already owned is still
 `charged:false`) with the codes a retired row gets, which every installed app already handles — 400 `picture_retired` ("That
-picture is no longer available." / "That table picture is no longer available.", `db.ErrPictureUnlisted`) and 400 `emoji_retired`
+picture is no longer available." / "That table picture is no longer available." / "That card back is no longer available.",
+`db.ErrPictureUnlisted`) and 400 `emoji_retired`
 (`db.ErrEmojiUnlisted`; the app re-reads the emoji catalogue on it); a lapsed rental of an unlisted item cannot be renewed.
 **Nothing else reads it**: wearing, laying and sending check `is_active` and ownership as before, so an owner keeps using what they
 have; the Lucky Draw, the reward programs and the welcome still GRANT an unlisted item (a reward-only picture or emoji is an
 unlisted row a slot or a day names); a Play badge purchase (`BadgeForProduct`) still credits — the money has been taken. A FREE
 row has no ownership rows, so once unlisted it is shown to its wearers alone (a picture, a table picture) or to nobody (an emoji),
 though, being free, it can still be worn or sent by id. `is_active = FALSE` stays the stronger switch: a retired row is neither
-listed, sold, nor newly worn, laid or sent. The app needed no change — it draws what the routes send. `internal/db/listed_test.go`
-(each rule per table, a reward granting an unlisted item), `internal/app/listed_test.go` (the four routes signed out, as a
+listed, sold, nor newly worn, laid, chosen or sent. The app needed no change — it draws what the routes send. `internal/db/listed_test.go`
+(each rule per table, every seeded row listed — `cards_background`'s too since 3 Oct 2026, whose own rules
+`cardbackgrounds_test.go` holds —, a reward granting an unlisted item), `internal/app/listed_test.go` (the four routes signed out, as a
 stranger and as the owner; the refusals; relisting), `db_test.go` (the guarded ALTERs — thirteen then, fourteen since the reward progression types, fifteen since the tax paid —, the column in each CREATE TABLE),
 `upgrade_boot_test.go` (a database without the columns brought forward, every row listed).
 
@@ -2049,7 +2232,11 @@ WebP or GIF, uploads with the content type and `Cache-Control: public, max-age=3
 PRIVATE Cloudflare R2 bucket `king-teenpatti` (account `a91cb23b3b93a35dd9ea50db7b855e18`), under `profile_pictures/<slug>.<png|json>`,
 `table_pictures/<slug>[-day|-night].json`, `emojis/<slug>.json`, `badges/<code slug>.json` and `levels/<NN>-<title slug>.json`;
 `tools/r2/drive-to-r2.tsv` records each source (a Drive or `lh3.googleusercontent.com` URL, or a `/levels/…` path read from
-`go-server/public/`), key, size and sha256. **Every seed row names its LOCATION**,
+`go-server/public/`), key, size and sha256. **The card backs' `cards/` folder came later and by another road** (3 Oct 2026,
+"The card backs" above): the owner uploaded those fourteen JPEGs (the thirteen sold and the Royal Fox) straight into the bucket
+under their own names — capitals and spaces kept, a location writing each space `%20`, which the sign route's key rule was
+widened to take (§7.2) — so they are not among the 130, `drive-to-r2.tsv` names none of them, the boot's Drive-to-R2 moves never
+touch them, and a rollback past the move has nothing of theirs to move back. **Every seed row names its LOCATION**,
 `https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/<key>` (path-style on the account's S3 endpoint;
 `V1.0.2__seed-festive-capybara.sql`'s row too), which the routes hand out unchanged and a phone opens through the sign route (§7.2).
 **A database seeded while the art was on Drive — production's — is moved at its next boot**: before each INSERT (for the levels
@@ -2061,8 +2248,9 @@ INSERTs find the rows moved, ids unchanged, nothing added, and a second boot fin
 location is a file every phone fetches once more. **Rolling back past the move** needs the rows moved back first, or the older
 seed — which names the Drive URLs, its conflict key — inserts every picture, table picture and emoji a second time:
 `python3 tools/r2/move_back_sql.py > move-back.sql` and psql it (DEPLOY.md §5); the Drive files must stay where they are. Tests:
-`internal/db/assets_test.go` (every location a key the move uploaded, all 130 named; a Drive-era database — and an owner's own Drive
-URL — through two boots; `Stored`), the catalogue tests (`levels_test`, `emojis_test`, `tablepictures_test`, the app's) pinning the
+`internal/db/assets_test.go` (every location a key the move uploaded, all 130 named — and each card back's one of the owner's own
+`cards/` keys, `ownersCards`, all thirteen named; a Drive-era database — and an owner's own Drive URL — through two boots, the card
+backs left as they are; `Stored`, a retired card back included and the Royal Fox's location, which no row names, refused), the catalogue tests (`levels_test`, `emojis_test`, `tablepictures_test`, the app's) pinning the
 locations.
 
 **The Lucky Draw (owner, 24 Sep 2026)** is three more tables in `V1.0.0__baseline.sql` (LUCKY DRAW, after `missile_spends`) and one
@@ -2233,11 +2421,13 @@ wiring: 401, a forged body ignored, four grants, wallet == ledger, nothing twice
 ALREADY_CLAIMED, `{"programCode": 5}` 400 `invalid_json`, the named refusals, a claim of every program reporting BROKEN as an outcome).
 Ledger `reason` values: `welcome_bonus, hand_packed, hand_left, hand_win, hand_loss, table_tax (§6.6: the winner's winning tax, action `<handId>:tax:<userId>`, always negative),
 milestone_reward, daily_bonus (the two retired 30 Sep 2026 — history rows only, never purged), timed_bonus (the 6-hour bonus's
-25,000, back the same evening; never purged), purchase, picture_purchase, table_picture_purchase, emoji_purchase, lucky_draw, reward_program (30 Sep 2026: a reward program's CHIPS reward, always positive, action_id `reward:<userId>:<programCode>:<claimDate>` — never purged), account_deleted, legacy_reconciliation,
+25,000, back the same evening; never purged), purchase, picture_purchase, table_picture_purchase, card_background_purchase, emoji_purchase, lucky_draw, reward_program (30 Sep 2026: a reward program's CHIPS reward, always positive, action_id `reward:<userId>:<programCode>:<claimDate>` — never purged), account_deleted, legacy_reconciliation,
 test_fixture`. (`lucky_draw` is a Lucky Draw CHIPS prize — a chip source, always positive, action_id
 `lucky:<userId>:<actionId>`.) (`picture_purchase` is a premium profile picture bought with chips — a chip **sink**,
 always a negative delta, action_id `picture:<userId>:<pictureId>`; `table_picture_purchase` is the same for a table picture,
-action_id `table:<userId>:<pictureId>:<n>`.)
+action_id `table:<userId>:<pictureId>:<n>`, and `card_background_purchase` (3 Oct 2026, `db.LedgerReasonCardBackgroundPurchase`)
+for a card back, action_id `cardbg:<userId>:<cardBackgroundId>:<n>` — every seeded back costs hammers and writes no ledger row,
+so this is the row of a back an owner re-prices in chips; never purged, as no purchase is.)
 (`purchase` is a Google Play chip pack, action_id `gplay:<token>`; `account_deleted` empties the
 wallet when a player deletes their account, action_id `delete:<userId>` — chips leave the economy
 there, which is correct, the player has gone.) The first three of the hand
@@ -2284,7 +2474,7 @@ columns); `PRIVATE_*` → the private templates. `gameplay -export-table-config`
 | `GOOGLE_CLIENT_IDS`, `FACEBOOK_APP_ID/SECRET` | empty → 503 | Facebook's pair is read and unused while Facebook sign-in is switched off (23 Sep 2026, §7.2). `GOOGLE_CLIENT_IDS` must name the Web client `265025011940-0k4kh3ljcopn2pmkpb0q1rhbe8er8h09.apps.googleusercontent.com`: `prod.sungamestudio.com` answered every Google login 503 `provider_unconfigured` until the owner set it and restarted on 24 Sep 2026 (a dummy-token login then answered 401 `invalid_token`); a login answered 503 there means it is missing again — §12.3 |
 | **`APPLE_BUNDLE_IDS`** / **`APPLE_IAP_ENVIRONMENTS`** | `com.sungamestudio.kingteenpatti` / `Production,Sandbox` | **Go-only (2 Oct 2026; §7.2).** The iOS bundle ids this server answers to — the audience a Sign in with Apple token must name and the app an App Store transaction must have been bought in; empty shuts both (503 `provider_unconfigured` / `store_unavailable`). No secret is involved in either. The environments whose purchases are credited (comma list of `Production`, `Sandbox`; anything else stops the boot): **keep Sandbox** — TestFlight, sandbox testers and App Review buy there and a refused reviewer rejects the build. |
 | `AUTH_ALLOW_FAKE_PROVIDERS` | false | |
-| **`REST_LOGIN_RATE_LIMIT`** / **`REST_WALLET_RATE_LIMIT`** / **`REST_RATE_WINDOW_MS`** | 60 / 120 / 60000 | **Go-only (24 Sep 2026).** Per-client-IP fixed-window limits (`config.RESTRateConfig`, `auth/ratelimit.go`): `POST /api/auth/login`, and the doors that move a wallet (Play purchases, picture and table-picture buys, the missile store, `DELETE /api/account`). Over it: **429** `{error:"rate_limited"}` + `Retry-After`, one WARN `rest rate limited` per IP per window. 0 = that limit off. The IP is the peer's, or nginx's `X-Real-IP` from a loopback peer; a loopback peer with no `X-Real-IP` (bot-play, `tools/`, tests) is never limited. Generous on purpose — CGNAT puts many players behind one IP. |
+| **`REST_LOGIN_RATE_LIMIT`** / **`REST_WALLET_RATE_LIMIT`** / **`REST_RATE_WINDOW_MS`** | 60 / 120 / 60000 | **Go-only (24 Sep 2026).** Per-client-IP fixed-window limits (`config.RESTRateConfig`, `auth/ratelimit.go`): `POST /api/auth/login`, and the doors that move a wallet (Play purchases, picture, table-picture and — since 3 Oct 2026 — card-back buys, the missile store, `DELETE /api/account`). Over it: **429** `{error:"rate_limited"}` + `Retry-After`, one WARN `rest rate limited` per IP per window. 0 = that limit off. The IP is the peer's, or nginx's `X-Real-IP` from a loopback peer; a loopback peer with no `X-Real-IP` (bot-play, `tools/`, tests) is never limited. Generous on purpose — CGNAT puts many players behind one IP. |
 | **`DATABASE_URL`** | `postgres://postgres:postgres@localhost:5432/gameplay` | |
 | **`PG_SCHEMA`** | `public` | tests use `test_<suite>_<rand>` and drop it after |
 | **`PG_POOL_MAX`** | 10 | |
@@ -2487,6 +2677,19 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
     database brought forward), `rewardprogress_internal_test.go` (the engine: every mode × progression, a campaign, Kolkata's midnight,
     February), `rewardprogress_save_internal_test.go` (a stale look never winds the progress row back). Flutter:
     `test/reward_programs_test.dart`, `weekly_login_test.dart`, `reward_progression_test.dart` and `reward_offers_test.dart` (§8.4).
+  - **The card backs** (§6.1/§7.2/§7.3; 3 Oct 2026; each file's cases where its section describes the feature):
+    `internal/game/cardbackground_test.go`, `cardbackground_rooms_test.go`, `cardbackground_expiry_test.go` and
+    `cardbackground_expiry_rooms_test.go` (the seat, the wire, the snapshot, the moves, the table's card-back clock),
+    `internal/db/cardbackgrounds_test.go` (the seed, the CHECKs, the money rules, the account join and its `expiresAt`, the lapse,
+    the shelf rules, deletion), `internal/auth/cardbackgrounds_test.go` (the routes on a fake store),
+    `internal/app/cardbackgrounds_test.go` (the real wiring over real sockets, the sign route, and the real bucket when the R2
+    keys are set) and `cardbackground_expiry_test.go` (a rented back leaving every viewer's table at its moment with no request),
+    `internal/assets/signer_test.go` (the widened key rule); the table counts in `db_test.go`,
+    `bootlock_test.go`, `handover_boot_test.go`, `upgrade_boot_test.go` and `cmd/gameplay/migrate_test.go` (forty-seven).
+    Parity: `rest.test.js`'s account keys gain `cardBackground` (null for a new account), and `money.test.js`'s exact table list
+    the three, a `card_background_purchase` row held to a negative delta under a `cardbg:<user>:` action id. Flutter:
+    `test/card_backgrounds_test.dart` and `card_back_expiry_test.dart` (§8.1), `card_back_art_test.dart`,
+    `card_back_table_test.dart`, `card_back_shelf_test.dart` and `store_cards_glyph_test.dart` (§8.4).
   - Leftover schemas after a crash: `select nspname from pg_namespace where nspname like 'test_%'` (§4).
 - **Parity harness** (`tools/parity/`, run with `cd tools && npm run parity`): black-box `node:test` suites — `game`, `money`
   (audits the books the profile wrote), `lobby`, `stakes`, `rest`, `protocol` (raw frames via `lib/csharpJsonPort.js`), `resume`,
@@ -2798,6 +3001,41 @@ Production's lives at `/var/www/gameplay/king-teenpatti/go-server/.env` (`PG_POO
   session could wait for ever — and signs out to the sign-in screen, as a start with such a token does. The sign-in screen keeps
   its own error line. `test/service_down_test.dart`; `app_gate_test` 7 expects the loader. Played on TP_API36: the demo server
   stopped put the veil up within seconds, and restarted, brought the lobby back on the same session.
+- **The card backs on the phone** (owner, 3 Oct 2026; server §6.1/§7.2/§7.3, the screens §8.4 "The card backs"). DTOs
+  (`dtos.dart`): `CardCrop {x, y, w, h}` (`fromJson` null unless four finite numbers inside the picture — x, y ≥ 0, w, h > 0,
+  x+w and y+h ≤ 1 within a 1e-6 slack); `CardBackArt {id?, url, crop?, expiresAt}`, what a seat or the account wears — `fromJson`
+  null (the Royal Fox) for anything that names no picture or whose `assetFormat` is not IMAGE, an unreadable crop read as none,
+  an expiry that is not a positive number as 0 — on `Seat.cardBackground` and `User.cardBackground` (kept by every `with…`
+  copy); and `CardBackground`, a catalogue row (`.art`). `ApiClient.cardBackgrounds([token])` (a 404, a server from before, is an
+  empty catalogue), `useCardBackground`, `buyCardBackground` (refusals as `ApiException` codes). `GameState.cardBackgrounds` is
+  loaded with the other catalogues (`_loadPictures`; an answer made under another token dropped; every file kept on the phone's
+  disk by `PictureCache.keep`, which signs the R2 locations, never warmed into its 64-entry memory layer) and read again whenever the Cards shelf comes up (`reloadCardBackgrounds`);
+  `chooseCardBackground(id|null)` (allowed at a table — the server puts it on the seat — and an answer to a session that has
+  ended dropped); `buyCardBackground(id)` → `bought | notEnough | refused` (one at a time, `buyingCardBackground`; the answered
+  row replaces the shelf's at once, the catalogue is read again and the back put on; `picture_chips` on a hammer or diamond back
+  is `notEnough`, the shelf then offering that wallet's shelf; anything else is the server's sentence); the lobby's rental watch
+  (`checkRental`) covers a chosen premium back; sign-out and account deletion forget them. **Which back is drawn**: the account's
+  choice is what the shelf ticks (`chosenCardBack`, `User.activeCardBackgroundId`); the viewer's own cards wear their SEAT's
+  (`ownCardBack` — the seat's `cardBackground` at a Teen Patti table, null at a poker room or away from one), so a back chosen
+  mid-hand reaches them with the snapshot that puts it on the seat, and what the viewer sees on their cards and what everyone
+  else does can never disagree. **A rental runs out on the phone's own clock** (owner, 3 Oct 2026: "when validity of premium card
+  expires, it restores default card"): every reader of a worn back goes through `liveCardBack(art)` — null, the Royal Fox, from
+  the moment `expiresAt` passes by `cardBackClock` (`DateTime.now`; a test sets its own) — and of a catalogue row through
+  `CardBackground.lapsedAt`/`locked`, so the felt, the viewer's hand, the deal and an open Cards shelf show the Royal Fox (and
+  the tile its padlock and price) at that moment, before the server's next `room:state` and whatever a late one still carries.
+  `GameState._watchCardBackLapses`, run from every `notifyListeners` (three identity checks when the table, the account and the
+  catalogue have not changed — the one-second tick costs nothing), keeps ONE timer for the earliest moment a back it holds runs
+  out — a seat's at this table, the account's, a rental the shelf lists as the player's — set at most a day ahead; firing, it
+  sends the one notify that redraws all of it, and when the back was the player's OWN it reads the catalogue and the account
+  again (`_refreshPictures`), in the lobby and at a table alike — the read where the server sweeps the choice (§7.2). Nothing
+  polls. `test/card_backgrounds_test.dart` (the wire — every seeded crop the card's own 5:7 inside its picture —, the routes, and
+  GameState: the catalogue under its token, a purchase marking the row owned at once and wearing it, one purchase at a time, a
+  shortage as the offer of that wallet's shelf, the viewer's own cards wearing their seat's back, the rental watch, sign-out and
+  deletion forgetting them); `test/card_back_expiry_test.dart`, on the fake clock a widget test's pumps advance
+  (`cardBackClock` set to it): the expiry off the wire, a back running out to the millisecond, the account's and a shelf
+  rental's letting go at theirs; at a table the viewer's own back the Royal Fox from its moment with one notify and nothing
+  rebuilt between, the player's own rentals read again at theirs in the lobby, a rental days away waking nobody before its day,
+  a poker room's backs not watched, a disposed state waking no more; and the table and the shelf (§8.4).
 
 ### 8.2 GameState essentials
 New hand = `handNo` changed → clears celebration/sideshow reveal, resets `raiseIndex`. **The
@@ -3342,7 +3580,8 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
 - **Emojis** (owner, 26 Sep 2026; server side §7.1/§7.2/§7.3; `widgets/emoji_shelf.dart`, `widgets/emoji_art.dart`).
   `EmojiItem`/`ChatEmoji` DTOs, `ApiClient.emojis`/`buyEmoji`, `GameConnection.sendEmoji` (`chat:emoji`), `GameState.emojis`
   (loaded with the pictures, warmed into `PictureCache`), `buyEmoji` → `bought | notEnough | refused`, `sendEmoji` sharing
-  the chat cooldown. **The store's seventh shelf, Emojis** (`StoreTab.emojis`): each tile plays its Lottie (`EmojiArt`,
+  the chat cooldown. **The store's seventh shelf, Emojis** (the eighth since the Cards shelf stood in before it, 3 Oct 2026;
+  `StoreTab.emojis`): each tile plays its Lottie (`EmojiArt`,
   fitted whole) under the shelf badge (✓ Owned / padlocked price) and the term; a locked one asks first with the emoji
   large; a chip-priced one at a table is lobby-only; a short hammer or diamond wallet is offered its shelf. **The table:
   an emoji key** (`ValueKey('rail-emoji')`, a smiley) on the left rail of both felts under the chat key — the rail column
@@ -3834,11 +4073,19 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`TableKeys` in `table_theme.dart`: `glass` dark, `ink` #F4EEE4, `pack` #FF7A6A on `packGlass` #7A1424 at `packWash` 0.46,
   `force` #9C8BFF): every `MachinedKey`, `StepperKey` and `RailKey` is the dark plaque by day too; Pack is red glass, Chaal
   still the one struck-gold primary, Force Sideshow edged violet, Missile coral (`missileInkOn(TableKeys.glass)`); the rail's
-  chat Lottie and its cooldown in `TableKeys.ink` (`RailLottie.ink/paper`, `ChatCountdown.onKey`). **SEE CARDS**
+  chat Lottie and its cooldown in `TableKeys.ink` (`RailLottie.ink/paper`, `ChatCountdown.onKey`). **SEE**
   (`widgets/see_cards_button.dart` `SeeCardsButton`; it was a ghost key laid over the middle of the fan): a dark-glass pill
-  with a gold edge and a still gold glow, an eye and "SEE CARDS" over the blind dots (`BlindDots`, moved there),
-  `widthFor` 17% of the screen held to 120–160dp, `heightFor` 42dp under 400dp tall else 46, ABOVE the viewer's cards and
-  centred on them — `_OwnBetRow` stands over the fan with the pill in its middle and the viewer's bet badge beside it to the
+  with a gold edge and a still gold glow, an eye and its word over the blind dots (`BlindDots`, moved there) — "SEE CARDS" for
+  its first evening, and just **"SEE"** since the owner's follow-up the same day ("instead of showing See cards text, only show
+  text 'See'": the cards it turns stand right under it): `Strings.see` — See, देखें, দেখুন, જુઓ, ਵੇਖੋ — set in the key's capitals
+  (a no-op for the Indic scripts), while a screen reader still hears the fuller "See cards" (`SeeCardsButton.semanticsLabel`,
+  `Strings.seeCards`, before the blind moves left; `test/see_key_test.dart`: the word in all five languages, what a screen
+  reader hears, a tap still the look, and at 640x360 ×1.25 in every language and both themes the word whole at its full size),
+  since the owner's "reduce the size of see button" (the same evening) as wide as its eye and its word — `widthFor` measures
+  them in the player's language at their text size, at least 2.2× the pill's height and at most `maxWidth` 120dp (78dp on a
+  891dp phone, where "SEE CARDS" took 151) — and drawn `pillShare` 0.78 of its tap box, which keeps `heightFor` (42dp under
+  400dp tall else 46): the box takes the tap, its margins over and under the pill too (`test/see_key_test.dart`), and the
+  hand's column is laid out round the box, so nothing round the key moved; ABOVE the viewer's cards and centred on them — `_OwnBetRow` stands over the fan with the pill in its middle and the viewer's bet badge beside it to the
   right; once they have looked, the pill cross-fades out (fade and 0.92 scale) as the cards turn and the badge alone fades
   in, centred (`_OwnHand.stillBlindFor`). The variation picker's box ends `Space.sm` above the pill (`_seeCardsTopFor`; at
   844–915dp it covered it) and is roomy only where the box holds its roomy height (`VariationPrompt.panelHeight`).
@@ -3852,7 +4099,9 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   green share a luminance, and are the pair colour-blind players confuse), so the seat on turn vanished in its last seconds;
   its halo and the pod's rising clock still redden; by day a dark outline (`_TurnRing.dayOutline`, ink900 at 0.62, 1.2dp)
   carries it over the ivory room, and its breath bottoms out at 0.95 (`turnEdgeFloor`). The pot's plate at 0.76 with a
-  1.2dp gold edge. The card back is the owner's Royal Fox ("The playing cards", below). Tests: `casino_table_test`
+  1.2dp gold edge. The default card back is the owner's Royal Fox ("The playing cards", below), and since the same evening
+  each player's cards wear the back they bought on the store's Cards shelf, seen by the whole table ("The card backs", below).
+  Tests: `casino_table_test`
   (rewritten: the leather, the two felts, one felt for every game, the switch's cloths still in their games' hues, the
   felt's words at 4.5:1, the painter), `table_final_polish_test` (the turn ring gold at both ends of a turn on every ground
   it stands on), `table_polish_test`, `premium_cards_test`, `variation_table_test`, `five_card_test`,
@@ -3959,18 +4208,22 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   its face for its half of the turn. The entrance (`_Dealt`, table_screen) is dealt like a card: in from the middle of the
   table over 78% of 460 ms, a touch small then a touch past life-size and just past its lean, then set down onto its place
   (`_beat` 95 ms apart — a hand of three is down in 0.65 s; `FadeTransition` over its first 30%); one tree shape from the
-  first frame to rest, so the card under it never rebuilds. `DealFlights` keeps its one pre-rendered back and one painter.
-  **The back** is the owner's **Royal Fox** since 3 Oct 2026 ("change the playing card back image to this one"):
+  first frame to rest, so the card under it never rebuilds. `DealFlights` keeps one painter, its backs rendered once each before
+  the deal — one back until 3 Oct 2026, and since then each back the seats wear, every card flying in its seat's ("The card
+  backs", below).
+  **The default back** is the owner's **Royal Fox** since 3 Oct 2026 ("change the playing card back image to this one"):
   `assets/card_back.jpg` (`PlayingCard.backAsset`), a fox leaping inside a gold filigree frame on black, "ROYAL FOX" over
   it and "PLAYING CARDS" under it — cut from the owner's 1024x1024 picture to the card's 5:7 inside its own black border
   (the gold frame whole, none of the picture's background) and kept at 600x840, a 207 KB JPEG, about twice the tallest card
-  a phone draws. `_CardBack` draws it with `Image.asset` (`BoxFit.cover`, `FilterQuality.medium`) over
-  `PlayingCard.backGround` (its border's black: a card dealt while the image decodes is dark, never empty); the splash
-  screen and every table precache it (`PlayingCard.precacheBack`), and `DealFlights` decodes it once
-  (`instantiateImageCodec`) into the back its flying cards are drawn from. It replaced the crown medallion on the lattice
-  (`assets/card_back.svg`, in git history). Under the stock's gold edge and a faint top light (`CardStockPainter(face:
-  false)`); `tint` recolours the artwork, keeping its light and dark (`BlendMode.color`), so a SEEN back is the fox in
-  green under a gold edge. A DIMMED card (a packed hand, a beaten rim seat) is
+  a phone draws. `CardBackImage` (`widgets/card_back_art.dart`; `_CardBack` until the card backs, that evening) draws it with
+  `Image.asset` (`BoxFit.cover`, `FilterQuality.medium`) over `PlayingCard.backGround` (its border's black: a card dealt while
+  the image decodes is dark, never empty); the splash screen and every table precache it (`PlayingCard.precacheBack`), and
+  `DealFlights` takes it from the shared decode cache (`CardBackImages.load(null)`, its card decoded 480 pixels tall; it decoded
+  the asset itself with `instantiateImageCodec` before). It is every card's back but a player's own choice — and what a chosen
+  back shows while its picture is coming, when it cannot be had, and from the moment its rental runs out ("The card backs",
+  below). It replaced the crown medallion on the lattice (`assets/card_back.svg`, in git history). Under the stock's gold edge
+  and a faint top light (`CardStockPainter(face: false)`); `tint` recolours the artwork, keeping its light and dark
+  (`BlendMode.color`), so a SEEN back is the fox — or any chosen back — in green under a gold edge. A DIMMED card (a packed hand, a beaten rim seat) is
   drained and a third darker but OPAQUE (`PlayingCard._drained`): at 55% opacity, as it was, every overlap of the tighter
   fan showed through as a bright bar across a packed hand. Found by the new tests and fixed: the 5-Card picker's hint line
   stood 2–4dp taller than the row was sized around at text ×1.25 and overflowed the panel (`CardPickPrompt`).
@@ -4675,6 +4928,102 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   `test/store_header_scripts_test.dart` opens every shelf at 640x360 in all five languages at x1.0 and x1.25 with the Noto
   fallback. The Pictures blurb names every wallet a picture sells for ("chips, hammers or diamonds"; the Animated shelf at
   a table "hammers or diamonds"), since five pictures cost diamonds. `_loadPictures` loads both catalogues; the lobby rental watch covers a laid premium table too.
+- **The card backs** (owner, 3 Oct 2026: "Add a table cards_background which users can buy just like user can buy
+  profile_pictures … add one more tab Cards in Store which user can buy … keep the price of all cards 5 Hammers validity 10
+  days"; decided with the owner: everyone at the table sees each player's back on that player's face-down cards, and the Royal
+  Fox stays the free default; the data layer §8.1, the server §6.1/§7.2/§7.3). **Drawing** (`widgets/card_back_art.dart`): every
+  back but the bundled Royal Fox is one of the owner's 1024×1024 JPEG product shots in the R2 bucket, the card on a dark ground,
+  and its row says where the card is in it (`CardCrop`). The bytes come from `PictureCache`, which signs the location and keeps
+  the file on the phone (below); `CardBackImages` decodes each picture ONCE into a `ui.Image` that every card showing that back
+  shares — five seats of three cards in one back cost one decode — decoded so its card is `decodeHeight` 480 pixels tall (never
+  larger than the file) and only the CARD kept, cut out to whole pixels (`cardPixels`; the thirteen shots kept whole came to 42 MB,
+  half of it ground), at most `capacity` 16 kept — every back on sale, the Royal Fox and room to spare, about ten megabytes — the
+  one drawn least recently going first, all let go when the system says memory is short (`CardBackMemoryWatch`) and when a session
+  ends (`release`), a decode in flight shared within its own zone only (§12.3). `CardBackImage` is the printed back: the decoded
+  card stretched over the card — the crop is the card's own 5:7,
+  so nothing is distorted — under the card's corner, on `PlayingCard.backGround`, with the stock's top light and gold edge over
+  it (`CardStockPainter(face: false)`) and `tint` recolouring the picture (`BlendMode.color`: a SEEN opponent's back, whatever it
+  is, in green); the Royal Fox for null, while a back is coming, and when one cannot be had (on the store's Cards shelf,
+  `standIn: false`, a back on sale that is still coming is the plain black back under the game's ring, `loading` — never the
+  Royal Fox in its place) — tried again on the picture boxes' clock (4, 8, 16 s, then every 30 s), and only when it can be fetched at all (`canFetch`: a location nothing can sign is never
+  fetched). A back seen before paints on the first frame (`peek`), a new one swaps in when it arrives from any card's asking
+  (`CardBackImages.changes`), and a card whose back CHANGES keeps the old one until the new is ready. `PlayingCard(back:)` —
+  null the Royal Fox — draws its face-down side with it; `paintCardBack(canvas, rect, picture:)` prints one for a painter.
+  **The table**: each rim seat's face-down cards wear that seat's `cardBackground` (`SeatPod`; the SEEN tint and a packed seat's
+  drained dimming over it as over the Royal Fox); the viewer's own hand wears their SEAT's (`_OwnHand` → `GameState.ownCardBack`
+  → `WildTransform(back:)` → `PlayingCard`), not the account's, so it changes with the snapshot that changes everyone else's view
+  of it. **The deal** (`DealFlights(seatBacks: true)` on the Teen Patti felt) flies each card in the back of the seat it is dealt
+  to: every back the seats wear rendered ONCE per size, before the deal, into an image of its own (five seats in three backs are
+  three images), a back still coming flying as the Royal Fox and taken up mid-flight the moment it is decoded, a render no seat
+  wears any more let go, every flying card printed by `paintCardBack` (so it carries the landed card's top light as well as the
+  gold edge); `DealFlightsState` is public, with `dealtBacks`, `backsRendered` and `cardsInFlight` for the tests. **The poker
+  felt keeps the Royal Fox** on every card — `DealFlights` without `seatBacks`, `SeatPod`'s `poker` guard — whatever a player
+  wears at a Teen Patti table (its snapshot carries none anyway). **A rental that runs out** is the Royal Fox from that moment on
+  the phone's own clock (`liveCardBack`, §8.1): a seat's cards, the viewer's hand, and a deal — one dealt after it flies none of
+  it, and the cards of one in the air when the moment comes fly on in the Royal Fox — before the server's next `room:state` takes
+  it off the seat (§6.1), and a late snapshot still carrying it changes nothing (`test/card_back_expiry_test.dart`: each rim
+  seat's cards and the viewer's own turning at their own back's moment, a card in the air flying on in the Royal Fox, and an
+  open Cards shelf turning the tile to its padlock and price and the Royal Fox's to "In use", in the lobby and at a table). **The store's Cards shelf** (`StoreTab.cards`, between Tables and Emojis — the ninth key;
+  `widgets/card_back_shelf.dart` `cardBackShelf`), in the lobby and at a table alike: the Tables shelf's shape for a card. Its
+  first tile is the **Royal Fox** (`CardBackChoice.royalFox`, its name `royalFoxName` — a name, not translated, as no catalogue
+  name is — over "Default", `cardBackDefaultHint`): everybody's for nothing, "In use" while nothing is chosen, else "Owned", and a
+  tap puts it back on (`chooseCardBackground(null)`), as the Flowing chips tile restores the room. Then the catalogue in its OWN
+  order (`cardShelfOrder`: `sort_order`, the server's order among equals — not by price, as the other catalogue shelves run).
+  Each tile (`CardBackChoice`) is the card in a frame that says in colour what its badge says in a glyph and a word — gold round
+  the back on the player's cards, green round every one they can put on now, the hairline round the rest — then the picture
+  shelves' one `ShelfBadge` ("In use" / "Owned" in the card's own words, `cardInUse`/`cardOwned`: a card back is masculine in
+  Hindi, Gujarati and Punjabi where a picture is feminine; or the `PriceTag` — the padlock, the hammer and 5), the name on up to
+  two lines and the small print (the term, "10 days", or the time left on one held, `rentalTagLeft`). The card's height is
+  MEASURED from the shelf's room (`CardBackChoice.cardHeightFor`: the badge, two name lines and the small print measured in the
+  phone's fonts, a whole row and `nextRowShows`, 14dp, of the next kept in view; at most 28% of the screen, 56–160dp — 61–69dp at
+  ×1.25 on a 360dp phone, 100 at ×1.0, 115 on a 411dp one, 160 on a tablet), and the tile is `widthFor` that card; the shelf's
+  foot fades (`EdgeFade` — its backs stand still, so the mask costs nothing a frame, where the animated shelves skip it). **A
+  locked back asks first** (`unlockCardBackground`): a chip-priced one at a table is refused on the spot (`cardChipsLobbyOnly`,
+  `cardBackSellsHere`; none is seeded so), a short hammer or diamond wallet is offered that wallet's shelf with the card
+  (`offerWalletShelf`, also after the server's own shortage), else the question — the card large (`CardBackOnOffer`, 30% of the
+  screen's height, as a picture and an emoji stand in theirs), the price beside the title (`PriceAndWallet`) and "Royal Tiger
+  costs 5 hammers and is yours for 10 days. Unlock it and use it now?" (`unlockCardTitle`, `unlockCardRentBody`) — and then
+  `buyCardBackground` buys it and puts it on. An owned back goes on with one tap (`wearCardBack`); a tap on the back already in
+  use sends nothing. One purchase at a time: the card being bought wears the game's ring and EVERY tile is dead until the answer
+  — the Emojis shelf deadens only the locked ones, but here a tap on an owned back would race the purchase's own put-on — and
+  entering the question meanwhile says "Please wait...". The shelf reads the catalogue again whenever it comes up, so a rental
+  that ran out shows its padlock rather than "0m left" — and since the owner's follow-up a tile turns back to its price, and the
+  Royal Fox to "In use", at the very moment its rental runs out (`CardBackground.locked`, `User.activeCardBackgroundId`, both on
+  the card-back clock). At a poker room the shelf's line says the felt keeps the standard back (`cardsPokerNote`: "Poker tables
+  keep the standard card back — yours shows at your next Teen Patti table."), and so does the notice after putting one on there.
+  The header: the shelf's glyph, "Card Backs" over "Card backs everyone at your table sees on your cards." and the
+  diamonds-and-hammers panel (`PictureWalletBalances`, as on the Pictures and Tables shelves). **The glyph is the Royal Fox
+  itself** (owner, 3 Oct 2026: "show default card icon also in store"; asked where, the Cards tab's icon): `RoyalFoxGlyph(size:)`
+  (`card_back_art.dart`), a tiny upright card printed as every face-down card is — its corner cut, its gold edge round it —
+  standing in the box an `Icon` of that size takes, on the Cards key (18dp) and at the head of the shelf (22dp), never tinted, so
+  the key shows the same card lit and dim (`Icons.style_rounded` for its first evening). Eleven strings in all five languages.
+  **The ninth key**: `_StoreTabs.layoutFor` gained a **snug** step — the keys' insets and the gaps between them 4 → 2dp
+  (`snugPadX`, `snugGap`, `Space.xxs`), tried after the tight gap and before a second row, the words never shrunk and no key
+  under 44dp — because the nine English words at 592x360 ×1.25 stood 31dp (lobby) and 40dp (table) too wide for one row; the
+  balanced wrap is five over four ("The store navigation", below). Tests: `test/card_back_art_test.dart` (the cache — a card
+  decoded 480 px tall and never larger, one decode a back with its crop, a file that is not a picture, a location nothing can
+  sign, the Royal Fox from the asset, sixteen kept —; the printed back; the widget — the Royal Fox for null, a decoded back on the
+  first frame, the SEEN tint, a back coming then swapping in, one decoded for another card, one that cannot be had, a changing
+  back kept until the new one is ready, the largest card that fits —; `PlayingCard`'s back), `test/card_back_table_test.dart`
+  (every rim seat's back and the viewer's, each sampled on screen; a back chosen mid-hand reaching the viewer's cards with the
+  snapshot and never from the account alone; the SEEN green over a bought back; the poker felt keeping the Royal Fox; the deal —
+  each card in its seat's back, a back still coming flying as the Royal Fox and swapping mid-flight, the poker felt all fox, one
+  render a size —; and a deal in seat backs re-recording only its own layer: never the casino table's, the felt's on exactly the
+  frames it is without backs), `test/card_back_shelf_test.dart` (every word in all five languages; the order; the unlock
+  sentence; the Cards key after Tables; the Royal Fox leading; every tile's word, glyph and frame; the Royal Fox in use with
+  nothing chosen; the question; Unlock taking 5 hammers and putting the back on; the Hammers shelf offered when short, and after
+  the server's own shortage; one purchase at a time; one tap to put on, the Royal Fox taking it off; the re-read; a hammer back
+  sold at a table and a chip one refused; the poker note; 640x360 ×1.25 in all five languages, every tile's words inside it; a
+  card taller where the shelf has room, never past the cap), all on `test/card_background_fixtures.dart` (`seededCards`,
+  `primeCardBacks` — decodes in `runAsync` — and `forgetCardBacks` for `tearDown`); `store_nav_test` (the snug step, nine keys in
+  one row everywhere, five over four at 480dp); `test/store_cards_glyph_test.dart` (the glyph the bundled Royal Fox and no icon,
+  drawn as its own art inside the stock; every other key keeping its icon; the card one size and never tinted, on and off; the
+  header's on the Cards shelf alone; the nine keys still one row at every phone size `store_nav_test` checks, both text scales,
+  all five languages, lobby and table). Pictures by hand: `test/table_shots.dart` scenes `42-cards-backs` (four seats in
+  their backs, one in the Royal Fox, a SEEN one in green) and `43-cards-backs-dealing` (a deal in the air), and
+  `test/store_shots.dart` scenes `13-cards` and `14-table-cards` — the owner's real JPEGs from a directory holding the bucket's
+  `cards/*.jpg` (`--dart-define=CARD_ART_DIR=…` for table_shots, `CARD_ART=…` for store_shots), else the fixtures' coloured
+  stand-ins.
 - **The store polish** (owner's brief, 26 Sep 2026: "a UI POLISH task, NOT a complete redesign"; `widgets/chip_store.dart`,
   presentation only — no price, pack, mark, purchase or trade path changed; the picture and table TILES are not part of it).
   **One product card**, `_StoreProductCard`, for every pack of the Chips, Diamonds, Hammers and Missiles shelves and the Premium
@@ -4692,8 +5041,9 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   card presses to 0.97 (`PressScale`; 0.955 on its own scale before) and lights the key under the finger. **The grid fills its
   row** (`_ShelfGeometry`: columns at `Dim.packW`, widened — 186×159dp at 640x360 where 140×147 stood centred with 95dp empty either
   side, the figure 26.5px where a card-by-card fit left about 17), near square where the body allows and never over 80% of it, so
-  the next row always shows; the row cut by the sheet's foot fades (`EdgeFade`, the pack shelves only: over the Pictures and
-  Tables shelves' Lotties a mask is an offscreen pass every frame), and the Tables shelf keeps `Dim.packW` tiles. **The shelf
+  the next row always shows; the row cut by the sheet's foot fades (`EdgeFade`, the pack shelves only — and since 3 Oct 2026
+  the Cards shelf, whose backs stand still: over the Pictures and Tables shelves' Lotties a mask is an offscreen pass every
+  frame), and the Tables shelf keeps `Dim.packW` tiles. **The shelf
   keys** were 44dp circles in the header's row, in a strip that stopped on whole keys and scrolled — replaced on 27 Sep 2026 by
   the navigation below. The shelf's glyph, title (w700) and blurb, and the shelf itself, fade in with a 0.985 scale; a card rises
   14dp (26) in `Motion.base` (420ms until 27 Sep 2026); the grab handle is the resting hairline; the Pictures and Tables glyph is `goldDeep` by day (champagne vanished on the light sheet). **The
@@ -4702,8 +5052,8 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   `test/store_polish_test.dart` (the keys at the touch floor, no scroll view round them, row fill, one figure size and the
   hierarchy, badges, the orb, the key, 0.97, the head in five languages, every word inside its card at 640x360 ×1.25 with the Noto
   fonts); `store_chips`/`hammers`/`missiles_test` updated (the navigation's hammer found in the navigation, no unmarked plates).
-  Pictures: `test/store_shots.dart` — every shelf (Badges since 27 Sep 2026), the store at a table (its Animated, Chips and Badges
-  shelves), the picker, at 640x360, 891x411, 592x360, 915x412 and 1280x800, both themes, ×1.0 and ×1.25, and Hindi, emoji drawn
+  Pictures: `test/store_shots.dart` — every shelf (Badges since 27 Sep 2026, Cards since 3 Oct 2026), the store at a table (its
+  Animated, Chips, Cards and Badges shelves), the picker, at 640x360, 891x411, 592x360, 915x412 and 1280x800, both themes, ×1.0 and ×1.25, and Hindi, emoji drawn
   from Noto Color Emoji — by hand, like table_shots.
 - **The store navigation** (owner's brief, 27 Sep 2026: "I do NOT want the user to horizontally scroll the main store navigation
   ... all categories visible at once on small screens"; `widgets/chip_store.dart`, presentation only — no shelf, price, pack or
@@ -4713,12 +5063,17 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   takes as many lines (1–3) as the widest blurb of all the shelves needs beside the widest balance of all the shelves, so nothing
   moves from shelf to shelf; a wallet pair stands in a row where that blurb keeps one line beside it (at 891x411 again, stacked at
   640x360 ×1.25). **The navigation** (`_StoreTabs`, one `InkWell` keyed `store-tab-<shelf>` a shelf) is a row of its own the
-  sheet's whole width, EVERY shelf's key on screen in the lobby and at a table (the table's eight are the lobby's with Pictures
-  named Animated): each key its glyph (18dp) over its word (`labelSmall` 10.5, set solid), at least 44dp each way, 45–48dp tall.
+  sheet's whole width, EVERY shelf's key on screen in the lobby and at a table (nine since the Cards shelf joined them on 3 Oct
+  2026, eight before; the table's are the lobby's with Pictures named Animated): each key its glyph (18dp — the Cards key's a
+  tiny Royal Fox card, `RoyalFoxGlyph`, "The card backs" above) over its word (`labelSmall` 10.5, set solid), at least 44dp each
+  way, 45–48dp tall.
   `_StoreTabs.layoutFor` MEASURES the words in this language at this text scale and lays the keys out: one row of equal keys
   where every word fits an equal share (at most `maxKeyWidth` 120, so a tablet's row stops short of the edge); else one row of keys
-  as wide as their words with the room left shared out, the 6dp gap tightened to 4 before a second row is let in (the table's
-  English keys at 592x360 ×1.25 missed one row by 1dp); else balanced rows of equal keys (four over four, four over three), which
+  as wide as their words with the room left shared out, the 6dp gap tightened to 4 (the table's English keys at 592x360 ×1.25
+  missed one row by 1dp with eight keys), and then — since the ninth key — the keys' own insets and the gaps a step more, 2dp
+  each (`snugPadX`, `snugGap`: the nine English words at 592x360 ×1.25 stood 31dp too wide in the lobby and 40dp at a table;
+  only the air beside a word goes, never the word, and no key is under 44dp), before a second row is let in; else balanced rows
+  of equal keys (five over four; four over four, four over three with eight), which
   no landscape phone here needs — every size tested (592–1280dp, ×1.0 and ×1.25, all five languages) is one row, and 480dp at
   ×1.25 is the proof of the wrap. No scroll view, no fade, no `_revealTab`. The key that is on: a gold wash laid OVER the others'
   well (champagne by day, where gold read tan; straight on the grey sheet the lit key was the darkest on the row and its word
@@ -4737,11 +5092,12 @@ clock (4, 8, 16 s, then every 30 s) by both the backdrop and `CachedPictureBox`,
   shelf's `DayNightSwitch` at its right (its tiles then at most a tenth under `Dim.packW`, so a 592dp phone keeps three to the
   row); over the grid, the head's 57dp had cut a 360dp phone's first row of faces through their names at ×1.25 with nothing of
   the next showing, and 844x390/915x412 the same. A tablet keeps both over the grid. **Columns** stay `_ShelfGeometry`'s least-card-width rule (`Dim.packW`): 3 at 592 and
-  640, 4 at 732, 844, 891 and 915, 5 at 1280. `test/store_nav_test.dart` (86): at 592x360, 640x360, 732x412, 844x390, 915x412
+  640, 4 at 732, 844, 891 and 915, 5 at 1280. `test/store_nav_test.dart` (87 — the snug step's test since 3 Oct 2026: the
+  nine English keys in one row at 592x360 ×1.25 giving up the air beside their words there, and only there): at 592x360, 640x360, 732x412, 844x390, 915x412
   and 1280x800, ×1.0 and ×1.25, all five languages with the Noto fonts, both themes, lobby and table — no horizontal scroll view
   outside the products and none round the keys, one row, every key inside the sheet with its word whole and clear of the close
   key and the balance, and each tapped on to its shelf; one row of equal keys at 891x411 in every language; the balanced wrap at
-  480dp; the Chips shelf's whole first row (3/3/4/4/4/4/5 columns), a glimpse of the next, every word whole and the figures ≥22dp
+  480dp (five over four); the Chips shelf's whole first row (3/3/4/4/4/4/5 columns), a glimpse of the next, every word whole and the figures ≥22dp
   tall in English and Hindi; the close key; the on key's glow, rim, scale and 200–250ms; every key's word no wider than its key
   (its intrinsic width — a word set with no clip always has its key's box); every word at 4.5:1 or more on its face, on and
   off, both themes (sampled from the rendered screen at 3×); and EVERY shelf, lobby and table, at 592x360 and 640x360 ×1.0 and
@@ -4907,6 +5263,10 @@ drawer's Report line is off and counts down to when the next opens (`GET /api/re
 and Variation table pays their rate — the lowest of their level's (20% at Level 1 to 6% at Level 50, by XP) and their badges'
 (Regular 20% for everyone; the Royal badges 0%, sold for rupees through support) — of their winnings of 50 Lakh or more; a
 daily XP of eight sources; the lobby's level key; the store's Badges shelf.
+**The card backs** (owner, 3 Oct 2026; §6.1, §7.2, §7.3, §8.1, §8.4): a back a player buys for their own cards on the store's
+Cards shelf — the owner's thirteen in the R2 bucket's `cards/` folder, eight at 5 hammers and five Flower backs at 2, each for
+10 days — and everyone at their Teen Patti table sees it on that player's face-down cards and in the deal; the Royal Fox stays
+everybody's free default, and a rental that runs out puts it back at that moment, on the table's clock and the phone's.
 
 ---
 
@@ -4936,7 +5296,10 @@ behind a drawer or a dialog `TableScrim` (dialogs through `showTableDialog`), am
 own colours `CasinoTableColors` (one painter, both themes); a console key states its `KeyRole` — one primary on the
 console, never a second. **A card** is a `PlayingCard` at a height and nothing else: where anything on its face goes is
 `CardFaceMetrics`, its corner `PlayingCard.cornerShare`, its shadows `PlayingCard.shadows`, and the viewer's fan `HandFan`
-— never a second card widget, a literal card radius or a fan's numbers written out again.
+— never a second card widget, a literal card radius or a fan's numbers written out again. Its back is the holder's
+(`PlayingCard(back:)` → `CardBackImage`; a painter prints one with `paintCardBack`, the store's glyph is `RoyalFoxGlyph`), a
+chosen one drawn from `CardBackImages`' one decode a picture and read through `liveCardBack` — never an image of a back drawn by
+hand.
 **Depth** is the ladder's (`theme/depth.dart`, §8.4 "The depth pass"): a new surface states its `Elevation` —
 `PremiumGlassPanel.depth`, `DepthFace`, `raisedKeyFace`, `DepthShadow` — rather than a shadow, an edge light or a sheen of
 its own; a translucent surface casts round itself (`DepthShadow`), never through a `BoxDecoration.boxShadow` under it.
@@ -5031,7 +5394,10 @@ its own; a translucent surface casts round itself (`DepthShadow`), never through
   zone, and a future that completed inside one of them runs the continuation of every later `await` on it in THAT zone,
   which nobody pumps any more: the await never returns (24 Sep 2026: an asset drawn in the first screenshot of a run and
   in none after it). Keep what an asset loader has loaded as a VALUE and use it synchronously, and load such assets in
-  `setUpAll`, where async is real, in the picture harnesses.
+  `setUpAll`, where async is real, in the picture harnesses. `CardBackImages` (3 Oct 2026) is built round it: a decode in
+  flight is shared only within the zone that started it, so a later `runAsync` load never waits on one begun under a test's
+  fake clock; its tests decode in `tester.runAsync` before the widget is built (`primeCardBacks`) and call
+  `CardBackImages.debugClear()` (`forgetCardBacks()`) in `tearDown`.
 - `FractionallySizedBox` with only `widthFactor` and a childless child **collapses to zero height**
   (needed `heightFactor: 1`, `alignment: centerLeft`).
 - Both `game:showdown` and `game:handEnded` hit `onShowdown`; only the latter has `nextHandAt`.
@@ -5206,7 +5572,7 @@ deploy runbook; `steps.txt` the six-line routine.
 - **DB via `pgx`** (`internal/db`): `migration/V*.sql` (embedded; Flyway-named, the founding pair since 23 Sep 2026 —
   `V1.0.0__baseline.sql` all DDL, `V1.0.1__seed.sql` DML — then DML-only seeds since 28 Sep 2026, `V1.0.2__seed-festive-capybara.sql`
   the first — applied in version order, idempotent, run at
-  every start: forty-four tables (§7.3) — the welcome grant, the reward programs, money, accounts, the app version gate's rows, the sign-in each token must carry, gameplay stats, the friends graph, the player reports, the levels, badges and one-time XP missions, the picture catalogues (profile and table), the emojis, the four table-configuration tables, the Lucky Draw's three, no game
+  every start: forty-seven tables (§7.3) — the welcome grant, the reward programs, money, accounts, the app version gate's rows, the sign-in each token must carry, gameplay stats, the friends graph, the player reports, the levels, badges and one-time XP missions, the picture catalogues (profile and table), the card backs' three, the emojis, the four table-configuration tables, the Lucky Draw's three, no game
   state — §7.3), `TableConfigs.Load`/`ExportTableConfigSQL` (the table catalogue), the `Checkpoint`/`Settle` transactions of §5.1, `search_path` as a connection parameter,
   `statement_timeout` per pooled connection (`PG_STATEMENT_TIMEOUT_MS`). Money-path fixes vs Node
   (all in DECISIONS §2): wallet locks before the `hands` insert, settle retry continues after table
@@ -5231,7 +5597,11 @@ deploy runbook; `steps.txt` the six-line routine.
   `gomaxprocs`. Grafana's former "Node.js" row is now "Runtime"; alerts
   `GameServerSchedulerLatencyHigh` / `GameServerGoroutinesHigh` / `GameServerMemoryHigh` replaced
   the three `nodejs_*` ones (§7.5 bundle at `go-server/ops/monitoring/`, `MONITORING.md`).
-- Small honest deviations: **the iOS app's two doors** (§7.2/§7.3/§7.4; 2 Oct 2026) — provider `apple` on the login,
+- Small honest deviations: **the card backs** (§6.1/§7.1/§7.2/§7.3; 3 Oct 2026) — three tables, `GET /api/card-backgrounds`
+  and `POST /api/card-backgrounds/use` / `…/buy`, `user.cardBackground`, `room:state.seats[].cardBackground` on Teen Patti
+  snapshots (absent when a seat wears the default back, so every snapshot without one is byte for byte what it was), the
+  table's card-back clock, `card_background_purchase` ledger rows, and the R2 key rule widened to the owner's file names;
+  **the iOS app's two doors** (§7.2/§7.3/§7.4; 2 Oct 2026) — provider `apple` on the login,
   `POST /api/purchases/apple`, `APPLE_BUNDLE_IDS` / `APPLE_IAP_ENVIRONMENTS`, `'apple'` in `users.provider`'s CHECK and
   `appstore:<transactionId>` purchase keys; nothing an Android client sends or receives changed; **the catalogue's art in R2** (§7.2/§7.3/§7.4; 1 Oct 2026) — `POST /api/assets/sign`, the four `R2_*`
   keys (production will not start without them), and every catalogue URL a route hands out a location in a private bucket, which a

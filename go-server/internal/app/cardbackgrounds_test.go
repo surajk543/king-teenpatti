@@ -307,6 +307,12 @@ func TestACardBackChosenMidHandIsOnThatPlayersSeatForEveryViewer(t *testing.T) {
 	if present, back := accountCardBack(t, res); !present || !sameBack(back, brutal) {
 		t.Fatalf("the account after choosing: %+v", back)
 	}
+	// A rental: the seat carries its term, the ownership row's expires_at.
+	var ends int64
+	if err := database.Pool.QueryRow(ctx, `SELECT expires_at FROM user_cards_background WHERE user_id = $1 AND card_background_id = $2`,
+		buyerID, brutal.ID).Scan(&ends); err != nil || ends <= time.Now().UnixMilli() {
+		t.Fatalf("the rental's term: %d %v", ends, err)
+	}
 	for who, client := range map[string]*testclient.Client{"the buyer": c, "the other player": c2} {
 		mark := markA
 		if client == c2 {
@@ -323,7 +329,7 @@ func TestACardBackChosenMidHandIsOnThatPlayersSeatForEveryViewer(t *testing.T) {
 		if gotHand, state, gotPot := handOf(t, raw); gotHand != handNo || state != string(game.TableBetting) || gotPot != pot {
 			t.Errorf("%s: choosing a card back touched the hand: hand %d %s pot %d, was hand %d pot %d", who, gotHand, state, gotPot, handNo, pot)
 		}
-		if !strings.Contains(string(raw), `"cardBackground":{"id":`+fmt.Sprint(brutal.ID)+`,"url":"`+brutalDemon+`","assetFormat":"IMAGE","crop":{"x":0.2035,"y":0.0805,"w":0.6007,"h":0.841}}`) {
+		if !strings.Contains(string(raw), `"cardBackground":{"id":`+fmt.Sprint(brutal.ID)+`,"url":"`+brutalDemon+`","assetFormat":"IMAGE","crop":{"x":0.2035,"y":0.0805,"w":0.6007,"h":0.841},"expiresAt":`+fmt.Sprint(ends)+`}`) {
 			t.Errorf("%s's room:state on the wire: %s", who, raw)
 		}
 	}

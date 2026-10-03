@@ -366,8 +366,11 @@ func TestAChosenCardBackRidesOnTheAccountAndEverySeatBuiltFromIt(t *testing.T) {
 	if found := f.find(user.ID); !same(found.CardBackground) || !same(found.Player().CardBackground) {
 		t.Fatalf("FindByID carries %+v, its Player %+v", found.CardBackground, found.Player().CardBackground)
 	}
+	// A rental: the account says when it runs out (expiresAt, the ownership
+	// row's), which every seat built from it goes by.
+	ends := f.scalar(`SELECT expires_at FROM user_cards_background WHERE user_id = $1 AND card_background_id = $2`, user.ID, owl.ID)
 	raw, _ := json.Marshal(chosen)
-	if !strings.Contains(string(raw), `"cardBackground":{"id":`+itoa(owl.ID)+`,"url":"`+want.URL+`","assetFormat":"IMAGE","crop":{"x":0.1985,"y":0.0776,"w":0.6021,"h":0.8429}}`) {
+	if !strings.Contains(string(raw), `"cardBackground":{"id":`+itoa(owl.ID)+`,"url":"`+want.URL+`","assetFormat":"IMAGE","crop":{"x":0.1985,"y":0.0776,"w":0.6021,"h":0.8429},"expiresAt":`+itoa(ends)+`}`) {
 		t.Fatalf("the account on the wire: %s", raw)
 	}
 
@@ -391,6 +394,91 @@ func TestAChosenCardBackRidesOnTheAccountAndEverySeatBuiltFromIt(t *testing.T) {
 	if _, err := f.cards.Use(f.ctx, user.ID, &missing); err == nil {
 		t.Fatal("choosing a card back that is not in the catalogue was stored")
 	}
+}
+
+// The account says when its card back runs out (owner, 3 Oct 2026: "when
+// validity of premium card expires, it restores default card"): a rented one
+// carries its ownership row's expires_at — on every account read, on the wire
+// and in the Player every seat is built from — so the seat lets go of it at
+// that moment by itself. A term moved (a renewal, or by hand) is what the
+// next read says. A back bought for ever carries none, and neither does a free
+// one, even with an ownership row left from a time it was sold.
+func TestTheAccountsCardBackSaysWhenItsRentalRunsOut(t *testing.T) {
+	f := newFixture(t)
+	user := newGuest(t, f)
+	execSQL(t, f.d, `UPDATE users SET hammer = 20 WHERE id = $1`, user.ID)
+	lion := seededCardBack(t, f, user.ID, "Royal Lion")
+	bought, err := f.cards.Buy(f.ctx, user.ID, lion.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chosen, err := f.cards.Use(f.ctx, user.ID, &lion.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	termOf := func(id int64) int64 {
+		return f.scalar(`SELECT expires_at FROM user_cards_background WHERE user_id = $1 AND card_background_id = $2`, user.ID, id)
+	}
+	ends := termOf(lion.ID)
+	if ends != bought.CardBackground.ExpiresAt || ends-nowMs() > 10*db.DayMs || ends-nowMs() < 10*db.DayMs-60_000 {
+		t.Fatalf("the ten-day rental ends at %d (the purchase said %d)", ends, bought.CardBackground.ExpiresAt)
+	}
+	for name, u := range map[string]*db.User{"the choice's answer": chosen, "FindByID": f.find(user.ID)} {
+		if u.CardBackground == nil || u.CardBackground.ID != lion.ID || u.CardBackground.ExpiresAt != ends {
+			t.Errorf("%s: cardBackground %+v, want the Royal Lion until %d", name, u.CardBackground, ends)
+		}
+		if p := u.Player().CardBackground; p == nil || p.ExpiresAt != ends {
+			t.Errorf("%s: the Player a seat is built from carries %+v, want the term %d", name, p, ends)
+		}
+		raw, _ := json.Marshal(u)
+		if !strings.Contains(string(raw), `,"expiresAt":`+itoa(ends)+`},"chips":`) {
+			t.Errorf("%s: the account on the wire: %s", name, raw)
+		}
+	}
+
+	// The term moved: the next read says the new one.
+	sooner := nowMs() + 5_000
+	execSQL(t, f.d, `UPDATE user_cards_background SET expires_at = $3 WHERE user_id = $1 AND card_background_id = $2`, user.ID, lion.ID, sooner)
+	if got := f.find(user.ID).CardBackground; got == nil || got.ExpiresAt != sooner {
+		t.Fatalf("after the term moved the account carries %+v, want it to end at %d", got, sooner)
+	}
+
+	noTerm := func(what string, id int64) {
+		t.Helper()
+		u := f.find(user.ID)
+		if u.CardBackground == nil || u.CardBackground.ID != id || u.CardBackground.ExpiresAt != 0 || u.Player().CardBackground.ExpiresAt != 0 {
+			t.Fatalf("%s: the account carries %+v, want no term", what, u.CardBackground)
+		}
+		if raw, _ := json.Marshal(u.CardBackground); strings.Contains(string(raw), "expiresAt") {
+			t.Fatalf("%s: a back with no term is sent with one: %s", what, raw)
+		}
+	}
+	// Bought for ever: a premium back with no term.
+	forever := cardBackRow(t, f, "Gold Leaf", db.PictureCurrencyHammer, db.PicturePremium, 1, 0)
+	if _, err := f.cards.Buy(f.ctx, user.ID, forever.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.cards.Use(f.ctx, user.ID, &forever.ID); err != nil {
+		t.Fatal(err)
+	}
+	if termOf(forever.ID) != 0 {
+		t.Fatal("a back bought for ever was given a term")
+	}
+	noTerm("a back bought for ever", forever.ID)
+
+	// A free back, chosen with no purchase.
+	plain := cardBackRow(t, f, "Plain Felt", db.PictureCurrencyCoin, db.PictureFree, 0, 0)
+	if _, err := f.cards.Use(f.ctx, user.ID, &plain.ID); err != nil {
+		t.Fatal(err)
+	}
+	noTerm("a free back", plain.ID)
+	// Free, with an ownership row from a time it was sold — run out, or still
+	// running: a free back never runs out, whatever the row says.
+	execSQL(t, f.d, `INSERT INTO user_cards_background (user_id, card_background_id, acquired_at, expires_at, purchases)
+	                 VALUES ($1, $2, 0, $3, 1)`, user.ID, plain.ID, nowMs()-1_000)
+	noTerm("a free back with a lapsed ownership row", plain.ID)
+	execSQL(t, f.d, `UPDATE user_cards_background SET expires_at = $3 WHERE user_id = $1 AND card_background_id = $2`, user.ID, plain.ID, nowMs()+60_000)
+	noTerm("a free back with a running ownership row", plain.ID)
 }
 
 // A rental that runs out is gone from the account the instant it lapses — the

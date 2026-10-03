@@ -42,7 +42,10 @@ import 'playing_card.dart';
 /// picture [CardBackImages] has decoded — five seats in three backs are three
 /// images — and the one painter draws each card from its seat's. A back
 /// still coming flies as the Royal Fox, and the cards still in the air take
-/// it up the moment it is decoded, whoever asked for it.
+/// it up the moment it is decoded, whoever asked for it. A back that has
+/// run out ([liveCardBack]) is the Royal Fox: a deal after its moment flies
+/// none of it, and the cards of one in the air when the moment comes fly on
+/// in the Royal Fox, as their seat's cards then show it.
 class DealFlights extends StatefulWidget {
   const DealFlights({
     super.key,
@@ -216,6 +219,7 @@ class DealFlightsState extends State<DealFlights>
             setState(() {
               _targets = const [];
               _cardBacks = const [];
+              _cardLapses = const [];
               _cardImages = const [];
             });
             // The deal is down: a back only its cards were still wearing —
@@ -230,6 +234,12 @@ class DealFlightsState extends State<DealFlights>
   /// The back each card of the deal is dealt in — the one its seat wears,
   /// which it lands as — in the same order.
   List<_Back> _cardBacks = const [];
+
+  /// When each of those backs runs out (owner, 3 Oct 2026: "when validity of
+  /// premium card expires, it restores default card"), epoch ms, 0 for
+  /// never — in the same order. Kept beside the backs rather than in them, so
+  /// two players in one back with two rentals still share one render.
+  List<int> _cardLapses = const [];
 
   /// The image each card of the deal is drawn from now: its back's render,
   /// the Royal Fox's while its own is still coming, or null — the plain back
@@ -273,9 +283,11 @@ class DealFlightsState extends State<DealFlights>
   @override
   void didUpdateWidget(DealFlights oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Ready before anything is dealt: a new size, a player sitting down in
-    // a back of their own, or one wearing another.
-    if (_restock()) _cardImages = _imagesFor(_cardBacks);
+    // A back run out while its cards are in the air: they fly on in the
+    // Royal Fox. Then ready before anything is dealt: a new size, a player
+    // sitting down in a back of their own, or one wearing another.
+    final lapsed = _dropLapsedBacks();
+    if (_restock() || lapsed) _cardImages = _imagesFor(_cardBacks);
     // A new hand, at the SAME table, and not the first after arriving. The
     // room check keeps a switch quiet: this state survives a move and sees
     // handNo jump to the new table's, which looks exactly like a deal.
@@ -303,17 +315,20 @@ class DealFlightsState extends State<DealFlights>
     _unavailable.clear();
     final targets = <Offset>[];
     final backs = <_Back>[];
+    final lapses = <int>[];
     for (var round = 0; round < widget.cards; round++) {
       for (final seat in seated) {
         targets.add(widget.centreOf(seat));
-        backs.add(
-          widget.seatBacks
-              ? _backOf(widget.seats[seat]?.cardBackground)
-              : _royalFox,
-        );
+        // Its seat's back while it runs; one run out is the Royal Fox.
+        final art = widget.seatBacks
+            ? liveCardBack(widget.seats[seat]?.cardBackground)
+            : null;
+        backs.add(_backOf(art));
+        lapses.add(art?.expiresAt ?? 0);
       }
     }
     _cardBacks = backs;
+    _cardLapses = lapses;
     _restock();
     setState(() {
       _targets = targets;
@@ -351,9 +366,27 @@ class DealFlightsState extends State<DealFlights>
     _royalFox,
     if (widget.seatBacks)
       for (final seat in widget.seats)
-        if (seat != null && seat.occupied) _backOf(seat.cardBackground),
+        if (seat != null && seat.occupied)
+          _backOf(liveCardBack(seat.cardBackground)),
     ..._cardBacks,
   };
+
+  /// Puts the Royal Fox on every card in the air whose back has run out by
+  /// now ([cardBackClock]): true when one had, and the cards' images are then
+  /// to be pointed at what they wear now.
+  bool _dropLapsedBacks() {
+    // No deal in the air: nothing to read the clock for.
+    if (_cardLapses.isEmpty) return false;
+    final now = cardBackClock().millisecondsSinceEpoch;
+    bool lapsed(int at) => at > 0 && now >= at;
+    if (!_cardLapses.any(lapsed)) return false;
+    _cardBacks = [
+      for (var i = 0; i < _cardBacks.length; i++)
+        lapsed(_cardLapses[i]) ? _royalFox : _cardBacks[i],
+    ];
+    _cardLapses = [for (final at in _cardLapses) lapsed(at) ? 0 : at];
+    return true;
+  }
 
   /// Renders every back the deal may draw ([_wanted]) that is not rendered at
   /// this size, from the pictures decoded so far; asks for those not decoded
