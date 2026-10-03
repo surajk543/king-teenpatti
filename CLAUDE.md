@@ -4072,8 +4072,9 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   (`widthFor`, measured in the player's language and text size, at most `maxWidth` 120dp) and drawn `pillShare` 0.78 of
   its 42/46dp tap box (`heightFor`; the box takes the tap, its margins too, and the hand's column is laid out round it, so
   nothing round the key moved — it was 120–160dp by the screen's width and the box's full height while it said SEE CARDS),
-  ABOVE the viewer's cards and centred on them,
-  the bet badge beside it, both in `_OwnBetRow`; it cross-fades out as the cards turn and the badge alone fades in,
+  ABOVE the viewer's cards, `seeShift` (12dp) left of their centre with `badgeGap` (14dp) of air before the bet badge beside
+  it, both in `_OwnBetRow` (owner, that night: "Move see button to little left and add some space in right side of see
+  pill"), the eye on the word's line and the blind dots (4dp) centred under the two; it cross-fades out as the cards turn and the badge alone fades in,
   centred; the variation picker's box stops above it, `_seeCardsTopFor`, `VariationPrompt.panelHeight`); **the seats** (no colour orbs — `_PodWash` with `TableAmbient.podWash`/
   `podWashReach`/`podShade`; the picture's gold ring at rest; BLIND in `TableInk.blindOn`); the room
   (`TableGround`/`RoomGround`: ivory to champagne by day, near-black by night, the lamp lower and wider); the pot's plate
