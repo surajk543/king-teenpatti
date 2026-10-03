@@ -644,6 +644,48 @@ class Strings {
   /// Tables shelf's blurb there.
   String get tablePokerNote => _('tablePokerNote');
 
+  // --- card backs (owner, 3 Oct 2026: "add one more tab Cards in Store which
+  // user can buy"; everyone at a table sees each player's back on that
+  // player's face-down cards)
+
+  /// The store's Cards shelf: its key, its title and its line.
+  String get storeTabCards => _('storeTabCards');
+  String get storeCardsTitle => _('storeCardsTitle');
+  String get storeCardsBlurb => _('storeCardsBlurb');
+
+  /// The small print under the shelf's first tile — the Royal Fox, the back
+  /// every card wears until its player chooses another, which a tap puts
+  /// back on — and the word on the tile whose back is on the player's cards.
+  String get cardBackDefaultHint => _('cardBackDefaultHint');
+  String get cardInUse => _('cardInUse');
+
+  /// The word on a back the player can put on now — the Royal Fox, or one
+  /// bought and still running: [pictureOwned] in the card back's own
+  /// grammar ("कार्ड बैक" is masculine where "तस्वीर" is feminine).
+  String get cardOwned => _('cardOwned');
+
+  /// The unlock question for a card back, with the price written out by
+  /// [priceIn] and, for a rental, its term by [rentalTerm]: "Royal Tiger
+  /// costs 5 hammers and is yours for 10 days."
+  String get unlockCardTitle => _('unlockCardTitle');
+  String unlockCardBody(String name, String price) => _(
+    'unlockCardBody',
+  ).replaceAll('{name}', name).replaceAll('{price}', price);
+  String unlockCardRentBody(String name, String price, String time) =>
+      _('unlockCardRentBody')
+          .replaceAll('{name}', name)
+          .replaceAll('{price}', price)
+          .replaceAll('{time}', time);
+
+  /// Said instead of asking when a chip-priced card back is tapped at a
+  /// table, as [tableChipsLobbyOnly] is for a table picture.
+  String get cardChipsLobbyOnly => _('cardChipsLobbyOnly');
+
+  /// Said when a card back is put on at a POKER room, whose felt keeps the
+  /// standard back (the choice waits for the next Teen Patti table), and as
+  /// the Cards shelf's line there.
+  String get cardsPokerNote => _('cardsPokerNote');
+
   // --- emojis (owner, 26 Sep 2026: animated emojis a player buys and sends
   // to the whole table, like a chat line)
 
@@ -2251,6 +2293,22 @@ class Strings {
       'priceDiamondOne': '1 diamond',
       'tablePokerNote':
           'Poker tables show no table picture — it will show at your next Teen Patti table.',
+      // Card backs (owner, 3 Oct 2026).
+      'storeTabCards': 'Cards',
+      'storeCardsTitle': 'Card Backs',
+      'storeCardsBlurb':
+          'Card backs everyone at your table sees on your cards.',
+      'cardBackDefaultHint': 'Default',
+      'cardInUse': 'In use',
+      'cardOwned': 'Owned',
+      'unlockCardTitle': 'Unlock this card back?',
+      'unlockCardBody': '{name} costs {price}. Unlock it and use it now?',
+      'unlockCardRentBody':
+          '{name} costs {price} and is yours for {time}. Unlock it and use it now?',
+      'cardChipsLobbyOnly':
+          'You can only buy a chip-priced card back in the lobby.',
+      'cardsPokerNote':
+          'Poker tables keep the standard card back — yours shows at your next Teen Patti table.',
       // Emojis (owner, 26 Sep 2026).
       'storeTabEmojis': 'Emojis',
       'storeEmojisTitle': 'Emojis',
@@ -3265,6 +3323,21 @@ class Strings {
       'priceDiamondOne': '1 हीरा',
       'tablePokerNote':
           'पोकर टेबल पर टेबल पिक्चर नहीं दिखती — यह आपकी अगली तीन पत्ती टेबल पर दिखेगी।',
+      // Card backs (owner, 3 Oct 2026).
+      'storeTabCards': 'कार्ड',
+      'storeCardsTitle': 'कार्ड बैक',
+      'storeCardsBlurb': 'आपके कार्डों का बैक, जिसे टेबल पर सब देखते हैं।',
+      'cardBackDefaultHint': 'डिफ़ॉल्ट',
+      'cardInUse': 'उपयोग में',
+      'cardOwned': 'आपका',
+      'unlockCardTitle': 'यह कार्ड बैक अनलॉक करें?',
+      'unlockCardBody': '{name} की कीमत {price} है। अभी अनलॉक करके लगाएँ?',
+      'unlockCardRentBody':
+          '{name} की कीमत {price} है और यह {time} तक आपका रहेगा। अभी अनलॉक करके लगाएँ?',
+      'cardChipsLobbyOnly':
+          'चिप्स की कीमत वाला कार्ड बैक सिर्फ़ लॉबी में खरीदा जा सकता है।',
+      'cardsPokerNote':
+          'पोकर टेबल पर सामान्य कार्ड बैक ही रहता है — आपका अगली तीन पत्ती टेबल पर दिखेगा।',
       // Emojis (owner, 26 Sep 2026).
       'storeTabEmojis': 'इमोजी',
       'storeEmojisTitle': 'इमोजी',
@@ -4264,6 +4337,20 @@ class Strings {
       'priceDiamondOne': '1টি হীরে',
       'tablePokerNote':
           'পোকার টেবিলে টেবিল ছবি দেখা যায় না — এটি আপনার পরের তিন পাত্তি টেবিলে দেখা যাবে।',
+      // Card backs (owner, 3 Oct 2026).
+      'storeTabCards': 'কার্ড',
+      'storeCardsTitle': 'কার্ড ব্যাক',
+      'storeCardsBlurb': 'আপনার কার্ডের ব্যাক, যা টেবিলের সবাই দেখতে পায়।',
+      'cardBackDefaultHint': 'ডিফল্ট',
+      'cardInUse': 'ব্যবহারে',
+      'cardOwned': 'আপনার',
+      'unlockCardTitle': 'এই কার্ড ব্যাকটি আনলক করবেন?',
+      'unlockCardBody': '{name} এর দাম {price}। এখনই আনলক করে ব্যবহার করবেন?',
+      'unlockCardRentBody':
+          '{name} এর দাম {price} এবং এটি {time} আপনার থাকবে। এখনই আনলক করে ব্যবহার করবেন?',
+      'cardChipsLobbyOnly': 'চিপসের দামের কার্ড ব্যাক শুধু লবিতে কেনা যায়।',
+      'cardsPokerNote':
+          'পোকার টেবিলে সাধারণ কার্ড ব্যাকই থাকে — আপনারটি পরের তিন পাত্তি টেবিলে দেখা যাবে।',
       // Emojis (owner, 26 Sep 2026).
       'storeTabEmojis': 'ইমোজি',
       'storeEmojisTitle': 'ইমোজি',
@@ -5262,6 +5349,22 @@ class Strings {
       'priceDiamondOne': '1 હીરો',
       'tablePokerNote':
           'પોકર ટેબલ પર ટેબલ ચિત્ર દેખાતું નથી — તે તમારા આગલા તીન પત્તી ટેબલ પર દેખાશે.',
+      // Card backs (owner, 3 Oct 2026).
+      'storeTabCards': 'કાર્ડ',
+      'storeCardsTitle': 'કાર્ડ બૅક',
+      'storeCardsBlurb': 'તમારા કાર્ડની બૅક, જે ટેબલ પર બધા જુએ છે.',
+      'cardBackDefaultHint': 'ડિફૉલ્ટ',
+      'cardInUse': 'વપરાશમાં',
+      'cardOwned': 'તમારું',
+      'unlockCardTitle': 'આ કાર્ડ બૅક અનલૉક કરવું છે?',
+      'unlockCardBody':
+          '{name} ની કિંમત {price} છે. હમણાં અનલૉક કરીને વાપરવું છે?',
+      'unlockCardRentBody':
+          '{name} ની કિંમત {price} છે અને તે {time} સુધી તમારું રહેશે. હમણાં અનલૉક કરીને વાપરવું છે?',
+      'cardChipsLobbyOnly':
+          'ચિપ્સની કિંમતવાળું કાર્ડ બૅક ફક્ત લૉબીમાં ખરીદી શકાય છે.',
+      'cardsPokerNote':
+          'પોકર ટેબલ પર સામાન્ય કાર્ડ બૅક જ રહે છે — તમારું આગલા તીન પત્તી ટેબલ પર દેખાશે.',
       // Emojis (owner, 26 Sep 2026).
       'storeTabEmojis': 'ઇમોજી',
       'storeEmojisTitle': 'ઇમોજી',
@@ -6256,6 +6359,21 @@ class Strings {
       'priceDiamondOne': '1 ਹੀਰਾ',
       'tablePokerNote':
           'ਪੋਕਰ ਟੇਬਲ ਉੱਤੇ ਟੇਬਲ ਤਸਵੀਰ ਨਹੀਂ ਦਿਖਦੀ — ਇਹ ਤੁਹਾਡੇ ਅਗਲੇ ਤੀਨ ਪੱਤੀ ਟੇਬਲ ਉੱਤੇ ਦਿਖੇਗੀ।',
+      // Card backs (owner, 3 Oct 2026).
+      'storeTabCards': 'ਕਾਰਡ',
+      'storeCardsTitle': 'ਕਾਰਡ ਬੈਕ',
+      'storeCardsBlurb': 'ਤੁਹਾਡੇ ਕਾਰਡਾਂ ਦਾ ਬੈਕ, ਜੋ ਟੇਬਲ ਉੱਤੇ ਸਭ ਨੂੰ ਦਿਖਦਾ ਹੈ।',
+      'cardBackDefaultHint': 'ਡਿਫ਼ਾਲਟ',
+      'cardInUse': 'ਵਰਤੋਂ ਵਿੱਚ',
+      'cardOwned': 'ਤੁਹਾਡਾ',
+      'unlockCardTitle': 'ਇਹ ਕਾਰਡ ਬੈਕ ਅਨਲਾਕ ਕਰਨਾ ਹੈ?',
+      'unlockCardBody': '{name} ਦੀ ਕੀਮਤ {price} ਹੈ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣਾ ਹੈ?',
+      'unlockCardRentBody':
+          '{name} ਦੀ ਕੀਮਤ {price} ਹੈ ਅਤੇ ਇਹ {time} ਤੱਕ ਤੁਹਾਡਾ ਰਹੇਗਾ। ਹੁਣੇ ਅਨਲਾਕ ਕਰਕੇ ਲਗਾਉਣਾ ਹੈ?',
+      'cardChipsLobbyOnly':
+          'ਚਿਪਸ ਦੀ ਕੀਮਤ ਵਾਲਾ ਕਾਰਡ ਬੈਕ ਸਿਰਫ਼ ਲੌਬੀ ਵਿੱਚ ਖਰੀਦਿਆ ਜਾ ਸਕਦਾ ਹੈ।',
+      'cardsPokerNote':
+          'ਪੋਕਰ ਟੇਬਲ ਉੱਤੇ ਆਮ ਕਾਰਡ ਬੈਕ ਹੀ ਰਹਿੰਦਾ ਹੈ — ਤੁਹਾਡਾ ਅਗਲੇ ਤੀਨ ਪੱਤੀ ਟੇਬਲ ਉੱਤੇ ਦਿਖੇਗਾ।',
       // Emojis (owner, 26 Sep 2026).
       'storeTabEmojis': 'ਇਮੋਜੀ',
       'storeEmojisTitle': 'ਇਮੋਜੀ',

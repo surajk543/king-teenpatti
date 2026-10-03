@@ -1,29 +1,35 @@
 // Pictures of the store's shelves (the premium store polish, 26 Sep 2026;
 // the shelf navigation that never scrolls, 27 Sep 2026): Chips with its
-// Premium Packages, Diamonds, Hammers, Missiles, Pictures, Tables and Badges,
-// opened over the lobby; the store opened at a table (its Animated shelf, its
-// Chips shelf and its Badges); and the lobby's picture picker, which is built
-// from the same shelf. At the landscape phone sizes the game is
-// checked on and a tablet, in both themes, at text x1.0 and x1.25, and in
-// Hindi at the tightest size. Not part of `flutter test` (the name has no
-// `_test`): run it by hand.
+// Premium Packages, Diamonds, Hammers, Missiles, Pictures, Tables, Cards and
+// Badges, opened over the lobby; the store opened at a table (its Animated
+// shelf, its Chips shelf, its Badges and its Cards); and the lobby's picture
+// picker, which is built from the same shelf. At the landscape phone sizes
+// the game is checked on and a tablet, in both themes, at text x1.0 and
+// x1.25, and in Hindi at the tightest size. Not part of `flutter test` (the
+// name has no `_test`): run it by hand.
 //
 //   flutter test test/store_shots.dart --dart-define=SHOTS_DIR=/abs/dir \
 //     --dart-define=ICON_FONT=<flutter>/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf
 //   (optional) --dart-define=SHOTS_ONLY=06-pictures   a substring of the names;
 //              several, comma-separated, take any of them, and a '+' inside
 //              one asks for all its parts (06-pictures+_dark_x1.25)
+//   (optional) --dart-define=CARD_ART=/abs/dir   the owner's card-back JPEGs
+//              as the bucket names them ("Brutal Demon.jpg" …), drawn on the
+//              Cards shelf; without it each back is a stand-in of its own
+//              colour in its own crop (card_background_fixtures.dart)
 //
 // The picture shelves hold a catalogue with every state a tile can be in —
 // the picture being worn, owned for good, a rental with time left, and locked
 // at a price in chips, hammers and diamonds, with and without a term — and
-// the table shelf the same, with a cloth in use. Their files are the repo's
-// own: the animal SVGs the browser client serves, the generated table SVGs and
-// the app's own Lottie animations, primed into the picture cache so nothing is
-// fetched. The shelf marks (⭐ 🔥 👑) are drawn from this machine's Noto Color
-// Emoji, as a phone draws them from its own; the Hindi pass falls back to the
-// Noto Indic fonts (script_fonts.dart). Anything that overflows or throws is
-// written to SHOTS_DIR/problems.txt rather than failing the run.
+// the table shelf the same, with a cloth in use; the Cards shelf the eight
+// seeded backs, one on the player's cards and one owned with hours left.
+// Their files are the repo's own: the animal SVGs the browser client serves,
+// the generated table SVGs and the app's own Lottie animations, primed into
+// the picture cache so nothing is fetched. The shelf marks (⭐ 🔥 👑) are drawn
+// from this machine's Noto Color Emoji, as a phone draws them from its own;
+// the Hindi pass falls back to the Noto Indic fonts (script_fonts.dart).
+// Anything that overflows or throws is written to SHOTS_DIR/problems.txt
+// rather than failing the run.
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -42,14 +48,17 @@ import 'package:teenpatti/screens/table_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/widgets/card_back_art.dart';
 import 'package:teenpatti/widgets/chip_store.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 
+import 'card_background_fixtures.dart';
 import 'script_fonts.dart';
 import 'table_scenes.dart';
 
 const _dir = String.fromEnvironment('SHOTS_DIR');
 const _only = String.fromEnvironment('SHOTS_ONLY');
+const _cardArt = String.fromEnvironment('CARD_ART');
 
 /// One thing to photograph: a shelf of the store, where it was opened from,
 /// and how far down it is scrolled — or the lobby's picture picker.
@@ -89,6 +98,8 @@ const _scenes = [
   _Scene('10-picker', StoreTab.pictures, picker: true),
   _Scene('11-badges', StoreTab.badges),
   _Scene('12-table-badges', StoreTab.badges, atTable: true),
+  _Scene('13-cards', StoreTab.cards),
+  _Scene('14-table-cards', StoreTab.cards, atTable: true),
 ];
 
 class _Shot {
@@ -170,6 +181,31 @@ Future<void> _primePictures() async {
     prime(_pic(url), '$_animations/$file');
   }
 }
+
+/// The eight seeded card backs, primed into the picture cache under their
+/// bucket locations and decoded, so every card draws its own back on the
+/// first frame: the owner's JPEGs from [_cardArt] where it names a folder
+/// holding them, else each back's stand-in — its own colour in its own crop
+/// on the product shots' dark ground. Real async: called from setUpAll.
+Future<void> _primeCardBacks() async {
+  for (final card in seededCards) {
+    final file = File('$_cardArt/${card.key.split('/').last}');
+    final bytes = _cardArt.isNotEmpty && file.existsSync()
+        ? file.readAsBytesSync()
+        : await cardPicturePng(card.crop, card: card.colour, size: 512);
+    PictureCache.prime(card.url, bytes);
+    await CardBackImages.load(card.art);
+  }
+}
+
+/// The Cards shelf's catalogue: Royal Tiger on the player's cards, Dragon
+/// Hunter owned with hours left, the rest locked at 5 hammers for 10 days.
+List<CardBackground> _cardCatalogue() => seededCatalogue(
+  owned: {
+    seededCard('Royal Tiger').id: _inDays(9, hours: 20),
+    seededCard('Dragon Hunter').id: _inDays(0, hours: 5),
+  },
+);
 
 int _inDays(int days, {int hours = 0}) => DateTime.now()
     .add(Duration(days: days, hours: hours))
@@ -382,6 +418,7 @@ Map<String, dynamic> _userJson() => {
     'currency': 'COIN',
     'cost': 500000,
   },
+  'cardBackground': cardBackJson(seededCard('Royal Tiger')),
 };
 
 const _menu = <Map<String, Object>>[
@@ -409,6 +446,7 @@ GameState _lobbyState(AppLang lang) {
     ..user = User.fromJson(_userJson())
     ..pictures = _catalogue()
     ..tablePictures = _tableCatalogue()
+    ..cardBackgrounds = _cardCatalogue()
     ..levelLadder = _ladder();
 }
 
@@ -453,6 +491,7 @@ GameState _tableState(AppLang lang) {
     ..user = User.fromJson({..._userJson(), 'id': seat?.id ?? 'u0'})
     ..pictures = _catalogue()
     ..tablePictures = _tableCatalogue()
+    ..cardBackgrounds = _cardCatalogue()
     ..levelLadder = _ladder();
 }
 
@@ -497,6 +536,7 @@ void main() {
   setUpAll(() async {
     await _loadFonts();
     await _primePictures();
+    await _primeCardBacks();
   });
   final problems = <String>[];
   tearDownAll(() {

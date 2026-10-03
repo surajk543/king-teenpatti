@@ -147,8 +147,10 @@
 --
 -- Order matters: `profile_pictures` is created before `users` because
 -- `users.active_picture_id` references it, and `user_profile_pictures`, the
--- table pictures, the emojis (`emojis`, then `user_emojis`, which names a
--- player and an emoji), `chip_ledger` and the purchase and spend tables come
+-- table pictures, the card backs (`cards_background`, then
+-- `user_cards_background` and `user_cards_background_choice`, which each name
+-- a player and a card back), the emojis (`emojis`, then `user_emojis`, which
+-- names a player and an emoji), `chip_ledger` and the purchase and spend tables come
 -- after both for the same reason, as do the statistics (player_stats and
 -- player_variation_stats, then stats_flushes, after user_milestones), the
 -- two friends tables (after the Lucky Draw) and player_reports (after the
@@ -641,6 +643,129 @@ CREATE TABLE IF NOT EXISTS user_table_choice (
   user_id          TEXT   PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
   table_picture_id BIGINT NOT NULL REFERENCES table_pictures (id) ON DELETE CASCADE,
   chosen_at        BIGINT NOT NULL
+);
+
+-- -------------------------------------------------------------- card backs
+
+-- The back of a player's cards (owner, 3 Oct 2026: "Add a table
+-- cards_background which users can buy just like user can buy
+-- profile_pictures … add one more tab Cards in Store which user can buy, in
+-- database store its path, just like you are storing for profile_pictures
+-- table … keep the price of all cards 5 Hammers validity 10 days"). It is the
+-- table-picture catalogue again — a FREE row anyone may choose, a PREMIUM row
+-- bought with chips, diamonds or hammers and, priced as a rental, kept for its
+-- term; who owns what; and the one each player has chosen, in a side table of
+-- its own — with the profile picture's visibility: a seat carries its
+-- player's card back (game.CardBackground), and EVERY viewer at a Teen Patti
+-- table sees it on that player's face-down cards, the viewer their own on
+-- their own hand.
+--
+-- The default back is NO row: it is the owner's Royal Fox, bundled with the
+-- app (flutter-client/assets/card_back.jpg), worn by everybody who has chosen
+-- nothing — the table pictures' "Flowing chips". A player choosing nothing
+-- has no row in user_cards_background_choice, and their seat carries none.
+--
+-- Three CREATE TABLE IF NOT EXISTS and one index, nothing on users, for the
+-- reason the table pictures give above: a database built before them takes
+-- them at its next boot, and under ops/DEPLOY.md §7 the two that name a
+-- player need only the REFERENCES grant §7 gives. cards_background first,
+-- because the two after it reference it.
+
+-- One row per card back on offer: profile_pictures' columns (above, for what
+-- each means) with the art held to a raster and the card's place in it.
+--
+-- asset_url is the file's LOCATION in the private R2 bucket — the owner's
+-- cards/ folder, the key written as the bucket names it with each space %20
+-- ("…/king-teenpatti/cards/Brutal%20Demon.jpg"), which a phone opens through
+-- POST /api/assets/sign — and UNIQUE: the natural key the seed matches on
+-- (V1.0.1__seed.sql, THE CARD BACKS, ON CONFLICT (asset_url) DO NOTHING).
+-- There is no day/night pair: a card is printed stock and reads on either
+-- ground. asset_format is IMAGE and nothing else, the one thing a card back is
+-- drawn from (game.CardBackgroundFormat).
+--
+-- crop_x, crop_y, crop_w and crop_h are where the CARD is in its picture, as
+-- fractions of the picture's width (x, w) and height (y, h): the owner's art
+-- is product shots — the card on a dark ground, at a different size and place
+-- in each — so a client draws that rectangle stretched to its card. All four
+-- or none: NULL is the whole picture as the card. Set, the rectangle has a
+-- positive size and lies inside the picture; a NaN or an infinity fails these
+-- comparisons, so only finite figures are stored.
+CREATE TABLE IF NOT EXISTS cards_background (
+  id             BIGSERIAL PRIMARY KEY,
+  name           TEXT    NOT NULL,
+  asset_url      TEXT    NOT NULL UNIQUE,
+  asset_format   TEXT    NOT NULL DEFAULT 'IMAGE' CHECK (asset_format IN ('IMAGE')),
+  crop_x         DOUBLE PRECISION,
+  crop_y         DOUBLE PRECISION,
+  crop_w         DOUBLE PRECISION,
+  crop_h         DOUBLE PRECISION,
+  -- COIN is chips, through chip_ledger (reason card_background_purchase);
+  -- DIAMOND and HAMMER debit their users column directly, as a picture's do.
+  -- Only a COIN row is refused to a seated player (CLAUDE.md §5.1).
+  currency       TEXT    NOT NULL DEFAULT 'COIN' CHECK (currency IN ('COIN', 'DIAMOND', 'HAMMER')),
+  type           TEXT    NOT NULL CHECK (type IN ('FREE', 'PREMIUM')),
+  cost           BIGINT  NOT NULL DEFAULT 0 CHECK (cost >= 0),
+  -- The rental term, duration_days DAYS plus duration_hours HOURS; both 0 is
+  -- for ever. Stamped onto the ownership row at purchase, so re-pricing the
+  -- shelf never shortens a term already sold.
+  duration_days  INTEGER NOT NULL DEFAULT 0 CHECK (duration_days >= 0),
+  duration_hours INTEGER NOT NULL DEFAULT 0 CHECK (duration_hours >= 0),
+  -- FALSE retires a card back: off the shelf and sold to nobody; whoever has
+  -- chosen one keeps it on their cards.
+  is_active      BOOLEAN NOT NULL DEFAULT TRUE,
+  -- FALSE takes it off the Cards shelf as profile_pictures.is_listed does a
+  -- face (owner, 1 Oct 2026): listed to nobody but a player who has it — an
+  -- ownership row still running, or the one they have chosen — and sold to
+  -- nobody; nothing is taken away. Declared with the table, which no older
+  -- database has, so no guarded block brings it forward.
+  is_listed      BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order     INTEGER NOT NULL DEFAULT 0,
+  created_at     BIGINT  NOT NULL,
+  updated_at     BIGINT  NOT NULL,
+  CONSTRAINT free_card_background_cost_check CHECK (
+    (type = 'FREE'    AND cost =  0) OR
+    (type = 'PREMIUM' AND cost >  0)
+  ),
+  CONSTRAINT card_background_crop_check CHECK (
+    (crop_x IS NULL AND crop_y IS NULL AND crop_w IS NULL AND crop_h IS NULL) OR
+    (crop_x IS NOT NULL AND crop_y IS NOT NULL AND crop_w IS NOT NULL AND crop_h IS NOT NULL
+     AND crop_x >= 0 AND crop_y >= 0 AND crop_w > 0 AND crop_h > 0
+     AND crop_x + crop_w <= 1 AND crop_y + crop_h <= 1)
+  )
+);
+
+-- Who has bought which premium card back, and until when: the twin of
+-- user_table_pictures, kept for the same reasons. A FREE row needs no row
+-- here, a lapsed rental is a row whose expires_at is in the past and is never
+-- deleted, and purchases is what makes a renewal's ledger action_id unique
+-- ("cardbg:<user>:<id>:<n>").
+CREATE TABLE IF NOT EXISTS user_cards_background (
+  user_id            TEXT    NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  card_background_id BIGINT  NOT NULL REFERENCES cards_background (id) ON DELETE CASCADE,
+  acquired_at        BIGINT  NOT NULL,
+  -- Epoch ms the rental runs out; 0 means it never does.
+  expires_at         BIGINT  NOT NULL DEFAULT 0,
+  purchases          INTEGER NOT NULL DEFAULT 1 CHECK (purchases > 0),
+  PRIMARY KEY (user_id, card_background_id)
+);
+
+DO $$
+BEGIN
+  IF to_regclass(format('%I.%I', current_schema(), 'idx_owned_cards_background_expiry')) IS NULL THEN
+    CREATE INDEX IF NOT EXISTS idx_owned_cards_background_expiry
+      ON user_cards_background (expires_at) WHERE expires_at > 0;
+  END IF;
+END;
+$$;
+
+-- The card back each player has chosen: one row per player, or none for the
+-- default back. user_table_choice's twin, off users for the same reason;
+-- ON DELETE CASCADE on the card back, so removing a catalogue row puts the
+-- default back on whoever had chosen it rather than failing.
+CREATE TABLE IF NOT EXISTS user_cards_background_choice (
+  user_id            TEXT   PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+  card_background_id BIGINT NOT NULL REFERENCES cards_background (id) ON DELETE CASCADE,
+  chosen_at          BIGINT NOT NULL
 );
 
 -- ------------------------------------------------------------------ emojis

@@ -35,6 +35,11 @@ type Player struct {
 	// Level is the player's level and its art (SeatLevel), shown on their pod
 	// to everybody at the table; nil where not known.
 	Level *SeatLevel
+	// CardBackground is the card back the player has chosen on their account
+	// (owner, 3 Oct 2026; cardbackground.go), or nil for the default back; it
+	// goes onto their seat (NewPlayer.CardBackground), where everybody at a
+	// Teen Patti table sees it on their cards.
+	CardBackground *CardBackground
 }
 
 // LobbyOptions is RoomManager.lobbyOptions(): the menu the client renders
@@ -1040,6 +1045,24 @@ func (rm *RoomManager) SetPlayerTablePicture(userID string, pic *TablePicture) {
 	}
 }
 
+// SetPlayerCardBackground puts the card back a player has just chosen (nil:
+// taken off — the default back) on their seat, when they have one, so
+// everyone at the table sees it on that player's cards at once
+// (Table.SetCardBackground; owner, 3 Oct 2026). The card-back endpoints call
+// it once the choice is saved, and a sweep that finds a rental over calls it
+// with nil. For a player in the lobby it does nothing: their next seat reads
+// the card back from the user row like any other join. Only a Teen Patti
+// table shows a chosen card back — a poker felt keeps the default back, as
+// it shows no table picture — so at a poker room the choice is saved on the
+// account and nothing on the felt changes, and this does nothing there
+// either. A table destroyed between the lookup and the call has no seat to
+// update, so that error is not one.
+func (rm *RoomManager) SetPlayerCardBackground(userID string, cb *CardBackground) {
+	if t := AsTable(rm.GetTableForPlayer(userID)); t != nil {
+		_ = t.SetCardBackground(userID, cb)
+	}
+}
+
 // seatedTableLocked is getTableForPlayer under mu: the table the index
 // points at, or nil. An index entry naming a table that is no longer
 // registered is stale (Node's getTable returned null for it too) and is
@@ -1768,14 +1791,15 @@ func (rm *RoomManager) seatHeld(table Room, user Player, socketID string) error 
 	rm.mu.Unlock()
 
 	_, err := table.AddPlayer(NewPlayer{
-		UserID:       user.ID,
-		DisplayName:  user.DisplayName,
-		AvatarURL:    user.AvatarURL,
-		TablePicture: user.TablePicture,
-		Chips:        user.Chips,
-		SocketID:     socketID,
-		TaxBps:       user.TaxBps,
-		Level:        user.Level,
+		UserID:         user.ID,
+		DisplayName:    user.DisplayName,
+		AvatarURL:      user.AvatarURL,
+		TablePicture:   user.TablePicture,
+		Chips:          user.Chips,
+		SocketID:       socketID,
+		TaxBps:         user.TaxBps,
+		Level:          user.Level,
+		CardBackground: user.CardBackground,
 	})
 
 	rm.mu.Lock()
@@ -2431,9 +2455,11 @@ func (rm *RoomManager) movePlayer(source, target Room, admit func(chips int64) b
 		TablePicture: seat.TablePicture,
 		Chips:        seat.Chips,
 		// The seat's rate moves with it, as its chips do: a consolidation
-		// move is not a sit-down that reads the account. So does its level.
-		TaxBps: seat.TaxBps,
-		Level:  seat.Level,
+		// move is not a sit-down that reads the account. So do its level and
+		// its card back.
+		TaxBps:         seat.TaxBps,
+		Level:          seat.Level,
+		CardBackground: seat.CardBackground,
 	}
 	socketID := seat.SocketID
 	fromRoomID := source.ID()

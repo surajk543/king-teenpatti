@@ -207,11 +207,13 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	// (28 Sep 2026), each player's one-time missions — and user_reward_claims
 	// (30 Sep 2026), every reward program day granted — and
 	// user_reward_progress (1 Oct 2026), each player's standing in a program's
-	// period.
+	// period — and the card backs' two (3 Oct 2026), user_cards_background,
+	// who has bought which, and user_cards_background_choice, which each
+	// player has chosen.
 	referencing := []string{"diamond_purchases", "hammer_purchases", "hammer_spends", "missile_purchases", "missile_spends",
 		"user_table_pictures", "user_table_choice", "user_lucky_draws", "user_emojis",
 		"player_stats", "friend_requests", "friendships", "player_reports", "user_sessions", "player_xp_missions", "user_reward_claims",
-		"user_reward_progress"}
+		"user_reward_progress", "user_cards_background", "user_cards_background_choice"}
 	for _, table := range referencing {
 		if _, err := admin.Exec(ctx, `DROP TABLE `+qualified(table)); err != nil {
 			t.Fatal(err)
@@ -280,6 +282,23 @@ func TestTheAppRoleBootsTwiceBeforeAndAfterUsersIsHandedToTheSuperuser(t *testin
 	}
 	if trade, err := store.TradeMissiles(ctx, u.ID, "missiles_1", "handover-"+suffix); err != nil || !trade.Charged || trade.User.Diamond != 0 || int64(trade.User.Missile) != missiles {
 		t.Fatalf("a missile trade must work on §7's grants: %+v %v", trade, err)
+	}
+
+	// 6b. The card backs (3 Oct 2026) on §7's grants: the tables the boots
+	// above re-created take a seeded card back bought with hammers — an
+	// ownership row, a delta on users.hammer — and chosen, and the account
+	// reads it back through the join every account read makes.
+	cards := db.NewCardBackgrounds(d, db.NewUsers(d, welcome, nil), nil)
+	shelf, err := cards.List(ctx, u.ID)
+	if err != nil || len(shelf) == 0 {
+		t.Fatalf("the card backs on §7's grants: %d listed, %v", len(shelf), err)
+	}
+	bought, err := cards.Buy(ctx, u.ID, shelf[0].ID)
+	if err != nil || !bought.Charged || bought.Spent != shelf[0].Cost {
+		t.Fatalf("a card back bought on §7's grants: %+v %v", bought, err)
+	}
+	if chosen, err := cards.Use(ctx, u.ID, &shelf[0].ID); err != nil || chosen.CardBackground == nil || chosen.CardBackground.ID != shelf[0].ID {
+		t.Fatalf("a card back chosen on §7's grants: %+v %v", chosen, err)
 	}
 
 	// 7. The table catalogue (23 Sep 2026): the app role created all four

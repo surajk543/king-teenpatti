@@ -8,7 +8,7 @@
 library;
 
 import 'dart:math' as math;
-import 'dart:ui' show Brightness;
+import 'dart:ui' show Brightness, Rect;
 
 import 'player_stats.dart';
 
@@ -306,6 +306,7 @@ class User {
     required this.providerAvatarUrl,
     required this.activePictureId,
     this.tablePicture,
+    this.cardBackground,
     required this.handsPlayed,
     required this.handsWon,
     required this.handsLost,
@@ -421,6 +422,18 @@ class User {
 
   /// Which [TablePicture] is laid, or null: what the store's Tables tab ticks.
   int? get activeTablePictureId => tablePicture?.id;
+
+  /// The card back this player has chosen (owner, 3 Oct 2026: "Add a table
+  /// cards_background which users can buy just like user can buy
+  /// profile_pictures"), or null for the bundled Royal Fox
+  /// (`PlayingCard.backAsset`), which is everybody's and nobody's row. The
+  /// server joins it only while its rental runs, so a lapsed one reads as
+  /// none the moment it lapses. An older server sends none.
+  final CardBackArt? cardBackground;
+
+  /// Which [CardBackground] is chosen, or null: what the store's Cards tab
+  /// ticks — "In use" on the Royal Fox tile when null.
+  int? get activeCardBackgroundId => cardBackground?.id;
   final int handsPlayed;
   final int handsWon;
   final int handsLost;
@@ -467,6 +480,7 @@ class User {
     providerAvatarUrl: providerAvatarUrl,
     activePictureId: activePictureId,
     tablePicture: tablePicture,
+    cardBackground: cardBackground,
     handsPlayed: handsPlayed,
     handsWon: handsWon,
     handsLost: handsLost,
@@ -496,6 +510,7 @@ class User {
     providerAvatarUrl: providerAvatarUrl,
     activePictureId: activePictureId,
     tablePicture: tablePicture,
+    cardBackground: cardBackground,
     handsPlayed: handsPlayed,
     handsWon: handsWon,
     handsLost: handsLost,
@@ -524,6 +539,7 @@ class User {
     providerAvatarUrl: providerAvatarUrl,
     activePictureId: activePictureId,
     tablePicture: tablePicture,
+    cardBackground: cardBackground,
     handsPlayed: handsPlayed,
     handsWon: handsWon,
     handsLost: handsLost,
@@ -554,6 +570,7 @@ class User {
             Map<String, dynamic>.from(j['tablePicture'] as Map),
           )
         : null,
+    cardBackground: CardBackArt.fromJson(j['cardBackground']),
     handsPlayed: _int(j['handsPlayed']),
     handsWon: _int(j['handsWon']),
     handsLost: _int(j['handsLost']),
@@ -1907,6 +1924,7 @@ class Seat {
     this.allIn = false,
     this.dealer = false,
     this.level,
+    this.cardBackground,
   });
 
   final int seatIndex;
@@ -1948,6 +1966,13 @@ class Seat {
   /// Null where the server sent none (an empty seat, a server from before).
   final SeatLevel? level;
 
+  /// The card back this player has chosen (owner, 3 Oct 2026), which every
+  /// viewer at the table sees on THIS player's face-down cards — as each
+  /// seat's worn picture is seen by everyone. Null where the seat wears the
+  /// bundled Royal Fox: none chosen, an empty chair, a poker room (whose
+  /// snapshot carries none), or a server from before card backs.
+  final CardBackArt? cardBackground;
+
   bool get occupied => status != SeatState.empty;
   bool get inHand => status == SeatState.active;
 
@@ -1972,6 +1997,7 @@ class Seat {
     allIn: allIn,
     dealer: dealer,
     level: level,
+    cardBackground: cardBackground,
   );
 
   factory Seat.fromJson(Map<String, dynamic> j) => Seat(
@@ -1992,6 +2018,7 @@ class Seat {
     allIn: j['allIn'] == true,
     dealer: j['dealer'] == true,
     level: SeatLevel.maybe(j['level']),
+    cardBackground: CardBackArt.fromJson(j['cardBackground']),
   );
 }
 
@@ -3423,6 +3450,226 @@ class TablePicture {
     durationDays: _int(j['durationDays']),
     durationHours: _int(j['durationHours']),
     expiresAt: _int(j['expiresAt']),
+    owned: j['owned'] == true,
+  );
+}
+
+/// Where the card is inside a card back's picture, as fractions of the
+/// picture (owner, 3 Oct 2026): [x] and [y] its top-left corner, [w] and [h]
+/// its size.
+///
+/// Every card back in the R2 bucket is a 1024x1024 product shot, the card on
+/// a dark ground at a different size and place in each, so the row says
+/// where the card is — measured by hand to the card's own 5:7
+/// (`PlayingCard.aspect`) in the picture's pixels, so a client draws the
+/// crop stretched to the card and no ground shows at any edge.
+class CardCrop {
+  const CardCrop({
+    required this.x,
+    required this.y,
+    required this.w,
+    required this.h,
+  });
+
+  final double x;
+  final double y;
+  final double w;
+  final double h;
+
+  /// How far past 1 a sum `x + w` (or `y + h`) may come and still be read:
+  /// room for the rounding in adding two decimals, never for a crop that
+  /// leaves the picture.
+  static const double slack = 1e-6;
+
+  /// The crop in a picture [width] by [height] pixels.
+  Rect rectIn(double width, double height) =>
+      Rect.fromLTWH(x * width, y * height, w * width, h * height);
+
+  /// The crop off the wire (`crop: {x, y, w, h}`), or null — the whole
+  /// picture is the card — when it is absent or is not a crop: anything that
+  /// is not an object, a corner or a size that is not a finite number, a
+  /// size of 0 or less, or a rectangle that leaves the picture (a corner
+  /// below 0, `x + w` or `y + h` past 1). Tolerant, as every reader here is:
+  /// a row the server would never send is no crop rather than a crash.
+  static CardCrop? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    double? fraction(Object? v) => v is num && v.isFinite ? v.toDouble() : null;
+    final x = fraction(raw['x']);
+    final y = fraction(raw['y']);
+    final w = fraction(raw['w']);
+    final h = fraction(raw['h']);
+    if (x == null || y == null || w == null || h == null) return null;
+    if (x < 0 || y < 0 || w <= 0 || h <= 0) return null;
+    if (x + w > 1 + slack || y + h > 1 + slack) return null;
+    return CardCrop(x: x, y: y, w: w, h: h);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is CardCrop &&
+      other.x == x &&
+      other.y == y &&
+      other.w == w &&
+      other.h == h;
+
+  @override
+  int get hashCode => Object.hash(x, y, w, h);
+
+  @override
+  String toString() => 'CardCrop($x, $y, $w, $h)';
+}
+
+/// A card back as a seat or the account wears it (owner, 3 Oct 2026: "Add a
+/// table cards_background which users can buy just like user can buy
+/// profile_pictures"): which row, the picture, and where the card is in it —
+/// all a card needs to draw it ([Seat.cardBackground], [User.cardBackground],
+/// [CardBackground.art]).
+///
+/// Null wherever one is expected means the bundled Royal Fox
+/// (`PlayingCard.backAsset`), the free default, which is not a row.
+class CardBackArt {
+  const CardBackArt({this.id, required this.url, this.crop});
+
+  /// The catalogue row it is, where known.
+  final int? id;
+
+  /// The picture's location as the database stores it: a file of the
+  /// private R2 bucket (".../king-teenpatti/cards/Brutal%20Demon.jpg"),
+  /// absolute, which `PictureCache` downloads through a URL the server signs
+  /// and keeps under this location.
+  final String url;
+
+  /// Where the card is in the picture; null when the whole picture is the
+  /// card.
+  final CardCrop? crop;
+
+  /// A card back off the wire (`{id, url, assetFormat, crop?}`), or null —
+  /// the Royal Fox — when [raw] is not one: absent, null, not an object,
+  /// naming no picture, or in a format other than IMAGE (a back is a raster;
+  /// a file this build cannot draw is no back rather than a broken card).
+  static CardBackArt? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final url = raw['url'];
+    if (url is! String || url.trim().isEmpty) return null;
+    final format = raw['assetFormat'];
+    if (format is String &&
+        format.trim().isNotEmpty &&
+        format.trim().toUpperCase() != 'IMAGE') {
+      return null;
+    }
+    return CardBackArt(
+      id: _intOrNull(raw['id']),
+      url: url.trim(),
+      crop: CardCrop.fromJson(raw['crop']),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is CardBackArt &&
+      other.id == id &&
+      other.url == url &&
+      other.crop == crop;
+
+  @override
+  int get hashCode => Object.hash(id, url, crop);
+
+  @override
+  String toString() => 'CardBackArt($id, $url, $crop)';
+}
+
+/// One row of the card-back catalogue (`GET /api/card-backgrounds`, owner
+/// 3 Oct 2026): a back a player can buy and wear on their cards, which every
+/// player at their table then sees.
+///
+/// [TablePicture]'s catalogue — the same FREE/PREMIUM rule, the same three
+/// wallets, the same rentals, `owned` decided by the server per viewer —
+/// with one picture ([url], always a raster) and where the card is in it
+/// ([crop]). The seeded eight are 5 hammers for 10 days each; the bundled
+/// Royal Fox, everybody's for nothing, is not a row.
+class CardBackground {
+  const CardBackground({
+    required this.id,
+    required this.name,
+    required this.url,
+    this.assetFormat = 'IMAGE',
+    this.crop,
+    this.currency = 'COIN',
+    this.type = 'FREE',
+    this.cost = 0,
+    this.durationDays = 0,
+    this.durationHours = 0,
+    this.sortOrder = 0,
+    required this.owned,
+    this.expiresAt = 0,
+  });
+
+  final int id;
+
+  /// What to call it — "Brutal Demon".
+  final String name;
+
+  /// The picture's location ([CardBackArt.url]).
+  final String url;
+
+  /// 'IMAGE' — the only format a card back comes in.
+  final String assetFormat;
+
+  /// Where the card is in the picture; null when the whole picture is it.
+  final CardCrop? crop;
+
+  /// Which wallet [cost] is paid from: [PictureCurrency.coin] (chips),
+  /// [PictureCurrency.diamond] or [PictureCurrency.hammer]. Kept as sent, so
+  /// a currency this build does not know is drawn as chips.
+  final String currency;
+
+  /// 'FREE' or 'PREMIUM'.
+  final String type;
+
+  /// In [currency]; 0 on a free row.
+  final int cost;
+
+  /// How long a purchase lasts; both 0 means for ever.
+  final int durationDays;
+  final int durationHours;
+
+  /// The catalogue's own order.
+  final int sortOrder;
+
+  /// Whether this player may wear it: every free row, and the premium ones
+  /// they have bought whose rental is running. Decided by the server.
+  final bool owned;
+
+  /// Epoch ms this player's rental runs out; 0 when they do not own it, or
+  /// own it for ever.
+  final int expiresAt;
+
+  bool get free => type == 'FREE';
+  bool get locked => !owned;
+  bool get rented => durationDays > 0 || durationHours > 0;
+  bool get pricedInDiamonds => currency == PictureCurrency.diamond;
+  bool get pricedInHammers => currency == PictureCurrency.hammer;
+
+  /// The back as a card draws it.
+  CardBackArt get art => CardBackArt(id: id, url: url, crop: crop);
+
+  factory CardBackground.fromJson(Map<String, dynamic> j) => CardBackground(
+    id: _int(j['id']),
+    name: _str(j['name']),
+    url: _str(j['url']).trim(),
+    assetFormat: _str(j['assetFormat']).isEmpty
+        ? 'IMAGE'
+        : _str(j['assetFormat']),
+    crop: CardCrop.fromJson(j['crop']),
+    currency: _str(j['currency']).isEmpty ? 'COIN' : _str(j['currency']),
+    type: _str(j['type']).isEmpty ? 'FREE' : _str(j['type']),
+    cost: _int(j['cost']),
+    durationDays: _int(j['durationDays']),
+    durationHours: _int(j['durationHours']),
+    sortOrder: _int(j['sortOrder']),
+    expiresAt: _int(j['expiresAt']),
+    // Absent reads as "not owned", as a picture's does: a free row is only
+    // ever sent with owned true.
     owned: j['owned'] == true,
   );
 }

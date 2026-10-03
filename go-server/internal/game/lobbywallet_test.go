@@ -898,6 +898,12 @@ func TestAPublicCreateChecksTheWalletReadUnderTheSeatLock(t *testing.T) {
 		}
 		g.EntryCapBoot, g.EntryCapCategory, g.EntryCapMaxChips = 200, "blind", 500_000
 		o.LoadPlayer = book.load
+		// The private host below sits with 100 chips at a 200 boot. Under the
+		// suite's immediate kick the RoomManager shows them out on a goroutine
+		// of its own the moment they sit, which raced the read of their seat
+		// (about one run in eighteen under -race, 3 Oct 2026); held for the
+		// grace, the seat stays until the test leaves it.
+		g.UnfundedGrace = time.Hour
 	})
 	blind200 := game.CreateTableOptions{BootAmount: 200, Category: "blind"}
 	blind5000 := game.CreateTableOptions{BootAmount: 5000, Category: "blind"}

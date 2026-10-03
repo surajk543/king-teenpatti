@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../models/dtos.dart';
 import '../theme/app_theme.dart';
 import 'playing_card.dart';
 
@@ -47,6 +48,7 @@ class WildTransform extends StatefulWidget {
     this.dimmed = false,
     this.indexOnRight = false,
     this.flipDelay = Duration.zero,
+    this.back,
   });
 
   final double height;
@@ -75,6 +77,11 @@ class WildTransform extends StatefulWidget {
   /// Handed to the card ([PlayingCard.flipDelay]); the turn into the stand-in
   /// waits for it too.
   final Duration flipDelay;
+
+  /// Handed to the card ([PlayingCard.back]): the back the viewer wears,
+  /// shown while the card is face down (owner, 3 Oct 2026: card backs from
+  /// the store's Cards shelf). Null is the Royal Fox.
+  final CardBackArt? back;
 
   /// The whole performance, per card.
   static const Duration turnFor = Duration(milliseconds: 1150);
@@ -171,6 +178,7 @@ class _WildTransformState extends State<WildTransform>
         dimmed: widget.dimmed,
         indexOnRight: widget.indexOnRight,
         flipDelay: widget.flipDelay,
+        back: widget.back,
       );
       if (!widget.wild || code == null) return card;
       return Semantics(
@@ -250,6 +258,7 @@ class _WildTransformState extends State<WildTransform>
                     dimmed: widget.dimmed,
                     indexOnRight: widget.indexOnRight,
                     flipDelay: widget.flipDelay,
+                    back: widget.back,
                   ),
                 ),
               ),

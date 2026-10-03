@@ -3,7 +3,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../models/dtos.dart';
 import '../theme/app_theme.dart';
+import 'card_back_art.dart';
 
 /// A playing card, face up or face down.
 ///
@@ -41,6 +43,11 @@ import '../theme/app_theme.dart';
 /// seat's cards) the face is COMPACT: a larger share of its height goes to the
 /// rank and the corner pip, and the lacquer's hairline and the pip's shading
 /// are left out.
+///
+/// **The back is the player's** (owner, 3 Oct 2026: card backs bought in the
+/// store's Cards shelf): [back] is the one this card's holder wears, which
+/// everyone at the table sees ([CardBackImage]); null is the bundled Royal
+/// Fox ([backAsset]).
 class PlayingCard extends StatefulWidget {
   const PlayingCard({
     super.key,
@@ -50,11 +57,18 @@ class PlayingCard extends StatefulWidget {
     this.tint,
     this.indexOnRight = false,
     this.flipDelay = Duration.zero,
+    this.back,
   });
 
   /// A server card code such as "As" or "Td". Null means face down.
   final String? code;
   final double height;
+
+  /// The back drawn while the card is face down: the card back its holder
+  /// has chosen ([Seat.cardBackground]), or null for the Royal Fox
+  /// ([backAsset]). Drawn by [CardBackImage], which shows the Royal Fox
+  /// while a chosen back is still coming.
+  final CardBackArt? back;
 
   /// Packed players' cards are dimmed rather than removed, so the seat still
   /// reads as "was in this hand".
@@ -86,7 +100,8 @@ class PlayingCard extends StatefulWidget {
   /// for a rank, its pip and the centre pip. The back's artwork is cut to it.
   static const double aspect = 240 / 336;
 
-  /// The printed back: the owner's Royal Fox (3 Oct 2026: "change the
+  /// The printed back everybody's cards wear unless they have chosen another
+  /// ([back]): the owner's Royal Fox (3 Oct 2026: "change the
   /// playing card back image to this one") — a fox leaping inside a gold
   /// filigree frame on black, "ROYAL FOX" over it and "PLAYING CARDS" under
   /// it. Cut from the owner's 1024x1024 picture to the card's 5:7 inside its
@@ -257,7 +272,7 @@ class _PlayingCardState extends State<PlayingCard>
               ),
             ),
           );
-    final back = _CardBack(height: h, tint: widget.tint);
+    final back = CardBackImage(art: widget.back, height: h, tint: widget.tint);
 
     Widget card = AnimatedBuilder(
       animation: _flip,
@@ -341,45 +356,6 @@ class _PlayingCardState extends State<PlayingCard>
               ],
               stops: const <double>[0.14, 0.5, 0.86],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The printed back — the Royal Fox ([PlayingCard.backAsset]) — on the same
-/// stock as the face: cut to the card's corner, with the stock's gold edge and
-/// its top-edge light laid over it. [tint] recolours the artwork, keeping its
-/// light and dark: a SEEN opponent's backs are the fox in green.
-class _CardBack extends StatelessWidget {
-  const _CardBack({required this.height, this.tint});
-
-  final double height;
-  final Color? tint;
-
-  @override
-  Widget build(BuildContext context) {
-    final h = height;
-    final w = h * PlayingCard.aspect;
-    return CustomPaint(
-      foregroundPainter: CardStockPainter(height: h, face: false),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(h * PlayingCard.cornerShare),
-        child: ColoredBox(
-          color: PlayingCard.backGround,
-          child: Image.asset(
-            PlayingCard.backAsset,
-            fit: BoxFit.cover,
-            width: w,
-            height: h,
-            color: tint,
-            colorBlendMode: tint == null ? null : BlendMode.color,
-            // Drawn at a fraction of its size on every card: smoothed, so
-            // its gold filigree does not shimmer as the card moves.
-            filterQuality: FilterQuality.medium,
-            gaplessPlayback: true,
-            excludeFromSemantics: true,
           ),
         ),
       ),

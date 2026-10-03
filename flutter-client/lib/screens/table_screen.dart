@@ -2015,6 +2015,9 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                       centreOf: seatCentre,
                       deck: Offset(w / 2, h * 0.42),
                       cardHeight: (podW * 0.42).clamp(18.0, 46.0),
+                      // Each card in the back its seat wears, the one it
+                      // lands as (owner, 3 Oct 2026: card backs).
+                      seatBacks: true,
                     ),
                   ),
                 ),
@@ -3830,6 +3833,13 @@ class _OwnHand extends StatelessWidget {
 
     final room = state.room!;
 
+    // The back on the viewer's own face-down cards (owner, 3 Oct 2026: the
+    // card backs sold on the store's Cards shelf): the one their SEAT wears,
+    // which is what every other player at the table sees on these cards —
+    // so a back chosen mid-hand reaches them with the snapshot that puts it
+    // on the seat, and the two can never disagree. Null is the Royal Fox.
+    final back = state.ownCardBack;
+
     // How many cards to draw. Face up, what the server sent. Face down, what
     // the viewer's own seat is said to hold (`cardCount`, the figure the rim
     // pods draw from), and only then what the variation block says everybody
@@ -4023,6 +4033,7 @@ class _OwnHand extends StatelessWidget {
                               topSlot,
                             ),
                             flipDelay: PlayingCard.flipStagger * i,
+                            back: back,
                             standIn: i >= cards.length
                                 ? null
                                 : you.hand != null

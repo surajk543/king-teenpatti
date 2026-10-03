@@ -209,7 +209,9 @@ func (t *Table) Resume() error { return t.resume() }
 //
 // A snapshot that cannot be rebuilt (missing config, a seat out of range, a
 // card code that is not a card, a hand naming a seat that is empty…) is
-// refused with a descriptive error and nothing is constructed.
+// refused with a descriptive error and nothing is constructed. What only
+// dresses a seat — a level no ladder holds, a card back no client could draw
+// — is dropped instead, and the table is restored without it.
 func RestoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 	t, err := restoreTable(snap, opts)
 	if err != nil {
@@ -269,6 +271,10 @@ func restoreTable(snap *Snapshot, opts TableOptions) (*Table, error) {
 		if ss.Level.valid() {
 			s.level = ss.Level.clone()
 		}
+		// A card back no client could draw (a snapshot planted by hand, or
+		// written by a build with other rules) is dropped as a bad level is:
+		// the seat wears the default back and the table is restored.
+		s.cardBackground = ss.CardBackground.forSeat()
 		if ss.AvatarURL != nil {
 			s.avatarURL = StrPtr(*ss.AvatarURL)
 		}

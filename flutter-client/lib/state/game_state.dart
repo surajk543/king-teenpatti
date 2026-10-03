@@ -408,6 +408,13 @@ class GameState extends ChangeNotifier {
   /// start, with the token at every sign-in — so `owned` is this player's.
   List<EmojiItem> emojis = const [];
 
+  /// The card-back catalogue (owner, 3 Oct 2026: "add one more tab Cards in
+  /// Store which user can buy"): the backs a player can wear on their cards,
+  /// loaded beside [pictures] at the same moments, so `owned` is this
+  /// player's. The bundled Royal Fox, everybody's for nothing, is not in it.
+  /// Forgotten at sign-out and account deletion.
+  List<CardBackground> cardBackgrounds = const [];
+
   String? loginError;
   String? notice;
   bool busy = false;
@@ -862,7 +869,9 @@ class GameState extends ChangeNotifier {
   /// Raises the verdict when a hand's choice has just been made.
   void _announcePick(OwnHand? hand) {
     final no = room?.handNo;
-    if (no == null || hand == null || hand.picking || hand.pickedBy.isEmpty) return;
+    if (no == null || hand == null || hand.picking || hand.pickedBy.isEmpty) {
+      return;
+    }
     if (_pickAnnouncedFor == no) return;
     _pickAnnouncedFor = no;
     pickAnnounced = (
@@ -2996,6 +3005,9 @@ class GameState extends ChangeNotifier {
     // The next player on this phone never sees this one's friends.
     friends.reset();
     reports.reset();
+    // Nor which card backs this one owns: `owned` is per viewer, and the
+    // next sign-in reads the catalogue again.
+    _forgetCardBackgrounds();
     xpMissions.clear();
     levelUps.clear();
     _awardsAwaitingLadder.clear();
@@ -3181,6 +3193,8 @@ class GameState extends ChangeNotifier {
     // reason: `owned` is per viewer, anonymous at start and this player's
     // once there is a token.
     unawaited(_loadEmojis());
+    // And the card backs (owner, 3 Oct 2026), likewise.
+    unawaited(_loadCardBackgrounds());
     // Ownership is per viewer: an answer to a request made under another
     // token — the anonymous one a cold start sends, overtaken by the sign-in's
     // — is about somebody else and must not overwrite this one's (a picture
@@ -3414,6 +3428,147 @@ class GameState extends ChangeNotifier {
     return PictureBuyResult.refused;
   }
 
+  // ----------------------------------------------------------- card backs
+
+  /// Loads the card-back catalogue and warms every picture into
+  /// [PictureCache] (owner, 3 Oct 2026: the Cards shelf shows them all, and
+  /// a back somebody wears at a table is then drawn from the phone; the
+  /// cache signs each R2 location it does not have yet).
+  ///
+  /// As the faces are: an answer to a request made under another token — a
+  /// sign-out, or somebody else signing in — is dropped, since `owned` is
+  /// per viewer.
+  Future<void> _loadCardBackgrounds() async {
+    final token = _token;
+    try {
+      final got = await _api.cardBackgrounds(token);
+      if (_token != token) return;
+      cardBackgrounds = got;
+      PictureCache.warm(got.map((c) => absoluteUrl(c.url)).nonNulls);
+      notifyListeners();
+    } catch (_) {
+      // The Cards shelf keeps what it had — the Royal Fox at least.
+    }
+  }
+
+  /// Re-reads the card-back catalogue: when the store is opened on its Cards
+  /// shelf, so a rental that ran out shows its padlock again (the read is
+  /// also where the server takes a lapsed back off).
+  Future<void> reloadCardBackgrounds() => _loadCardBackgrounds();
+
+  /// The card back this player has chosen, or null for the bundled Royal
+  /// Fox: what the store's Cards tab ticks. Read off the account, which the
+  /// server joins only while the rental runs.
+  CardBackArt? get chosenCardBack => user?.cardBackground;
+
+  /// The back on the viewer's OWN face-down cards: their seat's — the one
+  /// every player at the table sees on them, which the server puts on the
+  /// seat the moment it is chosen ([chooseCardBackground]) — or null, the
+  /// bundled Royal Fox, where their seat wears none, at a poker room (whose
+  /// felt keeps the Royal Fox), or away from a table.
+  CardBackArt? get ownCardBack {
+    final r = room;
+    final you = r?.you;
+    if (r == null || you == null || r.isPoker) return null;
+    for (final seat in r.seats) {
+      if (seat.seatIndex == you.seatIndex) return seat.cardBackground;
+    }
+    return null;
+  }
+
+  /// Wears a card back, or null to go back to the Royal Fox. Allowed at a
+  /// table: the server puts it on the seat, and every player there sees it
+  /// on the next snapshot. The account comes back with the back to draw; the
+  /// catalogue is re-read unawaited, as after [chooseTablePicture], so a
+  /// lapsed rental re-locks itself.
+  Future<void> chooseCardBackground(int? id) async {
+    final token = _token;
+    if (token == null) return;
+    try {
+      final next = await _api.useCardBackground(token, id);
+      // An answer for a session that has since ended is nobody's now.
+      if (_token != token) return;
+      user = next;
+    } on ApiException catch (e) {
+      if (_token != token) return;
+      notice = e.message;
+    } catch (_) {
+      if (_token != token) return;
+      notice = 'Could not reach the server.';
+    }
+    notifyListeners();
+    unawaited(_refreshPictures());
+  }
+
+  /// Set while a card back is being bought, for that tile's spinner. One
+  /// purchase at a time: [buyCardBackground] refuses a second meanwhile.
+  int? buyingCardBackground;
+
+  /// Buys a premium card back and, when that works, wears it — two
+  /// requests, as [buyTablePicture] makes, for the same reason. The row the
+  /// purchase answers with replaces the shelf's at once, so its padlock goes
+  /// before the catalogue has been read again.
+  Future<PictureBuyResult> buyCardBackground(int id) async {
+    final token = _token;
+    if (token == null || buyingCardBackground != null) {
+      return PictureBuyResult.refused;
+    }
+    buyingCardBackground = id;
+    notifyListeners();
+    try {
+      final bought = await _api.buyCardBackground(token, id);
+      // Bought for a session that has since ended: the wallet and the row
+      // are that account's, not the one on screen now.
+      if (_token != token) return PictureBuyResult.refused;
+      user = bought.user;
+      final row = bought.cardBackground;
+      if (row != null) {
+        cardBackgrounds = [
+          for (final c in cardBackgrounds) c.id == row.id ? row : c,
+        ];
+      }
+      await _refreshPictures();
+      await chooseCardBackground(id);
+      return PictureBuyResult.bought;
+    } on ApiException catch (e) {
+      if (_token != token) return PictureBuyResult.refused;
+      return cardBackgroundRefused(id, e);
+    } catch (_) {
+      if (_token != token) return PictureBuyResult.refused;
+      notice = 'Could not reach the server.';
+      return PictureBuyResult.refused;
+    } finally {
+      buyingCardBackground = null;
+      notifyListeners();
+    }
+  }
+
+  /// What a refused purchase of card back [id] means to the player —
+  /// [tablePictureRefused]'s reading for the Cards shelf: a hammer or diamond
+  /// shortage (`picture_chips`) is the offer of that wallet's shelf, which
+  /// the caller makes, and the count held here is read again; anything else
+  /// — a chip-priced back refused at a table (`seated`) included — is the
+  /// server's sentence.
+  @visibleForTesting
+  PictureBuyResult cardBackgroundRefused(int id, ApiException e) {
+    final card = cardBackgrounds.where((c) => c.id == id).firstOrNull;
+    if (e.code == 'picture_chips' &&
+        card != null &&
+        (card.pricedInHammers || card.pricedInDiamonds)) {
+      unawaited(refreshUser());
+      return PictureBuyResult.notEnough;
+    }
+    notice = e.message;
+    return PictureBuyResult.refused;
+  }
+
+  /// A session has ended (a sign-out, a deleted account): the card backs this
+  /// account owns, and a purchase it had out, are nothing to the next.
+  void _forgetCardBackgrounds() {
+    cardBackgrounds = const [];
+    buyingCardBackground = null;
+  }
+
   // --------------------------------------------------------------- emojis
 
   /// Loads the emoji catalogue and warms every emoji into [PictureCache], so
@@ -3560,6 +3715,7 @@ class GameState extends ChangeNotifier {
     welcomePending = null;
     friends.reset();
     reports.reset();
+    _forgetCardBackgrounds();
     xpMissions.clear();
     levelUps.clear();
     _awardsAwaitingLadder.clear();
@@ -3917,21 +4073,35 @@ class GameState extends ChangeNotifier {
   /// 21), and taking one off mid-hand would be a change nobody asked for — and
   /// only while the player is wearing a PREMIUM picture, which is the only kind
   /// that can lapse. A player on a free face never makes the call at all.
-  void _checkRental() {
-    if (screen != Screen.lobby || _rentalRefreshing) return;
+  ///
+  /// A chosen card back is watched the same way (owner, 3 Oct 2026): the
+  /// catalogue's read is where the server takes a lapsed back off, and the
+  /// account read after it comes back without one.
+  void _checkRental() => unawaited(checkRental());
+
+  /// One look of the watch ([_checkRental]), answering when its re-read is
+  /// done — at once when there is nothing that can lapse — so a test can
+  /// await it.
+  @visibleForTesting
+  Future<void> checkRental() {
+    if (screen != Screen.lobby || _rentalRefreshing) return Future.value();
     final worn = user?.activePictureId;
     final laid = user?.activeTablePictureId;
-    if (worn == null && laid == null) return;
+    final backed = user?.activeCardBackgroundId;
+    if (worn == null && laid == null && backed == null) return Future.value();
 
-    // Nothing to watch unless what they are wearing — on their face or on
-    // their table — can actually run out.
+    // Nothing to watch unless what they are wearing — on their face, on
+    // their table or on their cards — can actually run out.
     final premium =
         pictures.any((p) => p.id == worn && !p.free) ||
-        tablePictures.any((p) => p.id == laid && !p.free);
-    if (!premium) return;
+        tablePictures.any((p) => p.id == laid && !p.free) ||
+        cardBackgrounds.any((c) => c.id == backed && !c.free);
+    if (!premium) return Future.value();
 
     _rentalRefreshing = true;
-    unawaited(_refreshPictures().whenComplete(() => _rentalRefreshing = false));
+    return _refreshPictures().whenComplete(() {
+      _rentalRefreshing = false;
+    });
   }
 
   /// Guards the watch against stacking refreshes if one is slow.

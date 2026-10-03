@@ -236,10 +236,11 @@ class SeatPod extends StatelessWidget {
 
   /// A seat at a poker table (go-server/internal/poker). Nothing about it is
   /// blind or seen: no BLIND / SEEN word rides on its cards and no back turns
-  /// green, a fold reads as "Fold" rather than "Pack", its bet badge carries
-  /// what it has put in on this street ([Seat.streetBet]), and a seat with its
-  /// whole stack in wears an all-in ribbon. False on every Teen Patti table,
-  /// where nothing here changes.
+  /// green, its backs are the Royal Fox whatever back the player wears at a
+  /// Teen Patti table, a fold reads as "Fold" rather than "Pack", its bet
+  /// badge carries what it has put in on this street ([Seat.streetBet]), and
+  /// a seat with its whole stack in wears an all-in ribbon. False on every
+  /// Teen Patti table, where nothing here changes.
   final bool poker;
 
   /// Names the pod itself — the glass plaque, not the column of cards and bets
@@ -1049,6 +1050,12 @@ class SeatPod extends StatelessWidget {
             tint: !poker && !s.isBlind && _inHand(s)
                 ? AppTheme.cardSeenBack
                 : null,
+            // The back this player wears (owner, 3 Oct 2026: card backs
+            // bought on the store's Cards shelf), seen by everybody at the
+            // table on THIS player's cards, as their picture is — tinted green
+            // like any back once they have looked. Not at poker, whose felt
+            // keeps the Royal Fox (its snapshot carries no back anyway).
+            back: poker ? null : s.cardBackground,
           ),
         );
 
