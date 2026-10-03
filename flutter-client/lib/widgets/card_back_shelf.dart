@@ -303,12 +303,25 @@ Future<void> unlockCardBackground(
   }
 }
 
+/// The ring over the plain back a tile or a question shows while the back's
+/// picture is still coming ([CardBackImage.loading]): the game's own, its
+/// dark arc in the stock's gold, which reads on the card's black in either
+/// theme.
+Widget _comingRing(double cardHeight) => GameLoaderRing(
+  size: cardHeight * PlayingCard.aspect * 0.5,
+  ink: AppTheme.cardRim,
+);
+
 /// A card back as the unlock question and the "not enough" offer show it:
 /// large, standing off the dialog on a card's own shadows. Sized off the
 /// screen's height, the scarce axis in landscape — as tall as a picture and
 /// an emoji stand in their questions, 30% of it — and a dialog's body
 /// scrolls if it ever runs out, as theirs do at the 1.25 text ceiling on a
 /// 360dp phone.
+///
+/// The back it sells or nothing: while its picture comes, the plain back
+/// under the game's ring, never the Royal Fox over "costs 5 hammers"
+/// (review, 3 Oct 2026; [CardBackImage.standIn]).
 class CardBackOnOffer extends StatelessWidget {
   const CardBackOnOffer({super.key, required this.card});
 
@@ -327,7 +340,12 @@ class CardBackOnOffer extends StatelessWidget {
         borderRadius: BorderRadius.circular(height * PlayingCard.cornerShare),
         boxShadow: PlayingCard.shadows(height, Theme.of(context).brightness),
       ),
-      child: CardBackImage(art: card.art, height: height),
+      child: CardBackImage(
+        art: card.art,
+        height: height,
+        standIn: false,
+        loading: _comingRing(height),
+      ),
     );
   }
 }
@@ -565,7 +583,17 @@ class CardBackChoice extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    CardBackImage(art: c?.art, height: cardHeight),
+                    CardBackImage(
+                      art: c?.art,
+                      height: cardHeight,
+                      // On sale a back shows as itself or not at all: the
+                      // plain back while its picture comes, never the Royal
+                      // Fox — the first tile — over its name and price.
+                      standIn: false,
+                      // While it is being bought the purchase's ring stands
+                      // over it instead: one ring on a card.
+                      loading: busy ? null : _comingRing(cardHeight),
+                    ),
                     if (busy)
                       Center(child: GameLoaderRing(size: cardWidth * 0.6)),
                   ],

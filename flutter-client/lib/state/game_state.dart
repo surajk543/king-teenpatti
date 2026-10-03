@@ -21,6 +21,7 @@ import '../net/connection_failure.dart';
 import '../net/game_connection.dart';
 import '../net/purchases.dart';
 import '../net/social_sign_in.dart';
+import '../widgets/card_back_art.dart' show CardBackImages;
 import 'consent.dart';
 import 'friends_state.dart';
 import 'hammer_strike.dart';
@@ -3430,10 +3431,20 @@ class GameState extends ChangeNotifier {
 
   // ----------------------------------------------------------- card backs
 
-  /// Loads the card-back catalogue and warms every picture into
-  /// [PictureCache] (owner, 3 Oct 2026: the Cards shelf shows them all, and
-  /// a back somebody wears at a table is then drawn from the phone; the
-  /// cache signs each R2 location it does not have yet).
+  /// Loads the card-back catalogue and has every picture KEPT on the phone
+  /// (owner, 3 Oct 2026: the Cards shelf shows them all, and a back somebody
+  /// wears at a table is then drawn from the phone; the cache signs each R2
+  /// location it does not have yet, all of them in one request).
+  ///
+  /// Kept on the disk, not warmed into memory (review, 3 Oct 2026): the
+  /// thirteen backs are four megabytes of JPEG, none of them drawn in the
+  /// lobby, and warmed they went through [PictureCache]'s 64 places in memory
+  /// — beside 73 faces, table pictures and emojis — at every catalogue read,
+  /// every seven seconds for a player wearing a rental in the lobby, pushing
+  /// out pictures that then had to be read from the disk again. A back is
+  /// read from the disk when a card needs it, and decoded then
+  /// ([CardBackImages]); after the first run this costs a directory lookup a
+  /// back.
   ///
   /// As the faces are: an answer to a request made under another token — a
   /// sign-out, or somebody else signing in — is dropped, since `owned` is
@@ -3444,7 +3455,7 @@ class GameState extends ChangeNotifier {
       final got = await _api.cardBackgrounds(token);
       if (_token != token) return;
       cardBackgrounds = got;
-      PictureCache.warm(got.map((c) => absoluteUrl(c.url)).nonNulls);
+      unawaited(PictureCache.keep(got.map((c) => absoluteUrl(c.url)).nonNulls));
       notifyListeners();
     } catch (_) {
       // The Cards shelf keeps what it had — the Royal Fox at least.
@@ -3546,9 +3557,10 @@ class GameState extends ChangeNotifier {
   /// What a refused purchase of card back [id] means to the player —
   /// [tablePictureRefused]'s reading for the Cards shelf: a hammer or diamond
   /// shortage (`picture_chips`) is the offer of that wallet's shelf, which
-  /// the caller makes, and the count held here is read again; anything else
-  /// — a chip-priced back refused at a table (`seated`) included — is the
-  /// server's sentence.
+  /// the caller makes, and the count held here is read again; a chip-priced
+  /// back refused at a table (`seated` — seated, leaving one, or a last hand
+  /// still being saved) is said in the player's language, as the shelf says
+  /// it before asking; anything else is the server's sentence.
   @visibleForTesting
   PictureBuyResult cardBackgroundRefused(int id, ApiException e) {
     final card = cardBackgrounds.where((c) => c.id == id).firstOrNull;
@@ -3558,15 +3570,18 @@ class GameState extends ChangeNotifier {
       unawaited(refreshUser());
       return PictureBuyResult.notEnough;
     }
-    notice = e.message;
+    notice = e.code == 'seated' ? t.cardChipsLobbyOnly : e.message;
     return PictureBuyResult.refused;
   }
 
   /// A session has ended (a sign-out, a deleted account): the card backs this
-  /// account owns, and a purchase it had out, are nothing to the next.
+  /// account owns, and a purchase it had out, are nothing to the next — and
+  /// the backs decoded for it are let go ([CardBackImages.release]): a card
+  /// the next session draws decodes its back again, from the phone.
   void _forgetCardBackgrounds() {
     cardBackgrounds = const [];
     buyingCardBackground = null;
+    CardBackImages.release();
   }
 
   // --------------------------------------------------------------- emojis

@@ -16,6 +16,7 @@ import 'state/game_state.dart';
 import 'theme/app_theme.dart';
 import 'theme/depth.dart';
 import 'theme/theme_colors.dart';
+import 'widgets/card_back_art.dart';
 import 'widgets/level_up_popup.dart';
 import 'widgets/lobby_music.dart';
 import 'widgets/game_loader.dart';
@@ -58,6 +59,10 @@ Future<void> main() async {
   // seconds, and connects again when it is back (GameState.handleLifecycle;
   // owner, 27 Sep 2026). Kept for the life of the app.
   _lifecycle = AppLifecycleListener(onStateChange: state.handleLifecycle);
+  // The card backs decoded for the store and the tables are let go when the
+  // system says memory is short, as Flutter's own image cache is (review,
+  // 3 Oct 2026). For the life of the app too.
+  WidgetsBinding.instance.addObserver(const CardBackMemoryWatch());
 }
 
 /// The app's one lifecycle listener, held so it is never collected.

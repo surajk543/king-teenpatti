@@ -210,12 +210,12 @@ type CardBackgroundPurchase struct {
 // tables: a COIN price is a chip_ledger row (reason card_background_purchase,
 // action_id "cardbg:<user>:<id>:<n>", UNIQUE) and a wallet delta, so
 // SUM(chip_ledger.delta) == users.chips still holds; a DIAMOND or HAMMER price
-// — the seeded card backs' five hammers — is a delta on its users column with
-// the ownership row as its receipt, and no ledger or hammer_spends row. The
-// row lock serialises double taps and the owned check makes the second an
-// idempotent success; the UNIQUE action_id catches a replay whose first commit
-// was acknowledged into a dropped connection. A rental runs from now, and a
-// lapsed one is bought afresh.
+// — the seeded card backs' hammers, five or a Flower back's two — is a delta
+// on its users column with the ownership row as its receipt, and no ledger or
+// hammer_spends row. The row lock serialises double taps and the owned check
+// makes the second an idempotent success; the UNIQUE action_id catches a
+// replay whose first commit was acknowledged into a dropped connection. A
+// rental runs from now, and a lapsed one is bought afresh.
 //
 // A seated player buys through BuyAtTable: their chips may only move at the
 // three hand checkpoints (CLAUDE.md §5.1).

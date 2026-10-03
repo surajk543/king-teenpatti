@@ -6,16 +6,19 @@
 // The ninth key, after Tables, in the lobby and at a table; the bundled Royal
 // Fox first — the player's for nothing, "In use" while nothing else is
 // chosen, a tap putting it back on — then the eight backs in the catalogue's
-// own order, each drawing its own back; every tile saying what the back is to
-// the player (In use, Owned with the time left, or the padlock and 5 hammers
-// with "10 days"); a locked back asking first with the card large and its
-// price named; a purchase putting it on; a hammer wallet too short — here or
-// at the server — offered the Hammers shelf; one purchase at a time; a
-// chip-priced back refused at a table on the spot; a poker room told its felt
-// keeps the standard back; and at 640x360, text x1.25, in all five languages
-// and both themes, in the lobby and at a table, every word inside its tile,
-// the first row whole and the next in view. The backs are miniatures primed
-// into the picture cache (card_background_fixtures.dart): nothing is fetched.
+// own order, each drawing its own back, or while it comes the plain back
+// under the game's ring, never the Royal Fox in its place; every tile saying
+// what the back is to the player (In use, Owned with the time left, or the
+// padlock and 5 hammers with "10 days"); a locked back asking first with the
+// card large and its price named; a purchase putting it on; a hammer wallet
+// too short — here or at the server — offered the Hammers shelf; one
+// purchase at a time; a chip-priced back refused at a table on the spot; a
+// poker room told its felt keeps the standard back; the card-back words in
+// all five languages, Gujarati's card back neuter throughout; and at
+// 640x360, text x1.25, in all five languages and both themes, in the lobby
+// and at a table, every word inside its tile, the first row whole and the
+// next in view. The backs are miniatures primed into the picture cache
+// (card_background_fixtures.dart): nothing is fetched.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
@@ -30,6 +33,7 @@ import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
+import 'package:teenpatti/net/picture_cache.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
@@ -39,6 +43,7 @@ import 'package:teenpatti/widgets/chip_store.dart';
 import 'package:teenpatti/widgets/game_loader.dart';
 import 'package:teenpatti/widgets/glass_components.dart';
 import 'package:teenpatti/widgets/picture_shelf.dart';
+import 'package:teenpatti/widgets/playing_card.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 
 import 'card_background_fixtures.dart';
@@ -196,6 +201,17 @@ ShelfBadge _badgeOf(WidgetTester tester, Finder tile) =>
       find.descendant(of: tile, matching: find.byType(ShelfBadge)),
     );
 
+/// The Royal Fox drawn under [of]: the bundled asset.
+Finder _foxes(Finder of) => find.descendant(
+  of: of,
+  matching: find.byWidgetPredicate(
+    (w) =>
+        w is Image &&
+        w.image is AssetImage &&
+        (w.image as AssetImage).assetName == PlayingCard.backAsset,
+  ),
+);
+
 /// The small print under a tile's name, or null for none.
 ShelfDetail? _detailOf(WidgetTester tester, Finder tile) {
   final detail = find.descendant(of: tile, matching: find.byType(ShelfDetail));
@@ -308,6 +324,21 @@ void main() {
       }
     });
   }
+
+  test('Gujarati speaks of a card back (કાર્ડ બૅક) as neuter in every '
+      'card-back word, the shelf\'s line among them', () {
+    const t = Strings(AppLang.gujarati);
+    // The badge right under the shelf's line, and the question's "yours".
+    expect(t.cardOwned, 'તમારું');
+    expect(t.unlockCardRentBody('A', 'B', 'C'), contains('તમારું રહેશે'));
+    // "Your cards' back", in the neuter the badge agrees with.
+    expect(t.storeCardsBlurb, startsWith('તમારા કાર્ડનું બૅક'));
+    for (final key in _keys.keys) {
+      for (final other in const ['ની બૅક', 'નો બૅક']) {
+        expect(t.ownEntry(key), isNot(contains(other)), reason: key);
+      }
+    }
+  });
 
   test('the shelf stands the catalogue in its own order after the Royal Fox, '
       'the server\'s among equals', () {
@@ -862,6 +893,142 @@ void main() {
     for (final name in [royalFoxName, 'Demon Hell', 'Dragon Hunter']) {
       expect(_live(tester, _tile(name)), isTrue, reason: name);
     }
+    expect(tester.takeException(), isNull);
+    await _close(tester, state, feedback);
+  });
+
+  testWidgets('a back on sale is never shown as the Royal Fox: the plain back '
+      'on its tile, in its question and in the offer of hammers', (
+    tester,
+  ) async {
+    _setScreen(tester, const Size(891, 411));
+    // Nothing decoded — a first visit, a slow link: every back is coming.
+    var state = _state(chosen: _tiger);
+    var feedback = FeedbackSettings();
+    await _openStore(tester, state, feedback);
+    // The Royal Fox's own tile is the fox, and no other tile is.
+    expect(_foxes(_tile(royalFoxName)), findsOneWidget);
+    for (final card in seededCards) {
+      final tile = _tile(card.name);
+      expect(_foxes(tile), findsNothing, reason: card.name);
+      final back = tester.widget<CardBackImage>(
+        find.descendant(of: tile, matching: find.byType(CardBackImage)),
+      );
+      expect(back.art, card.art);
+      expect(back.standIn, isFalse, reason: card.name);
+    }
+    // The question that sells it shows that back or none at all.
+    await _tapTile(tester, 'Brutal Demon');
+    await _settle(tester);
+    expect(find.text(english.unlockCardTitle), findsOneWidget);
+    expect(
+      tester
+          .widget<CardBackImage>(
+            find.descendant(
+              of: find.byType(Dialog),
+              matching: find.byType(CardBackImage),
+            ),
+          )
+          .standIn,
+      isFalse,
+    );
+    expect(_foxes(find.byType(Dialog)), findsNothing);
+    await tester.tap(find.text(english.cancel));
+    await _settle(tester);
+    await _close(tester, state, feedback);
+
+    // Short of hammers, the offer of the Hammers shelf shows it the same way.
+    state = _state(chosen: _tiger, hammer: 3);
+    feedback = FeedbackSettings();
+    await _openStore(tester, state, feedback);
+    await _tapTile(tester, 'Brutal Demon');
+    await _settle(tester);
+    expect(find.text(english.notEnoughHammersTitle), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byType(CardBackOnOffer),
+      ),
+      findsOneWidget,
+    );
+    expect(_foxes(find.byType(Dialog)), findsNothing);
+    await tester.tap(find.text(english.cancel));
+    await _settle(tester);
+    expect(tester.takeException(), isNull);
+    await _close(tester, state, feedback);
+  });
+
+  testWidgets('a back still coming wears the game\'s ring over its plain '
+      'back; one being bought, the purchase\'s ring alone', (tester) async {
+    _setScreen(tester, const Size(891, 411));
+    // Every picture on the phone and none decoded yet: each can come, and
+    // under the test's clock none does.
+    await tester.runAsync(() async {
+      for (final card in seededCards) {
+        PictureCache.prime(
+          card.url,
+          await cardPicturePng(card.crop, card: card.colour),
+        );
+      }
+    });
+    final state = _state(chosen: _tiger);
+    state.debugToken = 'tok';
+    final feedback = FeedbackSettings();
+    await _openStore(tester, state, feedback);
+    List<GameLoaderRing> ringsOn(String name) => tester
+        .widgetList<GameLoaderRing>(
+          find.descendant(
+            of: _tile(name),
+            matching: find.byType(GameLoaderRing),
+          ),
+        )
+        .toList();
+    for (final card in seededCards) {
+      final rings = ringsOn(card.name);
+      expect(rings, hasLength(1), reason: card.name);
+      expect(
+        rings.single.ink,
+        AppTheme.cardRim,
+        reason: '${card.name}: the stock\'s gold, on the card\'s black',
+      );
+      expect(_foxes(_tile(card.name)), findsNothing, reason: card.name);
+    }
+    expect(ringsOn(royalFoxName), isEmpty, reason: 'the Royal Fox is here');
+
+    final answer = Completer<void>();
+    final calls = <String>[];
+    final server = _server(
+      calls: calls,
+      account: () => cardAccountJson(card: _tiger, hammer: 15),
+      catalogue: () => cardCatalogueJson(owned: _owned()),
+      hold: answer.future,
+    );
+    await http.runWithClient(() async {
+      await _tapTile(tester, 'Brutal Demon');
+      await _settle(tester);
+    }, () => server);
+    // The question's card is coming too: the plain back under the ring.
+    expect(
+      find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byType(GameLoaderRing),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text(english.unlock));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(state.buyingCardBackground, _demon.id);
+    // One ring on the card being bought — the purchase's — and the others
+    // still coming as they were.
+    final bought = ringsOn('Brutal Demon');
+    expect(bought, hasLength(1));
+    expect(bought.single.ink, isNull, reason: 'the purchase\'s ring');
+    expect(ringsOn('Demon Hell').single.ink, AppTheme.cardRim);
+
+    answer.complete();
+    await _answers(tester);
+    expect(state.buyingCardBackground, isNull);
     expect(tester.takeException(), isNull);
     await _close(tester, state, feedback);
   });
