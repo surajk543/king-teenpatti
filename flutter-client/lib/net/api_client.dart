@@ -556,6 +556,70 @@ class ApiClient {
     );
   }
 
+  /// The card-back catalogue (owner, 3 Oct 2026: "add one more tab Cards in
+  /// Store which user can buy"): the backs a player can wear on their cards,
+  /// in the catalogue's order. The token is optional to the server and
+  /// wanted here, as for [tablePictures]: it is what marks the ones this
+  /// player has bought as `owned`. A server that predates card backs answers
+  /// 404, which is an empty catalogue rather than a failure.
+  Future<List<CardBackground>> cardBackgrounds([String? token]) async {
+    final r = await http.get(
+      _uri('/api/card-backgrounds'),
+      headers: _headers(token),
+    );
+    if (r.statusCode == 404) return const [];
+    final j = _decode(r);
+    return (j['cardBackgrounds'] as List? ?? [])
+        .whereType<Map>()
+        .map((e) => CardBackground.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
+  /// Wears a card back, or null for the bundled Royal Fox. Allowed at a
+  /// table — the new back goes straight onto the seat, where everyone at it
+  /// sees it — and refused for a premium back the player has not bought
+  /// (`picture_locked`), one retired (`picture_retired`) or unknown
+  /// (`unknown_card_background`).
+  Future<User> useCardBackground(String token, int? id) async {
+    final r = await http.post(
+      _uri('/api/card-backgrounds/use'),
+      headers: _headers(token),
+      body: jsonEncode({'cardBackgroundId': id}),
+    );
+    final j = _decode(r);
+    return User.fromJson(Map<String, dynamic>.from(j['user'] as Map));
+  }
+
+  /// Buys a premium card back from the wallet its currency names. As with
+  /// [buyTablePicture], buying does not wear it — that is
+  /// [useCardBackground] — and `charged` is false when it was already owned
+  /// and running; `cardBackground` is the row as it now stands for this
+  /// player.
+  ///
+  /// Refusals arrive as [ApiException] with the server's code:
+  /// `unknown_card_background`, `picture_retired`, `picture_free` (400),
+  /// `picture_chips` (409, too few of the wallet it is priced in) and
+  /// `seated` (409 — a chip-priced back is sold in the lobby only).
+  Future<({User user, CardBackground? cardBackground, bool charged, int spent})>
+  buyCardBackground(String token, int id) async {
+    final r = await http.post(
+      _uri('/api/card-backgrounds/buy'),
+      headers: _headers(token),
+      body: jsonEncode({'cardBackgroundId': id}),
+    );
+    final j = _decode(r);
+    return (
+      user: User.fromJson(Map<String, dynamic>.from(j['user'] as Map)),
+      cardBackground: j['cardBackground'] is Map
+          ? CardBackground.fromJson(
+              Map<String, dynamic>.from(j['cardBackground'] as Map),
+            )
+          : null,
+      charged: j['charged'] == true,
+      spent: (j['spent'] as num?)?.toInt() ?? 0,
+    );
+  }
+
   /// Trades diamonds for missiles (owner, 14 Sep 2026): `POST
   /// /api/store/missiles {packId, requestId}`, in the lobby or at a table.
   ///

@@ -80,6 +80,7 @@ func (t *Table) act(userID string, action Action, req ActRequest) (ActResult, er
     <li><code>you.cards</code> only once the viewer has seen their cards; every other seat carries only <code>cardCount</code>.</li>
     <li>On blind and variation tables, and in poker rooms, other players' <code>chips</code> are <code>null</code>, never 0.</li>
     <li><code>you.options</code> (the ladder and which keys are live) exists only for the player on turn.</li>
+    <li>Each seat's picture (<code>avatarUrl</code>) and card back are public, in every viewer's copy. The card back, <code>cardBackground {id, url, assetFormat, crop?, expiresAt?}</code>, is the one that player chose, and the app draws it on that seat's face-down cards. A seat without one carries no key and its cards wear the app's bundled default back, as every card in a poker room does. A rented back runs out at <code>expiresAt</code>: the app draws the default from that moment, and one table timer, set for the earliest expiry among the seats, takes every back that has run out off its seat and sends the new state to everyone.</li>
     <li>Cards are revealed to everyone only at a showdown, and a sideshow's cards go to its two players alone.</li>
   </ul>
   <h3>Variation tables and poker rooms</h3>

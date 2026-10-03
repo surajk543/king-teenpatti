@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -15,6 +16,8 @@ import '../theme/depth.dart';
 import '../theme/table_theme.dart';
 import '../theme/theme_colors.dart';
 import 'avatar.dart';
+import 'card_back_art.dart';
+import 'card_back_shelf.dart';
 import 'edge_fade.dart';
 import 'emoji_shelf.dart';
 import 'game_loader.dart';
@@ -396,11 +399,12 @@ double _measuredLine(
 /// The store's shelves, in the order their keys sit in the header: chip packs,
 /// diamond packs, hammer packs, missile trades, the picture catalogue, the
 /// table pictures (owner, 15 Sep 2026: the cloths a player lays on their own
-/// table) and the emojis (owner, 26 Sep 2026: animated emojis a player sends
-/// to the table). Public so a caller can open the store on the shelf it is
-/// sending the player to — the table's Force Sideshow key sends a player with
-/// no hammers to [hammers], its Missile key one with no missiles to
-/// [missiles], and the table's emoji page a locked emoji to [emojis].
+/// table), the card backs (owner, 3 Oct 2026) and the emojis (owner, 26 Sep
+/// 2026: animated emojis a player sends to the table). Public so a caller can
+/// open the store on the shelf it is sending the player to — the table's
+/// Force Sideshow key sends a player with no hammers to [hammers], its
+/// Missile key one with no missiles to [missiles], and the table's emoji page
+/// a locked emoji to [emojis].
 enum StoreTab {
   chips,
   diamonds,
@@ -408,6 +412,12 @@ enum StoreTab {
   missiles,
   pictures,
   tables,
+
+  /// The card backs (owner, 3 Oct 2026: "add one more tab Cards in Store
+  /// which user can buy"): the backs a player wears on their own cards,
+  /// which every player at their table sees — beside the other two things a
+  /// player dresses their place with, their picture and their table.
+  cards,
   emojis,
 
   /// The badges (owner, 27 Sep 2026: "Add a icon in Store to buy badges"):
@@ -427,6 +437,7 @@ class _NavLayout {
     required this.widths,
     required this.keyHeight,
     this.gap = _StoreTabs.gap,
+    this.inset = _StoreTabs.padX,
   });
 
   /// The keys' indices, row by row, in header order.
@@ -439,8 +450,13 @@ class _NavLayout {
   final double keyHeight;
 
   /// Between two keys across: [_StoreTabs.gap], or [_StoreTabs.tightGap]
-  /// where that is all that keeps the keys in one row.
+  /// or [_StoreTabs.snugGap] where that is all that keeps the keys in one
+  /// row.
   final double gap;
+
+  /// Inside a key, either side of its word: [_StoreTabs.padX], or
+  /// [_StoreTabs.snugPadX] where that is all that keeps the keys in one row.
+  final double inset;
 
   /// The navigation's whole height.
   double get height =>
@@ -463,12 +479,15 @@ class _NavLayout {
 ///    keys and not a banner);
 ///  * **one row of keys as wide as their words**, the room left shared out
 ///    between them, where one long word ("Diamonds" at the 1.25 text ceiling
-///    on a 592dp phone) is all that stops equal keys;
-///  * **balanced rows** — four over four, four over three — only where the
-///    words cannot stand in one row at all, never by screen size.
+///    on a 592dp phone) is all that stops equal keys — the gaps between the
+///    keys tightened a step ([tightGap]), and then the keys' own insets and
+///    the gaps a step more ([snugPadX], [snugGap]), before a second row is
+///    let in;
+///  * **balanced rows** — five over four — only where the words cannot stand
+///    in one row at all, never by screen size.
 ///
-/// A glyph over its word rather than beside it: beside, eight words need some
-/// 760dp at the 1.25 text scale and would wrap to two rows on every landscape
+/// A glyph over its word rather than beside it: beside, nine words need some
+/// 860dp at the 1.25 text scale and would wrap to two rows on every landscape
 /// phone, which is height a 360dp screen gives straight out of the products.
 ///
 /// The key that is on is lit in gold — a gold wash, its rim in full champagne,
@@ -538,8 +557,17 @@ class _StoreTabs extends StatelessWidget {
   /// row by a single dp.
   static const double tightGap = Space.xs;
 
+  /// Inside a key, either side of its word, and between two keys, where even
+  /// [tightGap] leaves the keys a second row: on a 592dp phone at the 1.25
+  /// text ceiling the nine English words (Cards joined them, 3 Oct 2026)
+  /// stood 31dp too wide for one row in the lobby and 40dp at a table. The
+  /// word keeps its whole width; only the air beside it goes, and a key is
+  /// still never under [Dim.minTouch].
+  static const double snugPadX = Space.xxs;
+  static const double snugGap = Space.xxs;
+
   /// The widest a key grows: past it the row stops short of the sheet's
-  /// right edge rather than stretching eight keys into a banner.
+  /// right edge rather than stretching nine keys into a banner.
   static const double maxKeyWidth = 120;
 
   /// A key's word: the ramp's smallest label (10.5), set solid rather than
@@ -554,7 +582,7 @@ class _StoreTabs extends StatelessWidget {
       );
 
   /// Where the keys stand in a row [width] wide, in this language at this
-  /// text scale. Measured, never decided by screen size: whether eight words
+  /// text scale. Measured, never decided by screen size: whether nine words
   /// fit one row depends on the words and the scale as much as the phone.
   static _NavLayout layoutFor(
     BuildContext context,
@@ -570,7 +598,7 @@ class _StoreTabs extends StatelessWidget {
     final shelves = _shelves(t, animatedOnly);
     final n = shelves.length;
     var lineH = 0.0;
-    final natural = <double>[];
+    final words = <double>[];
     for (final shelf in shelves) {
       final painter = TextPainter(
         text: TextSpan(text: shelf.label, style: style),
@@ -579,14 +607,16 @@ class _StoreTabs extends StatelessWidget {
         maxLines: 1,
       )..layout();
       lineH = math.max(lineH, painter.height);
-      natural.add(
-        math.max(
-          Dim.minTouch,
-          (painter.width + 2 * padX + 2 * rim).ceilToDouble(),
-        ),
-      );
+      words.add(painter.width);
       painter.dispose();
     }
+    // Each key's width as its word and [inset] make it, never under the
+    // touch floor.
+    List<double> naturalAt(double inset) => [
+      for (final word in words)
+        math.max(Dim.minTouch, (word + 2 * inset + 2 * rim).ceilToDouble()),
+    ];
+    final natural = naturalAt(padX);
     // The tallest word in the fonts the phone draws it in (an Indic word is
     // taller than Inter's line, CLAUDE.md §12.3), under the glyph.
     final keyH = math.max(
@@ -595,7 +625,6 @@ class _StoreTabs extends StatelessWidget {
           .ceilToDouble(),
     );
     final widest = natural.reduce(math.max);
-    final sum = natural.fold(0.0, (a, b) => a + b);
     final all = [for (var i = 0; i < n; i++) i];
 
     // One row of equal keys.
@@ -608,15 +637,24 @@ class _StoreTabs extends StatelessWidget {
       );
     }
     // One row of keys as wide as their words, the rest shared out — with
-    // the gaps between them tightened a step before a second row is let in.
-    for (final between in const [gap, tightGap]) {
+    // the gaps between them tightened a step, and then the keys' insets and
+    // the gaps a step more, before a second row is let in.
+    for (final (inset, between) in const [
+      (padX, gap),
+      (padX, tightGap),
+      (snugPadX, tightGap),
+      (snugPadX, snugGap),
+    ]) {
+      final keys = inset == padX ? natural : naturalAt(inset);
+      final sum = keys.fold(0.0, (a, b) => a + b);
       if (sum + between * (n - 1) > width) continue;
       final extra = (width - sum - between * (n - 1)) / n;
       return _NavLayout(
         rows: [all],
-        widths: [for (final w in natural) (w + extra).floorToDouble()],
+        widths: [for (final w in keys) (w + extra).floorToDouble()],
         keyHeight: keyH,
         gap: between,
+        inset: inset,
       );
     }
     // Balanced rows of equal keys: as few as hold every word, the first rows
@@ -690,8 +728,9 @@ class _StoreTabs extends StatelessWidget {
         width: layout.widths[index],
         height: layout.keyHeight,
         // The glyph and word are centred in the height [layoutFor] gave the
-        // key, which already holds their inset above and below.
-        padding: const EdgeInsets.symmetric(horizontal: padX),
+        // key, which already holds their inset above and below; across, the
+        // inset [layoutFor] chose.
+        padding: EdgeInsets.symmetric(horizontal: layout.inset),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(Radii.sm),
           // Lit from inside: brightest at the glyph, a whisper of gold at
@@ -735,11 +774,17 @@ class _StoreTabs extends StatelessWidget {
           builder: (context, lit, _) => Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                shelf.icon,
-                size: iconSize,
-                color: Color.lerp(quiet, champagne, lit),
-              ),
+              if (shelf.icon case final icon?)
+                Icon(
+                  icon,
+                  size: iconSize,
+                  color: Color.lerp(quiet, champagne, lit),
+                )
+              else
+                // The Cards shelf's glyph is its default back itself, in
+                // the box the other glyphs stand in and in its own colours,
+                // on and off alike ([_shelves]).
+                const RoyalFoxGlyph(size: iconSize),
               const SizedBox(height: iconGap),
               Text(
                 shelf.label,
@@ -802,8 +847,12 @@ class _StoreTabs extends StatelessWidget {
     );
   }
 
-  /// The keys in header order, with what each one shows.
-  static List<({StoreTab tab, IconData icon, String label})> _shelves(
+  /// The keys in header order, with what each one shows: a glyph over a
+  /// word. A null glyph is the Cards key's, which shows the Royal Fox itself
+  /// — the default back, a tiny card ([RoyalFoxGlyph]; owner, 3 Oct 2026:
+  /// "show default card icon also in store") — where every other key has an
+  /// icon.
+  static List<({StoreTab tab, IconData? icon, String label})> _shelves(
     Strings t,
     bool animatedOnly,
   ) => [
@@ -831,6 +880,10 @@ class _StoreTabs extends StatelessWidget {
       icon: Icons.table_bar_rounded,
       label: t.storeTabTables,
     ),
+    // Offered in the lobby and at a table alike (owner, 3 Oct 2026): a back
+    // priced in hammers may be bought mid-sitting, and goes straight onto
+    // the player's cards. Its glyph is the Royal Fox (null: no icon).
+    (tab: StoreTab.cards, icon: null, label: t.storeTabCards),
     // Offered in the lobby and at a table alike: an emoji priced in hammers
     // or diamonds may be bought mid-sitting, and sent at once.
     (
@@ -948,6 +1001,16 @@ class _ChipStoreState extends State<_ChipStore> {
       _tab = next;
       _toTop();
     });
+    _readCardsOn(next);
+  }
+
+  /// Reads the card-back catalogue again when the Cards shelf comes up, so
+  /// a rental that ran out while the app was open shows its padlock again
+  /// rather than "0m left" (`owned` is the server's word, per viewer; the
+  /// read is also where the server takes a lapsed back off).
+  void _readCardsOn(StoreTab shelf) {
+    if (shelf != StoreTab.cards) return;
+    unawaited(context.read<GameState>().reloadCardBackgrounds());
   }
 
   @override
@@ -965,6 +1028,7 @@ class _ChipStoreState extends State<_ChipStore> {
           if (mounted) _loadPrices();
         });
       }
+      _readCardsOn(_tab);
     });
   }
 
@@ -1049,6 +1113,7 @@ class _ChipStoreState extends State<_ChipStore> {
     final onMissiles = tab == StoreTab.missiles;
     final onChips = tab == StoreTab.chips;
     final onEmojis = tab == StoreTab.emojis;
+    final onCards = tab == StoreTab.cards;
     final size = MediaQuery.sizeOf(context);
     final scaler = MediaQuery.textScalerOf(context);
 
@@ -1137,9 +1202,10 @@ class _ChipStoreState extends State<_ChipStore> {
       t.storeMissilesBlurb,
       atTable ? t.storeAnimatedBlurb : t.storePicturesBlurb,
       t.storeTablesBlurb,
+      t.storeCardsBlurb,
       t.storeEmojisBlurb,
       t.storeBadgesBlurb,
-      if (atPokerRoom) t.tablePokerNote,
+      if (atPokerRoom) ...[t.tablePokerNote, t.cardsPokerNote],
     ];
     var blurbW = 0.0;
     for (final blurb in blurbs) {
@@ -1198,6 +1264,7 @@ class _ChipStoreState extends State<_ChipStore> {
         t.storeMissilesTitle,
         atTable ? t.picturePremiumAnimated : t.storeTabPictures,
         t.storeTablesTitle,
+        t.storeCardsTitle,
         t.storeEmojisTitle,
         t.storeBadgesTitle,
       ]),
@@ -1213,9 +1280,12 @@ class _ChipStoreState extends State<_ChipStore> {
     final champagne = theme.brightness == Brightness.dark
         ? AppTheme.goldBright
         : AppTheme.goldDeep;
+    // A null glyph is drawn as itself: the Chips shelf's poker chip, and
+    // the Cards shelf's default back, the Royal Fox, as its key shows it.
     final (IconData? glyph, Color glyphInk) = switch (tab) {
       StoreTab.pictures => (Icons.face_rounded, champagne),
       StoreTab.tables => (Icons.table_bar_rounded, champagne),
+      StoreTab.cards => (null, champagne),
       StoreTab.emojis => (Icons.emoji_emotions_rounded, champagne),
       StoreTab.badges => (Icons.workspace_premium_rounded, champagne),
       StoreTab.diamonds => (
@@ -1230,6 +1300,7 @@ class _ChipStoreState extends State<_ChipStore> {
       StoreTab.pictures =>
         atTable ? t.picturePremiumAnimated : t.storeTabPictures,
       StoreTab.tables => t.storeTablesTitle,
+      StoreTab.cards => t.storeCardsTitle,
       StoreTab.emojis => t.storeEmojisTitle,
       StoreTab.badges => t.storeBadgesTitle,
       StoreTab.diamonds => t.storeDiamondsTitle,
@@ -1243,6 +1314,9 @@ class _ChipStoreState extends State<_ChipStore> {
       // A poker room's felt shows no table picture: the shelf still sells,
       // and says where the cloth will show.
       StoreTab.tables => atPokerRoom ? t.tablePokerNote : t.storeTablesBlurb,
+      // Nor the players' own backs (the poker felt keeps the standard one):
+      // the same, for the cards.
+      StoreTab.cards => atPokerRoom ? t.cardsPokerNote : t.storeCardsBlurb,
       StoreTab.emojis => t.storeEmojisBlurb,
       StoreTab.badges => t.storeBadgesBlurb,
       StoreTab.diamonds => t.storeDiamondsBlurb,
@@ -1324,12 +1398,14 @@ class _ChipStoreState extends State<_ChipStore> {
                             transitionBuilder: _fadeScale,
                             child: KeyedSubtree(
                               key: ValueKey(tab),
-                              child: glyph == null
-                                  ? const PokerChip(
+                              child: glyph != null
+                                  ? Icon(glyph, size: 22, color: glyphInk)
+                                  : onCards
+                                  ? const RoyalFoxGlyph(size: 22)
+                                  : const PokerChip(
                                       colour: AppTheme.gold,
                                       size: 22,
-                                    )
-                                  : Icon(glyph, size: 22, color: glyphInk),
+                                    ),
                             ),
                           ),
                         ),
@@ -1391,12 +1467,12 @@ class _ChipStoreState extends State<_ChipStore> {
                         // it should also show the user current missile count
                         // just like it is showing diamond count"); Pictures
                         // with both wallets a picture can cost besides chips.
-                        // The Tables and Emojis shelves are priced in the
-                        // same three wallets as the pictures, so they head
-                        // the same way. The Badges shelf is priced in rupees
-                        // and heads with no balance.
+                        // The Tables, Cards and Emojis shelves are priced in
+                        // the same three wallets as the pictures, so they
+                        // head the same way. The Badges shelf is priced in
+                        // rupees and heads with no balance.
                         if (onChips) ChipBalance(chips: chips),
-                        if (onPictures || onTables || onEmojis)
+                        if (onPictures || onTables || onCards || onEmojis)
                           PictureWalletBalances(
                             diamonds: diamonds,
                             hammers: hammers,
@@ -1515,6 +1591,8 @@ class _ChipStoreState extends State<_ChipStore> {
                                   grid,
                                   shelfW:
                                       body.maxWidth - _bodyPadding.horizontal,
+                                  shelfH:
+                                      body.maxHeight - _bodyPadding.vertical,
                                   beside: beside,
                                 ),
                               ),
@@ -1540,7 +1618,8 @@ class _ChipStoreState extends State<_ChipStore> {
                               // on the pack shelves, whose cards stand still: a
                               // mask over the Pictures and Tables shelves, whose
                               // Lotties and chips move every frame, would be an
-                              // offscreen pass every frame.
+                              // offscreen pass every frame. The Cards shelf's
+                              // backs stand still, and fade as the packs do.
                               child: onPictures || onTables || onEmojis
                                   ? scroll
                                   : EdgeFade(child: scroll),
@@ -1620,13 +1699,14 @@ class _ChipStoreState extends State<_ChipStore> {
   }
 
   /// What the shelf that is on holds, laid out on [grid], in a shelf
-  /// [shelfW] wide; [beside] says the shelf's controls stand at its side
-  /// ([_sideControls]).
+  /// [shelfW] wide and [shelfH] tall (the body less its padding); [beside]
+  /// says the shelf's controls stand at its side ([_sideControls]).
   Widget _shelfBody(
     BuildContext context,
     GameState state,
     _ShelfGeometry grid, {
     required double shelfW,
+    required double shelfH,
     required bool beside,
   }) {
     final prices = _prices;
@@ -1692,6 +1772,20 @@ class _ChipStoreState extends State<_ChipStore> {
                 openStore: _show,
               ),
             ],
+          ),
+        );
+      case StoreTab.cards:
+        return SizedBox(
+          // Full width, so the grid centres in the sheet as the other
+          // catalogue shelves do.
+          width: double.infinity,
+          child: cardBackShelf(
+            context: context,
+            state: state,
+            // The cards are sized from what the shelf has, so a row of them
+            // and a glimpse of the next stand in it at any text size.
+            height: shelfH,
+            openStore: _show,
           ),
         );
       case StoreTab.badges:

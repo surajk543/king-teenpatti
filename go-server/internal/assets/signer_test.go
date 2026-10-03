@@ -1,7 +1,9 @@
 package assets
 
 import (
+	"math/rand/v2"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -147,7 +149,7 @@ func TestOnlyThisBucketsLocationsAreSigned(t *testing.T) {
 		"https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/king-teenpatti/",
 		"https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/king-teenpatti/angry.json",
 		"https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/king-teenpatti/emojis/../secret.json",
-		"https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/king-teenpatti/emojis/Angry.json",
+		"https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/king-teenpatti/Emojis/angry.json",
 		"https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/king-teenpatti/emojis/angry.json?x=1",
 		"http://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/king-teenpatti/emojis/angry.json",
 	} {
@@ -233,5 +235,189 @@ func TestABatchIsSignedTogetherAndLeavesOutWhatIsNotALocation(t *testing.T) {
 	}
 	if none, at := s.SignAll(nil); len(none) != 0 || !at.Equal(now.Add(SignedFor)) {
 		t.Fatalf("an empty batch: %v, %s", none, at)
+	}
+}
+
+// ownersCards are the card backs the owner uploaded straight to the bucket's
+// cards/ folder (3 Oct 2026), under their own file names — capitals, spaces
+// and "Royal Owl with fox.jpg"'s lower-case f included. Royal Fox is the
+// app's bundled default and no catalogue row, but its file is there too.
+var ownersCards = []string{
+	"cards/Brutal Demon.jpg", "cards/Demon Hell.jpg", "cards/Dragon Hunter.jpg", "cards/Royal Lion.jpg",
+	"cards/Royal Majestic Fox.jpg", "cards/Royal Owl with fox.jpg", "cards/Royal Tiger.jpg", "cards/Royal White Tiger.jpg",
+	"cards/Royal Fox.jpg",
+	"cards/Flower 1.jpg", "cards/Flower 2.jpg", "cards/Flower 3.jpg", "cards/Flower 4.jpg", "cards/Flower 5.jpg",
+}
+
+// A card back's location writes each space of its key as %20 — the one escape
+// a location carries — and comes back from Key with its spaces, which is the
+// object's name in the bucket. Signed, the path carries the key encoded once,
+// exactly as SigV4 canonicalises it for S3, so the URL a phone opens is the
+// location itself with the signature after it.
+func TestACardBacksLocationKeepsItsOwnersFileNameAndIsSigned(t *testing.T) {
+	now := time.Date(2026, 10, 3, 9, 30, 0, 0, time.UTC)
+	s := testSigner(t, func() time.Time { return now })
+	const prefix = "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/king-teenpatti/"
+	if got, want := s.Location("cards/Brutal Demon.jpg"), prefix+"cards/Brutal%20Demon.jpg"; got != want {
+		t.Fatalf("Location = %q, want %q", got, want)
+	}
+	if got, want := s.Location("cards/Royal Owl with fox.jpg"), prefix+"cards/Royal%20Owl%20with%20fox.jpg"; got != want {
+		t.Fatalf("Location = %q, want %q", got, want)
+	}
+	for _, key := range ownersCards {
+		location := s.Location(key)
+		if strings.Contains(location, " ") || strings.Count(location, "%20") != strings.Count(key, " ") {
+			t.Errorf("Location(%q) = %q: every space must be %%20 and nothing else escaped", key, location)
+		}
+		if got, ok := s.Key(location); !ok || got != key {
+			t.Errorf("Key(%q) = %q, %t; want %q", location, got, ok, key)
+		}
+		signed, expiresAt, ok := s.Sign(location)
+		if !ok {
+			t.Errorf("%s was not signed", location)
+			continue
+		}
+		if !expiresAt.Equal(now.Add(SignedFor)) {
+			t.Errorf("%s: expiresAt %s", key, expiresAt)
+		}
+		if !strings.HasPrefix(signed, location+"?X-Amz-Algorithm=AWS4-HMAC-SHA256&") {
+			t.Errorf("the signed URL does not start with the location: %s", signed)
+		}
+		u, err := url.Parse(signed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := "/king-teenpatti/" + strings.ReplaceAll(key, " ", "%20"); u.EscapedPath() != want || u.Path != "/king-teenpatti/"+key {
+			t.Errorf("signed path %q (decoded %q), want %q", u.EscapedPath(), u.Path, want)
+		}
+		// The signature is SigV4's over the key encoded ONCE (S3's rule): the
+		// same URL presignGET makes from the decoded key.
+		at := now.Add(-skew)
+		want := presignGET(s.host, "/king-teenpatti/"+key, "AKIDTEST", signingKeyFor("secret", at.Format("20060102"), region, service),
+			region, service, at, SignedFor+skew)
+		if signed != want {
+			t.Errorf("%s signed as\n %s\nwant\n %s", key, signed, want)
+		}
+	}
+	if !strings.Contains(mustSign(t, s, "cards/Brutal Demon.jpg"), "/cards/Brutal%20Demon.jpg?") {
+		t.Error("the presigned path does not carry /cards/Brutal%20Demon.jpg")
+	}
+}
+
+func mustSign(t *testing.T, s *Signer, key string) string {
+	t.Helper()
+	signed, _, ok := s.Sign(s.Location(key))
+	if !ok {
+		t.Fatalf("%s was not signed", key)
+	}
+	return signed
+}
+
+// The key rule stays strict where it was widened: capitals and spaces are a
+// FILE NAME's, a space is %20 between two other characters and nothing else
+// is escaped. Each of these is refused, and nothing is signed.
+func TestAFileNameMayHoldCapitalsAndSpacesAndNothingElseIsWidened(t *testing.T) {
+	s := testSigner(t, time.Now)
+	const prefix = "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/king-teenpatti/"
+	for _, key := range []string{
+		"cards/Brutal Demon.jpg",          // a raw space: a location writes it %20
+		"cards/%20Brutal.jpg",             // a space opening the name
+		"cards/Brutal.jpg%20",             // a space closing it
+		"cards/Brutal%20Demon.jpg%20",     // …after a space inside it
+		"cards/Brutal%2FDemon.jpg",        // an escaped slash
+		"cards/Brutal%2fDemon.jpg",        // in lower case
+		"cards/%2e%2e/secret.jpg",         // escaped dots
+		"cards/Brutal%2520Demon.jpg",      // an escaped percent
+		"cards/Brutal%2Demon.jpg",         // an escape that is not %20
+		"cards/Brutal%Demon.jpg",          // a bare percent
+		"cards/Brutal%20%2FDemon.jpg",     // a space, then a slash
+		"cards//Brutal.jpg",               // an empty segment
+		"cards/",                          // no file name
+		"cards",                           // no folder
+		"Cards/Brutal.jpg",                // a folder in capitals
+		"my%20cards/Brutal.jpg",           // a folder with a space
+		"cards/Royal%20..%20Fox.jpg",      // '..' with spaces round it
+		"cards/../Brutal.jpg",             // '..' as a segment
+		"cards/Brutal+Demon.jpg",          // a plus
+		"cards/Brütal.jpg",                // a letter outside ASCII
+		"cards/Brutal%20Demon.jpg#top",    // a fragment
+		"cards/Brutal%20Demon.jpg?X-Amz-", // already signed
+	} {
+		if got, ok := s.Key(prefix + key); ok {
+			t.Errorf("Key(%q) = %q; want it refused", key, got)
+		}
+		if signed, _, ok := s.Sign(prefix + key); ok || signed != "" {
+			t.Errorf("Sign(%q) = %q; want nothing signed", key, signed)
+		}
+	}
+	// A capital is a file name's and nobody else's.
+	for _, key := range []string{"emojis/Angry.json", "levels/sub/Royal-Titan.json"} {
+		if got, ok := s.Key(prefix + key); !ok || got != key {
+			t.Errorf("Key(%q) = %q, %t; a file name may hold capitals", key, got, ok)
+		}
+	}
+	if _, ok := s.Key(prefix + "levels/Sub/royal-titan.json"); ok {
+		t.Error("a folder below the first may not hold capitals either")
+	}
+}
+
+// Every key the rule took before card backs widened it is taken exactly as
+// it was: Key returns it unchanged, Location writes it unchanged, and it is
+// signed over the same path. Checked on the seed's shapes and on every short
+// string of the old alphabet a fixed generator makes.
+func TestEveryKeyTheOldRuleTookIsStillTakenUnchanged(t *testing.T) {
+	now := time.Date(2026, 10, 3, 9, 30, 0, 0, time.UTC)
+	s := testSigner(t, func() time.Time { return now })
+	const prefix = "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/king-teenpatti/"
+	old := regexp.MustCompile(`^[a-z0-9_-]+(/[a-z0-9_.-]+)+$`)
+	keys := []string{
+		"profile_pictures/love-sheep.json", "profile_pictures/bear.png", "table_pictures/thank-you-day.json",
+		"emojis/angry.json", "badges/royal-ace.json", "levels/01-newbie.json", "levels/32-royal-titan.json",
+		"emojis/3.13.0.txt", "a/b/c.d", "x_y/z-1/2.3",
+	}
+	const alphabet = "ab0_-./"
+	rng := rand.New(rand.NewPCG(3, 10))
+	for range 20000 {
+		b := make([]byte, 1+rng.IntN(12))
+		for i := range b {
+			b[i] = alphabet[rng.IntN(len(alphabet))]
+		}
+		keys = append(keys, string(b))
+	}
+	taken := 0
+	for _, key := range keys {
+		if !old.MatchString(key) || strings.Contains(key, "..") {
+			continue
+		}
+		taken++
+		location := s.Location(key)
+		if location != prefix+key {
+			t.Fatalf("Location(%q) = %q, want %q", key, location, prefix+key)
+		}
+		if got, ok := s.Key(location); !ok || got != key {
+			t.Fatalf("Key(%q) = %q, %t: the old rule took it", location, got, ok)
+		}
+		signed, _, ok := s.Sign(location)
+		if !ok || !strings.HasPrefix(signed, location+"?") {
+			t.Fatalf("%q signs as %q, %t", key, signed, ok)
+		}
+	}
+	if taken < 200 {
+		t.Fatalf("only %d keys of the old shape were tried", taken)
+	}
+}
+
+// Location and Key undo each other, spaces and all.
+func TestLocationAndKeyUndoEachOther(t *testing.T) {
+	s := testSigner(t, time.Now)
+	for _, key := range append([]string{"emojis/angry.json", "levels/sub/x.json", "cards/A B C.jpg"}, ownersCards...) {
+		location := s.Location(key)
+		got, ok := s.Key(location)
+		if !ok || got != key {
+			t.Errorf("Key(Location(%q)) = %q, %t", key, got, ok)
+		}
+		if back := s.Location(got); back != location {
+			t.Errorf("Location(Key(%q)) = %q", location, back)
+		}
 	}
 }

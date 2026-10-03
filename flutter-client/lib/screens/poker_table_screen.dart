@@ -330,11 +330,6 @@ class _PokerFelt extends StatelessWidget {
                   ? reveal.handName
                   : '${reveal.handName} · $outcome',
               seat: s,
-              orbCorner: viewIndex == 0
-                  ? OrbCorner.contained
-                  : viewIndex.isOdd
-                  ? OrbCorner.topRight
-                  : OrbCorner.topLeft,
               isMe: s?.userId != null && s!.userId == state.user?.id,
               // The button travels: the snapshot marks the seat that holds
               // it, and names it on the room too.

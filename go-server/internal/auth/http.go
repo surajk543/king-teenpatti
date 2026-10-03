@@ -58,6 +58,24 @@ type TablePictureStore interface {
 	ExpireLapsed(ctx context.Context, userID string) (bool, error)
 }
 
+// CardBackgroundStore is the slice of db.CardBackgrounds the handlers use
+// (owner, 3 Oct 2026; Go only): the catalogue of backs a player buys for their
+// cards, the till they are bought at, and the choice itself —
+// TablePictureStore one for one.
+type CardBackgroundStore interface {
+	List(ctx context.Context, userID string) ([]db.CardBackground, error)
+	Find(ctx context.Context, userID string, id int64) (db.CardBackground, bool, error)
+	Buy(ctx context.Context, userID string, id int64) (*db.CardBackgroundPurchase, error)
+	// BuyAtTable is Buy for a seated player: diamonds or hammers only
+	// (db.ErrPictureAtTable).
+	BuyAtTable(ctx context.Context, userID string, id int64) (*db.CardBackgroundPurchase, error)
+	// Use chooses a card back (nil takes it off: the default back) and
+	// returns the fresh user.
+	Use(ctx context.Context, userID string, id *int64) (*db.User, error)
+	// ExpireLapsed takes off a chosen card back whose rental has run out.
+	ExpireLapsed(ctx context.Context, userID string) (bool, error)
+}
+
 // LevelStore is the slice of db.XP GET /api/levels reads (owner, 27 Sep
 // 2026): the whole level ladder, configuration only.
 type LevelStore interface {
@@ -112,6 +130,13 @@ type Deps struct {
 	// show it to everyone (app: rooms.SetPlayerTablePicture; owner, 15 Sep
 	// 2026). Nil = nobody to tell.
 	TablePictureLaid func(userID string, pic *game.TablePicture)
+	// CardBackgroundChosen puts the card back a player has just chosen (nil:
+	// taken off — the default back) on their seat when they are at a table,
+	// so everybody there sees it on that player's cards at once (app:
+	// rooms.SetPlayerCardBackground; owner, 3 Oct 2026) — a rented one with
+	// its ExpiresAt, at which the table takes it off by itself. A sweep that
+	// finds a chosen rental over calls it with nil. Nil = nobody to tell.
+	CardBackgroundChosen func(userID string, cb *game.CardBackground)
 	// AccountDeleted ends the sessions of a player who has just deleted their
 	// account (app: the socket layer disconnects every socket of that user,
 	// 24 Sep 2026). Nil = nobody to tell.
@@ -130,6 +155,11 @@ type Deps struct {
 	// only in tests that never reach its routes; the lapsed-rental sweep
 	// skips it then.
 	TablePictures TablePictureStore
+	// CardBackgrounds is the card-back catalogue (owner, 3 Oct 2026). Nil
+	// reads as an empty catalogue: GET /api/card-backgrounds lists nothing,
+	// a use or a buy of an id is unknown_card_background, and the
+	// lapsed-rental sweep skips it.
+	CardBackgrounds CardBackgroundStore
 	// Emojis is the emoji catalogue (owner, 26 Sep 2026). Nil reads as an
 	// empty catalogue: GET /api/emojis lists nothing and a buy is
 	// unknown_emoji — there is no emoji to sell.
@@ -270,6 +300,9 @@ type BoughtBadge struct {
 //	GET  /api/table-pictures     → TablePictures    (token optional; Go only)
 //	POST /api/table-pictures/use → UseTablePicture  (RequireAuth; Go only)
 //	POST /api/table-pictures/buy → BuyTablePicture  (RequireAuth; Go only)
+//	GET  /api/card-backgrounds     → CardBackgrounds    (token optional; Go only)
+//	POST /api/card-backgrounds/use → UseCardBackground  (RequireAuth; Go only)
+//	POST /api/card-backgrounds/buy → BuyCardBackground  (RequireAuth, wallet limiter; Go only)
 //	GET  /api/lucky-draw         → LuckyDraw        (RequireAuth; Go only)
 //	POST /api/lucky-draw/spin    → SpinLuckyDraw    (RequireAuth; Go only)
 //	GET  /api/reward-programs       → RewardPrograms      (RequireAuth; Go only)
@@ -364,6 +397,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("/api/table-pictures", methods(http.MethodGet, http.HandlerFunc(h.TablePictures)))
 	mux.Handle("/api/table-pictures/use", methods(http.MethodPost, h.RequireAuth(h.UseTablePicture)))
 	mux.Handle("/api/table-pictures/buy", methods(http.MethodPost, wallet(h.BuyTablePicture)))
+	// The card backs (owner, 3 Oct 2026): the table pictures' three again —
+	// the catalogue public and never gated, the choice signed in, the buy
+	// behind the wallet limiter.
+	mux.Handle("/api/card-backgrounds", methods(http.MethodGet, http.HandlerFunc(h.CardBackgrounds)))
+	mux.Handle("/api/card-backgrounds/use", methods(http.MethodPost, h.RequireAuth(h.UseCardBackground)))
+	mux.Handle("/api/card-backgrounds/buy", methods(http.MethodPost, wallet(h.BuyCardBackground)))
 	mux.Handle("/api/lucky-draw", methods(http.MethodGet, h.RequireAuth(h.LuckyDraw)))
 	mux.Handle("/api/lucky-draw/spin", methods(http.MethodPost, wallet(h.SpinLuckyDraw)))
 	mux.Handle("/api/reward-programs", methods(http.MethodGet, h.RequireAuth(h.RewardPrograms)))
@@ -714,6 +753,53 @@ type BuyTablePictureResponse struct {
 	Spent   int64           `json:"spent"`
 }
 
+// CardBackgroundsResponse ← GET /api/card-backgrounds: the card-back
+// catalogue in display order, each row marked with whether this caller may
+// choose it (owner, 3 Oct 2026; Go only). Anonymous callers see the free ones
+// as owned and nothing else. The default back — bundled with the app — is no
+// row of it.
+type CardBackgroundsResponse struct {
+	CardBackgrounds []db.CardBackground `json:"cardBackgrounds"` // [] when empty, never null
+}
+
+// CardBackgroundRequest ← POST /api/card-backgrounds/use {cardBackgroundId:
+// <id> | null} and POST /api/card-backgrounds/buy {cardBackgroundId}. Decoded
+// the forgiving way AvatarRequest is — a JSON number or its text — since the
+// id came off a listing this server produced. nil is "take it off" (the
+// default back) on use and a missing id on buy.
+type CardBackgroundRequest struct {
+	CardBackgroundID *string `json:"cardBackgroundId"`
+}
+
+// UnmarshalJSON applies AvatarRequest's coercion to cardBackgroundId.
+func (r *CardBackgroundRequest) UnmarshalJSON(data []byte) error {
+	*r = CardBackgroundRequest{}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		if bytes.HasPrefix(bytes.TrimSpace(data), []byte("[")) {
+			return nil
+		}
+		return err
+	}
+	value, ok := raw["cardBackgroundId"]
+	if !ok || string(value) == "null" {
+		return nil
+	}
+	text := jsString(value)
+	r.CardBackgroundID = &text
+	return nil
+}
+
+// BuyCardBackgroundResponse ← POST /api/card-backgrounds/buy: {user,
+// cardBackground, charged, spent} — BuyPictureResponse for a card back.
+// Charged is false when the player already owned it, running.
+type BuyCardBackgroundResponse struct {
+	User           *db.User          `json:"user"`
+	CardBackground db.CardBackground `json:"cardBackground"`
+	Charged        bool              `json:"charged"`
+	Spent          int64             `json:"spent"`
+}
+
 // EmojisResponse ← GET /api/emojis: the emoji catalogue in display order, each
 // row marked with whether this caller may send it (owner, 26 Sep 2026; Go
 // only). Anonymous callers see the free ones as owned and nothing else.
@@ -908,6 +994,19 @@ const (
 	MsgMissileStoreClosed     = "The missile store is not open yet."
 	MsgUnknownMissilePack     = "That missile pack does not exist"
 	MsgInvalidRequestID       = "A missile trade needs a request id of 1 to 64 characters"
+	// The card backs' refusals (owner, 3 Oct 2026) word the pictures' rules
+	// for a card back; unknown_card_background is their own code, the rest
+	// the codes the picture routes share.
+	MsgUnknownCardBackground    = "That card back is not available."
+	MsgCardBackgroundLocked     = "Unlock that card back before you can use it."
+	MsgCardBackgroundRetired    = "That card back is no longer available."
+	MsgCardBackgroundFree       = "That card back is free — just choose it."
+	MsgCardBackgroundChips      = "You do not have enough chips for that card back."
+	MsgCardBackgroundDiamonds   = "You do not have enough diamonds for that card back."
+	MsgCardBackgroundHammer     = "You need 1 hammer to unlock this card back."
+	MsgCardBackgroundHammersFmt = "You need %d hammers to unlock this card back."
+	MsgCardBackgroundHammers    = "You do not have enough hammers for that card back."
+	MsgSeatedCardBackground     = "You can only buy a chip-priced card back in the lobby."
 	// The Lucky Draw's refusals (owner, 24 Sep 2026).
 	MsgLuckyDrawUnavailable = "The Lucky Draw is closed right now."
 	MsgLuckyDrawNotReady    = "Your next Lucky Draw spin is not ready yet."

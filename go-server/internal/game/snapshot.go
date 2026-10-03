@@ -240,6 +240,14 @@ type SnapshotSeat struct {
 	// Level is the seat's level on its pod (SeatLevel), kept so a restart
 	// shows it without reading the account; absent where not known.
 	Level *SeatLevel `json:"level,omitempty"`
+	// CardBackground is the card back the player has chosen (owner, 3 Oct
+	// 2026; CardBackground), kept so a restart shows it without reading the
+	// account; absent when none, so a snapshot written before it existed
+	// reads as none. One no client could draw is dropped on restore — the
+	// seat wears the default back — never a refused table; so is a rental
+	// whose ExpiresAt passed while the process was down. One still running
+	// keeps its ExpiresAt, and the restored table takes it off on time.
+	CardBackground *CardBackground `json:"cardBackground,omitempty"`
 }
 
 // HandSummaryEntry is one contributor in hands.summary_json and in the

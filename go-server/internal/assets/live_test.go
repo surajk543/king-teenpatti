@@ -12,10 +12,12 @@ import (
 // A real object in the real bucket opens with the URL Sign hands out, and not
 // with a tampered one — the check that R2 accepts what this package signs.
 // Skipped unless the four R2 keys are in the environment and R2_LIVE_KEY names
-// an object to fetch:
+// an object to fetch — by its key as the bucket names it, so a card back's
+// with its spaces (Location writes them %20):
 //
 //	set -a; . ./.env; set +a
 //	R2_LIVE_KEY=emojis/angry.json go test ./internal/assets -run Live -v
+//	R2_LIVE_KEY='cards/Royal Owl with fox.jpg' go test ./internal/assets -run Live -v
 func TestALiveR2ObjectOpensWithItsSignedURLAndOnlyWithIt(t *testing.T) {
 	key := os.Getenv("R2_LIVE_KEY")
 	if key == "" || os.Getenv("R2_ACCOUNT_ID") == "" {

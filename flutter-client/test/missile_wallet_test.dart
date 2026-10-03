@@ -135,11 +135,20 @@ void main() {
         StoreTab.values.indexOf(StoreTab.pictures),
         StoreTab.values.indexOf(StoreTab.missiles) + 1,
       );
-      // Tables (owner, 15 Sep 2026) follows, then Emojis (owner, 26 Sep
-      // 2026), and Badges (owner, 27 Sep 2026) closes the row.
+      // Tables (owner, 15 Sep 2026) follows, then Cards (owner, 3 Oct
+      // 2026), then Emojis (owner, 26 Sep 2026), and Badges (owner, 27 Sep
+      // 2026) closes the row.
       expect(
         StoreTab.values.indexOf(StoreTab.tables),
         StoreTab.values.indexOf(StoreTab.pictures) + 1,
+      );
+      expect(
+        StoreTab.values.indexOf(StoreTab.cards),
+        StoreTab.values.indexOf(StoreTab.tables) + 1,
+      );
+      expect(
+        StoreTab.values.indexOf(StoreTab.emojis),
+        StoreTab.values.indexOf(StoreTab.cards) + 1,
       );
       expect(
         StoreTab.values.indexOf(StoreTab.badges),

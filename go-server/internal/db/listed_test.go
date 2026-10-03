@@ -40,7 +40,7 @@ func (f *fixture) setListed(table string, key any, listed bool) {
 
 func TestEverySeededShelfRowIsListed(t *testing.T) {
 	f := newFixture(t)
-	for _, table := range []string{"profile_pictures", "table_pictures", "emojis", "badges"} {
+	for _, table := range []string{"profile_pictures", "table_pictures", "cards_background", "emojis", "badges"} {
 		if n := f.count(`SELECT count(*) FROM ` + table); n == 0 {
 			t.Errorf("the seed put no rows in %s to prove the DEFAULT on", table)
 		}

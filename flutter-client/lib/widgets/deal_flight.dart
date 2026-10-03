@@ -1,16 +1,17 @@
 /// Three cards to each seat when a hand is dealt.
 library;
 
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 
 import '../models/dtos.dart';
 import '../settings/feedback_settings.dart';
 import '../theme/app_theme.dart';
+import 'card_back_art.dart';
 import 'playing_card.dart';
 
 /// Face-down cards flying from the middle of the cloth to every occupied seat,
@@ -30,8 +31,21 @@ import 'playing_card.dart';
 /// rebuilt, laid out and rastered again each frame, with a new card widget
 /// made (and its SVG fetched) every time one set off. Now the deal's clock is
 /// as long as its cards need ([total]), every card makes the same [trip] a
-/// [stagger] behind the card before it, and the backs are one image rendered
+/// [stagger] behind the card before it, and the backs are images rendered
 /// once and drawn by a single painter that repaints off the clock.
+///
+/// **Each card in its seat's back** (owner, 3 Oct 2026: card backs bought on
+/// the store's Cards shelf, which everybody at the table sees on the wearer's
+/// cards): with [seatBacks], a card flies in the back the seat it is dealt to
+/// wears ([Seat.cardBackground]) — the back it lands as. Every back the seats
+/// wear is rendered ONCE, before the deal, into an image of its own from the
+/// picture [CardBackImages] has decoded — five seats in three backs are three
+/// images — and the one painter draws each card from its seat's. A back
+/// still coming flies as the Royal Fox, and the cards still in the air take
+/// it up the moment it is decoded, whoever asked for it. A back that has
+/// run out ([liveCardBack]) is the Royal Fox: a deal after its moment flies
+/// none of it, and the cards of one in the air when the moment comes fly on
+/// in the Royal Fox, as their seat's cards then show it.
 class DealFlights extends StatefulWidget {
   const DealFlights({
     super.key,
@@ -42,6 +56,7 @@ class DealFlights extends StatefulWidget {
     required this.deck,
     required this.cardHeight,
     this.cards = cardsEach,
+    this.seatBacks = false,
   });
 
   final List<Seat?> seats;
@@ -60,6 +75,12 @@ class DealFlights extends StatefulWidget {
   /// hands would be.
   final Offset deck;
   final double cardHeight;
+
+  /// Whether each card flies in the back its seat wears
+  /// ([Seat.cardBackground]): the Teen Patti felt's deal. Off, every card is
+  /// the Royal Fox — the poker felt's, whose cards keep it whatever back a
+  /// player wears at a Teen Patti table.
+  final bool seatBacks;
 
   static const int cardsEach = 3;
 
@@ -86,7 +107,7 @@ class DealFlights extends StatefulWidget {
   static Duration total(int cards) => trip + stagger * math.max(0, cards - 1);
 
   @override
-  State<DealFlights> createState() => _DealFlightsState();
+  State<DealFlights> createState() => DealFlightsState();
 }
 
 /// One card of a deal at one moment.
@@ -146,6 +167,15 @@ DealCard? dealCardAt(int index, Duration elapsed) {
   );
 }
 
+/// Where [card], flying from [deck] to [target], is centred: along the line
+/// between them and tossed above it by its lift.
+Offset _flightCentre(
+  Offset deck,
+  Offset target,
+  DealCard card,
+  double cardHeight,
+) => Offset.lerp(deck, target, card.along)! - Offset(0, card.lift * cardHeight);
+
 /// The seats a new hand is dealt to, by index: those holding a player who is
 /// in it. An empty chair is still a place in the list — and until 14 Sep 2026
 /// was dealt to, cards sailing across the felt to nobody — and a player sitting
@@ -157,7 +187,21 @@ List<int> dealtSeats(List<Seat?> seats) => [
       i,
 ];
 
-class _DealFlightsState extends State<DealFlights>
+/// A back as the deal renders it: its picture's location and the card's
+/// crop in it — the id a catalogue row carries does not change a back — or,
+/// with an empty url, the Royal Fox.
+typedef _Back = ({String url, CardCrop? crop});
+
+const _Back _royalFox = (url: '', crop: null);
+
+_Back _backOf(CardBackArt? art) =>
+    art == null ? _royalFox : (url: art.url, crop: art.crop);
+
+/// [back] as [CardBackImages] is asked for it: null for the Royal Fox.
+CardBackArt? _artOf(_Back back) =>
+    back.url.isEmpty ? null : CardBackArt(url: back.url, crop: back.crop);
+
+class DealFlightsState extends State<DealFlights>
     with SingleTickerProviderStateMixin {
   /// Created by the first deal, never in advance — and never by [dispose].
   ///
@@ -172,47 +216,94 @@ class _DealFlightsState extends State<DealFlights>
         ..addListener(_onTick)
         ..addStatusListener((status) {
           if (status == AnimationStatus.completed && mounted) {
-            setState(() => _targets = const []);
+            setState(() {
+              _targets = const [];
+              _cardBacks = const [];
+              _cardLapses = const [];
+              _cardImages = const [];
+            });
+            // The deal is down: a back only its cards were still wearing —
+            // a player who left mid-deal — can go.
+            _restock();
           }
         });
 
   /// Where each card of the deal lands, in the order they are dealt.
   List<Offset> _targets = const [];
 
+  /// The back each card of the deal is dealt in — the one its seat wears,
+  /// which it lands as — in the same order.
+  List<_Back> _cardBacks = const [];
+
+  /// When each of those backs runs out (owner, 3 Oct 2026: "when validity of
+  /// premium card expires, it restores default card"), epoch ms, 0 for
+  /// never — in the same order. Kept beside the backs rather than in them, so
+  /// two players in one back with two rentals still share one render.
+  List<int> _cardLapses = const [];
+
+  /// The image each card of the deal is drawn from now: its back's render,
+  /// the Royal Fox's while its own is still coming, or null — the plain back
+  /// — before even the Royal Fox has been decoded.
+  List<ui.Image?> _cardImages = const [];
+
   /// How many cards of this deal have been heard.
   int _sounded = 0;
 
-  /// The card back as one image, and the size and pixel ratio it was made
-  /// for; null until the artwork has loaded, when a plain back stands in.
-  ui.Image? _back;
+  /// Every back the deal may draw, each rendered once ([_renderBack]) at
+  /// [_backHeight] logical pixels and [_backScale] device pixels to one —
+  /// one image a back, however many cards wear it.
+  final Map<_Back, ui.Image> _rendered = {};
   double _backHeight = 0;
   double _backScale = 0;
-  PictureInfo? _art;
-  bool _loadingArt = false;
+
+  /// The screen's device pixels to one, read where the dependency is kept.
+  double _scale = 1;
+
+  /// Backs being fetched and decoded for the deal, and backs that could not
+  /// be had — not asked for again until the next deal, though one decoded
+  /// meanwhile for a seat's own cards is taken up all the same ([_arrived]).
+  final Set<_Back> _loading = {};
+  final Set<_Back> _unavailable = {};
+
+  int _renders = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    CardBackImages.changes.addListener(_arrived);
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _prepareBack();
+    _scale = MediaQuery.maybeDevicePixelRatioOf(context) ?? 1;
+    if (_restock()) _cardImages = _imagesFor(_cardBacks);
   }
 
   @override
-  void didUpdateWidget(DealFlights old) {
-    super.didUpdateWidget(old);
-    if (widget.cardHeight != old.cardHeight) _prepareBack();
+  void didUpdateWidget(DealFlights oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A back run out while its cards are in the air: they fly on in the
+    // Royal Fox. Then ready before anything is dealt: a new size, a player
+    // sitting down in a back of their own, or one wearing another.
+    final lapsed = _dropLapsedBacks();
+    if (_restock() || lapsed) _cardImages = _imagesFor(_cardBacks);
     // A new hand, at the SAME table, and not the first after arriving. The
     // room check keeps a switch quiet: this state survives a move and sees
     // handNo jump to the new table's, which looks exactly like a deal.
-    if (widget.roomId != old.roomId) return;
-    if (widget.handNo == old.handNo || old.handNo == 0) return;
+    if (widget.roomId != oldWidget.roomId) return;
+    if (widget.handNo == oldWidget.handNo || oldWidget.handNo == 0) return;
     _deal();
   }
 
   @override
   void dispose() {
+    CardBackImages.changes.removeListener(_arrived);
     _controller?.dispose();
-    _back?.dispose();
-    _art?.picture.dispose();
+    for (final image in _rendered.values) {
+      image.dispose();
+    }
+    _rendered.clear();
     super.dispose();
   }
 
@@ -220,12 +311,28 @@ class _DealFlightsState extends State<DealFlights>
     final seated = dealtSeats(widget.seats);
     if (seated.isEmpty) return;
 
-    final targets = [
-      for (var round = 0; round < widget.cards; round++)
-        for (final seat in seated) widget.centreOf(seat),
-    ];
+    // A back that could not be had for the last deal is asked for again.
+    _unavailable.clear();
+    final targets = <Offset>[];
+    final backs = <_Back>[];
+    final lapses = <int>[];
+    for (var round = 0; round < widget.cards; round++) {
+      for (final seat in seated) {
+        targets.add(widget.centreOf(seat));
+        // Its seat's back while it runs; one run out is the Royal Fox.
+        final art = widget.seatBacks
+            ? liveCardBack(widget.seats[seat]?.cardBackground)
+            : null;
+        backs.add(_backOf(art));
+        lapses.add(art?.expiresAt ?? 0);
+      }
+    }
+    _cardBacks = backs;
+    _cardLapses = lapses;
+    _restock();
     setState(() {
       _targets = targets;
+      _cardImages = _imagesFor(backs);
       _sounded = 0;
     });
     _run
@@ -252,35 +359,149 @@ class _DealFlightsState extends State<DealFlights>
     _sounded = due;
   }
 
-  /// Renders the card back, once per size, into the image every flying card
-  /// is drawn from.
-  Future<void> _prepareBack() async {
-    if (_art == null) {
-      if (_loadingArt) return;
-      _loadingArt = true;
-      try {
-        _art = await vg.loadPicture(
-          SvgAssetLoader('assets/card_back.svg'),
-          null,
-        );
-      } catch (_) {
-        return; // The plain back stands in; the deal still runs.
-      } finally {
-        _loadingArt = false;
-      }
-      if (!mounted) return;
-    }
+  /// The backs the deal may draw: the Royal Fox, which stands in for any
+  /// back still coming, every seated player's own, and those of the cards in
+  /// the air (whose players may have left since they set off).
+  Set<_Back> _wanted() => {
+    _royalFox,
+    if (widget.seatBacks)
+      for (final seat in widget.seats)
+        if (seat != null && seat.occupied)
+          _backOf(liveCardBack(seat.cardBackground)),
+    ..._cardBacks,
+  };
 
+  /// Puts the Royal Fox on every card in the air whose back has run out by
+  /// now ([cardBackClock]): true when one had, and the cards' images are then
+  /// to be pointed at what they wear now.
+  bool _dropLapsedBacks() {
+    // No deal in the air: nothing to read the clock for.
+    if (_cardLapses.isEmpty) return false;
+    final now = cardBackClock().millisecondsSinceEpoch;
+    bool lapsed(int at) => at > 0 && now >= at;
+    if (!_cardLapses.any(lapsed)) return false;
+    _cardBacks = [
+      for (var i = 0; i < _cardBacks.length; i++)
+        lapsed(_cardLapses[i]) ? _royalFox : _cardBacks[i],
+    ];
+    _cardLapses = [for (final at in _cardLapses) lapsed(at) ? 0 : at];
+    return true;
+  }
+
+  /// Renders every back the deal may draw ([_wanted]) that is not rendered at
+  /// this size, from the pictures decoded so far; asks for those not decoded
+  /// ([_ask]); and lets go of the renders nobody wears any more. True when a
+  /// render was made or let go — the cards in the air are then pointed at
+  /// what there is now ([_imagesFor]) before they are painted again.
+  bool _restock() {
+    var changed = false;
     final height = widget.cardHeight;
-    final scale = MediaQuery.devicePixelRatioOf(context);
-    if (_back != null && _backHeight == height && _backScale == scale) return;
-    final image = _renderBack(_art!, height, scale);
-    setState(() {
-      _back?.dispose();
-      _back = image;
+    if (height != _backHeight || _scale != _backScale) {
+      for (final image in _rendered.values) {
+        image.dispose();
+      }
+      _rendered.clear();
       _backHeight = height;
-      _backScale = scale;
+      _backScale = _scale;
+      changed = true;
+    }
+    final wanted = _wanted();
+    _rendered.removeWhere((back, image) {
+      if (wanted.contains(back)) return false;
+      image.dispose();
+      changed = true;
+      return true;
     });
+    for (final back in wanted) {
+      if (_rendered.containsKey(back)) continue;
+      final picture = CardBackImages.peek(_artOf(back));
+      if (picture == null) {
+        _ask(back);
+        continue;
+      }
+      _rendered[back] = _renderBack(picture, height, _scale);
+      _renders++;
+      changed = true;
+    }
+    return changed;
+  }
+
+  /// Has [back]'s picture fetched and decoded, unless it is on its way
+  /// already or could not be had for this deal. It is rendered when it lands
+  /// ([_arrived]), not here.
+  void _ask(_Back back) {
+    if (_loading.contains(back) || _unavailable.contains(back)) return;
+    final art = _artOf(back);
+    // A location nothing can sign (no session yet, or a test) is not
+    // fetched at all: the Royal Fox flies in its place.
+    if (art != null && !CardBackImages.canFetch(art)) {
+      _unavailable.add(back);
+      return;
+    }
+    _loading.add(back);
+    unawaited(
+      CardBackImages.load(art)
+          // A load reports a picture it cannot have as null; anything thrown
+          // on the way is the same thing to a deal.
+          .catchError((Object _) => null)
+          .then((picture) {
+            if (!mounted) return;
+            _loading.remove(back);
+            if (picture == null) _unavailable.add(back);
+          }),
+    );
+  }
+
+  /// A back has been decoded somewhere — for the deal, or for a seat's own
+  /// cards: rendered if the deal wears it, and handed to the cards in the
+  /// air. Only this layer repaints for it.
+  void _arrived() {
+    if (!mounted || !_restock()) return;
+    if (_targets.isEmpty) return;
+    setState(() => _cardImages = _imagesFor(_cardBacks));
+  }
+
+  /// What each of [backs] is drawn from: its render, else the Royal Fox's,
+  /// else nothing (the plain back).
+  List<ui.Image?> _imagesFor(List<_Back> backs) => [
+    for (final back in backs) _rendered[back] ?? _rendered[_royalFox],
+  ];
+
+  /// The back each card of the deal in the air is dealt in, in the order
+  /// dealt — its seat's, or null for the Royal Fox. For tests.
+  @visibleForTesting
+  List<CardBackArt?> get dealtBacks => [
+    for (final back in _cardBacks) _artOf(back),
+  ];
+
+  /// How many times a back has been rendered into an image since the deal
+  /// was built: once for each back worn, and again only at a new size. For
+  /// tests.
+  @visibleForTesting
+  int get backsRendered => _renders;
+
+  /// The cards of the deal in the air now: which card of it (in the order
+  /// dealt), where it is centred on the deal's box, and how opaque it is.
+  /// For tests, which read the back a card is drawn in off the pixels there.
+  @visibleForTesting
+  List<({int card, Offset centre, double alpha})> get cardsInFlight {
+    final controller = _controller;
+    if (controller == null || _targets.isEmpty) return const [];
+    final elapsed = (controller.duration ?? Duration.zero) * controller.value;
+    return [
+      for (var i = 0; i < _targets.length; i++)
+        if (dealCardAt(i, elapsed) case final card?)
+          (
+            card: i,
+            centre: _flightCentre(
+              widget.deck,
+              _targets[i],
+              card,
+              widget.cardHeight,
+            ),
+            alpha: card.alpha,
+          ),
+    ];
   }
 
   @override
@@ -293,52 +514,46 @@ class _DealFlightsState extends State<DealFlights>
           deck: widget.deck,
           targets: _targets,
           cardHeight: widget.cardHeight,
-          back: _back,
-          backScale: _backScale,
+          images: _cardImages,
+          imageScale: _backScale,
         ),
       ),
     );
   }
 }
 
-/// The margin round the card back's image, in card heights, that its shadow
+/// The margin round a card back's image, in card heights, that its shadow
 /// is drawn into.
 const double _shadowRoom = 0.12;
 
-/// The card back at [height] logical pixels and [scale] device pixels to one,
-/// with its rounded corners cut and a soft shadow under it, as one image.
-ui.Image _renderBack(PictureInfo art, double height, double scale) {
+/// The card back [picture] at [height] logical pixels and [scale] device
+/// pixels to one, with a soft shadow under it, as one image — printed as the
+/// card it lands as ([paintCardBack]: the picture cut to the card's corner,
+/// the stock's light along its top and its gold edge).
+ui.Image _renderBack(CardBackPicture picture, double height, double scale) {
   final width = height * PlayingCard.aspect;
   final room = height * _shadowRoom;
-  final card = RRect.fromRectAndRadius(
-    Rect.fromLTWH(room, room, width, height),
-    Radius.circular(height * PlayingCard.cornerShare),
-  );
+  final card = Rect.fromLTWH(room, room, width, height);
 
   final recorder = ui.PictureRecorder();
   final canvas = Canvas(recorder)..scale(scale);
   canvas.drawRRect(
-    card.shift(Offset(0, height * 0.03)),
+    RRect.fromRectAndRadius(
+      card.shift(Offset(0, height * 0.03)),
+      Radius.circular(height * PlayingCard.cornerShare),
+    ),
     Paint()
       ..color = AppTheme.ink900.withValues(alpha: 0.42)
       ..maskFilter = MaskFilter.blur(BlurStyle.normal, height * 0.05),
   );
-  canvas
-    ..save()
-    ..clipRRect(card)
-    ..translate(room, room)
-    ..scale(width / art.size.width, height / art.size.height)
-    ..drawPicture(art.picture)
-    ..restore();
-  // The stock's edge, as every card on the table has it (PlayingCard).
-  CardStockPainter.paintEdge(canvas, card, height, face: false);
+  paintCardBack(canvas, card, picture: picture);
 
-  final picture = recorder.endRecording();
-  final image = picture.toImageSync(
+  final recorded = recorder.endRecording();
+  final image = recorded.toImageSync(
     ((width + 2 * room) * scale).ceil(),
     ((height + 2 * room) * scale).ceil(),
   );
-  picture.dispose();
+  recorded.dispose();
   return image;
 }
 
@@ -348,46 +563,50 @@ class _DealPainter extends CustomPainter {
     required this.deck,
     required this.targets,
     required this.cardHeight,
-    required this.back,
-    required this.backScale,
+    required this.images,
+    required this.imageScale,
   }) : super(repaint: clock);
 
   final AnimationController clock;
   final Offset deck;
   final List<Offset> targets;
   final double cardHeight;
-  final ui.Image? back;
-  final double backScale;
 
-  /// The back a card is drawn with until the artwork has loaded.
-  static const Color _plainBack = Color(0xFF2E211B);
+  /// The image each card is drawn from, in the order dealt; null draws the
+  /// plain back.
+  final List<ui.Image?> images;
+
+  /// The device pixels to one every image was rendered at.
+  final double imageScale;
+
+  /// The back a card is drawn with until any artwork has loaded: its black
+  /// border's colour.
+  static const Color _plainBack = PlayingCard.backGround;
 
   @override
   void paint(Canvas canvas, Size size) {
     final elapsed = (clock.duration ?? Duration.zero) * clock.value;
-    final image = back;
 
     // In the order dealt, so each card lands over the one dealt before it.
     for (var i = 0; i < targets.length; i++) {
       final card = dealCardAt(i, elapsed);
       if (card == null) continue;
-      final at =
-          Offset.lerp(deck, targets[i], card.along)! -
-          Offset(0, card.lift * cardHeight);
+      final at = _flightCentre(deck, targets[i], card, cardHeight);
       canvas
         ..save()
         ..translate(at.dx, at.dy)
         ..rotate(card.turn)
         ..scale(card.scale);
 
+      final image = i < images.length ? images[i] : null;
       if (image != null) {
         canvas.drawImageRect(
           image,
           Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
           Rect.fromCenter(
             center: Offset.zero,
-            width: image.width / backScale,
-            height: image.height / backScale,
+            width: image.width / imageScale,
+            height: image.height / imageScale,
           ),
           Paint()
             ..color = Color.fromRGBO(0, 0, 0, card.alpha)
@@ -425,6 +644,6 @@ class _DealPainter extends CustomPainter {
       old.deck != deck ||
       !identical(old.targets, targets) ||
       old.cardHeight != cardHeight ||
-      old.back != back ||
-      old.backScale != backScale;
+      !identical(old.images, images) ||
+      old.imageScale != imageScale;
 }

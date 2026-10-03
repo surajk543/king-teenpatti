@@ -1312,7 +1312,9 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 	if err := json.Unmarshal(out, &m); err != nil {
 		t.Fatal(err)
 	}
-	// tablePicture (15 Sep 2026) is the table picture laid, null until one is.
+	// tablePicture (15 Sep 2026) is the table picture laid, null until one is,
+	// and cardBackground (3 Oct 2026) the card back chosen, null — the default
+	// back — until one is.
 	// stats (Player stats v2, 27 Sep 2026) is the career per bucket, after the
 	// six totals it sums to; playerLevel, badges and taxBps (26–27 Sep 2026)
 	// are the player's own standing — level and XP, the badges they hold, and
@@ -1322,7 +1324,7 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 	// four-hour bonus sent; the milestone and the daily bonus stay gone.
 	// totalTaxPaid (2 Oct 2026) is the winning tax paid in the whole career,
 	// after the six totals.
-	wantKeys := []string{"id", "provider", "displayName", "email", "avatarUrl", "providerAvatarUrl", "activePictureId", "tablePicture", "chips", "diamond", "hammer", "missile",
+	wantKeys := []string{"id", "provider", "displayName", "email", "avatarUrl", "providerAvatarUrl", "activePictureId", "tablePicture", "cardBackground", "chips", "diamond", "hammer", "missile",
 		"handsPlayed", "handsWon", "handsLost", "handsLeftMid", "totalWinnings", "biggestPot", "totalTaxPaid", "stats", "rewards", "createdAt", "lastLoginAt", "playerLevel",
 		"badges", "taxBps"}
 	if len(m) != len(wantKeys) {
@@ -1344,14 +1346,15 @@ func TestUserMarshalsToThePublicUserShape(t *testing.T) {
 	for _, o := range order {
 		got = append(got, o[1])
 	}
-	top := got[:18]
-	for i, k := range wantKeys[:15] {
+	top := got[:19]
+	for i, k := range wantKeys[:16] {
 		if top[i] != k {
 			t.Fatalf("key order differs at %d: %v", i, top)
 		}
 	}
-	if string(m["chips"]) != "200000" || string(m["activePictureId"]) != "null" || string(m["avatarUrl"]) != `"https://pic"` {
-		t.Fatalf("values: chips=%s activePictureId=%s avatarUrl=%s", m["chips"], m["activePictureId"], m["avatarUrl"])
+	if string(m["chips"]) != "200000" || string(m["activePictureId"]) != "null" || string(m["avatarUrl"]) != `"https://pic"` ||
+		string(m["cardBackground"]) != "null" {
+		t.Fatalf("values: chips=%s activePictureId=%s avatarUrl=%s cardBackground=%s", m["chips"], m["activePictureId"], m["avatarUrl"], m["cardBackground"])
 	}
 	// The bonus alone: no milestone or daily-bonus key rides in it. A new
 	// account's is ready now.

@@ -62,6 +62,11 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	// So are the emoji store's two (26 Sep 2026).
 	execSQL(t, older, `DROP TABLE user_emojis`)
 	execSQL(t, older, `DROP TABLE emojis`)
+	// And the card backs' three (3 Oct 2026), which every database built
+	// before them lacks — production's among them: dependents first.
+	execSQL(t, older, `DROP TABLE user_cards_background_choice`)
+	execSQL(t, older, `DROP TABLE user_cards_background`)
+	execSQL(t, older, `DROP TABLE cards_background`)
 	// And Friends V1's three (26 Sep 2026). This build goes onto a FRESH
 	// database (owner, 26 Sep 2026), so nothing is copied from anywhere: a boot
 	// on an older one just creates them, and its players' statistics start at
@@ -147,6 +152,25 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 	}
 	if bought, err := db.NewEmojis(d, db.NewUsers(d, welcome, nil), nil).Buy(ctx, before.ID, emojiID); err != nil || !bought.Charged {
 		t.Errorf("buying an emoji after the upgrade: %+v %v", bought, err)
+	}
+
+	// The card-back tables were created and seeded with every one of
+	// seededCards (cardbackgrounds_test.go), all listed, and the account that
+	// was already there reads with none chosen — the default back — and buys
+	// and chooses one on the new tables.
+	if n := countOf(t, d, `SELECT count(*) FROM cards_background WHERE is_active AND is_listed`); n != int64(len(seededCards)) {
+		t.Errorf("%d card backs after the upgrade, want the seed's %d", n, len(seededCards))
+	}
+	if got, err := db.NewUsers(d, welcome, nil).FindByID(ctx, before.ID); err != nil || got == nil || got.CardBackground != nil {
+		t.Errorf("the existing account after the upgrade: %+v %v, want it read with the default back", got, err)
+	}
+	cards := db.NewCardBackgrounds(d, db.NewUsers(d, welcome, nil), nil)
+	if shelf, err := cards.List(ctx, before.ID); err != nil || len(shelf) != len(seededCards) {
+		t.Errorf("the card backs listed after the upgrade: %d, %v, want the seed's %d", len(shelf), err, len(seededCards))
+	} else if bought, err := cards.Buy(ctx, before.ID, shelf[0].ID); err != nil || !bought.Charged {
+		t.Errorf("buying a card back after the upgrade: %+v %v", bought, err)
+	} else if chosen, err := cards.Use(ctx, before.ID, &shelf[0].ID); err != nil || chosen.CardBackground == nil {
+		t.Errorf("choosing a card back after the upgrade: %+v %v", chosen, err)
 	}
 
 	// Friends V1: the three tables are there, empty — nothing is copied — and

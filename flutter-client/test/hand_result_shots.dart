@@ -367,7 +367,7 @@ Future<(GameState, GlobalKey)> _table(
 
 /// The viewer's tap on See cards, and the server's answer: [h] face up.
 Future<void> _look(WidgetTester tester, GameState state, ResultHand h) async {
-  await tester.tap(find.text(state.t.seeCards));
+  await tester.tap(find.text(state.t.see.toUpperCase()));
   state.handleState(resultRoom(cards: h.cards));
 }
 

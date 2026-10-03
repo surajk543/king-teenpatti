@@ -185,11 +185,13 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request, user *db.User) {
 	WriteJSON(w, http.StatusOK, UserResponse{User: h.takeOffLapsedPicture(r, user)})
 }
 
-// takeOffLapsedPicture takes off the premium picture a player is wearing, and
-// the premium table picture they have laid (owner, 15 Sep 2026), when its
-// rental has run out, and returns the user as they now stand: re-read when
-// something changed, so the answer carries the face and the table they
-// actually have.
+// takeOffLapsedPicture takes off the premium picture a player is wearing, the
+// premium table picture they have laid (owner, 15 Sep 2026) and the premium
+// card back they have chosen (owner, 3 Oct 2026), when its rental has run
+// out, and returns the user as they now stand: re-read when something
+// changed, so the answer carries the face, the table and the cards they
+// actually have. A lapsed table picture or card back is taken off the
+// player's seat too, so their table stops showing it at once.
 //
 // A failure is logged and swallowed. Losing a picture is not worth refusing
 // the request over, and every ownership read tests the expiry itself.
@@ -233,6 +235,9 @@ func (h *Handler) takeOffLapsedPicture(r *http.Request, user *db.User) *db.User 
 			}
 			h.tablePictureLapsed(user.ID)
 		}
+	}
+	if h.sweepCardBackground(r.Context(), user.ID) {
+		changed = true
 	}
 	if changed {
 		if fresh, ferr := h.deps.Users.FindByID(r.Context(), user.ID); ferr == nil && fresh != nil {

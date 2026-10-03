@@ -187,6 +187,12 @@ type NewPlayer struct {
 	// Level is the player's level and its art (SeatLevel), read with their
 	// account when they sat down; nil where not known. Shown on their pod.
 	Level *SeatLevel
+	// CardBackground is the card back the player has chosen, from their
+	// account (owner, 3 Oct 2026; cardbackground.go), or nil for the default
+	// back. The seat keeps a copy of a valid one that has not run out, and
+	// everybody at the table sees it on that player's cards until its
+	// ExpiresAt, when the table takes it off by itself.
+	CardBackground *CardBackground
 }
 
 // ActRequest is the client's move (socket game:action → table.act payload).
@@ -284,6 +290,13 @@ type seat struct {
 	// level is the player's level on their pod (SeatLevel): NewPlayer.Level
 	// when they sat down, refreshed from every hand-end settle.
 	level *SeatLevel
+
+	// cardBackground is the card back this player has chosen, or nil — the
+	// default back (cardbackground.go): NewPlayer.CardBackground when they
+	// sat down, changed by SetCardBackground, and taken off by the card-back
+	// clock when a rental's ExpiresAt comes (expireCardBackgrounds). Never
+	// shared with a caller.
+	cardBackground *CardBackground
 }
 
 // contribution is hand.contributions[userId] — owned by the HAND, not the
@@ -468,7 +481,14 @@ type Table struct {
 	// way startTimerGen does.
 	unfundedTimer    Timer
 	unfundedTimerGen uint64
-	view             *View // the single View handed to listeners
+	// cardBackgroundTimer fires at the earliest moment a seat's rented card
+	// back runs out (armCardBackgroundTimer, cardbackground.go; owner, 3 Oct
+	// 2026); cardBackgroundTimerGen guards a late callback the way
+	// startTimerGen does. Not snapshotted: each seat's back carries its own
+	// ExpiresAt, and a restore arms the clock again from them.
+	cardBackgroundTimer    Timer
+	cardBackgroundTimerGen uint64
+	view                   *View // the single View handed to listeners
 	// lastHand is the hand this table last finished — its id, its players and
 	// its variation — kept until the next one finishes, for a player report
 	// filed in the pause between hands (table_report.go). Memory only: not in
@@ -1178,6 +1198,7 @@ func (s *seat) info() *SeatInfo {
 		KickPending:           s.kickPending,
 		TaxBps:                s.taxBps,
 		Level:                 s.level.clone(),
+		CardBackground:        s.cardBackground.clone(),
 	}
 }
 
@@ -1223,9 +1244,16 @@ func (t *Table) addPlayer(p NewPlayer) (*SeatInfo, error) {
 		joinedAt:     t.clock.Now(),
 		taxBps:       p.TaxBps,
 		level:        p.Level.clone(),
+		// The card back everyone at the table sees on this player's cards:
+		// a copy of a valid one that has not run out, else the default
+		// (seatCardBackground).
+		cardBackground: t.seatCardBackground(p.CardBackground),
 	}
 	t.seats[seatIndex] = s
 	t.refreshPlayerCount()
+	// A rented back — read with the account at a sit-down, or carried by a
+	// move — comes off by itself when its term ends (owner, 3 Oct 2026).
+	t.armCardBackgroundTimer()
 	t.listener.OnSeatUpdated(t.view, seatIndex)
 
 	// Announce the arrival in the room log, so a player who joins mid-session
@@ -1271,6 +1299,9 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 
 	t.seats[s.seatIndex] = nil
 	t.refreshPlayerCount()
+	// Their card back left with them: the card-back clock now follows the
+	// backs still at the table (here, before any of the returns below).
+	t.armCardBackgroundTimer()
 	t.listener.OnSeatUpdated(t.view, s.seatIndex)
 	if msg := t.chat.AddSystem(fmt.Sprintf(ChatLeftFormat, s.displayName)); msg != nil {
 		t.listener.OnChat(t.view, msg)
@@ -3573,6 +3604,7 @@ func (t *Table) destroy() {
 	t.clearTurnTimer()
 	t.clearStartTimer()
 	t.clearUnfundedTimer()
+	t.clearCardBackgroundTimer()
 	if t.hand != nil && t.hand.sideshow != nil && t.hand.sideshow.timer != nil {
 		// Only reachable when fenced (endHand clears it otherwise): the hand
 		// is the owner's now, this process just stops its own clocks.
@@ -3631,6 +3663,7 @@ func (t *Table) snapshot() *Snapshot {
 			JoinedAt:              Millis(s.joinedAt),
 			TaxBps:                s.taxBps,
 			Level:                 s.level.clone(),
+			CardBackground:        s.cardBackground.clone(),
 		}
 		if s.unfundedUntil != nil {
 			snap.UnfundedUntil = Int64Ptr(Millis(*s.unfundedUntil))
@@ -3941,6 +3974,9 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 			Picking: s.picking && len(s.picked) == 0,
 			// Public too: the player's level on their pod (29 Sep 2026).
 			Level: s.level.clone(),
+			// And the card back they have chosen, which everyone at the table
+			// sees on their face-down cards (3 Oct 2026); absent when none.
+			CardBackground: s.cardBackground.clone(),
 		}
 		if s.avatarURL != nil {
 			entry.AvatarURL = StrPtr(*s.avatarURL)

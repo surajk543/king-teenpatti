@@ -231,7 +231,8 @@ func TestSignedInRESTRefusesAnUnsupportedVersion(t *testing.T) {
 		t.Errorf("a login: %d %s", status, body)
 	}
 	// Never gated: the app config, /health, the public catalogues.
-	for _, path := range []string{"/api/app-config", "/health", "/api/tables", "/api/profiles", "/api/levels", "/api/emojis", "/api/table-pictures"} {
+	for _, path := range []string{"/api/app-config", "/health", "/api/tables", "/api/profiles", "/api/levels", "/api/emojis", "/api/table-pictures",
+		"/api/card-backgrounds"} {
 		if res, body := get(t, h, http.MethodGet, path, declared("android", "1.0.0")); res.StatusCode != http.StatusOK {
 			t.Errorf("GET %s for an old build: %d %s", path, res.StatusCode, body)
 		}

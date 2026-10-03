@@ -229,7 +229,6 @@ void main() {
       for (final dark in [true, false]) {
         final state = await _mount(tester, _scene('03'), dark: dark);
         final pack = _key(state.t.pack);
-        final scheme = Theme.of(tester.element(pack)).colorScheme;
         final side = tester
             .widget<FilledButton>(
               find.descendant(of: pack, matching: find.byType(FilledButton)),
@@ -237,11 +236,11 @@ void main() {
             .style!
             .side!
             .resolve(const <WidgetState>{})!;
+        // The console is one dark glass in both themes (the redesign,
+        // 3 Oct 2026), so Pack's red edge is the same by day as by night.
         expect(
           side.color,
-          scheme.error.withValues(
-            alpha: dark ? AppTheme.hairlineLive : AppTheme.hairlineLiveLight,
-          ),
+          TableKeys.pack.withValues(alpha: AppTheme.hairlineLive),
         );
         await _unmount(tester, state);
       }

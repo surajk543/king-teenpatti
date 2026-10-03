@@ -1,13 +1,13 @@
 <section id="data">
   <h2><span class="kicker">Reference</span>Data model</h2>
   <p>Two stores with a strict division. PostgreSQL holds what must never be lost: money, accounts, audit and configuration. Redis holds the game being played. No table in PostgreSQL is game state.</p>
-  <h3>PostgreSQL: 44 tables</h3>
+  <h3>PostgreSQL: 47 tables</h3>
   <div class="scroll"><table>
     <thead><tr><th>Group</th><th>Tables</th><th>Notes</th></tr></thead>
     <tbody>
       <tr><td>Accounts</td><td><code>users</code>, <code>user_sessions</code>, <code>user_milestones</code></td><td>The wallet is <code>users.chips</code>, with diamonds, hammers and missiles beside it. Rows are never deleted; deleting an account empties and pseudonymises it.</td></tr>
       <tr><td>Money</td><td><code>chip_ledger</code>, <code>diamond_purchases</code>, <code>hammer_purchases</code>, <code>hammer_spends</code>, <code>missile_purchases</code>, <code>missile_spends</code>, <code>badge_purchases</code></td><td><code>chip_ledger.action_id</code> is UNIQUE and the table is append-only. The purchase tables are replay guards keyed on the store's token.</td></tr>
-      <tr><td>Catalogues</td><td><code>profile_pictures</code>, <code>user_profile_pictures</code>, <code>table_pictures</code>, <code>user_table_pictures</code>, <code>user_table_choice</code>, <code>emojis</code>, <code>user_emojis</code></td><td>What can be bought with chips, hammers or diamonds, and who owns what. Art lives in R2; rows hold its location.</td></tr>
+      <tr><td>Catalogues</td><td><code>profile_pictures</code>, <code>user_profile_pictures</code>, <code>table_pictures</code>, <code>user_table_pictures</code>, <code>user_table_choice</code>, <code>cards_background</code>, <code>user_cards_background</code>, <code>user_cards_background_choice</code>, <code>emojis</code>, <code>user_emojis</code></td><td>What can be bought with chips, hammers or diamonds, who owns what, and which table picture and card back each player has chosen. Art lives in R2; rows hold its location.</td></tr>
       <tr><td>Table configuration</td><td><code>table_engines</code>, <code>table_categories</code>, <code>table_settings</code>, <code>table_configs</code></td><td>Engines, categories and every lobby table with every figure it plays by. Read once at boot.</td></tr>
       <tr><td>Statistics</td><td><code>player_stats</code>, <code>player_variation_stats</code>, <code>stats_flushes</code></td><td>One row per player per game bucket; written only by the flusher's group commit.</td></tr>
       <tr><td>Progression</td><td><code>player_levels</code>, <code>badges</code>, <code>user_badges</code>, <code>xp_sources</code>, <code>xp_settings</code>, <code>player_xp</code>, <code>player_xp_claims</code>, <code>player_xp_missions</code></td><td>50 levels by XP and badges held beside them. The winning-tax rate is the lowest of the level's and the badges'.</td></tr>
@@ -79,8 +79,8 @@
     <tbody>
       <tr><td>Sign-in</td><td><code>POST /api/auth/login</code> (google, apple, guest), <code>GET /api/auth/me</code>, <code>DELETE /api/account</code></td></tr>
       <tr><td>Lobby</td><td><code>GET /api/tables</code> (the catalogue this process enforces, with an ETag), <code>GET /api/app-config</code> (the version gate's verdict)</td></tr>
-      <tr><td>Profile</td><td><code>POST /api/profile/name</code>, <code>/avatar</code>, <code>/picture/buy</code>; <code>GET /api/profiles</code>, <code>/api/table-pictures</code>, <code>/api/emojis</code>, <code>/api/levels</code>; <code>POST /api/assets/sign</code></td></tr>
-      <tr><td>Store</td><td><code>POST /api/purchases/google</code>, <code>/api/purchases/apple</code>, <code>/api/store/missiles</code>, <code>/api/table-pictures/buy</code>, <code>/api/emojis/buy</code></td></tr>
+      <tr><td>Profile</td><td><code>POST /api/profile/name</code>, <code>/avatar</code>, <code>/picture/buy</code>; <code>GET /api/profiles</code>, <code>/api/table-pictures</code>, <code>/api/card-backgrounds</code>, <code>/api/emojis</code>, <code>/api/levels</code>; <code>POST /api/table-pictures/use</code>, <code>/api/card-backgrounds/use</code>; <code>POST /api/assets/sign</code></td></tr>
+      <tr><td>Store</td><td><code>POST /api/purchases/google</code>, <code>/api/purchases/apple</code>, <code>/api/store/missiles</code>, <code>/api/table-pictures/buy</code>, <code>/api/card-backgrounds/buy</code>, <code>/api/emojis/buy</code></td></tr>
       <tr><td>Rewards</td><td><code>GET /api/lucky-draw</code>, <code>POST /api/lucky-draw/spin</code>, <code>GET /api/reward-programs</code>, <code>POST /api/reward-programs/claim</code>, <code>POST /api/rewards/bonus</code></td></tr>
       <tr><td>Social</td><td><code>/api/friends</code>, <code>/api/friends/requests</code>, <code>/api/players/{id}</code>, <code>/api/reports</code></td></tr>
       <tr><td>Operations</td><td><code>GET /health</code>, <code>GET /metrics</code></td></tr>

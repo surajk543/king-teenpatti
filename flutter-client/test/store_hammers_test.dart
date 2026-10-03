@@ -134,7 +134,8 @@ void main() {
               // the Tables shelf (15 Sep 2026), priced in the same three
               // wallets, with the same pill, and the Missiles shelf with the
               // missiles held beside the diamonds a pack is traded for, in a
-              // pill of the same kind (owner, 24 Sep 2026). A pill of its
+              // pill of the same kind (owner, 24 Sep 2026), and the Cards
+              // shelf (3 Oct 2026) as the Tables shelf. A pill of its
               // own is a FRAMED balance; inside a pair the same widgets stand
               // bare, so a pair is counted as a pair and a pill by its frame.
               expect(
@@ -151,6 +152,7 @@ void main() {
                 find.byType(PictureWalletBalances),
                 tab == StoreTab.pictures ||
                         tab == StoreTab.tables ||
+                        tab == StoreTab.cards ||
                         tab == StoreTab.emojis
                     ? findsOneWidget
                     : findsNothing,

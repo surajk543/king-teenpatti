@@ -6,7 +6,10 @@
 // and the close key, as circles in a strip that scrolled where they did not
 // fit — on a 640dp phone some shelves were a swipe away and nothing said so.
 // They now stand in a row of their own under the header, every key on screen,
-// wrapping into balanced rows only where the words cannot stand in one.
+// wrapping into balanced rows only where the words cannot stand in one. Nine
+// keys since the Cards shelf (owner, 3 Oct 2026): on a 592dp phone at the
+// 1.25 text ceiling the English words keep one row by giving up the air
+// beside them, never by shrinking.
 //
 // Laid out for real with Inter and the phone's Noto fonts for the Indic
 // scripts (script_fonts.dart), at the landscape sizes the game is checked on,
@@ -26,12 +29,14 @@ import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/theme/app_theme.dart';
+import 'package:teenpatti/widgets/card_back_shelf.dart';
 import 'package:teenpatti/widgets/chip_store.dart';
 import 'package:teenpatti/widgets/emoji_shelf.dart';
 import 'package:teenpatti/widgets/picture_shelf.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 import 'package:teenpatti/widgets/table_picture_shelf.dart';
 
+import 'card_background_fixtures.dart';
 import 'script_fonts.dart';
 
 Finder _private(String type) =>
@@ -490,7 +495,7 @@ void main() {
     });
   }
 
-  // Too narrow for the eight words in one row: balanced rows, never a strip
+  // Too narrow for the nine words in one row: balanced rows, never a strip
   // that scrolls. The app is landscape-only, but the rule is the width's, not
   // the phone's; a narrow window proves it.
   testWidgets('where the words cannot stand in one row they wrap into '
@@ -513,7 +518,8 @@ void main() {
             if ((tester.getRect(_keys.at(i)).top - top).abs() < 1) i,
         ].length,
     ];
-    expect(perRow, [4, 4]);
+    // Nine keys: the first row one key longer.
+    expect(perRow, [5, 4]);
     final sheet = tester.getRect(_sheet);
     for (var i = 0; i < _keys.evaluate().length; i++) {
       expect(_inside(sheet, tester.getRect(_keys.at(i))), isTrue);
@@ -530,6 +536,80 @@ void main() {
     await _unmount(tester);
     state.dispose();
     feedback.dispose();
+  });
+
+  // Nine English words at the 1.25 text ceiling on a 592dp phone stood 31dp
+  // too wide for one row at the tight gap in the lobby, and 40dp at a table
+  // ("Animated" for "Pictures"), once Cards joined them (3 Oct 2026). The
+  // keys give up the air beside their words — never the words — before a
+  // second row is let in, and only where they must: on a 640dp phone the
+  // same words keep their usual air.
+  testWidgets('on a 592dp phone at x1.25 the nine English keys keep one row by '
+      'giving up the air beside their words, and only there', (tester) async {
+    if (!haveScriptFonts()) {
+      markTestSkipped('the Noto script fonts are not installed');
+      return;
+    }
+    // Each side of a word: the rim, and the usual inset or the snug one.
+    const rim = 1.5;
+    const usualAir = rim + Space.xs;
+    const snugAir = rim + Space.xxs;
+    for (final screen in [Screen.lobby, Screen.table]) {
+      for (final (size, snug) in const [
+        (Size(592, 360), true),
+        (Size(640, 360), false),
+      ]) {
+        final why = '${size.width.toInt()} ${screen.name}';
+        final state = _state(screen: screen);
+        final feedback = FeedbackSettings();
+        await _open(
+          tester,
+          state: state,
+          feedback: feedback,
+          screen: size,
+          scale: 1.25,
+        );
+        expect(_rowTops(tester), hasLength(1), reason: why);
+        final keys = [
+          for (var i = 0; i < _keys.evaluate().length; i++)
+            tester.getRect(_keys.at(i)),
+        ];
+        expect(keys, hasLength(StoreTab.values.length), reason: why);
+        // The air beside each key's word, and the widest word's.
+        final air = <double>[];
+        var widest = 0.0;
+        var widestAir = 0.0;
+        for (var i = 0; i < keys.length; i++) {
+          final word = tester
+              .renderObject<RenderParagraph>(
+                find.descendant(of: _keys.at(i), matching: find.byType(Text)),
+              )
+              .getMaxIntrinsicWidth(double.infinity);
+          final side = (keys[i].width - word) / 2;
+          air.add(side);
+          if (word > widest) {
+            widest = word;
+            widestAir = side;
+          }
+        }
+        final gaps = {
+          for (var i = 1; i < keys.length; i++)
+            (keys[i].left - keys[i - 1].right).round(),
+        };
+        expect(gaps, hasLength(1), reason: '$why gaps $gaps');
+        if (snug) {
+          expect(air.reduce(math.min), greaterThanOrEqualTo(snugAir - 0.01));
+          expect(widestAir, lessThan(usualAir), reason: why);
+          expect(gaps.single, lessThanOrEqualTo(Space.xs), reason: why);
+        } else {
+          expect(air.reduce(math.min), greaterThanOrEqualTo(usualAir - 0.01));
+        }
+        expect(tester.takeException(), isNull, reason: why);
+        await _unmount(tester);
+        state.dispose();
+        feedback.dispose();
+      }
+    }
   });
 
   // The products still have room: a whole row of cards and a glimpse of the
@@ -635,6 +715,7 @@ void main() {
     StoreTab.missiles: _private('_StoreProductCard'),
     StoreTab.pictures: find.byType(PictureChoice),
     StoreTab.tables: find.byType(TablePictureChoice),
+    StoreTab.cards: find.byType(CardBackChoice),
     StoreTab.emojis: find.byType(EmojiChoice),
     StoreTab.badges: _private('_BadgeCard'),
   };
@@ -662,6 +743,15 @@ void main() {
             final state = _state(screen: screen, lang: lang)
               ..pictures = _pictures()
               ..tablePictures = _tablePictures()
+              // The eight seeded backs: one owned with time left, the rest
+              // locked with their term, every name the owner gave them.
+              ..cardBackgrounds = seededCatalogue(
+                owned: {
+                  seededCard('Royal Tiger').id: DateTime.now()
+                      .add(const Duration(days: 9))
+                      .millisecondsSinceEpoch,
+                },
+              )
               ..emojis = _emojiItems()
               ..levelLadder = _ladder();
             final feedback = FeedbackSettings();

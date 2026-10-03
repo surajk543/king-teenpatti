@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../theme/app_theme.dart';
 import '../theme/theme_colors.dart';
+import '../widgets/playing_card.dart';
 import '../widgets/premium_surface.dart';
 import '../widgets/table_ground.dart';
 
@@ -29,6 +30,14 @@ class _SplashScreenState extends State<SplashScreen>
     parent: _in,
     curve: Motion.standard,
   );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The card back, decoded while the splash holds the screen, so the first
+    // table's cards never wait on it.
+    PlayingCard.precacheBack(context);
+  }
 
   @override
   void dispose() {

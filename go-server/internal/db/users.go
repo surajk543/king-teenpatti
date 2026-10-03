@@ -106,7 +106,20 @@ type User struct {
 	// from the account alone — before the catalogue has arrived, and for a row
 	// since retired from it. Go only.
 	TablePicture *LaidTablePicture `json:"tablePicture"`
-	Chips        int64             `json:"chips"`
+	// CardBackground is the card back the player has chosen (owner, 3 Oct
+	// 2026; user_cards_background_choice joined to cards_background) —
+	// {id, url, assetFormat, crop?, expiresAt?}, what every seat of theirs
+	// carries — or null for the default back, the owner's Royal Fox bundled
+	// with the app. Joined only while the rental runs, as TablePicture is: the
+	// account is what every seat is built from (Player), and everybody at a
+	// table sees a seat's card back, so a lapsed one reads as none the instant
+	// it lapses, sweep or no sweep. expiresAt is that instant (the ownership
+	// row's expires_at; absent for a free back or one bought for ever), and
+	// the seat built from the account lets go of the back at it by itself
+	// (owner, 3 Oct 2026: "when validity of premium card expires, it restores
+	// default card"). Go only.
+	CardBackground *game.CardBackground `json:"cardBackground"`
+	Chips          int64                `json:"chips"`
 	// Diamond is the premium soft currency (users.diamond). Every account
 	// starts with 2 (owner, 14 Sep 2026; it was 1). It is not
 	// chip_ledger's business: the ledger backs the chips invariant, and
@@ -203,10 +216,13 @@ func (l *LaidTablePicture) ForTable(userID string) *game.TablePicture {
 
 // Player converts to the seat-level view the RoomManager needs — the winning
 // tax the player pays among it (the lower of their level's and their badges',
-// Standing.TaxBps), which their seat captures when they sit down.
+// Standing.TaxBps), which their seat captures when they sit down, and the card
+// back they have chosen, which everybody at a Teen Patti table sees on their
+// cards (nil: the default back; the seat keeps its own copy) — a rented one
+// with its ExpiresAt, at which the table takes it off by itself.
 func (u *User) Player() game.Player {
 	return game.Player{ID: u.ID, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, TablePicture: u.TablePicture.ForTable(u.ID), Chips: u.Chips,
-		TaxBps: u.TaxBps, Level: u.SeatLevel()}
+		TaxBps: u.TaxBps, Level: u.SeatLevel(), CardBackground: u.CardBackground}
 }
 
 // Profile is a verified login identity (auth providers → UpsertFromProfile).
@@ -399,10 +415,12 @@ type queryer interface {
 // diamond, where the baseline declares them; a database built by older scripts
 // has them at the end of the table), so a row scans into
 // userRow without depending on `SELECT *` column ordering, followed by the
-// asset_url of the catalogue picture the player is wearing and the table
+// asset_url of the catalogue picture the player is wearing, the table
 // picture they have laid (user_table_choice → table_pictures; owner, 15 Sep
-// 2026). Nothing is read from user_milestones since the three lobby rewards
-// were removed (owner, 30 Sep 2026); the table is kept for a rollback only.
+// 2026) and the card back they have chosen (user_cards_background_choice →
+// cards_background; owner, 3 Oct 2026). Nothing is read from user_milestones
+// since the three lobby rewards were removed (owner, 30 Sep 2026); the table
+// is kept for a rollback only.
 // The gameplay statistics come from player_stats and player_variation_stats
 // (Player stats v2, 27 Sep 2026: a row per bucket, and one per variation) as
 // statsColumns' two JSON arrays, '[]' for a player with none; the six counters
@@ -417,6 +435,7 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
        COALESCE(mt.next_claim_at, 0),
        ap.asset_url,
        tp.id, tp.day_asset_url, tp.night_asset_url, tp.asset_format, tp.currency, tp.cost,
+       cb.id, cb.asset_url, cb.asset_format, cb.crop_x, cb.crop_y, cb.crop_w, cb.crop_h, COALESCE(cbo.expires_at, 0),
        ` + playerLevelColumns
 
 // userFromAt is the FROM clause of every account read: it joins the picture
@@ -438,6 +457,17 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
 // the whole table that shows a laid picture, so a stale one here would go on
 // dressing every viewer's felt past the term the chips bought.
 //
+// The card back chosen joins by the same rule (owner, 3 Oct 2026): a FREE row,
+// or a PREMIUM one whose rental is still running at this instant — every seat
+// shows its card back to everybody at the table, so a lapsed one reads as the
+// default back the moment it lapses, before CardBackgrounds.ExpireLapsed has
+// deleted the choice. The running rental's own row (cbo — one at most, the
+// pair is its key) brings its expires_at along, so the account says when the
+// back runs out and every seat built from it lets go of it then (owner, 3 Oct
+// 2026: "when validity of premium card expires, it restores default card"). A
+// FREE back never runs out, whatever ownership row it may still have from a
+// time it was sold: cbo joins only to a PREMIUM one.
+//
 // A locking read adds `FOR UPDATE OF u`: the bare form would try to lock the
 // catalogue row too, and two players buying the same picture would queue behind
 // each other for no reason.
@@ -453,7 +483,15 @@ const userFromAt = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.act
    AND (tp.type = 'FREE' OR EXISTS (
         SELECT 1 FROM user_table_pictures o
          WHERE o.user_id = u.id AND o.table_picture_id = tp.id
-           AND (o.expires_at = 0 OR o.expires_at > %[1]d))) ` + playerLevelJoins
+           AND (o.expires_at = 0 OR o.expires_at > %[1]d)))
+  LEFT JOIN user_cards_background_choice cc ON cc.user_id = u.id
+  LEFT JOIN cards_background cb ON cb.id = cc.card_background_id
+   AND (cb.type = 'FREE' OR EXISTS (
+        SELECT 1 FROM user_cards_background o
+         WHERE o.user_id = u.id AND o.card_background_id = cb.id
+           AND (o.expires_at = 0 OR o.expires_at > %[1]d)))
+  LEFT JOIN user_cards_background cbo ON cb.type = 'PREMIUM'
+   AND cbo.user_id = u.id AND cbo.card_background_id = cb.id ` + playerLevelJoins
 
 // userFrom is userFromAt with this instant baked in.
 func (u *Users) userFrom() string {
@@ -480,6 +518,16 @@ type userRow struct {
 	diamond                    int
 	hammer                     int
 	missile                    int
+	// cardBackgroundID and the six beside it are the card back chosen (owner,
+	// 3 Oct 2026), carried by userFromAt's joins; all nil for the default
+	// back, and for a rental that has run out. cardExpiresAt is when its
+	// running rental ends (epoch ms), 0 for a free back or one bought for
+	// ever.
+	cardBackgroundID    *int64
+	cardURL, cardFormat *string
+	cardX, cardY        *float64
+	cardW, cardH        *float64
+	cardExpiresAt       int64
 	// stats is the player's statistics (player_stats and
 	// player_variation_stats; zeros with no row), and handsPlayed their sum of
 	// hands_played.
@@ -507,7 +555,8 @@ func scanUser(row pgx.Row) (*userRow, error) {
 		&r.sessionVersion,
 		&r.nextBonusAt,
 		&r.pictureAssetURL,
-		&r.tablePictureID, &r.tableDayURL, &r.tableNightURL, &r.tableAssetFormat, &r.tableCurrency, &r.tableCost}
+		&r.tablePictureID, &r.tableDayURL, &r.tableNightURL, &r.tableAssetFormat, &r.tableCurrency, &r.tableCost,
+		&r.cardBackgroundID, &r.cardURL, &r.cardFormat, &r.cardX, &r.cardY, &r.cardW, &r.cardH, &r.cardExpiresAt}
 	err := row.Scan(append(targets, r.level.targets()...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -571,6 +620,18 @@ func (u *Users) publicUser(r *userRow) *User {
 			table.Cost = *r.tableCost
 		}
 	}
+	// The card back chosen, when the join found its catalogue row; a choice
+	// whose row has gone (the cascade is on the way) reads as the default back.
+	// A rented one says when it runs out, which the seats built from the
+	// account (Player) go by.
+	var cardBack *game.CardBackground
+	if r.cardBackgroundID != nil && r.cardURL != nil {
+		cardBack = &game.CardBackground{ID: *r.cardBackgroundID, URL: *r.cardURL, Crop: cropOf(r.cardX, r.cardY, r.cardW, r.cardH),
+			ExpiresAt: r.cardExpiresAt}
+		if r.cardFormat != nil {
+			cardBack.Format = *r.cardFormat
+		}
+	}
 	return &User{
 		ID:                r.id,
 		Provider:          r.provider,
@@ -580,6 +641,7 @@ func (u *Users) publicUser(r *userRow) *User {
 		ProviderAvatarURL: r.avatarURL,
 		ActivePictureID:   r.activePictureID,
 		TablePicture:      table,
+		CardBackground:    cardBack,
 		Chips:             r.chips,
 		Diamond:           r.diamond,
 		Hammer:            r.hammer,
@@ -986,8 +1048,8 @@ func (u *Users) ClaimTimedBonus(ctx context.Context, userID string) (*RewardResu
 // trigger (§7.3) refuses a real DELETE from every caller in any case.
 //
 // Erased: display name, email, the provider photo, the worn picture, the laid
-// table picture, the friendships (both directions; pending friend requests
-// either way are CANCELLED — Friends V1), and the
+// table picture, the card back chosen, the friendships (both directions;
+// pending friend requests either way are CANCELLED — Friends V1), and the
 // provider identity. Clearing the identity is what frees (provider,
 // provider_user_id) for reuse, so the same device signing in afterwards gets
 // a NEW account with a fresh welcome bonus instead of being handed the
@@ -1046,6 +1108,12 @@ func (u *Users) DeleteAccount(ctx context.Context, userID string) error {
 		// here as the face does. users rows are never deleted, so the row's
 		// ON DELETE CASCADE would never do it.
 		if _, err = tx.Exec(ctx, `DELETE FROM user_table_choice WHERE user_id = $1`, userID); err != nil {
+			return err
+		}
+		// So does the card back chosen (user_cards_background_choice, V1.0.0's
+		// CARD BACKS; owner, 3 Oct 2026), for the same reason; the purchases
+		// stay, as every receipt does.
+		if _, err = tx.Exec(ctx, `DELETE FROM user_cards_background_choice WHERE user_id = $1`, userID); err != nil {
 			return err
 		}
 		// The badges given to the account (user_badges, V1.0.0's PLAYER

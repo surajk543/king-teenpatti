@@ -372,17 +372,18 @@ void main() {
     });
 
     test('the ambient light sits under the game', () {
+      // A seat's colour is light in the top of its own glass and nowhere else
+      // (the redesign, 3 Oct 2026): never a coloured halo outside the pod.
       for (final b in Brightness.values) {
-        expect(TableAmbient.orbOutside(b), lessThanOrEqualTo(0.5));
-        expect(TableAmbient.orbInside(b), lessThan(TableAmbient.orbOutside(b)));
+        expect(TableAmbient.podWash(b), lessThanOrEqualTo(0.5));
       }
       expect(
-        TableAmbient.orbOutside(Brightness.light),
-        lessThan(TableAmbient.orbOutside(Brightness.dark)),
+        TableAmbient.podWash(Brightness.light),
+        lessThan(TableAmbient.podWash(Brightness.dark)),
       );
+      expect(TableAmbient.podWashReach, lessThan(0.8));
+      expect(TableAmbient.podShade, lessThan(0.5));
       expect(TableAmbient.roomChips, lessThan(2.6));
-      expect(TableAmbient.orbSize, lessThan(0.8));
-      expect(TableAmbient.orbSpill, lessThan(0.15));
       // A breath slow enough to read as a glow, not a flicker.
       expect(
         TableAmbient.turnBreath,
@@ -420,9 +421,6 @@ void main() {
     ) async {
       final state = await _mount(tester, _scene('03'));
       final t = state.t;
-      final scheme = Theme.of(
-        tester.element(find.byType(MachinedKey).first),
-      ).colorScheme;
 
       // PRIMARY: Chaal, struck gold, the one key that breathes.
       final chaal = _key(t.chaal);
@@ -443,34 +441,32 @@ void main() {
         expect(_fadeOf(tester, key), 1, reason: label);
       }
 
-      // SPECIAL: Missile in its coral (25 Sep 2026) and Force Sideshow in the
-      // hammer's copper (final table polish, 26 Sep 2026: "SPECIAL/
-      // CONDITIONAL: Force Sideshow"; it was secondary until then) — each a
-      // move bought with something collected, a still glow of its own colour
-      // while on offer, never gold and never breathing.
+      // SPECIAL: Missile in its coral (25 Sep 2026) and Force Sideshow in a
+      // subtle violet (the redesign, 3 Oct 2026: "Force Sideshow: dark glass,
+      // subtle blue/purple accent"; the hammer's copper before) — each a move
+      // bought with something collected, a still glow of its own colour while
+      // on offer, never gold and never breathing. The console is one dark
+      // glass in both themes, so each wears its colour for that glass.
       for (final (label, ink) in [
-        (t.missile, missileInkOn),
-        (t.forceSideshow, hammerInkOn),
+        (t.missile, missileInkOn(TableKeys.glass)),
+        (t.forceSideshow, TableKeys.force),
       ]) {
         final key = _key(label);
         expect(tester.widget<MachinedKey>(key).role, KeyRole.special);
         expect(_gilded(tester, key), isFalse, reason: label);
         expect(_pulseOf(tester, key).alive, isTrue, reason: label);
         expect(_pulseOf(tester, key).breathe, isFalse, reason: label);
-        expect(
-          _pulseOf(tester, key).colour,
-          ink(Theme.of(tester.element(key)).brightness),
-          reason: label,
-        );
+        expect(_pulseOf(tester, key).colour, ink, reason: label);
         expect(_fadeOf(tester, key), 1, reason: label);
       }
 
-      // DESTRUCTIVE: Pack, in the error ink, and never beckoning.
+      // DESTRUCTIVE: Pack, in its restrained red on dark red glass, and never
+      // beckoning.
       final pack = _key(t.pack);
       expect(tester.widget<MachinedKey>(pack).role, KeyRole.destructive);
       expect(_gilded(tester, pack), isFalse);
       expect(_pulseOf(tester, pack).alive, isFalse);
-      expect(_nameStyle(tester, pack, t.pack).color, scheme.error);
+      expect(_nameStyle(tester, pack, t.pack).color, TableKeys.pack);
       expect(_fadeOf(tester, pack), 1);
 
       // One gold key on the console, and its name the loudest.

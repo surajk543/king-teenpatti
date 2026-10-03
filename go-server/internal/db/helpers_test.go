@@ -56,6 +56,8 @@ type fixture struct {
 	pictures *db.Pictures
 	// tables is the table-picture catalogue (owner, 15 Sep 2026).
 	tables *db.TablePictures
+	// cards is the card-back catalogue (owner, 3 Oct 2026).
+	cards  *db.CardBackgrounds
 	ledger *db.Ledger
 }
 
@@ -70,6 +72,7 @@ func newFixture(t *testing.T) *fixture {
 		users:    users,
 		pictures: db.NewPictures(d, users, nil),
 		tables:   db.NewTablePictures(d, users, nil),
+		cards:    db.NewCardBackgrounds(d, users, nil),
 		ledger:   db.NewLedger(d, nil, nil),
 	}
 }

@@ -301,6 +301,14 @@ type SeatView struct {
 	// Level is the player's level and its art, shown on their pod to everybody
 	// at the table (owner, 29 Sep 2026; SeatLevel); absent where not known.
 	Level *SeatLevel `json:"level,omitempty"`
+	// CardBackground is the card back this player has chosen (owner, 3 Oct
+	// 2026; CardBackground), drawn on their face-down cards for everybody at
+	// the table — public, like AvatarURL. ABSENT, not null, when they have
+	// chosen none (their cards wear the default back), so every snapshot
+	// without one is byte for byte what it was. Teen Patti tables only. A
+	// rented one carries its expiresAt (present only when it runs out) and
+	// leaves every viewer's snapshot the moment it does.
+	CardBackground *CardBackground `json:"cardBackground,omitempty"`
 }
 
 type seatViewFull SeatView
@@ -371,6 +379,9 @@ type SeatInfo struct {
 	TaxBps int
 	// Level is the seat's level (SeatLevel), carried the same way.
 	Level *SeatLevel
+	// CardBackground is the seat's card back (CardBackground), or nil for the
+	// default — carried the same way, so it moves with its player.
+	CardBackground *CardBackground
 }
 
 // Int64Ptr / StrPtr / ActionPtr are tiny helpers for the nullable wire fields.

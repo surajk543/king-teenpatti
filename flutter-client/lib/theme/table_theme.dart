@@ -455,6 +455,11 @@ abstract final class TableScrim {
 /// viewer's cards — which are charcoal in both themes, so their words are the
 /// same in both too, as the pot's gold is [AppTheme.goldBright] in both.
 abstract final class TableInk {
+  /// BLIND on a seat's capsule (owner's redesign brief, 3 Oct 2026: "BLIND:
+  /// Blue/neutral"): a soft blue on the dark plaque, a deeper one on the pale.
+  static Color blindOn(Brightness b) =>
+      b == Brightness.dark ? const Color(0xFF9DBDF5) : const Color(0xFF2F5A9E);
+
   /// The red a plate says PACKED in: the dark scheme's error, which reads
   /// 6.5:1 on charcoal. The light scheme's brick, which it used to take on the
   /// light theme, read under 3:1 there.
@@ -478,22 +483,52 @@ abstract final class TableInk {
 /// visible but subtle ... Use lower opacity, softer blur, and better
 /// positioning"). The pot, the cards, the seat on turn and the key to press
 /// are the brightest things on the felt; everything here sits under them.
+/// The console's keys — the rail, Pack and Missile, the cluster round Chaal
+/// (owner's redesign brief, 3 Oct 2026: "Secondary actions = translucent
+/// dark/neutral glass" by day as by night; "Pack: premium dark/red glass,
+/// restrained red accent"; "Force Sideshow: dark glass, subtle blue/purple
+/// accent"). One dark glass in BOTH themes: day and night are the same
+/// console under different light, kept on the classic table (owner, 3 Oct
+/// 2026: "restore the table back just like master ... keep the seen and
+/// other button changes"), where the dark keys stand clear of the pale rail
+/// and cloths by day. Chaal keeps its struck gold.
+abstract final class TableKeys {
+  /// The brightness the keys are drawn in, whatever the theme's.
+  static const Brightness glass = Brightness.dark;
+
+  /// Words and glyphs on the dark glass: a warm white.
+  static const Color ink = Color(0xFFF4EEE4);
+
+  /// Pack's restrained red — its cross, its name and its edge — and the red
+  /// its glass is washed with, at [packWash].
+  static const Color pack = Color(0xFFFF7A6A);
+  static const Color packGlass = Color(0xFF7A1424);
+  static const double packWash = 0.46;
+
+  /// Force Sideshow's subtle violet: its edge and the light round it.
+  static const Color force = Color(0xFF9C8BFF);
+}
+
 abstract final class TableAmbient {
   /// The chips drifting across the room while no table picture is laid
   /// ([DriftingChips.strength]). It was 2.6, which on the light ground put a
   /// grey disc at 42% behind the keys.
   static const double roomChips = 1.8;
 
-  /// A seat's colour, spilling out of its pod's top corner as a soft glow
-  /// (it was a hard-edged disc at 0.95): its peak opacity outside the glass,
-  /// and inside it, where the glass shows it.
-  static double orbOutside(Brightness b) => b == Brightness.dark ? 0.46 : 0.34;
-  static double orbInside(Brightness b) => b == Brightness.dark ? 0.40 : 0.28;
+  /// A seat's colour, as light falling into the top of its pod's glass and
+  /// gone by [podWashReach] of its height (owner's redesign brief, 3 Oct 2026:
+  /// "Player panels should look premium and compact ... Glass cards"): its
+  /// opacity at the pod's top edge. It replaced a soft orb spilling out of the
+  /// pod's corner, five of which ringed the felt in coloured halos louder than
+  /// the cards. Stronger by night, where the glass is dark and the colour is
+  /// the light in it; a tint by day, on frosted white.
+  static double podWash(Brightness b) => b == Brightness.dark ? 0.50 : 0.24;
+  static const double podWashReach = 0.70;
 
-  /// The orb's diameter as a share of the pod's width, and how much of the
-  /// pod's width it reaches past the pod's corner (0.80 and 0.15 before).
-  static const double orbSize = 0.74;
-  static const double orbSpill = 0.10;
+  /// By night, the glass deepens towards the pod's foot — the stack pill and
+  /// the cards under it read on dark glass, as in a lit room's shadow: the
+  /// black over the glass at its foot.
+  static const double podShade = 0.40;
 
   /// One breath of the ring round the pod on turn: slower than the 780ms it
   /// was, so it reads as a glow that pulses rather than a light that flickers
