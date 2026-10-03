@@ -11,11 +11,15 @@ import 'glass_components.dart';
 /// pill shape. Glass/dark translucent background. Thin gold border. Small eye
 /// icon ... Subtle gold glow. Clearly tappable. It should look like part of
 /// the card interaction rather than a generic button"). Until then it was a
-/// ghost key laid over the middle of the fan.
+/// ghost key laid over the middle of the fan. Since the same night it stands
+/// a little LEFT of the cards' centre, with air between it and the bet badge
+/// on its right (owner: "Move see button to little left and add some space in
+/// right side of see pill"; `_OwnBetRow` in table_screen.dart places it).
 ///
 /// Dark glass in both themes — it stands on the VIP table's emerald by day and
 /// its wine-red by night — with the blind bets the player has left as dots
-/// under the words ([BlindDots]): the count lives on the key that ends it.
+/// under its eye and word ([BlindDots]): the count lives on the key that ends
+/// it.
 /// The glow is still: a key that breathes is the console's Chaal alone.
 ///
 /// The tap is the one it always was (`GameState.see`), once; the key leaves
@@ -121,9 +125,10 @@ class SeeCardsButton extends StatelessWidget {
     painter.dispose();
     final max = blindMax ?? 0;
     final dots = max > 0 ? max * BlindDots.pip + (max - 1) * Space.xs : 0.0;
+    final line = pill * (_eyeShare + _gapShare) + word + 0.8;
     final content =
-        pill * (_eyeShare + _gapShare + 2 * _padShare) +
-        (word > dots ? word : dots) +
+        pill * 2 * _padShare +
+        (line > dots ? line : dots) +
         // A pixel of slack either side, so rounding never sets the word down.
         2;
     return content.clamp(pill * 2.2, maxWidth).ceilToDouble();
@@ -211,39 +216,49 @@ class SeeCardsButton extends StatelessWidget {
                         padding: EdgeInsets.symmetric(
                           horizontal: pill * _padShare,
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.visibility_rounded,
-                              color: gold,
-                              size: pill * _eyeShare,
-                            ),
-                            SizedBox(width: pill * _gapShare),
-                            Flexible(
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Column(
+                        child: Center(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // The eye on the word's own line, and the
+                                // dots centred under the two together.
+                                Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text(
-                                      label.toUpperCase(),
-                                      maxLines: 1,
-                                      style: style,
+                                    Icon(
+                                      Icons.visibility_rounded,
+                                      color: gold,
+                                      size: pill * _eyeShare,
                                     ),
-                                    if (dots) ...[
-                                      const SizedBox(height: 2),
-                                      BlindDots(
-                                        left: blindLeft!,
-                                        max: blindMax!,
-                                        label: blindLabel,
+                                    SizedBox(width: pill * _gapShare),
+                                    // The word's trailing letter-spacing
+                                    // matched on its left, so its ink is
+                                    // centred where its box is.
+                                    Padding(
+                                      padding: EdgeInsets.only(
+                                        left: style.letterSpacing ?? 0,
                                       ),
-                                    ],
+                                      child: Text(
+                                        label.toUpperCase(),
+                                        maxLines: 1,
+                                        style: style,
+                                      ),
+                                    ),
                                   ],
                                 ),
-                              ),
+                                if (dots) ...[
+                                  const SizedBox(height: 3),
+                                  BlindDots(
+                                    left: blindLeft!,
+                                    max: blindMax!,
+                                    label: blindLabel,
+                                  ),
+                                ],
+                              ],
                             ),
-                          ],
+                          ),
                         ),
                       ),
                     ),
@@ -274,7 +289,7 @@ class BlindDots extends StatelessWidget {
   final int max;
 
   /// One dot's diameter.
-  static const double pip = 5;
+  static const double pip = 4;
 
   /// What a screen reader hears before "left/max".
   final String? label;

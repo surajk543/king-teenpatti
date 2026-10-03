@@ -2333,9 +2333,10 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                             HandFan.cardHeightFor(handH),
                           ),
                           pillWidth: seeWidth,
-                          // "SEE CARDS" just above the cards, centred on them
-                          // (owner's redesign brief, 3 Oct 2026); the viewer's
-                          // own badge beside it while it stands.
+                          // "SEE" just above the cards, a little left of
+                          // their centre (owner's redesign brief and follow-
+                          // ups, 3 Oct 2026); the viewer's own badge beside it
+                          // while it stands.
                           seeCards: seeCards
                               ? SeeCardsButton(
                                   // "SEE" on the key, the fuller words to a
@@ -3545,10 +3546,11 @@ class _LiftedHandState extends State<_LiftedHand>
 }
 
 /// The row over the viewer's cards: their own bet badge, centred over the fan
-/// — or, while their hand is still blind, "SEE CARDS" centred over the fan
-/// with the badge beside it on the right (owner's redesign brief, 3 Oct 2026:
-/// the key "immediately ABOVE the cards ... Center aligned with the player's
-/// cards").
+/// — or, while their hand is still blind, "SEE" over the fan, [seeShift] left
+/// of its centre, with the badge [badgeGap] past it on the right (owner's
+/// redesign brief, 3 Oct 2026: the key "immediately ABOVE the cards ...
+/// Center aligned with the player's cards"; and that night, "Move see button
+/// to little left and add some space in right side of see pill").
 ///
 /// Beside, not above: on a 640x360 phone the felt between the pot's plate and
 /// the cards is 65dp tall, and the badge, the key and their gaps stacked need
@@ -3570,6 +3572,12 @@ class _OwnBetRow extends StatelessWidget {
   final double pillWidth;
   final Widget? seeCards;
   final Widget? bet;
+
+  /// How far left of the cards' centre the key stands.
+  static const double seeShift = 12;
+
+  /// The air between the key's right edge and the badge.
+  static const double badgeGap = 14;
 
   @override
   Widget build(BuildContext context) {
@@ -3597,7 +3605,14 @@ class _OwnBetRow extends StatelessWidget {
                 ? const SizedBox.shrink(key: ValueKey('no-see-cards'))
                 : KeyedSubtree(
                     key: const ValueKey('see-cards'),
-                    child: seeCards!,
+                    // A little left of the cards' centre, with air on its
+                    // right before the badge (owner, 3 Oct 2026: "Move see
+                    // button to little left and add some space in right
+                    // side of see pill").
+                    child: Transform.translate(
+                      offset: const Offset(-seeShift, 0),
+                      child: seeCards!,
+                    ),
                   ),
           ),
           if (bet != null)
@@ -3606,7 +3621,7 @@ class _OwnBetRow extends StatelessWidget {
               // in its middle: so the badge is centred on the key's line
               // however tall its two lines are.
               Positioned(
-                left: fanWidth / 2 + pillWidth / 2 + Space.sm,
+                left: fanWidth / 2 - seeShift + pillWidth / 2 + badgeGap,
                 top: -60,
                 bottom: -60,
                 child: Align(

@@ -4085,8 +4085,11 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   them in the player's language at their text size, at least 2.2× the pill's height and at most `maxWidth` 120dp (78dp on a
   891dp phone, where "SEE CARDS" took 151) — and drawn `pillShare` 0.78 of its tap box, which keeps `heightFor` (42dp under
   400dp tall else 46): the box takes the tap, its margins over and under the pill too (`test/see_key_test.dart`), and the
-  hand's column is laid out round the box, so nothing round the key moved; ABOVE the viewer's cards and centred on them — `_OwnBetRow` stands over the fan with the pill in its middle and the viewer's bet badge beside it to the
-  right; once they have looked, the pill cross-fades out (fade and 0.92 scale) as the cards turn and the badge alone fades
+  hand's column is laid out round the box, so nothing round the key moved; ABOVE the viewer's cards — `_OwnBetRow` stands over
+  the fan with the pill `seeShift` (12dp) left of its centre and the viewer's bet badge `badgeGap` (14dp) past it to the right
+  (owner, that night: "Move see button to little left and add some space in right side of see pill"), the eye on the word's
+  line and the blind dots (4dp) centred under the two (after "the see button it is looking weird, check spacing, alignment,
+  etc."; they hung under the word alone, the eye centred on word and dots together); once they have looked, the pill cross-fades out (fade and 0.92 scale) as the cards turn and the badge alone fades
   in, centred (`_OwnHand.stillBlindFor`). The variation picker's box ends `Space.sm` above the pill (`_seeCardsTopFor`; at
   844–915dp it covered it) and is roomy only where the box holds its roomy height (`VariationPrompt.panelHeight`).
   **Seats**: no colour orbs — `_PodWash`, the player's colour washed down from the pod's top (`TableAmbient.podWash` 0.50
