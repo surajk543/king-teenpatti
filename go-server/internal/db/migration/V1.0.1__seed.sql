@@ -772,7 +772,17 @@ SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost,
 -- A new card back is a file uploaded to the bucket's cards/ folder and a row
 -- appended here (or INSERTed by hand), measured the same way; it reaches every
 -- database at its next boot. A file replaced in the bucket needs a NEW key — a
--- phone keeps a file under its location for ever (CLAUDE.md §8.4).
+-- phone keeps a file under its location for ever (CLAUDE.md §8.4) — and
+-- moving a row onto it takes BOTH halves in one release: this VALUES line
+-- changed to the new location, and a guarded UPDATE placed before the INSERT
+-- that moves a row still at the old one, as the R2 move does for the pictures:
+--
+--   UPDATE cards_background SET asset_url = '<new location>'
+--    WHERE asset_url = '<old location>'
+--      AND NOT EXISTS (SELECT 1 FROM cards_background WHERE asset_url = '<new location>');
+--
+-- asset_url is this INSERT's conflict key, so with either half alone the next
+-- boot inserts the other location as a SECOND row of the same back.
 
 INSERT INTO cards_background (name, asset_url, asset_format, crop_x, crop_y, crop_w, crop_h, currency, type, cost,
                               duration_days, duration_hours, is_active, is_listed, sort_order, created_at, updated_at)

@@ -59,6 +59,11 @@ class SeededCard {
 
   /// The back as a seat or the account carries it.
   CardBackArt get art => CardBackArt(id: id, url: url, crop: crop);
+
+  /// The back as a seat or the account carries a rental of it that runs out
+  /// at [expiresAt] (epoch ms).
+  CardBackArt artUntil(int expiresAt) =>
+      CardBackArt(id: id, url: url, crop: crop, expiresAt: expiresAt);
 }
 
 /// The eight backs on sale, in the seed's order: PREMIUM, 5 hammers, 10
@@ -196,50 +201,60 @@ List<CardBackground> seededCatalogue({Map<int, int> owned = const {}}) => [
 ];
 
 /// What a seat (`room:state.seats[].cardBackground`) or the account
-/// (`user.cardBackground`) carries for a back that is worn.
-Map<String, dynamic> cardBackJson(SeededCard card) => {
+/// (`user.cardBackground`) carries for a back that is worn — with, for a
+/// rental, the moment it runs out ([expiresAt], epoch ms; the server leaves
+/// the key out of one that never does, as 0 here).
+Map<String, dynamic> cardBackJson(SeededCard card, {int expiresAt = 0}) => {
   'id': card.id,
   'url': card.url,
   'assetFormat': 'IMAGE',
   'crop': cardCropJson(card.crop),
+  if (expiresAt > 0) 'expiresAt': expiresAt,
 };
 
 /// A copy of [seat] (a seat's JSON) wearing [card] — or, for null, none: the
-/// key absent, as the server leaves it out of a seat that wears none.
+/// key absent, as the server leaves it out of a seat that wears none — a
+/// rental of it running out at [expiresAt] when that is set.
 Map<String, dynamic> withCardBack(
   Map<String, dynamic> seat,
-  SeededCard? card,
-) => {
+  SeededCard? card, {
+  int expiresAt = 0,
+}) => {
   for (final entry in seat.entries)
     if (entry.key != 'cardBackground') entry.key: entry.value,
-  if (card != null) 'cardBackground': cardBackJson(card),
+  if (card != null) 'cardBackground': cardBackJson(card, expiresAt: expiresAt),
 };
 
 /// A Teen Patti seat as `room:state` carries it, wearing [card] (none when
-/// null).
+/// null) — a rental running out at [expiresAt] when that is set.
 Map<String, dynamic> cardSeatJson({
   required int seatIndex,
   String? userId,
   String? displayName,
   SeededCard? card,
+  int expiresAt = 0,
   String status = 'active',
   bool isBlind = true,
   int cardCount = 3,
   int? chips,
-}) => withCardBack({
-  'seatIndex': seatIndex,
-  'userId': userId ?? 'u$seatIndex',
-  'displayName': displayName ?? 'Player $seatIndex',
-  'avatarUrl': null,
-  'chips': chips,
-  'status': status,
-  'isBlind': isBlind,
-  'lastBet': 200,
-  'lastAction': 'chaal',
-  'contributed': 400,
-  'connected': true,
-  'cardCount': cardCount,
-}, card);
+}) => withCardBack(
+  {
+    'seatIndex': seatIndex,
+    'userId': userId ?? 'u$seatIndex',
+    'displayName': displayName ?? 'Player $seatIndex',
+    'avatarUrl': null,
+    'chips': chips,
+    'status': status,
+    'isBlind': isBlind,
+    'lastBet': 200,
+    'lastAction': 'chaal',
+    'contributed': 400,
+    'connected': true,
+    'cardCount': cardCount,
+  },
+  card,
+  expiresAt: expiresAt,
+);
 
 /// A `room:state` at a Teen Patti table mid-hand, the viewer at [youSeat]
 /// of [seats].
@@ -283,9 +298,11 @@ Map<String, dynamic> cardRoomJson({
 };
 
 /// An account as `/api/auth/me` and the card-back routes answer it, with
-/// [card] chosen (none when null).
+/// [card] chosen (none when null) — a rental running out at [expiresAt] when
+/// that is set.
 Map<String, dynamic> cardAccountJson({
   SeededCard? card,
+  int expiresAt = 0,
   String id = 'me',
   int chips = 500000,
   int diamond = 9,
@@ -298,7 +315,9 @@ Map<String, dynamic> cardAccountJson({
   'providerAvatarUrl': null,
   'activePictureId': null,
   'tablePicture': null,
-  'cardBackground': card == null ? null : cardBackJson(card),
+  'cardBackground': card == null
+      ? null
+      : cardBackJson(card, expiresAt: expiresAt),
   'chips': chips,
   'diamond': diamond,
   'hammer': hammer,

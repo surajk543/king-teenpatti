@@ -252,7 +252,7 @@ void main() {
 
     test('a catalogue row reads every field the contract names', () {
       final row = CardBackground.fromJson(
-        cardBackgroundJson(tiger, owned: true, expiresAt: 99),
+        cardBackgroundJson(tiger, owned: true, expiresAt: _Server.rentalEnds),
       );
       expect(row.id, 7);
       expect(row.name, 'Royal Tiger');
@@ -266,13 +266,21 @@ void main() {
       expect(row.durationHours, 0);
       expect(row.sortOrder, 70);
       expect(row.owned, isTrue);
-      expect(row.expiresAt, 99);
+      expect(row.expiresAt, _Server.rentalEnds);
       expect(row.free, isFalse);
       expect(row.locked, isFalse);
       expect(row.rented, isTrue);
       expect(row.pricedInHammers, isTrue);
       expect(row.pricedInDiamonds, isFalse);
       expect(row.art, tiger.art);
+      // A rental whose moment has passed is locked again, whatever the
+      // server last said (owner, 3 Oct 2026: "when validity of premium card
+      // expires, it restores default card"; card_back_expiry_test.dart).
+      final over = CardBackground.fromJson(
+        cardBackgroundJson(tiger, owned: true, expiresAt: 99),
+      );
+      expect(over.owned, isTrue);
+      expect(over.locked, isTrue);
 
       // The eight, as seeded: 5 hammers for 10 days, none owned yet.
       final catalogue = seededCatalogue();

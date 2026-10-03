@@ -827,7 +827,7 @@ void main() {
           lessThanOrEqualTo(hand.top),
           reason: 'the picker $panel covers the hand $hand',
         );
-        final see = find.text(state.t.seeCards.toUpperCase());
+        final see = find.text(state.t.see.toUpperCase());
         expect(see, findsOneWidget);
         expect(panel.overlaps(tester.getRect(see)), isFalse);
         // And the chooser does not read "is selecting" about themselves.

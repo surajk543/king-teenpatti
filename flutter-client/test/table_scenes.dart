@@ -389,10 +389,12 @@ const cardBacksWorn = <int, String>{
 /// for nobody), every player in the back [worn] names for their seat (none
 /// where it names none). Meera (seat 2) has looked at her cards, so her back
 /// is green, as any back is once seen; a seat in [packed] has folded, its
-/// cards struck out under its back.
+/// cards struck out under its back. A seat in [expiring] wears a rental of
+/// its back that runs out at that moment (epoch ms).
 RoomState cardBacksRoom({
   int handNo = 7,
   Map<int, String> worn = cardBacksWorn,
+  Map<int, int> expiring = const {},
   List<int> packed = const [],
   int? turnSeat = 3,
 }) => _room(
@@ -410,6 +412,7 @@ RoomState cardBacksRoom({
           status: packed.contains(i) ? 'packed' : 'active',
         ),
         worn[i] == null ? null : seededCard(worn[i]!),
+        expiresAt: expiring[i] ?? 0,
       ),
   ],
   you: _you(),

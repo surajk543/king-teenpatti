@@ -108,12 +108,16 @@ type User struct {
 	TablePicture *LaidTablePicture `json:"tablePicture"`
 	// CardBackground is the card back the player has chosen (owner, 3 Oct
 	// 2026; user_cards_background_choice joined to cards_background) —
-	// {id, url, assetFormat, crop?}, what every seat of theirs carries — or
-	// null for the default back, the owner's Royal Fox bundled with the app.
-	// Joined only while the rental runs, as TablePicture is: the account is
-	// what every seat is built from (Player), and everybody at a table sees a
-	// seat's card back, so a lapsed one reads as none the instant it lapses,
-	// sweep or no sweep. Go only.
+	// {id, url, assetFormat, crop?, expiresAt?}, what every seat of theirs
+	// carries — or null for the default back, the owner's Royal Fox bundled
+	// with the app. Joined only while the rental runs, as TablePicture is: the
+	// account is what every seat is built from (Player), and everybody at a
+	// table sees a seat's card back, so a lapsed one reads as none the instant
+	// it lapses, sweep or no sweep. expiresAt is that instant (the ownership
+	// row's expires_at; absent for a free back or one bought for ever), and
+	// the seat built from the account lets go of the back at it by itself
+	// (owner, 3 Oct 2026: "when validity of premium card expires, it restores
+	// default card"). Go only.
 	CardBackground *game.CardBackground `json:"cardBackground"`
 	Chips          int64                `json:"chips"`
 	// Diamond is the premium soft currency (users.diamond). Every account
@@ -214,7 +218,8 @@ func (l *LaidTablePicture) ForTable(userID string) *game.TablePicture {
 // tax the player pays among it (the lower of their level's and their badges',
 // Standing.TaxBps), which their seat captures when they sit down, and the card
 // back they have chosen, which everybody at a Teen Patti table sees on their
-// cards (nil: the default back; the seat keeps its own copy).
+// cards (nil: the default back; the seat keeps its own copy) — a rented one
+// with its ExpiresAt, at which the table takes it off by itself.
 func (u *User) Player() game.Player {
 	return game.Player{ID: u.ID, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, TablePicture: u.TablePicture.ForTable(u.ID), Chips: u.Chips,
 		TaxBps: u.TaxBps, Level: u.SeatLevel(), CardBackground: u.CardBackground}
@@ -430,7 +435,7 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
        COALESCE(mt.next_claim_at, 0),
        ap.asset_url,
        tp.id, tp.day_asset_url, tp.night_asset_url, tp.asset_format, tp.currency, tp.cost,
-       cb.id, cb.asset_url, cb.asset_format, cb.crop_x, cb.crop_y, cb.crop_w, cb.crop_h,
+       cb.id, cb.asset_url, cb.asset_format, cb.crop_x, cb.crop_y, cb.crop_w, cb.crop_h, COALESCE(cbo.expires_at, 0),
        ` + playerLevelColumns
 
 // userFromAt is the FROM clause of every account read: it joins the picture
@@ -456,7 +461,12 @@ const userColumns = `u.id, u.provider, u.provider_user_id, u.display_name, u.ema
 // or a PREMIUM one whose rental is still running at this instant — every seat
 // shows its card back to everybody at the table, so a lapsed one reads as the
 // default back the moment it lapses, before CardBackgrounds.ExpireLapsed has
-// deleted the choice.
+// deleted the choice. The running rental's own row (cbo — one at most, the
+// pair is its key) brings its expires_at along, so the account says when the
+// back runs out and every seat built from it lets go of it then (owner, 3 Oct
+// 2026: "when validity of premium card expires, it restores default card"). A
+// FREE back never runs out, whatever ownership row it may still have from a
+// time it was sold: cbo joins only to a PREMIUM one.
 //
 // A locking read adds `FOR UPDATE OF u`: the bare form would try to lock the
 // catalogue row too, and two players buying the same picture would queue behind
@@ -479,7 +489,9 @@ const userFromAt = ` FROM users u LEFT JOIN profile_pictures ap ON ap.id = u.act
    AND (cb.type = 'FREE' OR EXISTS (
         SELECT 1 FROM user_cards_background o
          WHERE o.user_id = u.id AND o.card_background_id = cb.id
-           AND (o.expires_at = 0 OR o.expires_at > %[1]d))) ` + playerLevelJoins
+           AND (o.expires_at = 0 OR o.expires_at > %[1]d)))
+  LEFT JOIN user_cards_background cbo ON cb.type = 'PREMIUM'
+   AND cbo.user_id = u.id AND cbo.card_background_id = cb.id ` + playerLevelJoins
 
 // userFrom is userFromAt with this instant baked in.
 func (u *Users) userFrom() string {
@@ -508,11 +520,14 @@ type userRow struct {
 	missile                    int
 	// cardBackgroundID and the six beside it are the card back chosen (owner,
 	// 3 Oct 2026), carried by userFromAt's joins; all nil for the default
-	// back, and for a rental that has run out.
+	// back, and for a rental that has run out. cardExpiresAt is when its
+	// running rental ends (epoch ms), 0 for a free back or one bought for
+	// ever.
 	cardBackgroundID    *int64
 	cardURL, cardFormat *string
 	cardX, cardY        *float64
 	cardW, cardH        *float64
+	cardExpiresAt       int64
 	// stats is the player's statistics (player_stats and
 	// player_variation_stats; zeros with no row), and handsPlayed their sum of
 	// hands_played.
@@ -541,7 +556,7 @@ func scanUser(row pgx.Row) (*userRow, error) {
 		&r.nextBonusAt,
 		&r.pictureAssetURL,
 		&r.tablePictureID, &r.tableDayURL, &r.tableNightURL, &r.tableAssetFormat, &r.tableCurrency, &r.tableCost,
-		&r.cardBackgroundID, &r.cardURL, &r.cardFormat, &r.cardX, &r.cardY, &r.cardW, &r.cardH}
+		&r.cardBackgroundID, &r.cardURL, &r.cardFormat, &r.cardX, &r.cardY, &r.cardW, &r.cardH, &r.cardExpiresAt}
 	err := row.Scan(append(targets, r.level.targets()...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -607,9 +622,12 @@ func (u *Users) publicUser(r *userRow) *User {
 	}
 	// The card back chosen, when the join found its catalogue row; a choice
 	// whose row has gone (the cascade is on the way) reads as the default back.
+	// A rented one says when it runs out, which the seats built from the
+	// account (Player) go by.
 	var cardBack *game.CardBackground
 	if r.cardBackgroundID != nil && r.cardURL != nil {
-		cardBack = &game.CardBackground{ID: *r.cardBackgroundID, URL: *r.cardURL, Crop: cropOf(r.cardX, r.cardY, r.cardW, r.cardH)}
+		cardBack = &game.CardBackground{ID: *r.cardBackgroundID, URL: *r.cardURL, Crop: cropOf(r.cardX, r.cardY, r.cardW, r.cardH),
+			ExpiresAt: r.cardExpiresAt}
 		if r.cardFormat != nil {
 			cardBack.Format = *r.cardFormat
 		}

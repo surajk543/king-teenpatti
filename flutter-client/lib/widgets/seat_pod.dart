@@ -1038,8 +1038,10 @@ class SeatPod extends StatelessWidget {
             // bought on the store's Cards shelf), seen by everybody at the
             // table on THIS player's cards, as their picture is — tinted green
             // like any back once they have looked. Not at poker, whose felt
-            // keeps the Royal Fox (its snapshot carries no back anyway).
-            back: poker ? null : s.cardBackground,
+            // keeps the Royal Fox (its snapshot carries no back anyway), nor
+            // once its rental has run out: the Royal Fox from that moment,
+            // before the server's next room:state says so.
+            back: poker ? null : liveCardBack(s.cardBackground),
           ),
         );
 

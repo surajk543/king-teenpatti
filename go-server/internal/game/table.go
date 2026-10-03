@@ -189,8 +189,9 @@ type NewPlayer struct {
 	Level *SeatLevel
 	// CardBackground is the card back the player has chosen, from their
 	// account (owner, 3 Oct 2026; cardbackground.go), or nil for the default
-	// back. The seat keeps a copy of a valid one and everybody at the table
-	// sees it on that player's cards.
+	// back. The seat keeps a copy of a valid one that has not run out, and
+	// everybody at the table sees it on that player's cards until its
+	// ExpiresAt, when the table takes it off by itself.
 	CardBackground *CardBackground
 }
 
@@ -292,7 +293,9 @@ type seat struct {
 
 	// cardBackground is the card back this player has chosen, or nil — the
 	// default back (cardbackground.go): NewPlayer.CardBackground when they
-	// sat down, changed by SetCardBackground. Never shared with a caller.
+	// sat down, changed by SetCardBackground, and taken off by the card-back
+	// clock when a rental's ExpiresAt comes (expireCardBackgrounds). Never
+	// shared with a caller.
 	cardBackground *CardBackground
 }
 
@@ -478,7 +481,14 @@ type Table struct {
 	// way startTimerGen does.
 	unfundedTimer    Timer
 	unfundedTimerGen uint64
-	view             *View // the single View handed to listeners
+	// cardBackgroundTimer fires at the earliest moment a seat's rented card
+	// back runs out (armCardBackgroundTimer, cardbackground.go; owner, 3 Oct
+	// 2026); cardBackgroundTimerGen guards a late callback the way
+	// startTimerGen does. Not snapshotted: each seat's back carries its own
+	// ExpiresAt, and a restore arms the clock again from them.
+	cardBackgroundTimer    Timer
+	cardBackgroundTimerGen uint64
+	view                   *View // the single View handed to listeners
 	// lastHand is the hand this table last finished — its id, its players and
 	// its variation — kept until the next one finishes, for a player report
 	// filed in the pause between hands (table_report.go). Memory only: not in
@@ -1235,11 +1245,15 @@ func (t *Table) addPlayer(p NewPlayer) (*SeatInfo, error) {
 		taxBps:       p.TaxBps,
 		level:        p.Level.clone(),
 		// The card back everyone at the table sees on this player's cards:
-		// a copy of a valid one, else the default (forSeat).
-		cardBackground: p.CardBackground.forSeat(),
+		// a copy of a valid one that has not run out, else the default
+		// (seatCardBackground).
+		cardBackground: t.seatCardBackground(p.CardBackground),
 	}
 	t.seats[seatIndex] = s
 	t.refreshPlayerCount()
+	// A rented back — read with the account at a sit-down, or carried by a
+	// move — comes off by itself when its term ends (owner, 3 Oct 2026).
+	t.armCardBackgroundTimer()
 	t.listener.OnSeatUpdated(t.view, seatIndex)
 
 	// Announce the arrival in the room log, so a player who joins mid-session
@@ -1285,6 +1299,9 @@ func (t *Table) removePlayer(userID, reason string) *SeatInfo {
 
 	t.seats[s.seatIndex] = nil
 	t.refreshPlayerCount()
+	// Their card back left with them: the card-back clock now follows the
+	// backs still at the table (here, before any of the returns below).
+	t.armCardBackgroundTimer()
 	t.listener.OnSeatUpdated(t.view, s.seatIndex)
 	if msg := t.chat.AddSystem(fmt.Sprintf(ChatLeftFormat, s.displayName)); msg != nil {
 		t.listener.OnChat(t.view, msg)
@@ -3587,6 +3604,7 @@ func (t *Table) destroy() {
 	t.clearTurnTimer()
 	t.clearStartTimer()
 	t.clearUnfundedTimer()
+	t.clearCardBackgroundTimer()
 	if t.hand != nil && t.hand.sideshow != nil && t.hand.sideshow.timer != nil {
 		// Only reachable when fenced (endHand clears it otherwise): the hand
 		// is the owner's now, this process just stops its own clocks.

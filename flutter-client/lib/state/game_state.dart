@@ -3469,20 +3469,26 @@ class GameState extends ChangeNotifier {
 
   /// The card back this player has chosen, or null for the bundled Royal
   /// Fox: what the store's Cards tab ticks. Read off the account, which the
-  /// server joins only while the rental runs.
-  CardBackArt? get chosenCardBack => user?.cardBackground;
+  /// server joins only while the rental runs — and let go of on this phone
+  /// the moment it runs out ([liveCardBack]), before the account is read
+  /// again ([_watchCardBackLapses]).
+  CardBackArt? get chosenCardBack => liveCardBack(user?.cardBackground);
 
   /// The back on the viewer's OWN face-down cards: their seat's — the one
   /// every player at the table sees on them, which the server puts on the
   /// seat the moment it is chosen ([chooseCardBackground]) — or null, the
   /// bundled Royal Fox, where their seat wears none, at a poker room (whose
-  /// felt keeps the Royal Fox), or away from a table.
+  /// felt keeps the Royal Fox), away from a table, or once the seat's back
+  /// has run out ([liveCardBack]: from that moment, whatever a room:state
+  /// still carries).
   CardBackArt? get ownCardBack {
     final r = room;
     final you = r?.you;
     if (r == null || you == null || r.isPoker) return null;
     for (final seat in r.seats) {
-      if (seat.seatIndex == you.seatIndex) return seat.cardBackground;
+      if (seat.seatIndex == you.seatIndex) {
+        return liveCardBack(seat.cardBackground);
+      }
     }
     return null;
   }
@@ -3582,6 +3588,125 @@ class GameState extends ChangeNotifier {
     cardBackgrounds = const [];
     buyingCardBackground = null;
     CardBackImages.release();
+  }
+
+  /// Wakes at the next moment a card back this phone holds runs out (owner,
+  /// 3 Oct 2026: "when validity of premium card expires, it restores default
+  /// card"): a seat's at this table, the account's chosen one, or a rental
+  /// the Cards shelf lists as this player's. Every reader of a back goes
+  /// through the clock ([liveCardBack], [CardBackground.lapsedAt]), so the
+  /// one notify this sends at that moment is all it takes for the felt, the
+  /// viewer's own hand and an open Cards shelf to show the Royal Fox — the
+  /// seat's cards before the server's next room:state, the shelf's tile its
+  /// padlock and price and the Royal Fox's "In use" — and nothing rebuilds in
+  /// between: one timer for the earliest moment, never a tick.
+  ///
+  /// When the back was the player's OWN — the account's, or one of their
+  /// rentals — the catalogue and the account are read again, as the lobby's
+  /// rental watch reads them ([checkRental]), in the lobby and at a table
+  /// alike: the read is where the server takes a lapsed back off.
+  Timer? _cardBackLapse;
+
+  /// The moment [_cardBackLapse] is set for, epoch ms.
+  int _cardBackLapseAt = 0;
+
+  /// The furthest ahead [_cardBackLapse] is set: a rental ten days off is
+  /// woken for once a day until its day comes, so no timer outlives what a
+  /// platform's timer can hold.
+  static const _cardBackLapseHorizon = Duration(days: 1);
+
+  /// The table, account and catalogue the watch last looked at, and when:
+  /// a notify that changed none of them — the one-second tick's — costs three
+  /// comparisons and arms nothing.
+  RoomState? _lapseRoom;
+  User? _lapseUser;
+  List<CardBackground>? _lapseCatalogue;
+  int _lapseLookedAt = 0;
+
+  /// Set by [_cardBacksLapsed]: the next look is due although nothing it
+  /// reads has changed — the clock has.
+  bool _lapseDue = false;
+
+  /// Every change this state makes reaches the screen through here, so the
+  /// card-back watch looks again whenever the table, the account or the
+  /// catalogue may have changed ([_watchCardBackLapses]).
+  @override
+  void notifyListeners() {
+    _watchCardBackLapses();
+    super.notifyListeners();
+  }
+
+  /// Sets [_cardBackLapse] for the earliest card back still to run out, and
+  /// reads the catalogue and the account again when one of the player's own
+  /// has run out since the last look.
+  void _watchCardBackLapses() {
+    if (_disposed) return;
+    final table = room;
+    final account = user;
+    final catalogue = cardBackgrounds;
+    if (!_lapseDue &&
+        identical(table, _lapseRoom) &&
+        identical(account, _lapseUser) &&
+        identical(catalogue, _lapseCatalogue)) {
+      return;
+    }
+    _lapseDue = false;
+    _lapseRoom = table;
+    _lapseUser = account;
+    _lapseCatalogue = catalogue;
+    final now = cardBackClock().millisecondsSinceEpoch;
+    // The first look counts nothing as run out since: a back that arrived
+    // already over is the Royal Fox by the clock alone, and the read that
+    // brought it is the server's word on it.
+    final since = _lapseLookedAt == 0 ? now : _lapseLookedAt;
+    _lapseLookedAt = now;
+    var next = 0;
+    var ownRanOut = false;
+    void watch(int at, {bool own = false}) {
+      if (at <= 0) return;
+      if (at <= now) {
+        if (own && at > since) ownRanOut = true;
+        return;
+      }
+      if (next == 0 || at < next) next = at;
+    }
+
+    // A poker room's felt keeps the Royal Fox whatever its snapshot says.
+    if (table != null && !table.isPoker) {
+      for (final seat in table.seats) {
+        watch(seat.cardBackground?.expiresAt ?? 0);
+      }
+    }
+    watch(account?.cardBackground?.expiresAt ?? 0, own: true);
+    for (final card in catalogue) {
+      // A free back never runs out, whatever term its row still reports.
+      if (card.owned && !card.free) watch(card.expiresAt, own: true);
+    }
+    _cardBackLapse?.cancel();
+    _cardBackLapse = null;
+    _cardBackLapseAt = next;
+    if (next > 0) {
+      final wait = Duration(milliseconds: next - now);
+      _cardBackLapse = Timer(
+        wait < _cardBackLapseHorizon ? wait : _cardBackLapseHorizon,
+        _cardBacksLapsed,
+      );
+    }
+    if (ownRanOut && _token != null) unawaited(_refreshPictures());
+  }
+
+  /// [_cardBackLapse] has fired: a back has run out — every listener reads
+  /// the clock again — or it woke early (the horizon, or a timer a hair
+  /// ahead of the wall clock), and it is set again without a word.
+  void _cardBacksLapsed() {
+    _cardBackLapse = null;
+    if (_disposed) return;
+    _lapseDue = true;
+    if (cardBackClock().millisecondsSinceEpoch < _cardBackLapseAt) {
+      _watchCardBackLapses();
+      return;
+    }
+    notifyListeners();
   }
 
   // --------------------------------------------------------------- emojis
@@ -5624,6 +5749,7 @@ class GameState extends ChangeNotifier {
     xpMissions.dispose();
     levelUps.dispose();
     _rentalWatch?.cancel();
+    _cardBackLapse?.cancel();
     _statsCatchUp?.cancel();
     _clearSideshow();
     _clearVariation();

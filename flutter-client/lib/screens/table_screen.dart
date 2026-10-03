@@ -1689,6 +1689,16 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
         builder: (context, box) {
           final w = box.maxWidth;
           final h = box.maxHeight;
+          // "SEE" as wide as its word (owner, 3 Oct 2026: "reduce the size of
+          // see button"), for the key and for the badge that stands beside it.
+          final seeWidth = seeCards
+              ? SeeCardsButton.widthFor(
+                  context,
+                  label: state.t.see,
+                  height: SeeCardsButton.heightFor(h),
+                  blindMax: _OwnHand.maxBlindFor(state),
+                )
+              : 0.0;
 
           // Everything on the table is a multiple of the pod width, which is
           // itself taken from the felt's own box rather than the screen's. The
@@ -2321,15 +2331,18 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                           fanWidth: HandFan.widthFor(
                             HandFan.cardHeightFor(handH),
                           ),
-                          pillWidth: SeeCardsButton.widthFor(w),
+                          pillWidth: seeWidth,
                           // "SEE CARDS" just above the cards, centred on them
                           // (owner's redesign brief, 3 Oct 2026); the viewer's
                           // own badge beside it while it stands.
                           seeCards: seeCards
                               ? SeeCardsButton(
-                                  label: state.t.seeCards,
+                                  // "SEE" on the key, the fuller words to a
+                                  // screen reader (owner, 3 Oct 2026).
+                                  label: state.t.see,
+                                  semanticsLabel: state.t.seeCards,
                                   onPressed: state.see,
-                                  width: SeeCardsButton.widthFor(w),
+                                  width: seeWidth,
                                   height: SeeCardsButton.heightFor(h),
                                   blindLeft: room.you?.blindMovesLeft,
                                   blindMax: _OwnHand.maxBlindFor(state),

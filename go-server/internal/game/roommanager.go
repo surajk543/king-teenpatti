@@ -38,7 +38,8 @@ type Player struct {
 	// CardBackground is the card back the player has chosen on their account
 	// (owner, 3 Oct 2026; cardbackground.go), or nil for the default back; it
 	// goes onto their seat (NewPlayer.CardBackground), where everybody at a
-	// Teen Patti table sees it on their cards.
+	// Teen Patti table sees it on their cards — a rented one until its
+	// ExpiresAt, when the table takes it off.
 	CardBackground *CardBackground
 }
 
@@ -1049,14 +1050,17 @@ func (rm *RoomManager) SetPlayerTablePicture(userID string, pic *TablePicture) {
 // taken off — the default back) on their seat, when they have one, so
 // everyone at the table sees it on that player's cards at once
 // (Table.SetCardBackground; owner, 3 Oct 2026). The card-back endpoints call
-// it once the choice is saved, and a sweep that finds a rental over calls it
-// with nil. For a player in the lobby it does nothing: their next seat reads
-// the card back from the user row like any other join. Only a Teen Patti
-// table shows a chosen card back — a poker felt keeps the default back, as
-// it shows no table picture — so at a poker room the choice is saved on the
-// account and nothing on the felt changes, and this does nothing there
-// either. A table destroyed between the lookup and the call has no seat to
-// update, so that error is not one.
+// it once the choice is saved. A rented back carries its ExpiresAt, and the
+// table takes it off by itself when that moment comes; a sweep that finds a
+// rental over still calls this with nil, for a seat whose copy says
+// otherwise (one restored from a snapshot written before backs carried their
+// expiry, or a rental ended early by hand). For a player in the lobby it
+// does nothing: their next seat reads the card back from the user row like
+// any other join. Only a Teen Patti table shows a chosen card back — a poker
+// felt keeps the default back, as it shows no table picture — so at a poker
+// room the choice is saved on the account and nothing on the felt changes,
+// and this does nothing there either. A table destroyed between the lookup
+// and the call has no seat to update, so that error is not one.
 func (rm *RoomManager) SetPlayerCardBackground(userID string, cb *CardBackground) {
 	if t := AsTable(rm.GetTableForPlayer(userID)); t != nil {
 		_ = t.SetCardBackground(userID, cb)

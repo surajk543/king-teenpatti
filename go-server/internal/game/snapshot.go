@@ -244,7 +244,9 @@ type SnapshotSeat struct {
 	// 2026; CardBackground), kept so a restart shows it without reading the
 	// account; absent when none, so a snapshot written before it existed
 	// reads as none. One no client could draw is dropped on restore — the
-	// seat wears the default back — never a refused table.
+	// seat wears the default back — never a refused table; so is a rental
+	// whose ExpiresAt passed while the process was down. One still running
+	// keeps its ExpiresAt, and the restored table takes it off on time.
 	CardBackground *CardBackground `json:"cardBackground,omitempty"`
 }
 
