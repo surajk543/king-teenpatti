@@ -604,8 +604,8 @@ func New(opts Options) (*App, error) {
 		TablePictures: tablePictures,
 		// The backs of a player's cards (owner, 3 Oct 2026): the same
 		// catalogue shape, bought at the same till — the seeded ones for
-		// five hammers, at a table too — and each player's shown to everyone
-		// at their table (game/cardbackground.go).
+		// hammers (five; two for a Flower back), at a table too — and each
+		// player's shown to everyone at their table (game/cardbackground.go).
 		CardBackgrounds: cardBackgrounds,
 		// The animated emojis a player buys and sends to their table (owner,
 		// 26 Sep 2026): the same catalogue shape and the same till; a

@@ -336,9 +336,10 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 			t.Errorf("%s must be declared in full, never altered", table)
 		}
 	}
-	// Their rows: the owner's eight, after the table pictures and before the
-	// table catalogue, never anybody's ownership or choice, and added only
-	// where the location is missing, so an owner's UPDATE survives every boot.
+	// Their rows: the owner's card backs (seededCards, cardbackgrounds_test.go),
+	// after the table pictures and before the table catalogue, never anybody's
+	// ownership or choice, and added only where the location is missing, so an
+	// owner's UPDATE survives every boot.
 	if !inOrder(seed, "INSERT INTO table_pictures", "INSERT INTO cards_background", "INSERT INTO table_engines") {
 		t.Errorf("%s should seed the card backs after the table pictures and before the table catalogue", migrations[1].File)
 	}
@@ -860,14 +861,14 @@ func TestBootstrapIsIdempotent(t *testing.T) {
 		t.Fatalf("expected exactly one append-only trigger, found %d", triggers)
 	}
 	// The seeds ran twice and wrote each row once: 46 pictures (45 of
-	// V1.0.1__seed.sql and V1.0.2__seed-festive-capybara.sql's Festive Capybara), the eight card
-	// backs, two engines and seven categories, one settings row, the twelve
+	// V1.0.1__seed.sql and V1.0.2__seed-festive-capybara.sql's Festive Capybara), the card
+	// backs of seededCards, two engines and seven categories, one settings row, the twelve
 	// default tables and seven private templates, all active.
 	if n := f.scalar(`SELECT COUNT(*) FROM profile_pictures`); n != 46 {
 		t.Fatalf("profile_pictures holds %d rows after a second boot, want 46", n)
 	}
-	if n := f.scalar(`SELECT COUNT(*) FROM cards_background`); n != 8 {
-		t.Fatalf("cards_background holds %d rows after a second boot, want 8", n)
+	if n := f.scalar(`SELECT COUNT(*) FROM cards_background`); n != int64(len(seededCards)) {
+		t.Fatalf("cards_background holds %d rows after a second boot, want %d", n, len(seededCards))
 	}
 	if n := f.scalar(`SELECT COUNT(*) FROM table_engines WHERE is_active`); n != 2 {
 		t.Fatalf("table_engines holds %d active rows after a second boot, want 2", n)

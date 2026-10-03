@@ -1,20 +1,23 @@
 // How a card back is drawn (owner, 3 Oct 2026: everybody at a table sees
 // each player's own back on that player's face-down cards): the picture in
-// the R2 bucket decoded once and shared by every card showing it, the card's
-// crop of it stretched to the card, the SEEN tint, the stock's corner and
-// edge — and the bundled Royal Fox for nobody's choice, while a back is
-// coming, and when one cannot be had.
+// the R2 bucket decoded once, the card's crop of it cut out and only that
+// kept (review, 3 Oct 2026), shared by every card showing it and stretched to
+// the card, the SEEN tint, the stock's corner and edge — and the bundled
+// Royal Fox for nobody's choice, and at a table while a back is coming and
+// when one cannot be had; the store's plain back in its place on sale. The
+// cache keeps every back on sale, and lets them all go when memory is short
+// or a session ends.
 //
 // Decoding is real work, so the pictures are decoded in plain tests or
 // inside `tester.runAsync`, and the pixels a card paints are read back the
 // same way. The pictures are the fixtures' miniatures: each back's card in
 // its own colour on the dark ground, so a pixel says which back is drawn
 // and whether any ground shows.
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/net/picture_cache.dart';
@@ -114,8 +117,15 @@ void main() {
   final demon = seededCard('Brutal Demon');
 
   group('the cache', () {
-    test('a picture is decoded with its card 720 pixels tall, never larger '
+    test('a picture is decoded with its card 480 pixels tall, never larger '
         'than the file', () {
+      // The largest card a phone draws a back at: the unlock question's,
+      // 30% of a 411dp screen at 3.5x — and the cards are kept a little
+      // taller than that, never much more.
+      expect(
+        CardBackImages.decodeHeight,
+        inInclusiveRange((411 * 0.3 * 3.5).ceil(), 512),
+      );
       for (final card in seededCards) {
         final size = CardBackImages.decodeSizeFor(1024, 1024, card.crop);
         expect(size.width, size.height, reason: card.name);
@@ -132,11 +142,73 @@ void main() {
       expect(small.height, isNull);
       // All card: its own height is the card's.
       final whole = CardBackImages.decodeSizeFor(600, 840, null);
-      expect(whole.height, 720);
-      expect(whole.width, 514);
+      expect(whole.height, 480);
+      expect(whole.width, 343);
     });
 
-    test('a back is decoded once, the card\'s rectangle its crop', () async {
+    test('the card is cut to the whole pixels inside its crop', () {
+      // Royal Tiger's crop in a 128-pixel miniature runs 29.3 to 98.7
+      // across and 16.2 to 113.2 down: each edge is taken in to the pixel
+      // that is all card.
+      expect(
+        CardBackImages.cardPixels(128, 128, tiger.crop),
+        const Rect.fromLTRB(30, 17, 98, 113),
+      );
+      // An edge on a pixel's own edge stays there, rounding or no rounding.
+      expect(
+        CardBackImages.cardPixels(
+          128,
+          128,
+          const CardCrop(x: 0.25, y: 0.125, w: 0.5, h: 0.75),
+        ),
+        const Rect.fromLTRB(32, 16, 96, 112),
+      );
+      // The whole picture is the whole picture.
+      expect(
+        CardBackImages.cardPixels(
+          50,
+          70,
+          const CardCrop(x: 0, y: 0, w: 1, h: 1),
+        ),
+        const Rect.fromLTWH(0, 0, 50, 70),
+      );
+      // A crop under a pixel is the pixel it lies in — never nothing, never
+      // outside the picture.
+      expect(
+        CardBackImages.cardPixels(
+          10,
+          10,
+          const CardCrop(x: 0.93, y: 0.95, w: 0.04, h: 0.04),
+        ),
+        const Rect.fromLTRB(9, 9, 10, 10),
+      );
+      // Every seeded back at the size it is decoded at keeps a card of the
+      // decode's height and the card's own 5:7, to a pixel.
+      for (final card in seededCards) {
+        final size = CardBackImages.decodeSizeFor(1024, 1024, card.crop);
+        final cut = CardBackImages.cardPixels(
+          size.width!,
+          size.height!,
+          card.crop,
+        );
+        expect(
+          cut.height,
+          inInclusiveRange(
+            CardBackImages.decodeHeight - 2,
+            CardBackImages.decodeHeight,
+          ),
+          reason: card.name,
+        );
+        expect(
+          cut.width,
+          closeTo(cut.height * PlayingCard.aspect, 1.5),
+          reason: card.name,
+        );
+      }
+    });
+
+    test('a back is decoded once, and only its card is kept: every pixel of '
+        'it card, none of the ground round it', () async {
       await _primeBytes(tiger);
       final a = CardBackImages.load(tiger.art);
       final b = CardBackImages.load(tiger.art);
@@ -144,21 +216,47 @@ void main() {
       final second = (await b)!;
       expect(identical(first.image, second.image), isTrue, reason: 'shared');
       expect(CardBackImages.debugCount, 1);
-      expect(first.image.width, 128, reason: 'never larger than the file');
-      expect(first.source, tiger.crop.rectIn(128, 128));
+      // The crop's whole pixels in the 128-pixel miniature, never larger
+      // than the file: 68 by 96, against the 128 by 128 it came from.
+      expect(first.image.width, 68);
+      expect(first.image.height, 96);
+      final kept = await _read(first.image);
+      for (final (x, y) in [
+        (0, 0),
+        (67, 0),
+        (0, 95),
+        (67, 95),
+        (34, 0),
+        (34, 95),
+        (0, 48),
+        (67, 48),
+        (34, 48),
+      ]) {
+        expect(kept.at(x, y), _colour(tiger.colour), reason: '$x,$y');
+      }
       expect(CardBackImages.peek(tiger.art), first);
-      // The same picture under another crop is the same decode, cut anew.
-      const other = CardCrop(x: 0, y: 0, w: 0.5, h: 0.7);
-      final recut = CardBackImages.peek(
-        CardBackArt(id: 7, url: tiger.url, crop: other),
-      )!;
-      expect(identical(recut.image, first.image), isTrue);
-      expect(recut.source, other.rectIn(128, 128));
-      // With no crop, the whole picture is the card.
+      // The row a back came from is no part of it: the same picture and crop
+      // under another id is the same card.
       expect(
-        CardBackImages.peek(CardBackArt(url: tiger.url))!.source,
-        const Rect.fromLTWH(0, 0, 128, 128),
+        CardBackImages.peek(
+          CardBackArt(id: 99, url: tiger.url, crop: tiger.crop),
+        ),
+        first,
       );
+      // The same picture cut another way is another card, decoded on its
+      // own.
+      const other = CardCrop(x: 0, y: 0, w: 0.5, h: 0.7);
+      final otherArt = CardBackArt(id: 7, url: tiger.url, crop: other);
+      expect(CardBackImages.peek(otherArt), isNull);
+      final recut = (await CardBackImages.load(otherArt))!;
+      expect(identical(recut.image, first.image), isFalse);
+      expect(recut.image.width, 64);
+      expect(recut.image.height, 89);
+      // With no crop, the whole picture is the card.
+      final whole = (await CardBackImages.load(CardBackArt(url: tiger.url)))!;
+      expect(whole.image.width, 128);
+      expect(whole.image.height, 128);
+      expect(CardBackImages.debugCount, 3);
     });
 
     test('a file that is not a picture is nothing — not remembered as '
@@ -194,15 +292,9 @@ void main() {
       expect(CardBackImages.shown(tiger.art), isNull, reason: 'nothing yet');
       final fox = (await CardBackImages.load(null))!;
       expect(fox.image.width / fox.image.height, closeTo(240 / 336, 0.002));
-      expect(
-        fox.source,
-        Rect.fromLTWH(
-          0,
-          0,
-          fox.image.width.toDouble(),
-          fox.image.height.toDouble(),
-        ),
-      );
+      // All card, so nothing is cut: kept as tall as any other back, not at
+      // the 840 pixels the app ships it at.
+      expect(fox.image.height, CardBackImages.decodeHeight);
       expect(CardBackImages.shown(null), fox);
       expect(CardBackImages.shown(tiger.art), fox, reason: 'not decoded');
       expect(await CardBackImages.resolve(tiger.art), fox, reason: 'no signer');
@@ -212,8 +304,13 @@ void main() {
       expect(CardBackImages.shown(tiger.art), mine);
     });
 
-    test('at most twelve pictures are kept, the one drawn least recently '
-        'going first', () async {
+    test('at most sixteen backs are kept — every back the seed sells and the '
+        'Royal Fox, with room to spare — the one drawn least recently going '
+        'first', () async {
+      // The thirteen backs on sale (the eight, and the five Flower backs)
+      // and the Royal Fox all stay decoded after a visit to the shelf.
+      expect(CardBackImages.capacity, 16);
+      expect(CardBackImages.capacity, greaterThan(13 + 1));
       CardBackArt art(int i) =>
           CardBackArt(id: i, url: 'https://cdn.test/cards/$i.png');
       for (var i = 0; i < CardBackImages.capacity; i++) {
@@ -355,8 +452,13 @@ void main() {
         _card(key, CardBackImage(art: tiger.art, height: 140)),
       );
       expect(find.byType(Image), findsOneWidget, reason: 'the Royal Fox');
-      // The card's own decode, given real time to run.
-      for (var i = 0; i < 20 && find.byType(Image).evaluate().isNotEmpty; i++) {
+      // The card's own decode — and its cut out of the picture — given real
+      // time to run: two seconds at most, on a machine running every suite.
+      for (
+        var i = 0;
+        i < 100 && find.byType(Image).evaluate().isNotEmpty;
+        i++
+      ) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 20)),
         );
@@ -418,6 +520,83 @@ void main() {
       expect((await _grab(tester, key)).at(50, 70), _colour(demon.colour));
       await show(null);
       expect(find.byType(Image), findsOneWidget);
+    });
+
+    testWidgets('on sale, a back still coming is the plain back under its '
+        'ring — never the Royal Fox — and then itself', (tester) async {
+      await tester.runAsync(() => _primeBytes(tiger));
+      final key = GlobalKey();
+      await tester.pumpWidget(
+        _card(
+          key,
+          CardBackImage(
+            art: tiger.art,
+            height: 140,
+            standIn: false,
+            loading: const SizedBox.square(key: _coming, dimension: 20),
+          ),
+        ),
+      );
+      expect(find.byType(Image), findsNothing, reason: 'not the Royal Fox');
+      expect(find.byKey(_coming), findsOneWidget, reason: 'it can come');
+      // The plain back: its black ground on the stock.
+      expect(
+        (await _grab(tester, key)).at(50, 70),
+        _colour(PlayingCard.backGround),
+      );
+      // The card's own decode — and its cut — given real time to run.
+      for (
+        var i = 0;
+        i < 100 && find.byKey(_coming).evaluate().isNotEmpty;
+        i++
+      ) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+      expect(find.byKey(_coming), findsNothing);
+      expect(find.byType(Image), findsNothing);
+      expect((await _grab(tester, key)).at(50, 70), _colour(tiger.colour));
+    });
+
+    testWidgets('on sale, a back that cannot be had is the plain back alone — '
+        'no ring, no Royal Fox — and none on sale is the Royal Fox itself', (
+      tester,
+    ) async {
+      final key = GlobalKey();
+      await tester.pumpWidget(
+        _card(
+          key,
+          CardBackImage(
+            art: tiger.art,
+            height: 140,
+            standIn: false,
+            loading: const SizedBox.square(key: _coming, dimension: 20),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(Image), findsNothing);
+      expect(
+        find.byKey(_coming),
+        findsNothing,
+        reason: 'nothing to wait for: nothing can sign it, nothing in memory',
+      );
+      expect(
+        (await _grab(tester, key)).at(50, 70),
+        _colour(PlayingCard.backGround),
+      );
+      // The Royal Fox on sale is the Royal Fox: it IS that back.
+      await tester.pumpWidget(
+        _card(key, const CardBackImage(height: 140, standIn: false)),
+      );
+      expect(find.byType(Image), findsOneWidget);
+      expect(
+        (tester.widget<Image>(find.byType(Image)).image as AssetImage)
+            .assetName,
+        PlayingCard.backAsset,
+      );
     });
 
     testWidgets('left without a height, the largest card that fits is drawn, '
@@ -499,7 +678,65 @@ void main() {
       expect(find.byType(Image), findsOneWidget);
     });
   });
+
+  group('letting go', () {
+    testWidgets('when the system says memory is short every decoded back is '
+        'let go; a card showing one keeps drawing it, and the next card '
+        'decodes it again from the phone', (tester) async {
+      await primeCardBacks(tester, [tiger, demon]);
+      expect(CardBackImages.debugCount, 2);
+      final key = GlobalKey();
+      await tester.pumpWidget(
+        _card(key, CardBackImage(art: tiger.art, height: 140)),
+      );
+      // As main() registers it, for the life of the app.
+      const watch = CardBackMemoryWatch();
+      tester.binding.addObserver(watch);
+      addTearDown(() => tester.binding.removeObserver(watch));
+      // The system's own message, the one Flutter empties its image cache
+      // for.
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        SystemChannels.system.name,
+        SystemChannels.system.codec.encodeMessage(<String, Object?>{
+          'type': 'memoryPressure',
+        }),
+        (_) {},
+      );
+      expect(CardBackImages.debugCount, 0);
+      expect(CardBackImages.peek(tiger.art), isNull);
+      expect(CardBackImages.peek(demon.art), isNull);
+      // The card on screen holds its own handle: still the tiger.
+      await tester.pump();
+      expect((await _grab(tester, key)).at(50, 70), _colour(tiger.colour));
+      // A card built now decodes its back again, from the bytes the phone
+      // holds — and shows it.
+      final again = GlobalKey();
+      await tester.runAsync(() => CardBackImages.load(demon.art));
+      await tester.pumpWidget(
+        _card(again, CardBackImage(art: demon.art, height: 140)),
+      );
+      expect(CardBackImages.debugCount, 1);
+      expect((await _grab(tester, again)).at(50, 70), _colour(demon.colour));
+    });
+
+    test('a session\'s end lets go of every back, while a decode running '
+        'still lands', () async {
+      await _primeBytes(tiger);
+      await _primeBytes(demon);
+      expect(await CardBackImages.load(tiger.art), isNotNull);
+      final running = CardBackImages.load(demon.art);
+      CardBackImages.release();
+      expect(CardBackImages.debugCount, 0);
+      expect(await running, isNotNull, reason: 'asked for, so still wanted');
+      expect(CardBackImages.debugCount, 1);
+      expect(CardBackImages.peek(tiger.art), isNull);
+    });
+  });
 }
+
+/// What a card back on sale lays over its plain stand-in while its picture is
+/// still coming ([CardBackImage.loading]) — the game's ring in the store.
+const _coming = Key('coming');
 
 /// What a host serves in place of a file it will not hand out.
 final utf8Page = '<!doctype html><title>Sign in</title>'.codeUnits;

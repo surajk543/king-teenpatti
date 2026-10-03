@@ -160,13 +160,13 @@ func (h *Handler) UseCardBackground(w http.ResponseWriter, r *http.Request, user
 // spent}, spent in the card back's currency; every shortage is 409
 // picture_chips with the wallet that was short named in the message ("You
 // need 5 hammers to unlock this card back."). A seated player buys a DIAMOND
-// or HAMMER card back — the seeded ones' five hammers — and is refused a COIN
-// one (409 seated), the money rule BuyPicture explains; in the lobby the
-// purchase runs under the player's seat lock (Deps.WhileUnseated) for the
-// reason given there. Buying does not put it on: that is
-// /api/card-backgrounds/use. An unlisted card back (is_listed = FALSE) is not
-// for sale: 400 picture_retired, unless it is already theirs (200
-// charged:false).
+// or HAMMER card back — every seeded one is priced in hammers, five or a
+// Flower back's two — and is refused a COIN one (409 seated), the money rule
+// BuyPicture explains; in the lobby the purchase runs under the player's seat
+// lock (Deps.WhileUnseated) for the reason given there. Buying does not put it
+// on: that is /api/card-backgrounds/use. An unlisted card back (is_listed =
+// FALSE) is not for sale: 400 picture_retired, unless it is already theirs
+// (200 charged:false).
 func (h *Handler) BuyCardBackground(w http.ResponseWriter, r *http.Request, user *db.User) {
 	var req CardBackgroundRequest
 	if err := ReadJSONBody(r, &req); err != nil {

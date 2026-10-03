@@ -7,14 +7,17 @@
 // catalogue row as the server sends them (tolerant of what it would never
 // send); a seat's back and the account's kept through every copy the app
 // makes of them; the three REST calls, their bodies, headers and refusals;
-// and GameState — the catalogue read with the session's token, buying (the
-// row owned at once, then worn), one purchase at a time, a refusal's
-// reading, the viewer's own back at a table, the rental watch taking a
-// lapsed back off, and sign-out and account deletion forgetting it all. The
-// drawing is card_back_art_test.dart; the fixtures are shared with the table
-// and the store's tests.
+// and GameState — the catalogue read with the session's token and its
+// pictures kept on the phone's disk, buying (the row owned at once, then
+// worn), one purchase at a time, a refusal's reading (a chip-priced back at a
+// table in the player's own words), the viewer's own back at a table, the
+// rental watch taking a lapsed back off, and sign-out and account deletion
+// forgetting it all, the decoded backs with it. The drawing is
+// card_back_art_test.dart; the fixtures are shared with the table and the
+// store's tests.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:ui' show Rect;
 
 import 'package:flutter/foundation.dart';
@@ -22,11 +25,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/net/api_client.dart';
 import 'package:teenpatti/net/app_version.dart';
 import 'package:teenpatti/net/picture_cache.dart';
 import 'package:teenpatti/state/game_state.dart';
+import 'package:teenpatti/widgets/card_back_art.dart';
 
 import 'card_background_fixtures.dart';
 
@@ -120,6 +125,7 @@ void main() {
     PictureCache.debugResetSigning();
   });
   tearDown(() {
+    CardBackImages.debugClear();
     PictureCache.clearMemory();
     PictureCache.debugResetSigning();
   });
@@ -603,8 +609,9 @@ void main() {
       state.dispose();
     });
 
-    test('a hammer or diamond shortage is the offer of that shelf; anything '
-        'else is the server\'s sentence', () async {
+    test('a hammer or diamond shortage is the offer of that shelf; a '
+        'chip-priced back refused at a table is said in the player\'s '
+        'language; anything else is the server\'s sentence', () async {
       final state = _state()
         ..cardBackgrounds = [
           ...seededCatalogue(),
@@ -631,13 +638,21 @@ void main() {
       // Chips are no shelf's to refill: the server's sentence.
       expect(state.cardBackgroundRefused(30, short), PictureBuyResult.refused);
       expect(state.notice, short.message);
+      // A chip-priced back at a table — seated, leaving one, or a last hand
+      // still being saved — in the player's words, as the shelf says it
+      // before asking, never the server's English.
       final seated = ApiException(
         'You can only buy a chip-priced card back in the lobby.',
         code: 'seated',
         status: 409,
       );
       expect(state.cardBackgroundRefused(30, seated), PictureBuyResult.refused);
-      expect(state.notice, seated.message);
+      expect(state.notice, state.t.cardChipsLobbyOnly);
+      state.lang = AppLang.hindi;
+      expect(state.cardBackgroundRefused(30, seated), PictureBuyResult.refused);
+      expect(state.notice, const Strings(AppLang.hindi).cardChipsLobbyOnly);
+      expect(state.notice, isNot(seated.message));
+      state.lang = AppLang.english;
       // A row this phone does not hold is no shelf to offer.
       expect(state.cardBackgroundRefused(99, short), PictureBuyResult.refused);
 
@@ -799,8 +814,69 @@ void main() {
       state.dispose();
     });
 
-    test('signing out forgets the backs this account owns', () async {
+    test(
+      'the catalogue\'s pictures are kept on the phone\'s disk, signed in '
+      'one request — never warmed into the memory the faces live in',
+      () async {
+        final dir = Directory.systemTemp.createTempSync('card-backs');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        PictureCache.debugUseDirectory(dir);
+        final signings = <List<String>>[];
+        PictureCache.signer = (locations) async {
+          signings.add(locations);
+          return SignedAssets({
+            for (final l in locations)
+              l: 'https://signed.test/${Uri.parse(l).pathSegments.last}',
+          }, DateTime.now().add(const Duration(minutes: 10)));
+        };
+        final server = _Server();
+        final png = await cardPicturePng(tiger.crop, card: tiger.colour);
+        final client = MockClient((r) async {
+          if (r.url.host == 'signed.test') {
+            return http.Response.bytes(
+              png,
+              200,
+              headers: {'content-type': 'image/png'},
+            );
+          }
+          return server._answer(r);
+        });
+        List<File> kept() => [
+          for (final f in dir.listSync())
+            if (f is File && !f.path.endsWith('.part')) f,
+        ];
+        final state = _state()..debugToken = 'tok';
+        await http.runWithClient(() async {
+          await state.reloadCardBackgrounds();
+          // Kept by itself, one after another, after the catalogue is read.
+          for (var i = 0; i < 300 && kept().length < seededCards.length; i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          }
+        }, () => client);
+        expect(state.cardBackgrounds, hasLength(seededCards.length));
+        expect(kept(), hasLength(seededCards.length), reason: 'every back');
+        expect(signings, hasLength(1), reason: 'one signing for the lot');
+        expect(signings.single.toSet(), {for (final c in seededCards) c.url});
+        for (final card in seededCards) {
+          expect(
+            PictureCache.peek(card.url),
+            isNull,
+            reason: '${card.name} pushed no face out of memory',
+          );
+        }
+        state.dispose();
+      },
+    );
+
+    test('signing out forgets the backs this account owns, and lets go of '
+        'the backs decoded for it', () async {
       SharedPreferences.setMockInitialValues({'token': 'tok'});
+      PictureCache.prime(
+        tiger.url,
+        await cardPicturePng(tiger.crop, card: tiger.colour),
+      );
+      expect(await CardBackImages.load(tiger.art), isNotNull);
+      expect(CardBackImages.debugCount, 1);
       final state = _state()
         ..debugToken = 'tok'
         ..user = User.fromJson(cardAccountJson(card: tiger))
@@ -810,11 +886,17 @@ void main() {
       expect(state.cardBackgrounds, isEmpty);
       expect(state.buyingCardBackground, isNull);
       expect(state.chosenCardBack, isNull);
+      expect(CardBackImages.debugCount, 0);
       state.dispose();
     });
 
     test('deleting the account forgets them too', () async {
       SharedPreferences.setMockInitialValues({'token': 'tok'});
+      PictureCache.prime(
+        tiger.url,
+        await cardPicturePng(tiger.crop, card: tiger.colour),
+      );
+      expect(await CardBackImages.load(tiger.art), isNotNull);
       final state = _state()
         ..debugToken = 'tok'
         ..user = User.fromJson(cardAccountJson(card: tiger))
@@ -826,6 +908,7 @@ void main() {
       expect(refused, isNull);
       expect(state.cardBackgrounds, isEmpty);
       expect(state.chosenCardBack, isNull);
+      expect(CardBackImages.debugCount, 0);
       state.dispose();
     });
   });

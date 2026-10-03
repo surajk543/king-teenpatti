@@ -154,18 +154,19 @@ func TestABootBringsAnOlderDatabaseForward(t *testing.T) {
 		t.Errorf("buying an emoji after the upgrade: %+v %v", bought, err)
 	}
 
-	// The card backs were created and seeded with the owner's eight, every
-	// one listed, and the account that was already there reads with none
-	// chosen — the default back — and buys and chooses one on the new tables.
-	if n := countOf(t, d, `SELECT count(*) FROM cards_background WHERE is_active AND is_listed`); n != 8 {
-		t.Errorf("%d card backs after the upgrade, want the seed's 8", n)
+	// The card-back tables were created and seeded with every one of
+	// seededCards (cardbackgrounds_test.go), all listed, and the account that
+	// was already there reads with none chosen — the default back — and buys
+	// and chooses one on the new tables.
+	if n := countOf(t, d, `SELECT count(*) FROM cards_background WHERE is_active AND is_listed`); n != int64(len(seededCards)) {
+		t.Errorf("%d card backs after the upgrade, want the seed's %d", n, len(seededCards))
 	}
 	if got, err := db.NewUsers(d, welcome, nil).FindByID(ctx, before.ID); err != nil || got == nil || got.CardBackground != nil {
 		t.Errorf("the existing account after the upgrade: %+v %v, want it read with the default back", got, err)
 	}
 	cards := db.NewCardBackgrounds(d, db.NewUsers(d, welcome, nil), nil)
-	if shelf, err := cards.List(ctx, before.ID); err != nil || len(shelf) != 8 {
-		t.Errorf("the card backs listed after the upgrade: %d, %v", len(shelf), err)
+	if shelf, err := cards.List(ctx, before.ID); err != nil || len(shelf) != len(seededCards) {
+		t.Errorf("the card backs listed after the upgrade: %d, %v, want the seed's %d", len(shelf), err, len(seededCards))
 	} else if bought, err := cards.Buy(ctx, before.ID, shelf[0].ID); err != nil || !bought.Charged {
 		t.Errorf("buying a card back after the upgrade: %+v %v", bought, err)
 	} else if chosen, err := cards.Use(ctx, before.ID, &shelf[0].ID); err != nil || chosen.CardBackground == nil {

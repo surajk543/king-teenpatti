@@ -29,9 +29,24 @@ import (
 // REST, a buy with hammers, and the card back a player chooses on their seat —
 // on every viewer's room:state — over real sockets.
 
-// brutalDemon is the first of the seed's eight, as a location: the owner's
-// file in the bucket's cards/ folder, its spaces written %20.
+// brutalDemon is the first of the seed's card backs, as a location: the
+// owner's file in the bucket's cards/ folder, its spaces written %20.
 const brutalDemon = seededAssets + "cards/Brutal%20Demon.jpg"
+
+// seededCardBacks is how many card backs the seed lists (V1.0.1__seed.sql,
+// THE CARD BACKS; internal/db's seededCards pins each one): the owner's eight,
+// and the five Flower backs they added that evening.
+const seededCardBacks = 13
+
+// seededCardCost is what the seed prices a card back at, in hammers: 2 for a
+// Flower back (owner, 3 Oct 2026: "keep the cost of those 2 hammer validity 10
+// days"), 5 for each of the first eight.
+func seededCardCost(name string) int64 {
+	if strings.HasPrefix(name, "Flower ") {
+		return 2
+	}
+	return 5
+}
 
 // cardCatalogue is GET /api/card-backgrounds as this token (or, with "", a
 // signed-out client) reads it.
@@ -145,21 +160,22 @@ func accountCardBack(t *testing.T, res restAnswer) (present bool, back *game.Car
 }
 
 // The catalogue is public and per viewer: signed out, every one of the seed's
-// eight reads as nobody's, crop and all; a buyer's token marks theirs owned
-// until its term; a stranger's marks nothing; a bad token is ignored, not
-// refused. Off the shelf (is_listed), a card back is listed to its owner alone
-// and sold to nobody, though its owner's second tap is still a success.
+// thirteen reads as nobody's, at its seeded price, crop and all; a buyer's
+// token marks theirs owned until its term; a stranger's marks nothing; a bad
+// token is ignored, not refused. Off the shelf (is_listed), a card back is
+// listed to its owner alone and sold to nobody, though its owner's second tap
+// is still a success.
 func TestTheCardBackCatalogueIsServedSignedOutToAStrangerAndToItsOwner(t *testing.T) {
 	a, database := newApp(t, nil)
 	ts := httptest.NewServer(a.Handler())
 	defer ts.Close()
 
 	shelf := cardCatalogue(t, ts.URL, "")
-	if len(shelf) != 8 {
-		t.Fatalf("the catalogue lists %d card backs, want the seed's 8", len(shelf))
+	if len(shelf) != seededCardBacks {
+		t.Fatalf("the catalogue lists %d card backs, want the seed's %d", len(shelf), seededCardBacks)
 	}
 	for _, cb := range shelf {
-		if cb.Owned || cb.ExpiresAt != 0 || cb.Currency != db.PictureCurrencyHammer || cb.Cost != 5 ||
+		if cb.Owned || cb.ExpiresAt != 0 || cb.Currency != db.PictureCurrencyHammer || cb.Cost != seededCardCost(cb.Name) ||
 			cb.DurationDays != 10 || cb.AssetFormat != "IMAGE" || cb.Crop == nil || !strings.HasPrefix(cb.URL, seededAssets+"cards/") {
 			t.Errorf("signed out, %+v", cb)
 		}
@@ -196,8 +212,8 @@ func TestTheCardBackCatalogueIsServedSignedOutToAStrangerAndToItsOwner(t *testin
 	}
 	for who, token := range map[string]string{"signed out": "", "a stranger": strangerToken, "a bad token": "not-a-token"} {
 		listed := cardCatalogue(t, ts.URL, token)
-		if len(listed) != 7 {
-			t.Errorf("%s, the unlisted catalogue lists %d, want 7", who, len(listed))
+		if len(listed) != seededCardBacks-1 {
+			t.Errorf("%s, the unlisted catalogue lists %d, want %d", who, len(listed), seededCardBacks-1)
 		}
 		for _, cb := range listed {
 			if cb.ID == brutal.ID {
@@ -205,8 +221,8 @@ func TestTheCardBackCatalogueIsServedSignedOutToAStrangerAndToItsOwner(t *testin
 			}
 		}
 	}
-	if mine := cardCatalogue(t, ts.URL, ownerToken); len(mine) != 8 || !cardNamed(t, mine, "Brutal Demon").Owned {
-		t.Errorf("the owner's shelf after unlisting: %d rows", len(mine))
+	if mine := cardCatalogue(t, ts.URL, ownerToken); len(mine) != seededCardBacks || !cardNamed(t, mine, "Brutal Demon").Owned {
+		t.Errorf("the owner's shelf after unlisting: %d rows, want %d", len(mine), seededCardBacks)
 	}
 	res := postJSON(ts.URL, strangerToken, "/api/card-backgrounds/buy", map[string]any{"cardBackgroundId": brutal.ID})
 	if res.status != http.StatusBadRequest || res.body["error"] != auth.CodePictureRetired || res.body["message"] != "That card back is no longer available." {

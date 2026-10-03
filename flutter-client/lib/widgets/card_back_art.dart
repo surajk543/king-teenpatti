@@ -7,19 +7,23 @@
 /// product shot in the private R2 bucket — a 1024x1024 JPEG, the card on a
 /// dark ground — and its row says where the card is in it ([CardCrop]). The
 /// bytes come from [PictureCache], which signs the location and keeps the
-/// file on the phone; they are decoded ONCE into a [ui.Image] that every
-/// card showing that back shares ([CardBackImages]), and each card draws the
-/// card's rectangle of it stretched to its own 5:7 ([CardBackImage],
-/// [paintCardBack]). The deal's flying cards draw from the same images.
+/// file on the phone; they are decoded ONCE and the card cut out of the
+/// picture, and only the card is kept, as a [ui.Image] that every card
+/// showing that back shares ([CardBackImages]); each card draws it stretched
+/// to its own 5:7 ([CardBackImage], [paintCardBack]). The deal's flying cards
+/// draw from the same images.
 ///
-/// The Royal Fox is what every card shows while a back is coming, when one
-/// cannot be had, and for nobody's choice (null): a card is never blank and
-/// never a broken picture.
+/// At a table the Royal Fox is what a card shows while a back is coming,
+/// when one cannot be had, and for nobody's choice (null): a card there is
+/// never blank and never a broken picture. The store, which SELLS a back,
+/// shows the plain back while it comes instead ([CardBackImage.standIn]) —
+/// never another back in the place of the one on sale.
 library;
 
 import 'dart:async';
 import 'dart:collection';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -29,8 +33,9 @@ import '../models/dtos.dart';
 import '../net/picture_cache.dart';
 import 'playing_card.dart';
 
-/// A card back's picture, decoded and ready to draw: the [image] and the
-/// rectangle of it that is the card ([source]), in the image's own pixels.
+/// A card back's picture, decoded and ready to draw: the card itself, edge to
+/// edge — [CardBackImages] keeps only the card, cut out of its product shot
+/// (the Royal Fox is all card already).
 ///
 /// The image of one handed out by [CardBackImages] belongs to the cache:
 /// draw it in the code that was handed it (a picture recorded then keeps it
@@ -38,23 +43,19 @@ import 'playing_card.dart';
 /// dispose the clone. [CardBackImage] keeps a clone of its own.
 @immutable
 class CardBackPicture {
-  const CardBackPicture({required this.image, required this.source});
+  const CardBackPicture(this.image);
 
   final ui.Image image;
 
-  /// The card in [image]: its crop, or the whole image where the picture is
-  /// all card (the Royal Fox).
-  final Rect source;
-
-  /// Draws the card's rectangle of [image] stretched over [dest] — the
-  /// crop is cut to the card's 5:7, so it is not distorted — recoloured by
-  /// [tint] as [PlayingCard.tint] recolours a back ([BlendMode.color]: the
-  /// tint's hue, the picture's own light and shade). Not clipped: the
-  /// caller cuts the card's corner ([paintCardBack] does).
+  /// Draws the card stretched over [dest] — cut to the card's 5:7, so it is
+  /// not distorted — recoloured by [tint] as [PlayingCard.tint] recolours a
+  /// back ([BlendMode.color]: the tint's hue, the picture's own light and
+  /// shade). Not clipped: the caller cuts the card's corner ([paintCardBack]
+  /// does).
   void paint(Canvas canvas, Rect dest, {Color? tint}) {
     canvas.drawImageRect(
       image,
-      source,
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
       dest,
       Paint()
         // Drawn at a fraction of its size on every card: smoothed, so the
@@ -69,12 +70,10 @@ class CardBackPicture {
 
   @override
   bool operator ==(Object other) =>
-      other is CardBackPicture &&
-      identical(other.image, image) &&
-      other.source == source;
+      other is CardBackPicture && identical(other.image, image);
 
   @override
-  int get hashCode => Object.hash(identityHashCode(image), source);
+  int get hashCode => identityHashCode(image);
 }
 
 /// Prints the back of a card into [card] on [canvas], as a face-down
@@ -115,18 +114,26 @@ class _Arrivals extends ChangeNotifier {
   void arrived() => notifyListeners();
 }
 
-/// The card backs decoded so far, one [ui.Image] per picture however many
-/// cards show it — five seats of three cards in one back cost one decode.
+/// The card backs decoded so far, one [ui.Image] per back however many cards
+/// show it — five seats of three cards in one back cost one decode.
 ///
-/// A back's picture is decoded so that its CARD is [decodeHeight] pixels
-/// tall, never larger than the file holds: sharp on the largest card a phone
-/// draws (about 400 pixels tall), and about three megabytes a picture. At
-/// most [capacity] are kept; the one drawn least recently goes first.
+/// Only the CARD is kept (review, 3 Oct 2026: the thirteen product shots kept
+/// whole, their cards 720 pixels tall, came to 42 MB — about half of it the
+/// dark ground round the cards — and twelve places held fewer than the
+/// catalogue). A picture is decoded at the size that makes its card
+/// [decodeHeight] pixels tall, never larger than the file holds; the card is
+/// cut out of it to whole pixels ([cardPixels]); and the rest is let go at
+/// once — about two thirds of a megabyte a back. At most [capacity] are
+/// kept, the one drawn least recently going first, and all of them are let
+/// go when the system says memory is short ([CardBackMemoryWatch]) and when a
+/// session ends ([release]): every card on screen keeps its own handle on its
+/// back, so nothing showing is lost — a card built after that decodes its
+/// back again, from the phone.
 ///
-/// Null asks for the bundled Royal Fox, decoded once the same way — for a
-/// painter that draws backs itself ([shown], [resolve]); a [CardBackImage]
-/// draws the Royal Fox through the asset image the splash screen
-/// precaches.
+/// Null asks for the bundled Royal Fox, decoded the same way (it is all
+/// card) — for a painter that draws backs itself ([shown], [resolve]); a
+/// [CardBackImage] draws the Royal Fox through the asset image the splash
+/// screen precaches.
 ///
 /// **In tests**: decoding is real work the fake clock of a widget test never
 /// finishes, so decode in `tester.runAsync` (`load`) before the widget is
@@ -134,24 +141,32 @@ class _Arrivals extends ChangeNotifier {
 /// bucket is not fetched while nothing can sign it ([canFetch]): an
 /// unprimed back in a test draws the Royal Fox and starts no download.
 abstract final class CardBackImages {
-  /// How tall the card in a picture is decoded, in pixels: nearly twice the
-  /// tallest card a phone's table draws (the viewer's own hand, about 400
-  /// pixels on a 3.5x screen), as the bundled Royal Fox is kept at 840, so
-  /// the art is sharp at any size the table, the store or a question shows.
-  static const int decodeHeight = 720;
+  /// How tall a back's card is kept, in pixels: a little more than the
+  /// tallest card a phone draws it at — the card in the unlock question, 123
+  /// dp on a 411dp phone, 431 pixels at 3.5x; the viewer's own hand about
+  /// 400 at most — so the art is sharp wherever the table, the store or a
+  /// question shows it.
+  static const int decodeHeight = 480;
 
-  /// How many decoded pictures are kept — the eight backs on sale, the Royal
-  /// Fox and room to spare.
-  static const int capacity = 12;
+  /// How many decoded backs are kept: every back on sale (thirteen — owner,
+  /// 3 Oct 2026: eight, and that evening the five Flower backs), the Royal
+  /// Fox and room to spare, about ten megabytes in all — so one visit to the
+  /// Cards shelf decodes each back once. A catalogue grown past it costs only
+  /// a decode from the phone's disk the next time the shelf is opened.
+  static const int capacity = 16;
 
-  static const String _defaultKey = 'asset:${PlayingCard.backAsset}';
+  /// The Royal Fox's place in the cache: no back's location is an asset.
+  static const _Key _foxKey = (
+    url: 'asset:${PlayingCard.backAsset}',
+    crop: null,
+  );
 
-  /// Decoded pictures by key ([_keyOf]), least recently drawn first.
-  static final LinkedHashMap<String, ui.Image> _images =
-      LinkedHashMap<String, ui.Image>();
+  /// Decoded backs by key ([_keyOf]), least recently drawn first.
+  static final LinkedHashMap<_Key, ui.Image> _images =
+      LinkedHashMap<_Key, ui.Image>();
 
   /// Decodes running, by key, with the zone each was started in.
-  static final Map<String, ({Zone zone, Future<void> done})> _decoding = {};
+  static final Map<_Key, ({Zone zone, Future<void> done})> _decoding = {};
 
   /// Bumped by [debugClear], so a decode that finishes after it is dropped.
   static int _generation = 0;
@@ -163,15 +178,11 @@ abstract final class CardBackImages {
   /// asked for it.
   static Listenable get changes => _arrivals;
 
-  static String _keyOf(CardBackArt? art) => art == null ? _defaultKey : art.url;
-
-  /// The card's rectangle in [image], decoded for [art]: its crop, or the
-  /// whole image.
-  static Rect sourceOf(CardBackArt? art, ui.Image image) {
-    final w = image.width.toDouble();
-    final h = image.height.toDouble();
-    return art?.crop?.rectIn(w, h) ?? Rect.fromLTWH(0, 0, w, h);
-  }
+  /// A back is its picture AND its crop: the same picture cut another way is
+  /// another card (a row's crop measured again, a seat restored with the old
+  /// one).
+  static _Key _keyOf(CardBackArt? art) =>
+      art == null ? _foxKey : (url: art.url, crop: art.crop);
 
   /// The size a picture [width] by [height] pixels is decoded at, its card
   /// [crop] taking [decodeHeight] pixels of it (the whole picture when null):
@@ -191,15 +202,39 @@ abstract final class CardBackImages {
     );
   }
 
-  /// [art]'s picture if it has been decoded, or null. Synchronous, so a
-  /// card that has been seen before paints its back on its first frame.
-  /// Null asks for the Royal Fox's.
+  /// The whole pixels of a picture [width] by [height] that are card: its
+  /// [crop], each edge rounded INTO the card — a crop is measured to the
+  /// card's own edge, and a pixel half over it is half dark ground. At least
+  /// one pixel each way, inside the picture.
+  @visibleForTesting
+  static Rect cardPixels(int width, int height, CardCrop crop) {
+    // A hair of slack, so an edge that lands on a pixel's own edge is not
+    // taken a whole pixel in by the rounding in multiplying two decimals.
+    const slack = 1e-6;
+    final r = crop.rectIn(width.toDouble(), height.toDouble());
+    (double, double) span(double from, double to, int size) {
+      final start = math.max(0.0, (from - slack).ceilToDouble());
+      final end = math.min(size.toDouble(), (to + slack).floorToDouble());
+      if (end > start) return (start, end);
+      // Under a pixel (a tiny file): the pixel it lies in.
+      final only = math.min(size - 1.0, math.max(0.0, from.floorToDouble()));
+      return (only, only + 1);
+    }
+
+    final (left, right) = span(r.left, r.right, width);
+    final (top, bottom) = span(r.top, r.bottom, height);
+    return Rect.fromLTRB(left, top, right, bottom);
+  }
+
+  /// [art]'s card if it has been decoded, or null. Synchronous, so a card
+  /// that has been seen before paints its back on its first frame. Null asks
+  /// for the Royal Fox's.
   static CardBackPicture? peek(CardBackArt? art) {
     final key = _keyOf(art);
     final image = _images.remove(key);
     if (image == null) return null;
     _images[key] = image; // drawn most recently now
-    return CardBackPicture(image: image, source: sourceOf(art, image));
+    return CardBackPicture(image);
   }
 
   /// What a card of [art] shows now: its picture, else the Royal Fox's
@@ -217,13 +252,13 @@ abstract final class CardBackImages {
     return !isAssetLocation(art.url) || PictureCache.signer != null;
   }
 
-  /// [art]'s picture, decoded if it has not been: from [PictureCache] — the
+  /// [art]'s card, decoded if it has not been: from [PictureCache] — the
   /// phone's memory, its disk, or a download through a signed URL — or, for
   /// null, the bundled Royal Fox. Null when it cannot be had now (offline,
   /// a file that is not a picture, nothing to sign it); asked again, it
   /// tries again — a failure is not remembered.
   ///
-  /// Every card asking for one picture at once shares one decode — within a
+  /// Every card asking for one back at once shares one decode — within a
   /// zone: a decode started under a test's fake clock never finishes outside
   /// it, so a load from another zone does not wait on one.
   static Future<CardBackPicture?> load(CardBackArt? art) async {
@@ -266,24 +301,31 @@ abstract final class CardBackImages {
 
   static Future<ui.Image?> _decode(CardBackArt? art) async {
     try {
+      final Uint8List bytes;
       if (art == null) {
         final data = await rootBundle.load(PlayingCard.backAsset);
-        final codec = await ui.instantiateImageCodec(
-          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-        );
-        return await _firstFrame(codec);
+        bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      } else {
+        final got = await PictureCache.load(art.url);
+        if (got == null || got.isEmpty) return null;
+        bytes = got;
       }
-      final bytes = await PictureCache.load(art.url);
-      if (bytes == null || bytes.isEmpty) return null;
+      final crop = art?.crop;
       final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
       // The buffer is the codec's from here: instantiateImageCodecWithSize
       // disposes it.
       final codec = await ui.instantiateImageCodecWithSize(
         buffer,
-        getTargetSize: (width, height) =>
-            decodeSizeFor(width, height, art.crop),
+        getTargetSize: (width, height) => decodeSizeFor(width, height, crop),
       );
-      return await _firstFrame(codec);
+      final frame = await _firstFrame(codec);
+      if (crop == null) return frame;
+      try {
+        return await _cut(frame, crop);
+      } finally {
+        // The picture round the card: let go the moment the card is out.
+        frame.dispose();
+      }
     } catch (_) {
       // Not a picture (a page, a Lottie, a truncated file) or no bundle:
       // the Royal Fox stands in, and the next ask tries again.
@@ -299,7 +341,32 @@ abstract final class CardBackImages {
     }
   }
 
-  static void _put(String key, ui.Image image) {
+  /// The card in [frame] ([cardPixels] of [crop]) as an image of its own,
+  /// pixel for pixel. Rendered to a finished image ([ui.Picture.toImage]),
+  /// never to one made with `toImageSync`: on the Skia engine that one keeps
+  /// its recording to draw it again should the GPU's context be lost, and
+  /// with it the whole picture this cut exists to let go of.
+  static Future<ui.Image> _cut(ui.Image frame, CardCrop crop) async {
+    final source = cardPixels(frame.width, frame.height, crop);
+    final width = source.width.round();
+    final height = source.height.round();
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder).drawImageRect(
+      frame,
+      source,
+      Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+      // Whole pixels onto whole pixels: a copy, with nothing to smooth.
+      Paint()..filterQuality = FilterQuality.none,
+    );
+    final picture = recorder.endRecording();
+    try {
+      return await picture.toImage(width, height);
+    } finally {
+      picture.dispose();
+    }
+  }
+
+  static void _put(_Key key, ui.Image image) {
     _images.remove(key)?.dispose();
     _images[key] = image;
     while (_images.length > capacity) {
@@ -308,29 +375,53 @@ abstract final class CardBackImages {
     _arrivals.arrived();
   }
 
-  /// Puts [image] in as [art]'s decoded picture (null: the Royal Fox's), as
-  /// if it had been decoded — for tests that draw a known picture. The
+  /// Lets go of every back decoded so far: when the system says memory is
+  /// short ([CardBackMemoryWatch]), as Flutter empties its own image cache
+  /// then, and when a session ends (GameState). Safe whenever: every card on
+  /// screen and every render of the deal holds its own handle, and a card
+  /// built after this decodes its back again — from the phone's memory or
+  /// disk, not the network. Decodes running still land.
+  static void release() {
+    for (final image in _images.values) {
+      image.dispose();
+    }
+    _images.clear();
+  }
+
+  /// Puts [image] in as [art]'s decoded card (null: the Royal Fox's), as if
+  /// it had been decoded and cut — for tests that draw a known picture. The
   /// cache owns it from here.
   @visibleForTesting
   static void debugPut(CardBackArt? art, ui.Image image) =>
       _put(_keyOf(art), image);
 
-  /// How many pictures are held decoded, for tests.
+  /// How many backs are held decoded, for tests.
   @visibleForTesting
   static int get debugCount => _images.length;
 
-  /// Forgets every decoded picture and every decode running, for tests:
-  /// call it in `tearDown`, or a decode left running under one test's fake
-  /// clock can be waited on by the next.
+  /// Forgets every decoded back and every decode running, for tests: call it
+  /// in `tearDown`, or a decode left running under one test's fake clock can
+  /// be waited on by the next.
   @visibleForTesting
   static void debugClear() {
     _generation++;
-    for (final image in _images.values) {
-      image.dispose();
-    }
-    _images.clear();
+    release();
     _decoding.clear();
   }
+}
+
+/// A back in [CardBackImages]: its picture's location and the card's crop in
+/// it.
+typedef _Key = ({String url, CardCrop? crop});
+
+/// Lets go of the decoded card backs ([CardBackImages.release]) when the
+/// system says memory is short — the moment Flutter empties its own image
+/// cache (review, 3 Oct 2026). Registered once, by main().
+class CardBackMemoryWatch with WidgetsBindingObserver {
+  const CardBackMemoryWatch();
+
+  @override
+  void didHaveMemoryPressure() => CardBackImages.release();
 }
 
 /// How long a back that could not be had waits before its [attempt]th
@@ -348,8 +439,9 @@ Duration _retryDelay(int attempt) =>
 /// picture, keeping its light and dark: a SEEN opponent's backs are their
 /// back in green.
 ///
-/// The bundled Royal Fox ([PlayingCard.backAsset]) is drawn for null, while
-/// [art]'s picture is coming, and when it cannot be had — tried again on the
+/// The bundled Royal Fox ([PlayingCard.backAsset]) is drawn for null and —
+/// at a table, where a card always shows a back — while [art]'s picture is
+/// coming and when it cannot be had ([standIn]); it is tried again on the
 /// picture boxes' clock. A back seen before paints on the first frame
 /// ([CardBackImages.peek]); a new one swaps in when it arrives, from any
 /// card's asking; a card whose back CHANGES keeps the one it had until the
@@ -358,12 +450,36 @@ Duration _retryDelay(int attempt) =>
 /// [height] sizes the card (it is `height * PlayingCard.aspect` wide); left
 /// null, the largest card that fits the space it is given is drawn, centred.
 class CardBackImage extends StatefulWidget {
-  const CardBackImage({super.key, this.art, this.height, this.tint});
+  const CardBackImage({
+    super.key,
+    this.art,
+    this.height,
+    this.tint,
+    this.standIn = true,
+    this.loading,
+  });
 
   /// The back to show; null for the Royal Fox.
   final CardBackArt? art;
   final double? height;
   final Color? tint;
+
+  /// Whether the Royal Fox stands in for [art] while its picture is not here
+  /// — still coming, or not to be had: the table's way (the default), where
+  /// a card always shows a back.
+  ///
+  /// False is the store's (review, 3 Oct 2026): a tile or a question that
+  /// SELLS [art] must never show another back in its place — "Brutal Demon
+  /// · 5 hammers" over the Royal Fox, which is the shelf's first tile, sold
+  /// the fox. There the plain back stands in, its black ground on the stock,
+  /// with [loading] over it while the picture can still come.
+  final bool standIn;
+
+  /// What stands over the plain back that stands in for [art] (`standIn:
+  /// false`) while its picture can still come ([CardBackImages.canFetch]):
+  /// the game's ring, on a shelf tile and in a question. Nothing once the
+  /// picture cannot be had, and nothing while it shows.
+  final Widget? loading;
 
   @override
   State<CardBackImage> createState() => _CardBackImageState();
@@ -418,8 +534,9 @@ class _CardBackImageState extends State<CardBackImage> {
   }
 
   /// Puts up the back asked for: at once when it is decoded, else the Royal
-  /// Fox — or the back already shown, when it is another that the card is
-  /// changing from — while it is fetched and decoded.
+  /// Fox or the plain back ([CardBackImage.standIn]) — or the back already
+  /// shown, when it is another that the card is changing from — while it is
+  /// fetched and decoded.
   void _resolve() {
     final art = widget.art;
     if (art == null) {
@@ -443,8 +560,9 @@ class _CardBackImageState extends State<CardBackImage> {
           _failures = 0;
           return;
         }
-        // Not to be had: the Royal Fox rather than somebody else's back,
-        // and another try later — unless nothing could ever fetch it.
+        // Not to be had: the Royal Fox (or the plain back) rather than
+        // somebody else's back, and another try later — unless nothing could
+        // ever fetch it.
         if (_shown != null) setState(() => _show(null, null));
         if (!CardBackImages.canFetch(wanted)) return;
         _retry?.cancel();
@@ -489,31 +607,40 @@ class _CardBackImageState extends State<CardBackImage> {
     final w = h * PlayingCard.aspect;
     final tint = widget.tint;
     final image = _image;
-    final art = _shown;
-    final Widget picture = image != null && art != null
-        ? CustomPaint(
-            size: Size(w, h),
-            painter: _CardBackPainter(
-              picture: CardBackPicture(
-                image: image,
-                source: CardBackImages.sourceOf(art, image),
-              ),
-              tint: tint,
-            ),
-          )
-        : Image.asset(
-            PlayingCard.backAsset,
-            fit: BoxFit.cover,
-            width: w,
-            height: h,
-            color: tint,
-            colorBlendMode: tint == null ? null : BlendMode.color,
-            // Drawn at a fraction of its size on every card: smoothed, so
-            // its gold filigree does not shimmer as the card moves.
-            filterQuality: FilterQuality.medium,
-            gaplessPlayback: true,
-            excludeFromSemantics: true,
-          );
+    final wanted = widget.art;
+    final Widget picture;
+    if (image != null && _shown != null) {
+      picture = CustomPaint(
+        size: Size(w, h),
+        painter: _CardBackPainter(picture: CardBackPicture(image), tint: tint),
+      );
+    } else if (wanted != null && !widget.standIn) {
+      // The store's stand-in: the plain back — never another back in the
+      // place of the one on sale — under its ring while the picture can
+      // still come.
+      final loading = widget.loading;
+      picture = SizedBox(
+        width: w,
+        height: h,
+        child: loading != null && CardBackImages.canFetch(wanted)
+            ? Center(child: loading)
+            : null,
+      );
+    } else {
+      picture = Image.asset(
+        PlayingCard.backAsset,
+        fit: BoxFit.cover,
+        width: w,
+        height: h,
+        color: tint,
+        colorBlendMode: tint == null ? null : BlendMode.color,
+        // Drawn at a fraction of its size on every card: smoothed, so its
+        // gold filigree does not shimmer as the card moves.
+        filterQuality: FilterQuality.medium,
+        gaplessPlayback: true,
+        excludeFromSemantics: true,
+      );
+    }
     return CustomPaint(
       foregroundPainter: CardStockPainter(height: h, face: false),
       child: ClipRRect(
@@ -524,8 +651,8 @@ class _CardBackImageState extends State<CardBackImage> {
   }
 }
 
-/// [CardBackImage]'s picture, once decoded: the card's rectangle of it over
-/// the whole box.
+/// [CardBackImage]'s picture, once decoded: the card stretched over the whole
+/// box.
 class _CardBackPainter extends CustomPainter {
   const _CardBackPainter({required this.picture, this.tint});
 

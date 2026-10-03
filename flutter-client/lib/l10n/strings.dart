@@ -5352,7 +5352,7 @@ class Strings {
       // Card backs (owner, 3 Oct 2026).
       'storeTabCards': 'કાર્ડ',
       'storeCardsTitle': 'કાર્ડ બૅક',
-      'storeCardsBlurb': 'તમારા કાર્ડની બૅક, જે ટેબલ પર બધા જુએ છે.',
+      'storeCardsBlurb': 'તમારા કાર્ડનું બૅક, જે ટેબલ પર બધા જુએ છે.',
       'cardBackDefaultHint': 'ડિફૉલ્ટ',
       'cardInUse': 'વપરાશમાં',
       'cardOwned': 'તમારું',

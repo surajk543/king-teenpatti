@@ -17,8 +17,8 @@ import (
 )
 
 // fakeCardCatalogue stands in for cards_background: a free card back, one in
-// each wallet — the hammer one priced as the seed prices all eight, 5 for 10
-// days — and a retired one that is still a valid id.
+// each wallet — the hammer one priced as the seed prices its first eight, 5
+// for 10 days — and a retired one that is still a valid id.
 var fakeCardCatalogue = map[int64]db.CardBackground{
 	1: {ID: 1, Name: "Plain", URL: "https://r2.example/king-teenpatti/cards/Plain.jpg", AssetFormat: "IMAGE",
 		Currency: "COIN", Type: db.PictureFree, SortOrder: 5},
