@@ -166,7 +166,7 @@ king-teenpatti/
     │   │     `tableScaffold`/`lobbyScaffold` GlobalKeys: main.dart `_BackGuard` closes an open drawer/endDrawer first; only then asks leave (table) / quit (lobby).
     │   │     `_armSeatCheck()`: on a warm `session:ready` while `room != null`, if no snapshot follows within 1.8s the seat is gone (server restarted / room closed) → lobby + t.tableLost. Cold start uses the `resuming` veil instead.
     │   ├── theme/app_theme.dart `AppTheme.paletteFor(scheme, category, bootAmount)` → TablePalette: one accent a game mode at every stake (24 Sep 2026) — seen=gold, blind=sapphire(tertiary), variation=violet (`violetPalette`), poker=teal; `privatePalette` = emerald (scheme.primary); `TablePalette.ink` = the accent as type on a card; used by lobby card, felt, _CategoryTag ("BLIND · 5,000")
-    │   ├── screens/table_screen.dart `_BlindDots` (the blind bets left, as dots under "See cards" on the viewer's own hand — the missed-turns box over the Pack key was removed 13 Sep 2026, owner), `_BetFlights` (chip from seat to pot on every contributed increase), `_AmbientGlow`
+    │   ├── screens/table_screen.dart `_OwnBetRow` (the SEE CARDS pill — widgets/see_cards_button.dart `SeeCardsButton`, with `BlindDots`, the blind bets left as dots under its words — above the viewer's own cards, and their bet badge beside it; §8.4 "The redesign on the classic table"; the missed-turns box over the Pack key was removed 13 Sep 2026, owner), `_BetFlights` (chip from seat to pot on every contributed increase), `_AmbientGlow`
     │   ├── screens/lobby_screen.dart `_DriftingChips` ambient background
     │   └── widgets/seat_pod.dart `BubbleSide {above,left,right}`: chat bubble hung off the column END in a zero-height OverflowBox — rim seats grow it up over their own cards/badge (max 1.7×podW, pointer tail up at the pod), the viewer's grows up from the column top (2.1×podW, tail down). Pods paint AFTER tag/pot/status in the felt Stack so a bubble is never hidden.
     │   │     GameState: bubbles hold `bubbleFor` = 8s; a second line from the same player queues in `_bubbleQueue` and shows when the first expires; `_clearBubbles()` on leave/kick.
@@ -199,7 +199,7 @@ king-teenpatti/
     │   ├── widgets/level_accent.dart  LevelAccent/LevelColours (30 Sep 2026, §8.4 "The Settings drawer"): the open lobby level's colour in the two lobby drawers
     │   ├── state/theme_preference.dart  themeMode read/write (+ legacy darkMode); state/consent.dart  the no-winnings flag
     │   └── l10n/strings.dart     hand-written 5-language table (en/hi/bn/gu/pa)
-    ├── assets/card_back.svg, assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/ (synthesised clips),
+    ├── assets/card_back.jpg (the owner's Royal Fox, §8.4 "The playing cards"), assets/app_icon.svg, assets/fonts/ (Inter 400/500/600/700 + OFL licence), assets/sfx/ (synthesised clips),
     │                         assets/sound/ (the owner's recordings, §8.4 "Sounds": see card sound.mp3 — the look at a hand;
     │                         Card Distribute.mp3 — each card of the deal; hammer hit.mp3 — a Force Sideshow's hammer;
     │                         Missile hit.mp3 — a missile volley; Card click.mp3 — a tap on any lobby key or card, and Back in the lobby;
@@ -3815,6 +3815,28 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   hand stand where the far rail goes, so `poker_table_screen.dart` was left as it was. A host behind the far rail — an
   illustrated dealer, a layered SVG animated by the table's state — was tried with the table and removed on 25 Sep 2026
   (owner: "remove women from the table"); she is recoverable from commits `6a01773`/`a6314af`.
+- **The redesign on the classic table** (branch `table-redesign-classic`, 3 Oct 2026 — a copy of `table-redesign`, the
+  owner's redesign brief of that day, made at the owner's request: "create a copy of current branch ... in that only change
+  table, restore the table back just like master but keep the layout, and keep the seen and other button changes";
+  presentation only). **The table is master's**: `CasinoTableColors` (the pearl rail and a cloth a game by day, graphite
+  and deep cloths with the cyan glow by night — the paragraph above), `AppTheme.tableColours` and the words painted on
+  the cloth in master's inks (the waiting line, a seat's status line, `VariationSelectingLine`/`VariationChosenLine`),
+  the turn ring's edge (`goldOnLight` by day, reddening; its breath bottoming at 0.85 by day), the In Pot capsule (the
+  theme's plaque and `SeatType.inPot` inks) and the empty chair (the plaque, the hairline and the chair icon), all
+  depending on the cloth under them. **Kept from the redesign**: **the console's dark glass in both themes**
+  (`TableKeys` in `table_theme.dart`: `glass` dark, `ink` #F4EEE4, `pack` #FF7A6A on `packGlass` #7A1424 at `packWash`
+  0.46, `force` #9C8BFF; every `MachinedKey`, `StepperKey` and `RailKey` the dark plaque by day too; Pack red glass, Chaal
+  the one struck-gold primary, Force Sideshow edged violet, Missile coral; the rail's chat Lottie and cooldown in
+  `TableKeys.ink`); **SEE CARDS** (`widgets/see_cards_button.dart` `SeeCardsButton` with `BlindDots`: a dark-glass pill,
+  gold edge, eye, `widthFor` 17% of the screen held to 120–160dp, `heightFor` 42/46dp, ABOVE the viewer's cards and
+  centred on them, the bet badge beside it, both in `_OwnBetRow`; it cross-fades out as the cards turn and the badge
+  alone fades in, centred; the variation picker's box stops above it, `_seeCardsTopFor`,
+  `VariationPrompt.panelHeight`); **the seats** (no colour orbs — `_PodWash` with `TableAmbient.podWash`/
+  `podWashReach`/`podShade`; the picture's gold ring at rest; BLIND in `TableInk.blindOn`); the room
+  (`TableGround`/`RoomGround`: ivory to champagne by day, near-black by night, the lamp lower and wider); the pot's plate
+  (0.76, a 1.2dp gold edge); and the Royal Fox card back ("The playing cards", below). Tests: as on master for the table
+  (`casino_table_test`, the turn-ring and In Pot tests), the redesign's for the keys and SEE CARDS (`table_polish_test`,
+  `table_final_polish_test`, `variation_table_test`, `five_card_test`, `hand_result_test`, `premium_cards_test`).
 - **The seat ring and the second table polish** (owner's brief, 25 Sep 2026 — 14 points, presentation only: "Do NOT
   change: game logic, betting logic, networking ... state management, card logic, game rules, existing assets"; "Do NOT
   add the female dealer yet"). **Seats** — `widgets/seat_ring.dart` `SeatRing`, a PURE function of the seat count
@@ -3867,7 +3889,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   the BACK and the flying backs of `DealFlights` wear too, so every card on the table is the same stock), a white hairline
   just inside its top half and a faint light along its top edge (the lacquer), and two shadows (`PlayingCard.shadows`: a
   tight contact shadow and a wider soft one, `AppTheme.shadowFor` — black by night, slate by day; none under a dimmed card).
-  Corner `PlayingCard.cornerShare` 0.058 of the height (the back's own artwork is 0.0595), which `WildEdge`, `SetBack`,
+  Corner `PlayingCard.cornerShare` 0.058 of the height (the crown back's own artwork was 0.0595), which `WildEdge`, `SetBack`,
   `WildTransform`, the poker board's empty slots and the deal's flying backs now read instead of a literal 0.055. The
   aspect stays 5:7, a poker card's. **The rank leads** ("RANK > SUIT > secondary card details"): set in Inter w700 — the
   app's own face, no new font — fitted to a CAP HEIGHT (`_interCapShare` 0.727, never the line box), so a 5 and a Q stand
@@ -3918,9 +3940,17 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   table over 78% of 460 ms, a touch small then a touch past life-size and just past its lean, then set down onto its place
   (`_beat` 95 ms apart — a hand of three is down in 0.65 s; `FadeTransition` over its first 30%); one tree shape from the
   first frame to rest, so the card under it never rebuilds. `DealFlights` keeps its one pre-rendered back and one painter.
-  **The back** keeps its artwork (the crown medallion on the lattice, `assets/card_back.svg`, unchanged) under the stock's
-  gold edge and a faint top light (`CardStockPainter(face: false)`); `tint` still recolours the printing only
-  (`BlendMode.color`), so a SEEN back is green under a gold edge. A DIMMED card (a packed hand, a beaten rim seat) is
+  **The back** is the owner's **Royal Fox** since 3 Oct 2026 ("change the playing card back image to this one"):
+  `assets/card_back.jpg` (`PlayingCard.backAsset`), a fox leaping inside a gold filigree frame on black, "ROYAL FOX" over
+  it and "PLAYING CARDS" under it — cut from the owner's 1024x1024 picture to the card's 5:7 inside its own black border
+  (the gold frame whole, none of the picture's background) and kept at 600x840, a 207 KB JPEG, about twice the tallest card
+  a phone draws. `_CardBack` draws it with `Image.asset` (`BoxFit.cover`, `FilterQuality.medium`) over
+  `PlayingCard.backGround` (its border's black: a card dealt while the image decodes is dark, never empty); the splash
+  screen and every table precache it (`PlayingCard.precacheBack`), and `DealFlights` decodes it once
+  (`instantiateImageCodec`) into the back its flying cards are drawn from. It replaced the crown medallion on the lattice
+  (`assets/card_back.svg`, in git history). Under the stock's gold edge and a faint top light (`CardStockPainter(face:
+  false)`); `tint` recolours the artwork, keeping its light and dark (`BlendMode.color`), so a SEEN back is the fox in
+  green under a gold edge. A DIMMED card (a packed hand, a beaten rim seat) is
   drained and a third darker but OPAQUE (`PlayingCard._drained`): at 55% opacity, as it was, every overlap of the tighter
   fan showed through as a bright bar across a packed hand. Found by the new tests and fixed: the 5-Card picker's hint line
   stood 2–4dp taller than the row was sized around at text ×1.25 and overflowed the panel (`CardPickPrompt`).
@@ -3932,7 +3962,7 @@ in `tearDown`. `_sampleIn()` mutates the global to preview — don't interleave.
   out — separating-axis tests on the rotated quads), the hand's lift (never below 6dp, never above `liftFor`, never into
   the pot, the whole `liftFor` for a plain hand at ×1.0) and its glide when the name arrives, a rim card's rank ≥ 8.5dp on
   the narrowest phone, a card's beat, the hand turning left to right, a dealt hand landed inside 0.7 s, and the back's
-  crown, tint and stock. Pictures: `test/table_shots.dart` scenes 26–32 (the four hands on the viewer's turn — 26
+  art (the Royal Fox at 5:7, its edges its own black border), tint and stock. Pictures: `test/table_shots.dart` scenes 26–32 (the four hands on the viewer's turn — 26
   5♣ 9♣ 5♦, 27 A♠ K♥ Q♦, 31 Q♠ A♣ J♥, 32 10♠ J♣ Q♥ — a 5-Card hand, a 5-Card showdown at the rim, a wild card turned; the
   harness's `SHOTS_ONLY` takes `a,b` for either and `a+b` for both), and `test/card_shots.dart` — the faces at six heights on
   each game's cloth in both themes, and frame by frame the turn ("See cards") and the deal — by hand, like table_shots:

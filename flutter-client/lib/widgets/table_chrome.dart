@@ -323,7 +323,18 @@ class RoomGround extends StatelessWidget {
           : (category: room.category, boot: room.bootAmount);
     });
 
+    // The redesign's room: warm ivory by day, warm near-black by night, and
+    // the lamp's pool behind the table itself rather than over its far rail
+    // (owner's redesign brief, 3 Oct 2026: "Soft radial light behind the
+    // table"), reaching the whole felt.
     return TableGround(
+      lamp: const Alignment(0, 0.12),
+      lampAlpha: 0.11,
+      lampSpread: 1.2,
+      lightBase: TableGround.ivory,
+      lightEdge: TableGround.champagne,
+      darkBase: TableGround.nightRoom,
+      darkEdge: TableGround.nightRoomEdge,
       accent: table == null
           ? null
           : AppTheme.paletteFor(
@@ -423,6 +434,7 @@ class SideRail extends StatelessWidget {
     final countdown = ChatCountdown(
       left: state.chatCooldownLeft,
       total: GameState.chatCooldown.inSeconds,
+      onKey: true,
     );
 
     final column = Column(
@@ -452,10 +464,12 @@ class SideRail extends StatelessWidget {
             height: keyH,
             onTap: () => onOpen(LeftPanel.chat),
             child: state.canChat
-                ? const RailLottie(
+                ? RailLottie(
                     asset: 'assets/animations/Message.json',
                     fallback: Icons.forum_rounded,
                     recolour: strokesInInk,
+                    ink: TableKeys.ink,
+                    paper: AppTheme.plaque(TableKeys.glass),
                   )
                 : countdown,
           ),
@@ -609,9 +623,17 @@ class RailLottie extends StatefulWidget {
     this.art,
     this.artShift = Offset.zero,
     this.animate = true,
+    this.ink,
+    this.paper,
   });
 
   final String asset;
+
+  /// The ink and paper [recolour] paints in, when not the theme's: the rail's
+  /// keys are the console's dark glass in both themes ([TableKeys]), so the
+  /// rail's own glyph is drawn in the console's ink on its plaque.
+  final Color? ink;
+  final Color? paper;
 
   /// The glyph the key had before; drawn if the file cannot be loaded.
   final IconData fallback;
@@ -650,7 +672,10 @@ class _RailLottieState extends State<RailLottie> {
       _delegates = null;
     } else {
       final scheme = Theme.of(context).colorScheme;
-      final colours = (scheme.onSurface.withValues(alpha: 1), scheme.surface);
+      final colours = (
+        widget.ink ?? scheme.onSurface.withValues(alpha: 1),
+        widget.paper ?? scheme.surface,
+      );
       if (colours != _colours) {
         _colours = colours;
         _delegates = LottieDelegates(values: recolour(colours.$1, colours.$2));
@@ -709,8 +734,8 @@ class RailKey extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final brightness = theme.brightness;
+    // The console's dark glass ([TableKeys]), in both themes.
+    const brightness = TableKeys.glass;
     final corner = BorderRadius.circular(Radii.md);
 
     return Tooltip(
@@ -720,9 +745,7 @@ class RailKey extends StatelessWidget {
         height: height,
         child: IconTheme.merge(
           data: IconThemeData(
-            color: theme.colorScheme.onSurface.withValues(
-              alpha: AppTheme.inkMed,
-            ),
+            color: TableKeys.ink.withValues(alpha: AppTheme.inkMed),
           ),
           // The press-scale is a Listener over the key, so its own ink and
           // tap are untouched; only the feel of the key changes.
@@ -1657,8 +1680,8 @@ class MachinedKey extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final brightness = theme.brightness;
+    // One dark glass in both themes ([TableKeys]).
+    const brightness = TableKeys.glass;
     final kind = _role;
     final isPrimary = kind == KeyRole.primary;
     final destructive = kind == KeyRole.destructive;
@@ -1674,12 +1697,12 @@ class MachinedKey extends StatelessWidget {
     // colour whatever the key was, which wrote Chaal in white on gold by
     // night — 2.3:1 — while its arrow was charcoal.)
     final ink = dead
-        ? scheme.onSurface
+        ? TableKeys.ink
         : isPrimary
         ? AppTheme.ink900
         : destructive
-        ? scheme.error
-        : scheme.onSurface;
+        ? TableKeys.pack
+        : TableKeys.ink;
     // A destructive key's edge is the error ink at the strength every live
     // key's hairline has (final table polish, 26 Sep 2026: Pack "keep the
     // destructive/red treatment but do not make it visually louder than
@@ -1689,11 +1712,7 @@ class MachinedKey extends StatelessWidget {
         ? identity.withValues(alpha: 0.62)
         : edge ??
               (destructive
-                  ? scheme.error.withValues(
-                      alpha: brightness == Brightness.dark
-                          ? AppTheme.hairlineLive
-                          : AppTheme.hairlineLiveLight,
-                    )
+                  ? TableKeys.pack.withValues(alpha: AppTheme.hairlineLive)
                   : AppTheme.hairlineColour(brightness, live: true));
     final halo = identity ?? edge ?? AppTheme.gold;
     // Struck gold (the Shop key's face too until 30 Sep 2026, when it took the
@@ -1728,9 +1747,13 @@ class MachinedKey extends StatelessWidget {
               : identity != null
               // The special key's plaque, washed with its own colour.
               ? Color.alphaBlend(
-                  identity.withValues(
-                    alpha: brightness == Brightness.dark ? 0.12 : 0.08,
-                  ),
+                  identity.withValues(alpha: 0.12),
+                  AppTheme.plaque(brightness),
+                )
+              // Pack's dark red glass.
+              : destructive
+              ? Color.alphaBlend(
+                  TableKeys.packGlass.withValues(alpha: TableKeys.packWash),
                   AppTheme.plaque(brightness),
                 )
               : AppTheme.plaque(brightness),
@@ -1885,9 +1908,7 @@ class StepperKey extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final brightness = theme.brightness;
+    const brightness = TableKeys.glass;
     final press = onPressed;
 
     return Opacity(
@@ -1897,7 +1918,7 @@ class StepperKey extends StatelessWidget {
         child: IconButton.filledTonal(
           onPressed: press,
           iconSize: 22,
-          style: stepperStyle(theme).copyWith(
+          style: AppTheme.raisedIcon(brightness).copyWith(
             fixedSize: WidgetStatePropertyAll(Size(Dim.minTouch, height)),
             // Exactly 44 wide, not the 48 a padded tap target would take.
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -1909,7 +1930,7 @@ class StepperKey extends StatelessWidget {
             ),
             // One ink, live or dead: the fade is what says it cannot be
             // pressed, as it is on every key.
-            foregroundColor: WidgetStatePropertyAll(scheme.onSurface),
+            foregroundColor: const WidgetStatePropertyAll(TableKeys.ink),
             shape: WidgetStatePropertyAll(
               RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(Radii.md),
@@ -3452,14 +3473,24 @@ class QuickDragHandle extends StatelessWidget {
 /// The seconds until the next message may be sent, drawn as a number inside a
 /// dial that drains as the wait runs down.
 class ChatCountdown extends StatelessWidget {
-  const ChatCountdown({super.key, required this.left, required this.total});
+  const ChatCountdown({
+    super.key,
+    required this.left,
+    required this.total,
+    this.onKey = false,
+  });
 
   final int left;
   final int total;
 
+  /// Drawn on one of the rail's keys — the console's dark glass in both
+  /// themes ([TableKeys]) — rather than on the theme's own surface.
+  final bool onKey;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final brightness = onKey ? TableKeys.glass : theme.brightness;
 
     return SizedBox(
       width: 22,
@@ -3468,7 +3499,7 @@ class ChatCountdown extends StatelessWidget {
         painter: _DialPainter(
           fraction: total == 0 ? 0 : (left / total).clamp(0.0, 1.0),
           track: AppTheme.ink400.withValues(alpha: 0.55),
-          fill: goldInk(theme.brightness),
+          fill: goldInk(brightness),
         ),
         child: Center(
           child: Text(
@@ -3477,9 +3508,8 @@ class ChatCountdown extends StatelessWidget {
             style: TableType.count(
               theme,
               small: true,
-              colour: theme.colorScheme.onSurface.withValues(
-                alpha: AppTheme.inkMed,
-              ),
+              colour: (onKey ? TableKeys.ink : theme.colorScheme.onSurface)
+                  .withValues(alpha: AppTheme.inkMed),
             ),
           ),
         ),

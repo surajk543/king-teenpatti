@@ -490,7 +490,7 @@ void main() {
       );
       expect(_inOwnHand(PlayingCard), findsNWidgets(3));
       final box = tester.getRect(_ownHand);
-      expect(find.text(state.t.seeCards), findsOneWidget);
+      expect(find.text(state.t.seeCards.toUpperCase()), findsOneWidget);
 
       // 5-Card is chosen: every hand in play is topped up to five.
       state.handleState(
@@ -535,7 +535,7 @@ void main() {
         reason: 'still face down: the player has not looked',
       );
       // Looking still works, and nothing is singled out before it.
-      expect(find.text(state.t.seeCards), findsOneWidget);
+      expect(find.text(state.t.seeCards.toUpperCase()), findsOneWidget);
       expect(
         tester.widgetList<SetBack>(_inOwnHand(SetBack)).any((w) => w.setBack),
         isFalse,
@@ -546,7 +546,7 @@ void main() {
       await tester.pump();
       await _settle(tester);
       expect(tester.takeException(), isNull);
-      expect(find.text(state.t.seeCards), findsNothing);
+      expect(find.text(state.t.seeCards.toUpperCase()), findsNothing);
       expect(
         tester
             .widgetList<PlayingCard>(_inOwnHand(PlayingCard))

@@ -805,18 +805,29 @@ void main() {
               .first,
         );
         // The panel is its doc comment's sum on this screen, whatever the
-        // text scale: 166dp where the keys are 44, 224 where they are 64.
+        // text scale: 166dp where the keys are 44, 224 where they are 64 —
+        // roomy where the screen is and the roomy panel fits the box the
+        // table gives it, which ends above "SEE CARDS" while the chooser is
+        // still blind (the redesign, 3 Oct 2026).
+        final box = tester.getRect(
+          find.byKey(const ValueKey('variation-picker')),
+        );
         final roomy =
             screen.height >= Breaks.shortHeight &&
-            screen.width >= Breaks.compact;
+            screen.width >= Breaks.compact &&
+            box.height >= VariationPrompt.panelHeight(roomy: true);
         expect(panel.height, moreOrLessEquals(roomy ? 224 : 166, epsilon: 0.5));
+        expect(
+          VariationPrompt.panelHeight(roomy: roomy),
+          moreOrLessEquals(roomy ? 224 : 166, epsilon: 0.5),
+        );
         final hand = tester.getRect(_private('_OwnHand'));
         expect(
           panel.bottom,
           lessThanOrEqualTo(hand.top),
           reason: 'the picker $panel covers the hand $hand',
         );
-        final see = find.text(state.t.seeCards);
+        final see = find.text(state.t.seeCards.toUpperCase());
         expect(see, findsOneWidget);
         expect(panel.overlaps(tester.getRect(see)), isFalse);
         // And the chooser does not read "is selecting" about themselves.
@@ -934,8 +945,7 @@ void main() {
             )
             .map(
               (w) =>
-                  w.data ??
-                  w.textSpan!.toPlainText(includePlaceholders: false),
+                  w.data ?? w.textSpan!.toPlainText(includePlaceholders: false),
             )
             .toList();
         expect(texts, ['VARIATION · Hukam · ']);

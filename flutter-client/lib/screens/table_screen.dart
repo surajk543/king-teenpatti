@@ -18,6 +18,7 @@ import '../theme/hand_result_motion.dart';
 import '../theme/table_theme.dart';
 import '../widgets/buy_chips.dart';
 import '../widgets/casino_table.dart';
+import '../widgets/see_cards_button.dart';
 import '../widgets/chip_store.dart';
 import '../widgets/deal_flight.dart';
 import '../widgets/drifting_chips.dart';
@@ -90,6 +91,14 @@ class _TableScreenState extends State<TableScreen> {
   /// lives on the game state so the back gesture can close the drawer too.
   GlobalKey<ScaffoldState> get _scaffold =>
       context.read<GameState>().tableScaffold;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The card back, decoded again here should the image cache have let it
+    // go since the splash: a no-op while it is held.
+    PlayingCard.precacheBack(context);
+  }
 
   void _open(LeftPanel panel) {
     // Opening the chat no longer clears its badge: the drawer opens on its
@@ -1669,6 +1678,10 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
         (myShown.status == SeatState.active ||
             myShown.status == SeatState.won ||
             myShown.status == SeatState.lost);
+    // Whether "SEE CARDS" stands over the viewer's cards: their hand is
+    // still blind ([_OwnHand.stillBlindFor]), as the server says it.
+    final seeCards =
+        handLive && _OwnHand.stillBlindFor(room.you, myReveal?.cards);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(pad, Space.xxs, pad, 0),
@@ -1778,20 +1791,6 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   reveal?.handName ??
                   (wonSideshow(peek?.userId) ? peek?.handName : null),
               seat: s,
-              // The orb leaks towards open felt: inwards from a seat at either
-              // end of the table, outwards off the top edge from the seats
-              // between. The viewer's stays inside their glass — the
-              // missed-turns plate and their own cards leave it nowhere to go
-              // (on TP_Small it lay under the plate).
-              orbCorner: viewIndex == 0
-                  ? OrbCorner.contained
-                  : angle < 210
-                  ? OrbCorner.topRight
-                  : angle <= 270
-                  ? OrbCorner.topLeft
-                  : angle <= 330
-                  ? OrbCorner.topRight
-                  : OrbCorner.topLeft,
               isMe: s?.userId != null && s!.userId == state.user?.id,
               isDealer: s?.seatIndex == room.dealerSeat,
               onTurn: onTurn(s) || choosing,
@@ -2314,19 +2313,42 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                           _OwnHandName(name: ownHandName),
                         const SizedBox(height: Space.xxs),
                       ],
-                      if (myBetShown) ...[
-                        // Scaled against a wider pod than the viewer actually
-                        // has: this is their own bet, read every turn, and it
-                        // earns a size the rim seats' copies do not — a step,
-                        // not more (final table polish, 26 Sep 2026: "SECONDARY:
-                        // Current pot amount. SUPPORTING: Individual player
-                        // contribution"). At 1.22 its figure was 14dp on a
-                        // 891dp phone, the size of the Chaal key's name, and
-                        // its plaque wider than the pot's.
-                        SeatBet(
-                          seat: myShown,
-                          width: podW * _myBetScale,
-                          totalFirst: true,
+                      if (myBetShown || seeCards) ...[
+                        _OwnBetRow(
+                          fanWidth: HandFan.widthFor(
+                            HandFan.cardHeightFor(handH),
+                          ),
+                          pillWidth: SeeCardsButton.widthFor(w),
+                          // "SEE CARDS" just above the cards, centred on them
+                          // (owner's redesign brief, 3 Oct 2026); the viewer's
+                          // own badge beside it while it stands.
+                          seeCards: seeCards
+                              ? SeeCardsButton(
+                                  label: state.t.seeCards,
+                                  onPressed: state.see,
+                                  width: SeeCardsButton.widthFor(w),
+                                  height: SeeCardsButton.heightFor(h),
+                                  blindLeft: room.you?.blindMovesLeft,
+                                  blindMax: _OwnHand.maxBlindFor(state),
+                                  blindLabel: state.t.blindMovesLabel,
+                                )
+                              : null,
+                          // Scaled against a wider pod than the viewer actually
+                          // has: this is their own bet, read every turn, and it
+                          // earns a size the rim seats' copies do not — a step,
+                          // not more (final table polish, 26 Sep 2026:
+                          // "SECONDARY: Current pot amount. SUPPORTING:
+                          // Individual player contribution"). At 1.22 its
+                          // figure was 14dp on a 891dp phone, the size of the
+                          // Chaal key's name, and its plaque wider than the
+                          // pot's.
+                          bet: myBetShown
+                              ? SeatBet(
+                                  seat: myShown,
+                                  width: podW * _myBetScale,
+                                  totalFirst: true,
+                                )
+                              : null,
                         ),
                         const SizedBox(height: TableSpace.hand),
                       ],
@@ -2411,7 +2433,23 @@ class _FeltState extends State<_Felt> with TickerProviderStateMixin {
                   left: 0,
                   right: 0,
                   top: 0,
-                  height: h * 0.64,
+                  // Never down over "SEE CARDS", which now stands above the
+                  // chooser's cards while they are still blind (owner's
+                  // redesign brief, 3 Oct 2026): the box ends a step above
+                  // the highest the key can stand, and the picker takes its
+                  // compact size where its roomy one would not fit there.
+                  height: seeCards
+                      ? math.min(
+                          h * 0.64,
+                          _seeCardsTopFor(
+                                floor: me.anchor.dy,
+                                ceiling: _potDy * h + potPlate / 2 + Space.sm,
+                                handH: handH,
+                                h: h,
+                              ) -
+                              Space.sm,
+                        )
+                      : h * 0.64,
                   child: VariationPrompt(
                     // One picker per window, so a key marked in one hand is
                     // not still marked in the next.
@@ -2998,63 +3036,6 @@ class _CategoryTag extends StatelessWidget {
   }
 }
 
-/// How many bets this player may still make without looking at their cards,
-/// as dots rather than a fraction: on a 25-second clock a row of dots is read
-/// at a glance and "3/4" is read twice. It sits under "See cards" on the
-/// player's own hand, where the choice it counts down to is made.
-class _BlindDots extends StatelessWidget {
-  const _BlindDots({required this.left, required this.max});
-
-  final int left;
-  final int max;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.watch<GameState>().t;
-    // The last blind move is worth a warmer mark: the next bet after it turns
-    // the cards face up whether the player looked or not.
-    final lastOne = left <= 1;
-
-    return Semantics(
-      label: '${t.blindMovesLabel} $left/$max',
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var i = 0; i < max; i++)
-            Padding(
-              padding: EdgeInsets.only(left: i == 0 ? 0 : Space.xs),
-              child: _Pip(
-                filled: i < left,
-                colour: lastOne ? AppTheme.amber : AppTheme.goldBright,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// One blind move, spent or unspent.
-class _Pip extends StatelessWidget {
-  const _Pip({required this.filled, required this.colour});
-
-  final bool filled;
-  final Color colour;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 6,
-    height: 6,
-    decoration: BoxDecoration(
-      shape: BoxShape.circle,
-      color: filled ? colour : Colors.transparent,
-      border: filled
-          ? null
-          : Border.all(color: AppTheme.ink400, width: Dim.hairline),
-    ),
-  );
-}
-
 /// The pot, on a plinth in the middle of the cloth.
 class _Pot extends StatelessWidget {
   const _Pot({
@@ -3096,11 +3077,16 @@ class _Pot extends StatelessWidget {
     final style = TableType.pot(theme);
     final leaving = this.leaving;
 
+    // A compact dark glass container with a thin metallic gold edge (owner's
+    // redesign brief, 3 Oct 2026: "Premium chip icon. Gold/metallic
+    // treatment. Soft shadow. Compact glass container"): more solid than it
+    // was (0.52), so the figure stands on every cloth, pale or deep.
     return Plate(
       radius: Radii.lg,
-      opacity: 0.52,
+      opacity: 0.76,
       elevation: 3,
-      accent: AppTheme.goldBright.withValues(alpha: 0.22),
+      borderWidth: 1.2,
+      accent: AppTheme.goldBright.withValues(alpha: 0.62),
       padding: const EdgeInsets.symmetric(
         horizontal: Space.sm,
         vertical: Space.xs,
@@ -3417,10 +3403,9 @@ class _Status extends StatelessWidget {
                     ? AppTheme.amber
                     : mine
                     ? AppTheme.goldBright
-                    // The felt is pale on the light theme, and white text
-                    // on it all but vanished ("Waiting for players", QA 14
-                    // Sep 2026); dark ink there, as on every other light
-                    // surface.
+                    // Light on the dark ground, dark on the pale one: this
+                    // line sits on the cloth, where white all but vanished
+                    // by day (QA 14 Sep 2026).
                     : theme.brightness == Brightness.dark
                     ? AppTheme.boneInk.withValues(alpha: 0.82)
                     : AppTheme.inkOnLight.withValues(alpha: 0.78),
@@ -3543,6 +3528,111 @@ class _LiftedHandState extends State<_LiftedHand>
   );
 }
 
+/// The row over the viewer's cards: their own bet badge, centred over the fan
+/// — or, while their hand is still blind, "SEE CARDS" centred over the fan
+/// with the badge beside it on the right (owner's redesign brief, 3 Oct 2026:
+/// the key "immediately ABOVE the cards ... Center aligned with the player's
+/// cards").
+///
+/// Beside, not above: on a 640x360 phone the felt between the pot's plate and
+/// the cards is 65dp tall, and the badge, the key and their gaps stacked need
+/// about 90. The row is as wide as the fan's box, so the column round it — and
+/// the fan under it — stays exactly where it was; the badge stands past the
+/// row's right end, towards the open felt over the key cluster.
+///
+/// When the player looks, the key fades out and the badge fades back to the
+/// centre (one cross-fade, [Motion.base]) while the cards turn over below.
+class _OwnBetRow extends StatelessWidget {
+  const _OwnBetRow({
+    required this.fanWidth,
+    required this.pillWidth,
+    this.seeCards,
+    this.bet,
+  });
+
+  final double fanWidth;
+  final double pillWidth;
+  final Widget? seeCards;
+  final Widget? bet;
+
+  @override
+  Widget build(BuildContext context) {
+    final bet = this.bet;
+    return SizedBox(
+      width: fanWidth,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          // The key alone cross-fades: there is only ever one badge, so
+          // nothing that measures or animates it ever finds two.
+          AnimatedSwitcher(
+            duration: Motion.base,
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) => FadeTransition(
+              opacity: animation,
+              child: ScaleTransition(
+                scale: Tween<double>(begin: 0.92, end: 1).animate(animation),
+                child: child,
+              ),
+            ),
+            child: seeCards == null
+                ? const SizedBox.shrink(key: ValueKey('no-see-cards'))
+                : KeyedSubtree(
+                    key: const ValueKey('see-cards'),
+                    child: seeCards!,
+                  ),
+          ),
+          if (bet != null)
+            if (seeCards != null)
+              // A tall box centred on the key, the badge at its natural size
+              // in its middle: so the badge is centred on the key's line
+              // however tall its two lines are.
+              Positioned(
+                left: fanWidth / 2 + pillWidth / 2 + Space.sm,
+                top: -60,
+                bottom: -60,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: 1,
+                  child: bet,
+                ),
+              )
+            else
+              // Back over the middle of the fan once the player has looked,
+              // fading in where it lands.
+              TweenAnimationBuilder<double>(
+                key: const ValueKey('bet-centred'),
+                tween: Tween(begin: 0, end: 1),
+                duration: Motion.base,
+                curve: Curves.easeOutCubic,
+                builder: (context, v, child) =>
+                    Opacity(opacity: v, child: child),
+                child: bet,
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The highest the top of "SEE CARDS" stands over the viewer's cards, as
+/// [_HandPlacement] lays their column out: the fan's box, the gap and the key
+/// lifted as far as the hand ever is ([HandFan.liftFor]), never above the
+/// [ceiling] under the pot.
+double _seeCardsTopFor({
+  required double floor,
+  required double ceiling,
+  required double handH,
+  required double h,
+}) {
+  final cardH = HandFan.cardHeightFor(handH);
+  final column =
+      HandFan.heightFor(cardH) + TableSpace.hand + SeeCardsButton.heightFor(h);
+  return math.max(floor - HandFan.liftFor(cardH) - column, ceiling);
+}
+
 /// Lays the viewer's hand column out for [_LiftedHand].
 class _HandPlacement extends SingleChildLayoutDelegate {
   _HandPlacement({
@@ -3621,6 +3711,36 @@ class _HandPlacement extends SingleChildLayoutDelegate {
 /// and the three that count come to the front of the fan and rise. The server
 /// chose them and the player chooses nothing.
 class _OwnHand extends StatelessWidget {
+  /// Whether the viewer's hand is still theirs to look at: blind, in the hand
+  /// being played, and with no cards face up (theirs, or a showdown's copy) —
+  /// when "SEE CARDS" stands over it. Looking is allowed at any point, not
+  /// only on their own turn: it costs nothing and changes nothing for anyone
+  /// else. A hand already face up has nothing left to look at, and a hand won
+  /// by everyone else packing is over — the key would offer a move the server
+  /// can only refuse.
+  static bool stillBlindFor(You? you, List<String>? revealed) =>
+      you != null &&
+      you.isBlind &&
+      you.status == SeatState.active &&
+      you.cards.isEmpty &&
+      (revealed == null || revealed.isEmpty);
+
+  /// This table's blind allowance, from the menu entry the room was opened
+  /// from: a private table's template when the server lists them (the table
+  /// catalogue), else the lobby entry of the same pair; 4 when neither says.
+  static int maxBlindFor(GameState state) {
+    final room = state.room;
+    if (room == null) return 4;
+    return state.config
+            .entryFor(
+              category: room.category,
+              bootAmount: room.bootAmount,
+              isPrivate: room.isPrivate,
+            )
+            ?.maxBlindMoves ??
+        4;
+  }
+
   const _OwnHand({
     required this.cardHeight,
     this.revealed,
@@ -3708,27 +3828,7 @@ class _OwnHand extends StatelessWidget {
 
     final cards = you.cards.isNotEmpty ? you.cards : (revealed ?? const []);
 
-    // Looking is allowed at any point, not only on your own turn: it costs
-    // nothing and changes nothing for anyone else. Betting still waits for the
-    // turn, which the console handles. Only while the hand is actually being
-    // played, though: a hand already face up has nothing left to look at, and
-    // a hand won by everyone else packing is over — the key would offer a move
-    // the server can only refuse.
-    final stillBlind =
-        you.isBlind && you.status == SeatState.active && cards.isEmpty;
-    // This table's blind allowance, from the menu entry the room was opened
-    // from: a private table's template when the server lists them (the table
-    // catalogue), else the lobby entry of the same pair; 4 when neither says.
     final room = state.room!;
-    final maxBlind =
-        state.config
-            .entryFor(
-              category: room.category,
-              bootAmount: room.bootAmount,
-              isPrivate: room.isPrivate,
-            )
-            ?.maxBlindMoves ??
-        4;
 
     // How many cards to draw. Face up, what the server sent. Face down, what
     // the viewer's own seat is said to hold (`cardCount`, the figure the rim
@@ -3967,65 +4067,9 @@ class _OwnHand extends StatelessWidget {
                       ),
                     ),
                   ),
-                )
-              else if (stillBlind)
-                Positioned.fill(
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: width - Space.md),
-                      // The press feel only; the ghost styling under it is
-                      // untouched, and the tap is still `state.see`, once.
-                      child: PressScale(
-                        child: FilledButton(
-                          onPressed: () => state.see(),
-                          style: FilledButton.styleFrom(
-                            // A ghost key, so it no longer hides the artwork it is
-                            // laid over.
-                            minimumSize: Size(cardW * 1.6, Dim.minTouch),
-                            backgroundColor: AppTheme.ink900.withValues(
-                              alpha: 0.62,
-                            ),
-                            foregroundColor: AppTheme.goldBright,
-                            side: BorderSide(
-                              color: AppTheme.goldBright.withValues(
-                                alpha: 0.55,
-                              ),
-                              width: 1.4,
-                            ),
-                          ),
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            // The label, and under it the blind bets left: the
-                            // count lives on the key that ends it rather than in a
-                            // box of its own in the corner.
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  state.t.seeCards,
-                                  maxLines: 1,
-                                  // A move like any key's, laid over the cards
-                                  // it turns; in gold, and a weight up, as the
-                                  // one thing to do with a blind hand.
-                                  style: TableType.secondaryAction(theme)
-                                      .copyWith(
-                                        color: AppTheme.goldBright,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                ),
-                                const SizedBox(height: Space.xs),
-                                _BlindDots(
-                                  left: you.blindMovesLeft,
-                                  max: maxBlind,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
                 ),
+              // "SEE CARDS" no longer stands on the fan: it is the key over it,
+              // in the viewer's column (`_OwnBetRow`, SeeCardsButton).
             ],
           ),
         );
@@ -5178,7 +5222,7 @@ class _ActionCluster extends StatelessWidget {
                   // Sideshow's): a move bought with a hammer, in the copper
                   // the wallet counts hammers in, as Missile wears its coral.
                   role: KeyRole.special,
-                  edge: hammerInkOn(Theme.of(context).brightness),
+                  edge: TableKeys.force,
                   alive: canForce && hasHammer,
                   muted: canForce && !hasHammer,
                   onPressed: canForce
@@ -5306,7 +5350,6 @@ class _MissileKey extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<GameState>();
-    final theme = Theme.of(context);
     final size = MediaQuery.sizeOf(context);
     final gap = TableSpace.gap(size.width);
     final canFire = state.canMissile && !state.firingMissile;
@@ -5336,7 +5379,7 @@ class _MissileKey extends StatelessWidget {
           // SPECIAL (owner's brief, 25 Sep 2026): a move bought with
           // something collected, in the missile's own coral.
           role: KeyRole.special,
-          edge: missileInkOn(theme.brightness),
+          edge: missileInkOn(TableKeys.glass),
           alive: canFire && hasMissile,
           muted: canFire && !hasMissile,
           onPressed: canFire ? () => _fireMissile(context, state) : null,
@@ -5374,11 +5417,7 @@ class _MissileLine extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          missileIcon,
-          size: mark,
-          color: missileInkOn(Theme.of(context).brightness),
-        ),
+        Icon(missileIcon, size: mark, color: missileInkOn(TableKeys.glass)),
         const SizedBox(width: 2),
         Text('$missiles', maxLines: 1, style: style),
         if (chips > 0) ...[

@@ -5,7 +5,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/dtos.dart';
@@ -187,7 +187,9 @@ class _DealFlightsState extends State<DealFlights>
   ui.Image? _back;
   double _backHeight = 0;
   double _backScale = 0;
-  PictureInfo? _art;
+
+  /// The back's artwork ([PlayingCard.backAsset]), decoded once.
+  ui.Image? _art;
   bool _loadingArt = false;
 
   @override
@@ -212,7 +214,7 @@ class _DealFlightsState extends State<DealFlights>
   void dispose() {
     _controller?.dispose();
     _back?.dispose();
-    _art?.picture.dispose();
+    _art?.dispose();
     super.dispose();
   }
 
@@ -259,10 +261,17 @@ class _DealFlightsState extends State<DealFlights>
       if (_loadingArt) return;
       _loadingArt = true;
       try {
-        _art = await vg.loadPicture(
-          SvgAssetLoader('assets/card_back.svg'),
-          null,
+        final data = await rootBundle.load(PlayingCard.backAsset);
+        final codec = await ui.instantiateImageCodec(
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
         );
+        final frame = await codec.getNextFrame();
+        codec.dispose();
+        if (!mounted) {
+          frame.image.dispose();
+          return;
+        }
+        _art = frame.image;
       } catch (_) {
         return; // The plain back stands in; the deal still runs.
       } finally {
@@ -307,7 +316,7 @@ const double _shadowRoom = 0.12;
 
 /// The card back at [height] logical pixels and [scale] device pixels to one,
 /// with its rounded corners cut and a soft shadow under it, as one image.
-ui.Image _renderBack(PictureInfo art, double height, double scale) {
+ui.Image _renderBack(ui.Image art, double height, double scale) {
   final width = height * PlayingCard.aspect;
   final room = height * _shadowRoom;
   final card = RRect.fromRectAndRadius(
@@ -326,9 +335,12 @@ ui.Image _renderBack(PictureInfo art, double height, double scale) {
   canvas
     ..save()
     ..clipRRect(card)
-    ..translate(room, room)
-    ..scale(width / art.size.width, height / art.size.height)
-    ..drawPicture(art.picture)
+    ..drawImageRect(
+      art,
+      Rect.fromLTWH(0, 0, art.width.toDouble(), art.height.toDouble()),
+      Rect.fromLTWH(room, room, width, height),
+      Paint()..filterQuality = FilterQuality.medium,
+    )
     ..restore();
   // The stock's edge, as every card on the table has it (PlayingCard).
   CardStockPainter.paintEdge(canvas, card, height, face: false);
@@ -359,8 +371,9 @@ class _DealPainter extends CustomPainter {
   final ui.Image? back;
   final double backScale;
 
-  /// The back a card is drawn with until the artwork has loaded.
-  static const Color _plainBack = Color(0xFF2E211B);
+  /// The back a card is drawn with until the artwork has loaded: its black
+  /// border's colour.
+  static const Color _plainBack = PlayingCard.backGround;
 
   @override
   void paint(Canvas canvas, Size size) {
