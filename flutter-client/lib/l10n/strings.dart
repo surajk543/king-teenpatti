@@ -1629,6 +1629,9 @@ class Strings {
   String get offline => _('offline');
   String get packed => _('packed');
 
+  /// An empty chair at the table (owner's redesign brief, 3 Oct 2026).
+  String get seatEmpty => _('seatEmpty');
+
   // --- requirement 31: auto-packs in a row, and the last warning
   // The table's warning after a missed turn (owner, 27 Sep 2026;
   // widgets/missed_turns_notice.dart): what happened, then how many of the
@@ -2615,6 +2618,7 @@ class Strings {
       'waiting': 'waiting',
       'offline': 'offline',
       'packed': 'PACKED',
+      'seatEmpty': 'Empty',
       'autoPacked': 'You missed your turn — auto-packed',
       'missedYourTurn': 'You missed your turn',
       'lastWarning': 'Last warning',
@@ -3623,6 +3627,7 @@ class Strings {
       'waiting': 'इंतज़ार',
       'offline': 'ऑफ़लाइन',
       'packed': 'पैक',
+      'seatEmpty': 'खाली',
       'autoPacked': 'आपकी बारी छूट गई — अपने-आप पैक हुआ',
       'missedYourTurn': 'आपकी बारी छूट गई',
       'lastWarning': 'आखिरी चेतावनी',
@@ -4620,6 +4625,7 @@ class Strings {
       'waiting': 'অপেক্ষা',
       'offline': 'অফলাইন',
       'packed': 'প্যাক',
+      'seatEmpty': 'খালি',
       'autoPacked': 'আপনার পালা ফসকে গেছে — নিজে থেকে প্যাক হয়েছে',
       'missedYourTurn': 'আপনার পালা ফসকে গেছে',
       'lastWarning': 'শেষ সতর্কতা',
@@ -5612,6 +5618,7 @@ class Strings {
       'waiting': 'રાહ',
       'offline': 'ઑફલાઇન',
       'packed': 'પૅક',
+      'seatEmpty': 'ખાલી',
       'autoPacked': 'તમારો વારો ચૂકી ગયા — આપમેળે પૅક થયું',
       'missedYourTurn': 'તમારો વારો ચૂકી ગયા',
       'lastWarning': 'છેલ્લી ચેતવણી',
@@ -6613,6 +6620,7 @@ class Strings {
       'waiting': 'ਉਡੀਕ',
       'offline': 'ਔਫ਼ਲਾਈਨ',
       'packed': 'ਪੈਕ',
+      'seatEmpty': 'ਖਾਲੀ',
       'autoPacked': 'ਤੁਹਾਡੀ ਵਾਰੀ ਖੁੰਝ ਗਈ — ਆਪਣੇ-ਆਪ ਪੈਕ ਹੋ ਗਿਆ',
       'missedYourTurn': 'ਤੁਹਾਡੀ ਵਾਰੀ ਖੁੰਝ ਗਈ',
       'lastWarning': 'ਆਖਰੀ ਚੇਤਾਵਨੀ',

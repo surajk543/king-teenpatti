@@ -10,6 +10,7 @@ import '../state/game_state.dart';
 import '../theme/app_theme.dart';
 import '../theme/depth.dart';
 import '../theme/table_theme.dart';
+import '../theme/theme_colors.dart';
 import 'avatar.dart';
 import 'emoji_art.dart';
 import 'hammer_flight.dart';
@@ -18,7 +19,6 @@ import 'liquid_fill.dart';
 import 'playing_card.dart';
 import 'poker_chip.dart';
 import 'pot_flight.dart';
-import 'glass_orb.dart';
 import 'premium_surface.dart';
 import 'seat_ring.dart';
 import 'variation_prompt.dart';
@@ -96,33 +96,6 @@ enum BubbleSide { above, left, right }
 /// and keeps it for as long as that emoji plays.
 enum EmojiPlace { column, left, right, above }
 
-/// Which corner of a seat pod its orb spills out of. The table picks per seat
-/// so the colour always leaks towards open felt — never under the rail, over a
-/// card fan or off the side of the screen.
-///
-/// [contained] keeps the colour inside the glass and draws no orb outside it:
-/// the viewer's pod stands on the floor between the missed-turns plate and
-/// their own cards, and on a 360dp phone there is no open felt on either side
-/// for anything to spill into.
-enum OrbCorner { topLeft, topRight, contained }
-
-/// Where a pod's orb sits, as a square in the pod's own coordinates: most of it
-/// behind the top of the pod, and a tenth of the pod's width reaching past the
-/// chosen corner ([TableAmbient.orbSpill]; a sixth until the table polish of
-/// 24 Sep 2026, when the orbs read as five coloured discs competing with the
-/// seat on turn). No more than that — the table is crowded, and an orb
-/// reaching further would lie under a neighbour's cards.
-Rect _orbRect(double w, OrbCorner corner) {
-  final d = w * TableAmbient.orbSize;
-  final spill = w * TableAmbient.orbSpill;
-  final cx = corner == OrbCorner.topRight ? w - d / 2 + spill : d / 2 - spill;
-  return Rect.fromCenter(
-    center: Offset(cx, d / 2 - spill),
-    width: d,
-    height: d,
-  );
-}
-
 class SeatPod extends StatelessWidget {
   const SeatPod({
     super.key,
@@ -150,7 +123,6 @@ class SeatPod extends StatelessWidget {
     this.bubbleSide = BubbleSide.above,
     this.reversed = false,
     this.beside = false,
-    this.orbCorner = OrbCorner.topLeft,
     this.podKey,
     this.impact,
     this.poker = false,
@@ -366,9 +338,6 @@ class SeatPod extends StatelessWidget {
   /// seat is then [SeatRing.headUnitWidth] wide: two pods and the gap.
   final bool beside;
 
-  /// Which corner of the pod its colour spills out of (see [OrbCorner]).
-  final OrbCorner orbCorner;
-
   @override
   Widget build(BuildContext context) {
     final s = seat;
@@ -409,6 +378,14 @@ class SeatPod extends StatelessWidget {
             theme.colorScheme.error,
             turn * turn,
           )!;
+    // The ring round the POD warms rather than reddens: champagne to amber,
+    // the gold family's light end in both themes (the VIP table, 3 Oct 2026),
+    // since red on the emerald felt has the felt's own luminance.
+    final ring = Color.lerp(
+      AppTheme.goldBright,
+      TableAmbient.turnEdgeLate,
+      turn * turn,
+    )!;
 
     // Between the pod and the cards and badge hung under it: the table's own
     // spacing for a seat, one step for every gap in the column.
@@ -468,6 +445,7 @@ class SeatPod extends StatelessWidget {
               s,
               beat,
               edge,
+              ring,
               state.colourFor(s.userId ?? '', theme.colorScheme),
             ),
           ),
@@ -644,6 +622,7 @@ class SeatPod extends StatelessWidget {
     Seat s,
     Color beat,
     Color edge,
+    Color ring,
     Color player,
   ) {
     final theme = Theme.of(context);
@@ -687,14 +666,20 @@ class SeatPod extends StatelessWidget {
     // than the seat on turn): softened inside the glass and out, at the
     // opacities [TableAmbient] keeps, so the seat's own ring and the cards
     // stay the brightest things round it.
-    final colours = orbColours(player);
-    final orb = _orbRect(width, orbCorner);
     // The viewer's own pod glows at three quarters of a rim seat's strength.
     final glow = isMe ? TableAmbient.mineGlow : 1.0;
+    // The ring round the pod is champagne warming to amber in both themes
+    // ([ring]): by day as by night the VIP table's pods stand on its dark
+    // leather rail and its deep felt (owner's redesign brief, 3 Oct 2026),
+    // where the light-table gold [edge] measured 2:1 or less. By day a dark
+    // outline round it carries it over the ivory room the top seats reach
+    // into. Its halo keeps the beat; the picture's ring, on the pod's own
+    // white glass, keeps [edge].
     final panel = _TurnRing(
       active: onTurn,
       colour: beat,
-      edge: edge,
+      edge: ring,
+      outline: dark ? null : _TurnRing.dayOutline,
       radius: width * _kRadius,
       glow: glow,
       child: PremiumGlassPanel(
@@ -703,19 +688,7 @@ class SeatPod extends StatelessWidget {
         radius: width * _kRadius,
         live: won || onTurn,
         tint: won || onTurn ? accent : Colors.white,
-        behind: Stack(
-          children: [
-            Positioned.fromRect(
-              rect: orb,
-              child: GlassOrb(
-                colours: colours,
-                size: orb.width,
-                soft: true,
-                opacity: TableAmbient.orbInside(theme.brightness) * glow,
-              ),
-            ),
-          ],
-        ),
+        behind: _PodWash(colour: player, dark: dark, strength: glow),
         child: Stack(
           children: [
             // The turn clock, drawn as liquid rising inside the pod. Full
@@ -812,8 +785,13 @@ class SeatPod extends StatelessWidget {
                         // The second, quieter turn cue, for a player reading
                         // faces rather than borders — in the ring's own edge
                         // colour.
-                        ring: onTurn ? edge : null,
-                        ringWidth: onTurn ? 2 : 1.5,
+                        // At rest a struck-gold ring, as the VIP table's
+                        // pictures wear (owner's redesign brief, 3 Oct 2026).
+                        ring: onTurn
+                            ? edge
+                            : (dark ? AppTheme.goldBright : AppTheme.goldDeep)
+                                  .withValues(alpha: 0.78),
+                        ringWidth: onTurn ? 2 : 1.6,
                         // An animated picture plays at the table too: it is
                         // what the player paid for, and a still frame of it
                         // here read as broken. A still picture has no frames,
@@ -899,22 +877,6 @@ class SeatPod extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // The orb behind the pod, where it reaches past the corner, and its
-          // twin in the glass's `behind` slot at the same place. Softened out
-          // here too since the table polish (24 Sep 2026): a hard edge is what
-          // made the colour read as a disc rather than as light.
-          if (orbCorner != OrbCorner.contained)
-            Positioned.fromRect(
-              rect: orb,
-              child: IgnorePointer(
-                child: GlassOrb(
-                  colours: colours,
-                  size: orb.width,
-                  soft: true,
-                  opacity: TableAmbient.orbOutside(theme.brightness),
-                ),
-              ),
-            ),
           panel,
           if (showLevel)
             Positioned(
@@ -1173,12 +1135,10 @@ class SeatPod extends StatelessWidget {
   /// what it always mostly was — a chip and a figure.
   Widget _category(BuildContext context, Strings t, Seat s) {
     final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    final ink = dark ? AppTheme.boneInk : AppTheme.inkOnLight;
     // SEEN is written in the same green their cards have turned, so the word
-    // and the backs under it are one signal rather than two. BLIND keeps the
-    // quiet ink: green here means exactly one thing, and saying it of both
-    // would mean nothing.
+    // and the backs under it are one signal rather than two. BLIND is a soft
+    // blue (owner's redesign brief, 3 Oct 2026: "BLIND: Blue/neutral. SEEN:
+    // Green"), not strong: the green is the state that changed.
     final seen = !s.isBlind;
 
     return Container(
@@ -1201,7 +1161,7 @@ class SeatPod extends StatelessWidget {
           style: TableType.seat(theme, width).tag(
             colour: seen
                 ? AppTheme.seenInk(theme.brightness)
-                : ink.withValues(alpha: AppTheme.inkMed),
+                : TableInk.blindOn(theme.brightness),
             strong: seen,
           ),
         ),
@@ -1349,24 +1309,55 @@ class SeatPod extends StatelessWidget {
   /// No name, because there is nobody to name. Quiet enough that five empty
   /// chairs never compete with one occupied one.
   Widget _emptySeat(BuildContext context) {
+    // A quiet dark glass panel with the chair and "Empty" (owner's redesign
+    // brief, 3 Oct 2026, and its reference), the same in both themes: it
+    // stands on the VIP table's dark felt and leather rail, or the room
+    // round them, and it must never look like a seat with somebody in it.
+    final ink = TableKeys.ink.withValues(alpha: 0.42);
+    final label = context.read<GameState>().t.seatEmpty;
     final theme = Theme.of(context);
 
     return SizedBox(
       width: width,
-      child: Container(
-        height: width * 0.86,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: AppTheme.plaque(theme.brightness).withValues(alpha: 0.28),
-          borderRadius: BorderRadius.circular(width * _kRadius),
-          border: Border.all(
-            color: AppTheme.hairlineColour(theme.brightness, live: false),
+      child: Semantics(
+        label: label,
+        child: Container(
+          height: width * 0.86,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                AppTheme.ink800.withValues(alpha: 0.30),
+                AppTheme.ink900.withValues(alpha: 0.42),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(width * _kRadius),
+            border: Border.all(
+              color: AppTheme.goldBright.withValues(alpha: 0.16),
+            ),
           ),
-        ),
-        child: Icon(
-          Icons.chair_alt_outlined,
-          size: width * 0.34,
-          color: AppTheme.onTable(theme.colorScheme).withValues(alpha: 0.22),
+          child: ExcludeSemantics(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.chair_alt_outlined, size: width * 0.30, color: ink),
+                SizedBox(height: width * 0.03),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: width * 0.08),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      style: TableType.seat(theme, width).status(colour: ink),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1393,21 +1384,37 @@ class SeatPod extends StatelessWidget {
             horizontal: width * 0.055,
             vertical: width * 0.018,
           ),
+          // The night plaque in both themes: the capsule lies on the VIP
+          // table's deep felt, emerald or wine-red, where the pale one went a
+          // grey-green smear by day (owner's redesign brief, 3 Oct 2026).
           decoration: BoxDecoration(
             color: AppTheme.plaque(
-              theme.brightness,
+              Brightness.dark,
             ).withValues(alpha: SeatType.inPotPlate),
             borderRadius: BorderRadius.circular(width * _kCapsule),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(t.inPot, maxLines: 1, style: type.inPot()),
+              Text(
+                t.inPot,
+                maxLines: 1,
+                style: type.inPot(
+                  colour: TableKeys.ink.withValues(
+                    alpha: SeatType.inPotLabelOnFelt,
+                  ),
+                ),
+              ),
               SizedBox(width: width * 0.035),
               Text(
                 formatChips(value.round()),
                 maxLines: 1,
-                style: type.inPot(figure: true),
+                style: type.inPot(
+                  figure: true,
+                  colour: TableKeys.ink.withValues(
+                    alpha: SeatType.inPotFigureOnFelt,
+                  ),
+                ),
               ),
             ],
           ),
@@ -1481,10 +1488,16 @@ class SeatPod extends StatelessWidget {
         : switch (s.status) {
             SeatState.won => AppTheme.gold,
             SeatState.waiting => AppTheme.amber,
-            // Also on the cloth, so also felt ink rather than surface ink. At
-            // full strength: this is the line that says why the seat is
-            // faded, and the fade already takes it down to the quiet tier.
-            _ => AppTheme.onTable(theme.colorScheme, alpha: AppTheme.inkHigh),
+            // On the cloth, so in the cloth's own ink: light on the VIP
+            // table's emerald and wine-red alike (3 Oct 2026). A poker room
+            // has no table under its seats — they stand on the room — so its
+            // line keeps the surface's ink. At full strength: this is the
+            // line that says why the seat is faded, and the fade already
+            // takes it down to the quiet tier.
+            _ =>
+              poker
+                  ? AppTheme.onTable(theme.colorScheme, alpha: AppTheme.inkHigh)
+                  : CasinoTableColors.of(context).ink,
           };
 
     return SizedBox(
@@ -1627,8 +1640,17 @@ class _TurnRing extends StatefulWidget {
     required this.radius,
     required this.child,
     this.edge,
+    this.outline,
     this.glow = 1,
   });
+
+  /// The dark line round the ring by day, outside its gold: what carries it
+  /// over the pale room, where gold alone is 1.3:1.
+  static final Color dayOutline = AppTheme.ink900.withValues(alpha: 0.62);
+
+  /// A solid line [outlineWidth] wide round the outside of the ring, or none.
+  final Color? outline;
+  static const double outlineWidth = 1.2;
 
   final bool active;
 
@@ -1715,6 +1737,11 @@ class _TurnRingState extends State<_TurnRing>
               width: 2.0 + 0.5 * t,
             ),
             boxShadow: [
+              if (widget.outline != null)
+                BoxShadow(
+                  color: widget.outline!,
+                  spreadRadius: _TurnRing.outlineWidth,
+                ),
               BoxShadow(
                 color: widget.colour.withValues(
                   alpha: (0.26 + 0.26 * t) * widget.glow,
@@ -2677,5 +2704,63 @@ class _RenderShine extends RenderShaderMask {
   void detach() {
     _shine.removeListener(markNeedsPaint);
     super.detach();
+  }
+}
+
+/// A seat's own colour as light falling into the top of its pod's glass
+/// ([TableAmbient.podWash], gone by [TableAmbient.podWashReach] of its height),
+/// and by night the glass deepening towards its foot ([TableAmbient.podShade])
+/// — the VIP table's player panels (owner's redesign brief, 3 Oct 2026: "Glass
+/// cards ... Avoid huge player panels"), in place of the soft orb that spilled
+/// out of each pod's corner. Static: two gradients in the glass's `behind`
+/// slot, under its lit edge and hairline.
+class _PodWash extends StatelessWidget {
+  const _PodWash({
+    required this.colour,
+    required this.dark,
+    required this.strength,
+  });
+
+  final Color colour;
+  final bool dark;
+
+  /// The viewer's own pod is washed at [TableAmbient.mineGlow].
+  final double strength;
+
+  @override
+  Widget build(BuildContext context) {
+    final b = dark ? Brightness.dark : Brightness.light;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (dark)
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: 0),
+                  Colors.black.withValues(alpha: TableAmbient.podShade),
+                ],
+                stops: const [0.30, 1],
+              ),
+            ),
+          ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                colour.withValues(alpha: TableAmbient.podWash(b) * strength),
+                colour.withValues(alpha: 0),
+              ],
+              stops: const [0, TableAmbient.podWashReach],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

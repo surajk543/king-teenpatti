@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/dtos.dart';
 import '../theme/app_theme.dart';
 import '../theme/depth.dart';
+import '../theme/theme_colors.dart';
 import 'glass_components.dart';
 import 'playing_card.dart';
 import 'premium_surface.dart';
@@ -393,6 +394,16 @@ class VariationPrompt extends StatefulWidget {
   /// many as keep it to two.
   static int perRowFor(int count) => math.max(3, (count / 2).ceil());
 
+  /// The panel's height, roomy or compact — the sums in this class's doc:
+  /// padding, header, 6, the bar's 6, 10, and two rows of keys with 6 between
+  /// them (166dp compact, 224 roomy).
+  static double panelHeight({required bool roomy}) {
+    final pad = roomy ? Space.lg : Space.md;
+    final header = roomy ? 40.0 : 30.0;
+    final key = roomy ? _VariationKey.roomyHeight : _VariationKey.compactHeight;
+    return 2 * pad + header + Space.sm + 6 + Space.md + 2 * key + Space.sm;
+  }
+
   @override
   State<VariationPrompt> createState() => _VariationPromptState();
 }
@@ -415,13 +426,8 @@ class _VariationPromptState extends State<VariationPrompt> {
     final screen = MediaQuery.sizeOf(context);
     // The notes are the first thing to go: a short screen has no height for a
     // second line in a key, and a narrow one no width for the sentence.
-    final roomy =
+    final roomyScreen =
         !Breaks.isShort(screen.height) && !Breaks.isCompact(screen.width);
-    final keyH = roomy
-        ? _VariationKey.roomyHeight
-        : _VariationKey.compactHeight;
-    final headerH = roomy ? 40.0 : 30.0;
-    final pad = roomy ? Space.lg : Space.md;
 
     final perRow = VariationPrompt.perRowFor(widget.options.length);
     const gap = Space.sm;
@@ -432,6 +438,19 @@ class _VariationPromptState extends State<VariationPrompt> {
 
     return LayoutBuilder(
       builder: (context, box) {
+        // Roomy only where the roomy panel fits the box the table gives it:
+        // over a chooser still blind, the box ends above "SEE CARDS" (the VIP
+        // table, 3 Oct 2026), and on the tighter roomy screens the compact
+        // panel stands there instead.
+        final roomy =
+            roomyScreen &&
+            (!box.maxHeight.isFinite ||
+                box.maxHeight >= VariationPrompt.panelHeight(roomy: true));
+        final keyH = roomy
+            ? _VariationKey.roomyHeight
+            : _VariationKey.compactHeight;
+        final headerH = roomy ? 40.0 : 30.0;
+        final pad = roomy ? Space.lg : Space.md;
         // Wider than the sideshow's panel, which holds two keys to this one's
         // three across: 640 -> 384 (keys of 117) | 891 -> 520 | 1280 -> 520.
         // Four across: 640 -> 461 (keys of 105) | 891 -> 600 | 1280 -> 600.
@@ -965,11 +984,10 @@ class VariationSelectingLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // The same ink the waiting line uses: light on the dark ground, dark on
-    // the pale one, where white all but vanished (QA 14 Sep 2026).
-    final ink = theme.brightness == Brightness.dark
-        ? AppTheme.boneInk.withValues(alpha: 0.86)
-        : AppTheme.inkOnLight.withValues(alpha: 0.82);
+    // The same ink the waiting line uses: the cloth's own, light on the VIP
+    // table's emerald and wine-red alike (3 Oct 2026; it was charcoal by day
+    // on the pale cloths, where white all but vanished — QA 14 Sep 2026).
+    final ink = CasinoTableColors.of(context).ink.withValues(alpha: 0.86);
 
     return IgnorePointer(
       child: Column(
@@ -1014,10 +1032,10 @@ class VariationChosenLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    // Gold on the dark ground; on the pale one champagne has no contrast, so
-    // the deep gold the light theme uses for the same job.
-    final gold = dark ? AppTheme.goldBright : AppTheme.gold;
+    // Champagne on the cloth in both themes: the VIP table's felt is deep by
+    // day as by night (3 Oct 2026), where the deep gold the pale cloths
+    // needed by day would sink into the emerald.
+    const gold = AppTheme.goldBright;
 
     return IgnorePointer(
       child: Column(
@@ -1052,9 +1070,9 @@ class VariationChosenLine extends StatelessWidget {
                 maxLines: 1,
                 style: AppTheme.label(
                   theme.textTheme.labelMedium ?? const TextStyle(),
-                  colour: dark
-                      ? AppTheme.boneInk.withValues(alpha: 0.78)
-                      : AppTheme.inkOnLight.withValues(alpha: 0.74),
+                  colour: CasinoTableColors.of(
+                    context,
+                  ).ink.withValues(alpha: 0.86),
                 ),
               ),
             ),

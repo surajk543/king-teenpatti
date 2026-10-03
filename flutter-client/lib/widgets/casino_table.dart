@@ -95,11 +95,11 @@ class CasinoTableSurface extends StatelessWidget {
 
   final TableGeometry geometry;
 
-  /// The game the table is laid for, by its wire category (owner, 25 Sep
-  /// 2026: "keep different table color for seen, blind, variation
-  /// gameplay"): the cloth is that game's own ([CasinoTableColors.clothFor]),
-  /// in the colour its lobby card and its tag wear. A private table is its
-  /// game's too. Null, or a game this build has no colour for, is the teal.
+  /// The game the table is laid for, by its wire category, for
+  /// [CasinoTableColors.clothFor]. The VIP table lays one felt for every game
+  /// (owner's redesign brief, 3 Oct 2026: "One felt, like the reference") —
+  /// emerald by day, wine-red by night — so this picks a cloth only when
+  /// `AppTheme.perGameCloths` brings back each game's own (25 Sep 2026).
   final String? category;
 
   /// The decoration a short phone goes without (owner's brief: "Short phone:

@@ -15,6 +15,12 @@ class TableGround extends StatelessWidget {
     required this.child,
     this.accent,
     this.lamp = const Alignment(0, -0.5),
+    this.lampAlpha = 0.075,
+    this.lampSpread = 0.95,
+    this.lightBase = pearl,
+    this.lightEdge = pearlEdge,
+    this.darkBase,
+    this.darkEdge,
   });
 
   final Widget child;
@@ -27,24 +33,48 @@ class TableGround extends StatelessWidget {
   /// too.
   final Alignment lamp;
 
+  /// How strong the overhead pool is by night (a little under half of it by
+  /// day), and how far it reaches as a share of the room's shorter side.
+  final double lampAlpha;
+  final double lampSpread;
+
+  /// The floor and its corners by day, and by night when not the app's own
+  /// obsidian ground.
+  final Color lightBase;
+  final Color lightEdge;
+  final Color? darkBase;
+  final Color? darkEdge;
+
   /// The room by day: pearl rather than the app's cool grey (owner's brief,
   /// 25 Sep 2026: "LIGHT MODE: pearl/white background ... Avoid excessive
   /// gray"), closing to a warm stone at its corners — the pearl rail and the
-  /// champagne rim of the table stand in it as in a lit room.
+  /// champagne rim of the table stand in it as in a lit room. The splash and
+  /// the lobby's drawers still stand on it; the table's room is [ivory].
   static const Color pearl = Color(0xFFFAF8F4);
   static const Color pearlEdge = Color(0xFFE6E0D4);
 
+  /// The VIP table's room (owner's redesign brief, 3 Oct 2026): by day a warm
+  /// ivory closing to champagne at its corners — "luxury daytime casino ...
+  /// without becoming too bright"; by night an almost-black charcoal with a
+  /// brown undertone, so the gold and the wine-red felt read warm.
+  static const Color ivory = Color(0xFFF6EEDC);
+  static const Color champagne = Color(0xFFDCC8A2);
+  static const Color nightRoom = Color(0xFF120D0A);
+  static const Color nightRoomEdge = Color(0xFF040302);
+
   @override
   Widget build(BuildContext context) => _Ground(
-        lamp: lamp,
-        lampAlpha: 0.075,
-        lampSpread: 0.95,
-        vignette: 0.62,
-        accent: accent,
-        lightBase: pearl,
-        lightEdge: pearlEdge,
-        child: child,
-      );
+    lamp: lamp,
+    lampAlpha: lampAlpha,
+    lampSpread: lampSpread,
+    vignette: 0.62,
+    accent: accent,
+    lightBase: lightBase,
+    lightEdge: lightEdge,
+    darkBase: darkBase,
+    darkEdge: darkEdge,
+    child: child,
+  );
 }
 
 /// The same room, arranged for the lobby: the light is centred and softer,
@@ -67,14 +97,14 @@ class LobbyGround extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _Ground(
-        lamp: const Alignment(-0.15, -0.35),
-        lampAlpha: 0.05,
-        lampSpread: 1.25,
-        vignette: 0.48,
-        accent: accent,
-        accentStrength: accentStrength,
-        child: child,
-      );
+    lamp: const Alignment(-0.15, -0.35),
+    lampAlpha: 0.05,
+    lampSpread: 1.25,
+    vignette: 0.48,
+    accent: accent,
+    accentStrength: accentStrength,
+    child: child,
+  );
 }
 
 class _Ground extends StatelessWidget {
@@ -88,6 +118,8 @@ class _Ground extends StatelessWidget {
     this.accentStrength = 1,
     this.lightBase,
     this.lightEdge,
+    this.darkBase,
+    this.darkEdge,
   });
 
   final Widget child;
@@ -101,6 +133,10 @@ class _Ground extends StatelessWidget {
   /// The floor and its corners by day, when not the app's own ground.
   final Color? lightBase;
   final Color? lightEdge;
+
+  /// The floor and its corners by night, when not the app's own ground.
+  final Color? darkBase;
+  final Color? darkEdge;
 
   @override
   Widget build(BuildContext context) {
@@ -119,10 +155,10 @@ class _Ground extends StatelessWidget {
             willChange: false,
             painter: _GroundPainter(
               base: dark
-                  ? AppTheme.ground(brightness)
+                  ? darkBase ?? AppTheme.ground(brightness)
                   : lightBase ?? AppTheme.ground(brightness),
               edge: dark
-                  ? AppTheme.groundEdge(brightness)
+                  ? darkEdge ?? AppTheme.groundEdge(brightness)
                   : lightEdge ?? AppTheme.groundEdge(brightness),
               lampColour: AppTheme.lampWarm,
               // A warm pool reads on charcoal and turns parchment yellow, so

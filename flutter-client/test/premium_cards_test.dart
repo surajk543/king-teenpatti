@@ -25,7 +25,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:teenpatti/models/dtos.dart';
 import 'package:teenpatti/state/game_state.dart';
@@ -804,7 +803,45 @@ void main() {
   });
 
   group('the back', () {
-    testWidgets('keeps the crown artwork, takes the SEEN green, and is cut '
+    // The owner's Royal Fox (3 Oct 2026), cut to the card's 5:7 inside its
+    // black border: the whole gold frame, nothing of the picture's dark
+    // background round the card.
+    test('is the Royal Fox, cut to the card\'s shape', () async {
+      final data = await rootBundle.load(PlayingCard.backAsset);
+      final codec = await ui.instantiateImageCodec(
+        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+      );
+      final frame = await codec.getNextFrame();
+      final art = frame.image;
+      expect(art.width / art.height, closeTo(PlayingCard.aspect, 0.002));
+      // About twice the tallest card a phone draws, and no more.
+      expect(art.height, inInclusiveRange(700, 1000));
+      expect(data.lengthInBytes, lessThan(300 * 1024));
+      // Its four edges are the card's own black border.
+      final pixels = (await art.toByteData())!;
+      Color at(int x, int y) {
+        final i = (y * art.width + x) * 4;
+        return Color.fromARGB(
+          pixels.getUint8(i + 3),
+          pixels.getUint8(i),
+          pixels.getUint8(i + 1),
+          pixels.getUint8(i + 2),
+        );
+      }
+
+      for (final (x, y) in [
+        (4, art.height ~/ 2),
+        (art.width - 5, art.height ~/ 2),
+        (art.width ~/ 2, 4),
+        (art.width ~/ 2, art.height - 5),
+      ]) {
+        expect(at(x, y).computeLuminance(), lessThan(0.04), reason: '$x,$y');
+      }
+      art.dispose();
+      codec.dispose();
+    });
+
+    testWidgets('wears the Royal Fox, takes the SEEN green, and is cut '
         'from the same gold-edged stock as a face', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
@@ -819,13 +856,15 @@ void main() {
           ),
         ),
       );
-      final backs = tester.widgetList<SvgPicture>(find.byType(SvgPicture));
+      final backs = tester.widgetList<Image>(find.byType(Image)).toList();
       expect(backs, hasLength(2));
-      expect(backs.first.colorFilter, isNull);
-      expect(
-        backs.last.colorFilter,
-        const ColorFilter.mode(AppTheme.cardSeenBack, BlendMode.color),
-      );
+      for (final back in backs) {
+        expect((back.image as AssetImage).assetName, PlayingCard.backAsset);
+        expect(back.fit, BoxFit.cover);
+      }
+      expect(backs.first.color, isNull);
+      expect(backs.last.color, AppTheme.cardSeenBack);
+      expect(backs.last.colorBlendMode, BlendMode.color);
       final stock = find.byWidgetPredicate(
         (w) =>
             w is CustomPaint &&

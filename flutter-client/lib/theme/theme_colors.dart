@@ -399,21 +399,23 @@ class TableCloth {
   int get hashCode => Object.hash(centre, edge, line, lip);
 }
 
-/// The casino table's colours, one set per brightness (owner's brief, 24 Sep
-/// 2026: "a large oval/rounded casino table surface ... a modern luxury mobile
-/// casino ... Do NOT use the old-fashioned red casino table aesthetic"), read
-/// by the one painter that draws the table ([CasinoTableSurface]) and the
-/// light that moves on it ([TableAmbientEffects]).
+/// The casino table's colours, one set per brightness, read by the one painter
+/// that draws the table ([CasinoTableSurface]), the light that moves on it
+/// ([TableAmbientEffects]) and the few words painted straight on its cloth
+/// ([ink]).
 ///
-/// Two looks designed for their own grounds rather than one inverted: by day
-/// a pearl rail lit from above with a thin champagne rim; by night a graphite
-/// rail, a subtler gold rim and a controlled cyan light around the table. The
-/// cloth inside the rail is the game's own (owner, 25 Sep 2026): each Teen
-/// Patti game has one in its own colour ([cloths], [TableCloth.tinted]), and
-/// the soft teal [cloth] is for a game this build has no colour for. Every
-/// cloth keeps the table's type legible as it always was — charcoal on the
-/// pale ones, white on the deep ones — so no word on the felt changes colour
-/// for the table's sake.
+/// **The VIP table** (owner's redesign brief, 3 Oct 2026: "Luxury daytime
+/// casino / premium card lounge" by day, "Luxury VIP casino at night"; and,
+/// asked, "One felt, like the reference"): ONE felt for every Teen Patti
+/// table — a rich emerald by day, a deep wine-red by night — inside a dark
+/// espresso leather rail with a thin metallic gold edge, in both themes, so
+/// day and night are the same table under different light. Each game keeps
+/// its colour on its tag and in the lobby, not on the cloth. The per-game
+/// cloths of 25 Sep 2026 ([cloths], [TableCloth.tinted]) are still wired:
+/// `AppTheme.perGameCloths` brings them back.
+///
+/// Both felts are deep, so the words on the cloth are light in both themes
+/// ([ink]); every word that stands on a plate keeps its theme's ink.
 ///
 /// A [ThemeExtension], as [GlassColors] is, so the theme's cross-fade carries
 /// the table with it rather than snapping it.
@@ -434,6 +436,7 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
     required this.lamp,
     required this.lampAlpha,
     required this.turnGlow,
+    required this.ink,
   });
 
   /// The rail — the "outer table" — lit from above: its top and its foot.
@@ -451,22 +454,23 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
   /// The seam where the rail meets the cloth.
   final Color seam;
 
-  /// The soft teal cloth ([TableCloth.tealHue], in [TableCloth.tinted]'s
-  /// tones): the table of a game with no cloth of its own in [cloths] — one
-  /// this build does not know.
+  /// The felt: the VIP table's one cloth (3 Oct 2026) — emerald by day,
+  /// wine-red by night — which every game lays while
+  /// `AppTheme.perGameCloths` is off, and the cloth of any game with none of
+  /// its own in [cloths] when it is on.
   final TableCloth cloth;
 
   /// Each game's own cloth, by its wire category (`seen`, `blind`,
-  /// `variation`). The theme fills them from the games' accents
-  /// (`AppTheme.tableColours`); the two sets below carry none.
+  /// `variation`): filled from the games' accents (`AppTheme.tableColours`)
+  /// only while `AppTheme.perGameCloths` is on; empty in the two sets below.
   final Map<String, TableCloth> cloths;
 
   /// The one soft shadow the table casts on the floor, and its blur.
   final Color shadow;
   final double shadowBlur;
 
-  /// Light round the table's outer edge: a controlled cyan by night, none by
-  /// day, where a glow on a pale floor reads as a smudge.
+  /// Light round the table's outer edge: a controlled warm gold by night,
+  /// none by day, where a glow on the ivory floor reads as a smudge.
   final Color glow;
 
   /// The overhead lamp's pool on the cloth, and its alpha at rest (it
@@ -477,62 +481,73 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
   /// The warm light the near rail takes on the viewer's turn.
   final Color turnGlow;
 
-  /// The cloth for a table of [category]: its game's own, or the teal.
+  /// The ink of a word painted straight on the cloth, with no plate under it
+  /// — the waiting line, a seat's status line, the variation lines. Light on
+  /// both felts, 4.5:1 or more on the felt and the rail.
+  final Color ink;
+
+  /// The cloth for a table of [category]: its game's own, or the felt.
   TableCloth clothFor(String? category) => cloths[category] ?? cloth;
 
   /// This set with [cloths] as each game's cloth.
   CasinoTableColors withCloths(Map<String, TableCloth> cloths) =>
       copyWith(cloths: cloths);
 
-  /// By night: graphite, a deep teal cloth, a subtle gold rim, a controlled
-  /// cyan glow. (The cloth is `TableCloth.tinted` of [TableCloth.tealHue],
-  /// written out so the set stays `const`.)
+  /// By night (VIP casino): a dark espresso leather rail with a gold edge, a
+  /// deep wine-red felt falling to near black at its rim, and a controlled
+  /// warm-gold light round the table — no neon.
   static const CasinoTableColors dark = CasinoTableColors(
-    railTop: Color(0xFF2E3238),
-    railBottom: Color(0xFF16181C),
-    railSheen: Color(0x1FFFFFFF),
-    rim: Color(0xC7E8C877),
-    rimLow: Color(0xA38A6A18),
-    seam: Color(0x99000000),
+    railTop: Color(0xFF34251D),
+    railBottom: Color(0xFF110B08),
+    railSheen: Color(0x26FFE3C2),
+    rim: Color(0xF2EAC671),
+    rimLow: Color(0xCC8F6A1E),
+    seam: Color(0xB3000000),
     cloth: TableCloth(
-      centre: Color(0xFF1A3734),
-      edge: Color(0xFF081412),
-      line: Color(0x4C4C9A8F),
-      lip: Color(0x73000000),
+      centre: Color(0xFF6A1524),
+      edge: Color(0xFF22060B),
+      line: Color(0x3DE8C877),
+      lip: Color(0x8C000000),
     ),
-    shadow: Color(0x99000000),
-    shadowBlur: 22,
-    glow: Color(0x2E3FD1C2),
+    shadow: Color(0xB3000000),
+    shadowBlur: 26,
+    glow: Color(0x33E8B04B),
     lamp: _lampWarm,
-    lampAlpha: 0.075,
+    lampAlpha: 0.07,
     turnGlow: Color(0xFFF1D27A),
+    ink: Color(0xFFF6EEDD),
   );
 
-  /// By day: a pearl rail, a soft teal cloth, a champagne rim, and a soft
-  /// shadow in the light theme's own slate.
+  /// By day (premium card lounge): the same espresso leather rail and gold
+  /// edge, a rich emerald felt deepening towards its rim, and a soft warm
+  /// shadow on the ivory floor. No glow round the rail: on a pale floor a glow
+  /// reads as a smudge.
   static const CasinoTableColors light = CasinoTableColors(
-    railTop: Color(0xFFFCFAF5),
-    railBottom: Color(0xFFE7DECB),
-    railSheen: Color(0xCCFFFFFF),
-    rim: Color(0xFFD9B458),
-    rimLow: Color(0xFFA9822A),
-    seam: Color(0x80A88A48),
+    railTop: Color(0xFF4A3527),
+    railBottom: Color(0xFF22160E),
+    railSheen: Color(0x38FFF1DC),
+    rim: Color(0xFFE4C066),
+    rimLow: Color(0xFFA67C22),
+    seam: Color(0x99000000),
     cloth: TableCloth(
-      centre: Color(0xFFD6EDEA),
-      edge: Color(0xFFB9DAD5),
-      line: Color(0x8C6EAAA2),
-      lip: Color(0x2E123631),
+      // Deep enough under the lamp for the words painted on it ([ink]) to
+      // read 4.5:1 or more, and the gold of a chosen variation as well.
+      centre: Color(0xFF186B47),
+      edge: Color(0xFF083826),
+      line: Color(0x47F1D27A),
+      lip: Color(0x6B000000),
     ),
-    shadow: Color(0x330E1220),
-    shadowBlur: 18,
+    shadow: Color(0x5C2E1E12),
+    shadowBlur: 24,
     glow: Color(0x00000000),
     lamp: _lampWarm,
-    lampAlpha: 0.30,
+    lampAlpha: 0.14,
     turnGlow: Color(0xFFD4A514),
+    ink: Color(0xFFF8F2E4),
   );
 
   /// The set for the theme in scope, by brightness when a theme was built
-  /// without the extension (every table then wears the teal).
+  /// without the extension.
   static CasinoTableColors of(BuildContext context) {
     final theme = Theme.of(context);
     return theme.extension<CasinoTableColors>() ??
@@ -555,6 +570,7 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
     Color? lamp,
     double? lampAlpha,
     Color? turnGlow,
+    Color? ink,
   }) => CasinoTableColors(
     railTop: railTop ?? this.railTop,
     railBottom: railBottom ?? this.railBottom,
@@ -570,6 +586,7 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
     lamp: lamp ?? this.lamp,
     lampAlpha: lampAlpha ?? this.lampAlpha,
     turnGlow: turnGlow ?? this.turnGlow,
+    ink: ink ?? this.ink,
   );
 
   @override
@@ -595,6 +612,7 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
       lamp: c(lamp, other.lamp),
       lampAlpha: lerpDouble(lampAlpha, other.lampAlpha, t)!,
       turnGlow: c(turnGlow, other.turnGlow),
+      ink: c(ink, other.ink),
     );
   }
 
@@ -614,7 +632,8 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
       other.glow == glow &&
       other.lamp == lamp &&
       other.lampAlpha == lampAlpha &&
-      other.turnGlow == turnGlow;
+      other.turnGlow == turnGlow &&
+      other.ink == ink;
 
   @override
   int get hashCode => Object.hash(
@@ -634,5 +653,6 @@ class CasinoTableColors extends ThemeExtension<CasinoTableColors> {
     lamp,
     lampAlpha,
     turnGlow,
+    ink,
   );
 }

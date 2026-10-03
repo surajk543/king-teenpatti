@@ -1,11 +1,12 @@
-// The casino table the Teen Patti seats stand round (owner's brief, 24 Sep
-// 2026: "a large oval/rounded casino table surface ... LIGHT MODE:
-// pearl/ivory outer table; subtle emerald/teal or champagne playing surface;
-// thin premium gold/champagne rim ... DARK MODE: dark graphite outer table;
-// deep emerald/black playing surface; subtle gold rim ... Do NOT use the
-// old-fashioned red casino table aesthetic"): its colours in both themes, the
-// table's words still legible on it, where it stands against the seats that
-// were there before it, and what paints over it.
+// The casino table the Teen Patti seats stand round — since 3 Oct 2026 the VIP
+// table of the owner's redesign brief ("DAY THEME: luxury VIP card lounge ...
+// rich emerald felt ... NIGHT THEME: VIP casino ... deep wine/burgundy felt",
+// after a reference picture of a wine-red table with a gold edge on a dark
+// rim; the owner chose one felt for every game): its colours in both themes,
+// the table's words still legible on it, where it stands against the seats,
+// and what paints over it. Until then it was the 24 Sep 2026 brief's pearl
+// table with a pale cloth a game ("Do NOT use the old-fashioned red casino
+// table aesthetic"), which the owner's reference replaced.
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -110,79 +111,102 @@ void main() {
           reason: game,
         );
       }
-      expect(half.shadowBlur, closeTo(20, 1e-9));
+      expect(
+        half.shadowBlur,
+        closeTo((light.shadowBlur + dark.shadowBlur) / 2, 1e-9),
+      );
     });
 
-    test('by day: a pearl rail, pale cloths, a champagne rim', () {
+    test('by day: an espresso leather rail, a rich emerald felt, a gold '
+        'rim', () {
       final c = of(lightTheme);
-      expect(c.railTop.computeLuminance(), greaterThan(0.85));
-      expect(c.railBottom.computeLuminance(), greaterThan(0.65));
-      for (final cloth in everyCloth(c)) {
-        for (final felt in [cloth.centre, cloth.edge]) {
-          expect(felt.computeLuminance(), greaterThan(0.4), reason: '$felt');
-        }
+      for (final rail in [c.railTop, c.railBottom]) {
+        expect(rail.computeLuminance(), lessThan(0.06), reason: '$rail');
+        expect(_hue(rail), inInclusiveRange(15, 40), reason: '$rail');
       }
       for (final felt in [c.cloth.centre, c.cloth.edge]) {
-        expect(_hue(felt), inInclusiveRange(140, 190), reason: '$felt');
+        expect(_hue(felt), inInclusiveRange(145, 165), reason: '$felt');
       }
+      // Lit under the lamp, deepening to its rim.
+      expect(c.cloth.centre.computeLuminance(), inInclusiveRange(0.08, 0.13));
+      expect(
+        c.cloth.edge.computeLuminance(),
+        lessThan(c.cloth.centre.computeLuminance() / 2),
+      );
       expect(_hue(c.rim), inInclusiveRange(35, 50));
-      // No glow on a pale floor: it reads as a smudge.
+      // No glow on the ivory floor: it reads as a smudge.
       expect(c.glow.a, 0);
     });
 
-    test('by night: graphite, deep cloths, a subtler gold, a cyan glow', () {
+    test('by night: the same leather, a deep wine felt, a subtler gold, a '
+        'warm glow', () {
       final c = of(darkTheme);
-      expect(c.railTop.computeLuminance(), lessThan(0.05));
-      for (final cloth in everyCloth(c)) {
-        for (final felt in [cloth.centre, cloth.edge]) {
-          expect(felt.computeLuminance(), lessThan(0.05), reason: '$felt');
-        }
+      for (final rail in [c.railTop, c.railBottom]) {
+        expect(rail.computeLuminance(), lessThan(0.05), reason: '$rail');
+        expect(_hue(rail), inInclusiveRange(15, 40), reason: '$rail');
       }
       for (final felt in [c.cloth.centre, c.cloth.edge]) {
-        expect(_hue(felt), inInclusiveRange(140, 190), reason: '$felt');
+        expect(felt.computeLuminance(), lessThan(0.05), reason: '$felt');
+        // Wine, a breath towards purple from a pure red: burgundy.
+        expect(_hue(felt), inInclusiveRange(340, 360), reason: '$felt');
       }
+      // Near black at its rim.
+      expect(c.cloth.edge.computeLuminance(), lessThan(0.01));
       expect(_hue(c.rim), inInclusiveRange(35, 50));
       expect(c.rim.a, lessThan(of(lightTheme).rim.a));
-      expect(_hue(c.glow), inInclusiveRange(165, 185));
+      // A warm gold light round it, never neon.
+      expect(_hue(c.glow), inInclusiveRange(30, 50));
       expect(c.glow.a, lessThan(0.25));
     });
 
-    test('never the red table', () {
+    // Owner, 3 Oct 2026: "One felt, like the reference" — which game a table
+    // plays is said by its tag and its lobby card, not by its cloth.
+    test('every game lays the one felt', () {
+      expect(AppTheme.perGameCloths, isFalse);
       for (final theme in [lightTheme, darkTheme]) {
-        for (final cloth in everyCloth(of(theme))) {
-          for (final felt in [cloth.centre, cloth.edge]) {
-            final h = _hue(felt);
-            expect(h > 20 && h < 330, isTrue, reason: '$felt');
-          }
+        final c = of(theme);
+        for (final game in [
+          null,
+          ...AppTheme.clothGames,
+          'three_card_poker',
+          'x',
+        ]) {
+          expect(
+            c.clothFor(game),
+            c.cloth,
+            reason: '${theme.brightness} $game',
+          );
         }
       }
     });
 
-    // Owner, 25 Sep 2026: "keep different table color for seen, blind,
-    // variation gameplay".
-    test('each game lays its own cloth, in its own colour', () {
-      for (final theme in [lightTheme, darkTheme]) {
-        final c = of(theme);
-        final cloths = [for (final g in AppTheme.clothGames) c.clothFor(g)];
-        expect(cloths.toSet(), hasLength(AppTheme.clothGames.length));
-        for (final cloth in cloths) {
-          expect(cloth, isNot(c.cloth));
+    // Kept behind AppTheme.perGameCloths (owner, 25 Sep 2026: "keep different
+    // table color for seen, blind, variation gameplay"), should a cloth a game
+    // come back: each still takes its own game's hue.
+    test(
+      'a game\'s own cloth, kept behind the switch, still takes its hue',
+      () {
+        for (final theme in [lightTheme, darkTheme]) {
+          for (final game in AppTheme.clothGames) {
+            final accent = AppTheme.paletteFor(
+              theme.colorScheme,
+              category: game,
+              bootAmount: 0,
+            ).accent;
+            final cloth = TableCloth.tinted(accent, theme.brightness);
+            final want = HSLColor.fromColor(accent).hue;
+            final got = HSLColor.fromColor(cloth.centre).hue;
+            final off = ((got - want + 540) % 360) - 180;
+            // By night a yellow leans a few degrees to amber.
+            expect(
+              off.abs(),
+              lessThan(10),
+              reason: '${theme.brightness} $game',
+            );
+          }
         }
-        for (final game in AppTheme.clothGames) {
-          final accent = AppTheme.paletteFor(
-            theme.colorScheme,
-            category: game,
-            bootAmount: 0,
-          ).accent;
-          final want = HSLColor.fromColor(accent).hue;
-          final got = HSLColor.fromColor(c.clothFor(game).centre).hue;
-          final off = ((got - want + 540) % 360) - 180;
-          // The hue of the game's lobby card and table tag; by night a
-          // yellow leans a few degrees to amber.
-          expect(off.abs(), lessThan(10), reason: '${theme.brightness} $game');
-        }
-      }
-    });
+      },
+    );
 
     test('a game with no colour of its own lays the table\'s own cloth', () {
       for (final theme in [lightTheme, darkTheme]) {
@@ -201,33 +225,32 @@ void main() {
     test('the table\'s words still read on every cloth', () {
       for (final theme in [lightTheme, darkTheme]) {
         final c = of(theme);
-        final dark = theme.brightness == Brightness.dark;
-        // The seat's status line and the waiting line, in the inks they
-        // are written in (seat_pod.dart, table_screen.dart _Status).
-        final status = theme.colorScheme.onSurface;
-        final waiting = dark
-            ? AppTheme.boneInk.withValues(alpha: 0.82)
-            : AppTheme.inkOnLight.withValues(alpha: 0.78);
-        for (final cloth in everyCloth(c)) {
-          for (final felt in [cloth.centre, cloth.edge]) {
-            expect(
-              _contrast(status, felt),
-              greaterThanOrEqualTo(4.5),
-              reason: '${theme.brightness} status on $felt',
-            );
-            expect(
-              _contrast(_over(waiting, felt), felt),
-              greaterThanOrEqualTo(4.5),
-              reason: '${theme.brightness} waiting line on $felt',
-            );
-          }
-        }
-        // And on the rail, where a top seat's words can land.
-        for (final rail in [c.railTop, c.railBottom]) {
+        // Painted straight on the cloth, in its own ink: the seat's status
+        // line (seat_pod.dart), and the waiting line and the variation lines
+        // (table_screen.dart _Status, variation_prompt.dart) a step quieter —
+        // and a chosen variation's name in champagne.
+        final status = c.ink;
+        final waiting = c.ink.withValues(alpha: 0.86);
+        for (final ground in [
+          for (final cloth in everyCloth(c)) ...[cloth.centre, cloth.edge],
+          // And on the rail, where a top seat's words can land.
+          c.railTop,
+          c.railBottom,
+        ]) {
           expect(
-            _contrast(status, rail),
+            _contrast(status, ground),
             greaterThanOrEqualTo(4.5),
-            reason: '${theme.brightness} status on the rail',
+            reason: '${theme.brightness} status on $ground',
+          );
+          expect(
+            _contrast(_over(waiting, ground), ground),
+            greaterThanOrEqualTo(4.5),
+            reason: '${theme.brightness} waiting line on $ground',
+          );
+          expect(
+            _contrast(AppTheme.goldBright, ground),
+            greaterThanOrEqualTo(4.5),
+            reason: '${theme.brightness} a chosen variation on $ground',
           );
         }
       }
@@ -310,17 +333,14 @@ void main() {
           ]) {
             expect(a, closeTo(b, 0.08), reason: '$category');
           }
-          // The far rail between the rim and the cloth is the rail's colour,
-          // pearl by day and graphite by night.
+          // The far rail between the rim and the cloth is the rail's colour:
+          // espresso leather by day and by night.
           final rail = await pixel(
             tester,
             image,
             Offset(300, geometry.outer.top + geometry.rail * 0.55),
           );
-          expect(
-            rail.computeLuminance(),
-            dark ? lessThan(0.1) : greaterThan(0.7),
-          );
+          expect(rail.computeLuminance(), lessThan(0.15));
           // Outside the table: nothing but the shadow's soft edge, far from
           // it.
           final room = await pixel(tester, image, const Offset(2, 2));
@@ -513,7 +533,7 @@ void main() {
         'seen',
       ),
     ]) {
-      testWidgets('a $category table ($prefix) lays the $category cloth', (
+      testWidgets('a $category table ($prefix) lays the one felt', (
         tester,
       ) async {
         for (final dark in [true, false]) {
@@ -535,8 +555,9 @@ void main() {
                       ? AppTheme.dark(sound: false)
                       : AppTheme.light(sound: false))
                   .extension<CasinoTableColors>()!;
+          // The surface is still told its game; it lays the one felt.
           expect(painter.cloth, colours.clothFor(category));
-          expect(painter.cloth, isNot(colours.cloth));
+          expect(painter.cloth, colours.cloth);
           await _unmount(tester, state);
         }
       });

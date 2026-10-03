@@ -229,7 +229,6 @@ void main() {
       for (final dark in [true, false]) {
         final state = await _mount(tester, _scene('03'), dark: dark);
         final pack = _key(state.t.pack);
-        final scheme = Theme.of(tester.element(pack)).colorScheme;
         final side = tester
             .widget<FilledButton>(
               find.descendant(of: pack, matching: find.byType(FilledButton)),
@@ -237,11 +236,11 @@ void main() {
             .style!
             .side!
             .resolve(const <WidgetState>{})!;
+        // The console is one dark glass in both themes (the VIP table,
+        // 3 Oct 2026), so Pack's red edge is the same by day as by night.
         expect(
           side.color,
-          scheme.error.withValues(
-            alpha: dark ? AppTheme.hairlineLive : AppTheme.hairlineLiveLight,
-          ),
+          TableKeys.pack.withValues(alpha: AppTheme.hairlineLive),
         );
         await _unmount(tester, state);
       }
@@ -291,40 +290,60 @@ void main() {
           ground,
         );
 
-        if (dark) {
-          // By night the edge is the beat itself, as it always was, and
-          // reads on every ground.
-          expect(edge, halo);
+        // The ring's edge is gold in both themes (the VIP table, 3 Oct
+        // 2026), champagne warming to amber as the clock runs out, never the
+        // red its halo reddens to. The pods stand on the table's dark leather
+        // rail and its deep felt by day as by night, where the ring reads 3:1
+        // or more at either end of the turn ...
+        // Gold, not red: champagne's green is 0.92 of its red, the amber's
+        // 0.76, the error red's 0.2.
+        for (final gold in [
+          edge,
+          AppTheme.goldBright,
+          TableAmbient.turnEdgeLate,
+        ]) {
+          expect(gold.g / gold.r, greaterThanOrEqualTo(0.75), reason: '$gold');
+        }
+        expect(halo.a, greaterThan(0));
+        for (final ink in [
+          edge,
+          AppTheme.goldBright,
+          TableAmbient.turnEdgeLate,
+        ]) {
           for (final ground in [
-            AppTheme.ground(b),
             colours.railTop,
             colours.railBottom,
             ...cloths,
+            if (dark) TableGround.nightRoom,
           ]) {
             expect(
-              against(edge, ground),
+              against(ink, ground),
               greaterThanOrEqualTo(3),
-              reason: '$ground',
+              reason: '$b $ink on $ground',
             );
           }
+        }
+        // ... where the red at the end of the turn, on the emerald felt by
+        // day, would have all but vanished.
+        if (!dark) {
+          final red = Color.lerp(
+            AppTheme.goldBright,
+            theme.colorScheme.error,
+            1,
+          )!;
+          expect(against(red, colours.cloth.centre), lessThan(1.5));
+        }
+        // ... and by day a dark line round it carries it over the ivory room
+        // the top seats reach into, where gold alone is 1.3:1.
+        final outline = ring.outline as Color?;
+        if (dark) {
+          expect(outline, isNull);
         } else {
-          // By day it is the gold the app writes with on a light ground, not
-          // the halo's champagne.
-          expect(edge, isNot(halo));
-          // 3:1 on the room and the rail the pods stand on ...
-          for (final ground in [TableGround.pearl, colours.railTop]) {
+          expect(outline, isNotNull);
+          for (final ground in [TableGround.ivory, TableGround.champagne]) {
             expect(
-              against(edge, ground),
+              _contrast(Color.alphaBlend(outline!, ground), ground),
               greaterThanOrEqualTo(3),
-              reason: '$ground',
-            );
-          }
-          // ... and 2:1 or more on every cloth and the rail's foot, where the
-          // champagne edge was 1.0 to 1.3:1.
-          for (final ground in [colours.railBottom, ...cloths]) {
-            expect(
-              against(edge, ground),
-              greaterThanOrEqualTo(2),
               reason: '$ground',
             );
           }

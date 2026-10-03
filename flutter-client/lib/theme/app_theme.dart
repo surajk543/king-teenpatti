@@ -1072,22 +1072,30 @@ class AppTheme {
     extensions: [...theme.extensions.values, tableColours(theme.colorScheme)],
   );
 
-  /// The games with a cloth of their own on the casino table: the three that
-  /// keep the Teen Patti rules. Any other category is laid on the emerald.
+  /// The games with a cloth of their own on the casino table when
+  /// [perGameCloths] is on: the three that keep the Teen Patti rules.
   static const List<String> clothGames = ['seen', 'blind', 'variation'];
 
-  /// The casino table's colours for a theme of [scheme]: the rail, the rim
-  /// and the light of its brightness ([CasinoTableColors.light] and
-  /// [CasinoTableColors.dark]), and each of [clothGames] on a cloth tinted from
-  /// that game's own accent ([paletteFor]: gold, sapphire, violet) — the
-  /// colour its lobby card and its table tag wear, so the three always agree
-  /// (owner, 25 Sep 2026: "keep different table color for seen, blind,
-  /// variation gameplay").
+  /// Whether each game lays a cloth in its own colour (owner, 25 Sep 2026)
+  /// instead of the VIP table's one felt — emerald by day, wine-red by night
+  /// (owner's redesign brief, 3 Oct 2026: "One felt, like the reference").
+  /// Off; the per-game cloths come back by turning it on.
+  static const bool perGameCloths = false;
+
+  /// The casino table's colours for a theme of [scheme]: the rail, the rim,
+  /// the felt and the light of its brightness ([CasinoTableColors.light] and
+  /// [CasinoTableColors.dark]) — and, only while [perGameCloths] is on, each
+  /// of [clothGames] on a cloth tinted from that game's own accent
+  /// ([paletteFor]: gold, sapphire, violet), the colour its lobby card and its
+  /// table tag wear (owner, 25 Sep 2026: "keep different table color for seen,
+  /// blind, variation gameplay").
   static CasinoTableColors tableColours(ColorScheme scheme) {
     final brightness = scheme.brightness;
     final base = brightness == Brightness.dark
         ? CasinoTableColors.dark
         : CasinoTableColors.light;
+    // ignore: dead_code
+    if (!perGameCloths) return base;
     return base.withCloths({
       for (final game in clothGames)
         game: TableCloth.tinted(

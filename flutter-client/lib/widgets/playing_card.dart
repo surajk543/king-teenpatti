@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../theme/app_theme.dart';
 
@@ -83,9 +82,29 @@ class PlayingCard extends StatefulWidget {
   /// is turned one card after another rather than all at once.
   final Duration flipDelay;
 
-  /// The card-back artwork's own ratio, which is the standard poker 5:7
-  /// (2.5 x 3.5 in): wide enough for a rank, its pip and the centre pip.
+  /// The card's ratio, the standard poker 5:7 (2.5 x 3.5 in): wide enough
+  /// for a rank, its pip and the centre pip. The back's artwork is cut to it.
   static const double aspect = 240 / 336;
+
+  /// The printed back: the owner's Royal Fox (3 Oct 2026: "change the
+  /// playing card back image to this one") — a fox leaping inside a gold
+  /// filigree frame on black, "ROYAL FOX" over it and "PLAYING CARDS" under
+  /// it. Cut from the owner's 1024x1024 picture to the card's 5:7 inside its
+  /// black border (the gold frame whole) and kept at 600x840, about twice
+  /// the largest card a phone draws; a JPEG, since the card's own corner cuts
+  /// it and nothing of it is transparent.
+  static const String backAsset = 'assets/card_back.jpg';
+
+  /// The back's black border, under the artwork while it decodes: a card
+  /// dealt in the first frames after a cold start is a dark card for a
+  /// moment, never an empty one.
+  static const Color backGround = Color(0xFF0D0C0B);
+
+  /// Decodes the back into the image cache ahead of the first card that
+  /// needs it — the splash screen and every table call this — so no card
+  /// turns up blank for the frame or two a decode takes.
+  static Future<void> precacheBack(BuildContext context) =>
+      precacheImage(const AssetImage(backAsset), context, onError: (_, _) {});
 
   /// The stock's corner radius, as a share of the card's height: a real
   /// card's rounded corner, not a button's.
@@ -329,9 +348,10 @@ class _PlayingCardState extends State<PlayingCard>
   }
 }
 
-/// The printed back — the King Teen Patti crown on its lattice — on the same
+/// The printed back — the Royal Fox ([PlayingCard.backAsset]) — on the same
 /// stock as the face: cut to the card's corner, with the stock's gold edge and
-/// its top-edge light laid over it. [tint] recolours the printing only.
+/// its top-edge light laid over it. [tint] recolours the artwork, keeping its
+/// light and dark: a SEEN opponent's backs are the fox in green.
 class _CardBack extends StatelessWidget {
   const _CardBack({required this.height, this.tint});
 
@@ -346,14 +366,21 @@ class _CardBack extends StatelessWidget {
       foregroundPainter: CardStockPainter(height: h, face: false),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(h * PlayingCard.cornerShare),
-        child: SvgPicture.asset(
-          'assets/card_back.svg',
-          fit: BoxFit.fill,
-          width: w,
-          height: h,
-          colorFilter: tint == null
-              ? null
-              : ColorFilter.mode(tint!, BlendMode.color),
+        child: ColoredBox(
+          color: PlayingCard.backGround,
+          child: Image.asset(
+            PlayingCard.backAsset,
+            fit: BoxFit.cover,
+            width: w,
+            height: h,
+            color: tint,
+            colorBlendMode: tint == null ? null : BlendMode.color,
+            // Drawn at a fraction of its size on every card: smoothed, so
+            // its gold filigree does not shimmer as the card moves.
+            filterQuality: FilterQuality.medium,
+            gaplessPlayback: true,
+            excludeFromSemantics: true,
+          ),
         ),
       ),
     );
