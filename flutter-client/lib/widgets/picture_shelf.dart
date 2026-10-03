@@ -1793,6 +1793,29 @@ class ShelfBadge extends StatelessWidget {
 
   static final Map<String, double> _lines = {};
 
+  /// The badge's words in [ink]: the store head's tag type — the label
+  /// ramp's smallest step, w700, a little tracking, tabular figures. The one
+  /// statement of it, for [build] and [heightFor].
+  static TextStyle _wordsStyle(ThemeData theme, Color ink) =>
+      (theme.textTheme.labelSmall ?? const TextStyle(fontSize: 10.5)).copyWith(
+        color: ink,
+        fontWeight: FontWeight.w700,
+        height: 1.15,
+        letterSpacing: 0.3,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      );
+
+  /// How tall every badge stands at this text size in this language — its
+  /// one measured line ([lineHeightFor]), or the glyph where taller, inside
+  /// its padding and its rim — whatever it says. For a shelf that sizes its
+  /// tiles from the words under them (the Cards shelf, 3 Oct 2026).
+  static double heightFor(BuildContext context) =>
+      math.max(
+        glyph,
+        lineHeightFor(context, _wordsStyle(Theme.of(context), AppTheme.ink900)),
+      ) +
+      2 * (Space.xxs + Dim.hairline);
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1883,13 +1906,7 @@ class ShelfBadge extends StatelessWidget {
       ),
     };
     // The store head's tag type: w700, a little tracking, tabular figures.
-    final words = base.copyWith(
-      color: ink,
-      fontWeight: FontWeight.w700,
-      height: 1.15,
-      letterSpacing: 0.3,
-      fontFeatures: const [FontFeature.tabularFigures()],
-    );
+    final words = _wordsStyle(theme, ink);
     final style = kind == ShelfBadgeKind.locked
         ? AppTheme.money(base.copyWith(height: 1.15), colour: ink)
         : words;
@@ -1978,6 +1995,40 @@ class ShelfDetail extends StatelessWidget {
   /// Whether [text] is a time, which a clock marks.
   final bool time;
 
+  /// The small print's type in [quiet]: the label ramp's smallest step,
+  /// w500, tabular figures. The one statement of it, for [build] and
+  /// [heightFor].
+  static TextStyle _style(ThemeData theme, Color quiet) => AppTheme.label(
+    (theme.textTheme.labelSmall ?? const TextStyle(fontSize: 10.5)).copyWith(
+      fontFeatures: const [FontFeature.tabularFigures()],
+    ),
+    colour: quiet,
+    weight: FontWeight.w500,
+  );
+
+  /// How tall the small print stands at this text size in this language: the
+  /// tallest of [texts] on one line, measured in the fonts the phone draws
+  /// them in (§12.3), or the clock beside it where that is taller. For a
+  /// shelf that sizes its tiles from the words under them (the Cards shelf,
+  /// 3 Oct 2026).
+  static double heightFor(BuildContext context, Iterable<String> texts) {
+    final theme = Theme.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final style = _style(theme, AppTheme.ink900);
+    var tallest = scaler.scale(theme.textTheme.labelSmall?.fontSize ?? 10.5);
+    for (final text in texts) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textDirection: Directionality.of(context),
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      tallest = math.max(tallest, painter.height);
+      painter.dispose();
+    }
+    return tallest;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1985,11 +2036,7 @@ class ShelfDetail extends StatelessWidget {
     final quiet = theme.colorScheme.onSurface.withValues(
       alpha: AppTheme.inkLowOn(theme.brightness),
     );
-    final style = AppTheme.label(
-      base.copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
-      colour: quiet,
-      weight: FontWeight.w500,
-    );
+    final style = _style(theme, quiet);
     final glyph = MediaQuery.textScalerOf(context).scale(base.fontSize ?? 10.5);
     return FittedBox(
       fit: BoxFit.scaleDown,

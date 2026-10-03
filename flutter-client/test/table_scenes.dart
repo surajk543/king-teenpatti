@@ -2,6 +2,8 @@
 // 2026), built from room:state JSON as the server sends it, and the app it is
 // mounted in. Not a test file: test/table_shots.dart pictures these scenes and
 // test/table_polish_test.dart lays them out.
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,12 +11,16 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:teenpatti/l10n/strings.dart';
 import 'package:teenpatti/models/dtos.dart';
+import 'package:teenpatti/net/picture_cache.dart';
 import 'package:teenpatti/screens/table_screen.dart';
 import 'package:teenpatti/settings/feedback_settings.dart';
 import 'package:teenpatti/state/game_state.dart';
 import 'package:teenpatti/widgets/buy_chips.dart';
+import 'package:teenpatti/widgets/card_back_art.dart';
 import 'package:teenpatti/widgets/premium_surface.dart';
 import 'package:teenpatti/widgets/rules_sheet.dart';
+
+import 'card_background_fixtures.dart';
 
 int get _now => DateTime.now().millisecondsSinceEpoch;
 
@@ -368,6 +374,83 @@ RoomState variationSelectingRoom({bool mine = false}) => _room(
   },
 );
 
+/// The card backs the card-back scenes dress the table in, by seat (owner,
+/// 3 Oct 2026: card backs bought on the store's Cards shelf): the viewer,
+/// Priya, in the Royal Tiger, three players round the rim in backs of their
+/// own — and Arjun (seat 3) in none, so the Royal Fox.
+const cardBacksWorn = <int, String>{
+  0: 'Royal Tiger',
+  1: 'Brutal Demon',
+  2: 'Royal Lion',
+  4: 'Royal Owl with Fox',
+};
+
+/// A blind table mid-hand, Arjun on turn (the seat [turnSeat] names; null
+/// for nobody), every player in the back [worn] names for their seat (none
+/// where it names none). Meera (seat 2) has looked at her cards, so her back
+/// is green, as any back is once seen; a seat in [packed] has folded, its
+/// cards struck out under its back.
+RoomState cardBacksRoom({
+  int handNo = 7,
+  Map<int, String> worn = cardBacksWorn,
+  List<int> packed = const [],
+  int? turnSeat = 3,
+}) => _room(
+  handNo: handNo,
+  turnSeat: turnSeat,
+  seats: [
+    for (var i = 0; i < 5; i++)
+      withCardBack(
+        _seat(
+          i,
+          chips: i == 0 ? 245000 : null,
+          blind: i != 2,
+          lastBet: i == 2 ? 800 : 400,
+          contributed: i == 2 ? 2200 : 1400,
+          status: packed.contains(i) ? 'packed' : 'active',
+        ),
+        worn[i] == null ? null : seededCard(worn[i]!),
+      ),
+  ],
+  you: _you(),
+);
+
+/// Where the card-back scenes read the owner's pictures from, when a copy of
+/// the bucket's `cards/` folder is on this machine
+/// (`--dart-define=CARD_ART_DIR=/abs/dir`); without one each back is its
+/// fixture miniature, the card in a colour of its own.
+const _cardArtDir = String.fromEnvironment('CARD_ART_DIR');
+
+/// Puts on the backs [cardBacksWorn] names: each picture decoded — and the
+/// Royal Fox, as the deal draws it for a seat in none — so every card shows
+/// its back from the next frame, as a phone that has them on its disk does.
+Future<void> wearCardBacks(WidgetTester tester, GameState state) async {
+  await tester.runAsync(() async {
+    for (final name in cardBacksWorn.values) {
+      final card = seededCard(name);
+      final file = File('$_cardArtDir/${card.key.split('/').last}');
+      PictureCache.prime(
+        card.url,
+        _cardArtDir.isNotEmpty && file.existsSync()
+            ? file.readAsBytesSync()
+            : await cardPicturePng(card.crop, card: card.colour),
+      );
+      await CardBackImages.load(card.art);
+    }
+    await CardBackImages.load(null);
+  });
+  await tester.pump();
+}
+
+/// The backs put on ([wearCardBacks]) and the next hand dealt: every card
+/// flying in the back of the seat it is dealt to.
+Future<void> dealInCardBacks(WidgetTester tester, GameState state) async {
+  await wearCardBacks(tester, state);
+  state.handleState(cardBacksRoom(handNo: 8));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 520));
+}
+
 final tableScenes = <TableScene>[
   TableScene('01-opponent-turn', (s) => s.handleState(opponentTurnRoom())),
   TableScene('02-your-turn-blind', (s) {
@@ -708,6 +791,22 @@ final tableScenes = <TableScene>[
       s.config = s.config.copyWith(maxPlayers: places);
       s.handleState(missedTurnsRoom(places: places));
     }),
+  // Card backs (owner, 3 Oct 2026: "Add a table cards_background which users
+  // can buy … add one more tab Cards in Store"): each player's back on their
+  // own face-down cards, seen by everybody at the table — the viewer's on
+  // their hand, three round the rim (one looked at, so green), one seat in
+  // none (the Royal Fox) — and the next hand dealt, every card flying in the
+  // back of the seat it is dealt to.
+  TableScene(
+    '42-cards-backs',
+    (s) => s.handleState(cardBacksRoom()),
+    wearCardBacks,
+  ),
+  TableScene(
+    '43-cards-backs-dealing',
+    (s) => s.handleState(cardBacksRoom()),
+    dealInCardBacks,
+  ),
 ];
 
 /// A blind table after the viewer has missed [missed] of [max] turns in a

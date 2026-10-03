@@ -309,6 +309,7 @@ func New(opts Options) (*App, error) {
 	a.welcomeChips = ensureWelcome(cfg, opts.DB, users, clock.Now, logger)
 	pictures := db.NewPictures(opts.DB, users, clock.Now)
 	tablePictures := db.NewTablePictures(opts.DB, users, clock.Now)
+	cardBackgrounds := db.NewCardBackgrounds(opts.DB, users, clock.Now)
 	emojis := db.NewEmojis(opts.DB, users, clock.Now)
 	ledger := db.NewLedger(opts.DB, a.metrics, clock.Now)
 	hammers := db.NewHammers(opts.DB, a.metrics, clock.Now)
@@ -585,6 +586,13 @@ func New(opts Options) (*App, error) {
 		TablePictureLaid: func(userID string, pic *game.TablePicture) {
 			a.rooms.SetPlayerTablePicture(userID, pic)
 		},
+		// A card back chosen (or taken off, or found lapsed by a sweep) goes
+		// onto the player's seat, where everybody at a Teen Patti table sees
+		// it on their cards at once (owner, 3 Oct 2026); in the lobby, or at
+		// a poker room, nothing on a felt changes.
+		CardBackgroundChosen: func(userID string, cb *game.CardBackground) {
+			a.rooms.SetPlayerCardBackground(userID, cb)
+		},
 		Purchases:      chipStore,
 		ApplePurchases: appleStore,
 		Missiles:       missiles,
@@ -594,6 +602,11 @@ func New(opts Options) (*App, error) {
 		// table shows the highest-ranking one laid among its seats to
 		// everyone at it (game/tablepicture.go).
 		TablePictures: tablePictures,
+		// The backs of a player's cards (owner, 3 Oct 2026): the same
+		// catalogue shape, bought at the same till — the seeded ones for
+		// five hammers, at a table too — and each player's shown to everyone
+		// at their table (game/cardbackground.go).
+		CardBackgrounds: cardBackgrounds,
 		// The animated emojis a player buys and sends to their table (owner,
 		// 26 Sep 2026): the same catalogue shape and the same till; a
 		// chip-priced one is bought in the lobby only, under the seat lock

@@ -296,6 +296,13 @@ type wornPicture struct {
 	url    *string
 }
 
+// chosenCard is one call of Deps.CardBackgroundChosen: the seat told which
+// card back its player now wears (nil: the default back).
+type chosenCard struct {
+	userID string
+	cb     *game.CardBackground
+}
+
 // harness is a mux with the REST routes plus the app-side /api/ 404, a fake
 // store and a profiles directory holding the bundled picture names.
 type harness struct {
@@ -304,11 +311,13 @@ type harness struct {
 	store    *fakeStore
 	pictures *fakePictures
 	tables   *fakeTablePictures
+	cards    *fakeCardBackgrounds
 	tokens   *Tokens
 	cfg      *config.Config
 	seated   map[string]bool
 	worn     []wornPicture
 	laid     []laidTable
+	chosen   []chosenCard
 	logs     *bytes.Buffer
 }
 
@@ -319,6 +328,7 @@ func newHarness(t *testing.T) *harness {
 	h := &harness{t: t, mux: http.NewServeMux(), store: newFakeStore(), cfg: cfg, seated: map[string]bool{}, logs: &bytes.Buffer{}}
 	h.pictures = newFakePictures(h.store)
 	h.tables = newFakeTablePictures(h.store)
+	h.cards = newFakeCardBackgrounds(h.store)
 	h.tokens = NewTokens(cfg.JWT.Secret, cfg.JWT.ExpiresIn, time.Now)
 	handler := NewHandler(Deps{
 		Config:        cfg,
@@ -334,7 +344,11 @@ func newHarness(t *testing.T) *harness {
 		TablePictureLaid: func(id string, pic *game.TablePicture) {
 			h.laid = append(h.laid, laidTable{userID: id, pic: pic})
 		},
-		Logger: slog.New(slog.NewJSONHandler(h.logs, nil)),
+		CardBackgroundChosen: func(id string, cb *game.CardBackground) {
+			h.chosen = append(h.chosen, chosenCard{userID: id, cb: cb})
+		},
+		CardBackgrounds: h.cards,
+		Logger:          slog.New(slog.NewJSONHandler(h.logs, nil)),
 	})
 	handler.Register(h.mux)
 	h.mux.Handle("/api/", NotFoundHandler())

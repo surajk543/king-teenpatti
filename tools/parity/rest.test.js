@@ -28,7 +28,10 @@ test.after(async () => {
 const uniqueStake = stakeCounter(100);
 
 const USER_KEYS = [
-  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'tablePicture', 'chips', 'diamond', 'hammer', 'missile',
+  'id', 'provider', 'displayName', 'email', 'avatarUrl', 'providerAvatarUrl', 'activePictureId', 'tablePicture',
+  // the card back chosen (3 Oct 2026), null — the default back — until one is
+  'cardBackground',
+  'chips', 'diamond', 'hammer', 'missile',
   'handsPlayed', 'handsWon', 'handsLost', 'handsLeftMid', 'totalWinnings', 'biggestPot',
   // the winning tax paid in the whole career (2 Oct 2026; player_stats.total_tax_paid)
   'totalTaxPaid',
@@ -79,6 +82,7 @@ test('guest login creates an account with the welcome chip grant, in the exact p
   assert.equal(user.providerAvatarUrl, null);
   assert.equal(user.activePictureId, null);
   assert.equal(user.tablePicture, null, 'the table as it comes, until a table picture is laid');
+  assert.equal(user.cardBackground, null, 'the default back, until a card back is chosen');
   assert.equal(user.chips, profile.welcomeChips, 'a first-time player is granted the welcome chips');
   assert.equal(user.diamond, diamonds, "and the welcome's diamonds, the premium currency");
   assert.equal(user.hammer, hammers, "and the welcome's hammers");

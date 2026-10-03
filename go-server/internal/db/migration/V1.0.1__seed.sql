@@ -12,6 +12,10 @@
 --   THE TABLE PICTURES  the table-picture catalogue (owner, 15 Sep 2026):
 --                 the pictures a player lays on their table, a day and a
 --                 night file each (table_pictures).
+--   THE CARD BACKS  the card-back catalogue (owner, 3 Oct 2026): the backs a
+--                 player buys for their cards, everyone at their table seeing
+--                 them (cards_background) — eight at 5 hammers and five
+--                 Flower backs at 2, each for 10 days.
 --   THE TABLES    the table catalogue (owner, 23 Sep 2026): the engines and
 --                 the categories under them (table_engines, table_categories),
 --                 the one table_settings row, and a table_configs row for
@@ -85,12 +89,14 @@
 -- not a code change.
 --
 -- Taking an item OFF THE SHELVES is an UPDATE too (owner, 1 Oct 2026:
--- is_listed, on profile_pictures, table_pictures, emojis and badges):
+-- is_listed, on profile_pictures, table_pictures, emojis and badges — and
+-- since 3 Oct 2026 the card backs, cards_background, which have it too):
 --
 --     UPDATE profile_pictures SET is_listed = FALSE WHERE name = 'Cool Cat';
 --     UPDATE table_pictures   SET is_listed = FALSE WHERE name = 'Welcome';
 --     UPDATE emojis           SET is_listed = FALSE WHERE name = 'Knife';
 --     UPDATE badges           SET is_listed = FALSE WHERE code = 'ROYAL_KING';
+--     UPDATE cards_background SET is_listed = FALSE WHERE name = 'Brutal Demon';
 --
 -- The store and every list the app draws stop showing it at their next read
 -- — to everybody but a player who already has it (bought or won, and still
@@ -697,6 +703,125 @@ SELECT name, day_asset_url, night_asset_url, asset_format, currency, type, cost,
      'LOTTIE', 'COIN', 'PREMIUM', 300000::bigint, 7, 0, TRUE, 95)
   ) AS seed(name, day_asset_url, night_asset_url, asset_format, currency, type, cost, duration_days, duration_hours, is_active, sort_order)
     ON CONFLICT (day_asset_url) DO NOTHING;
+
+
+-- ============================================================= THE CARD BACKS
+--
+-- Every card back the server seeds (owner, 3 Oct 2026: "Add a table
+-- cards_background which users can buy just like user can buy
+-- profile_pictures, cards background images are stored in r2 storage in cards
+-- folder, you can pick from images from there and add one more tab Cards in
+-- Store which user can buy, in database store its path, just like you are
+-- storing for profile_pictures table, implement same functionality, keep the
+-- price of all cards 5 Hammers validity 10 days"), for the three tables
+-- V1.0.0__baseline.sql's CARD BACKS section builds. Everybody at a Teen Patti
+-- table sees each player's card back on that player's face-down cards.
+--
+-- THE DEFAULT BACK IS NOT A ROW. It is the owner's Royal Fox, bundled with
+-- the app (flutter-client/assets/card_back.jpg; its file is in the bucket too,
+-- cards/Royal Fox.jpg), worn by every player who has chosen nothing, and the
+-- Cards shelf shows it as its first tile, owned by everyone. The thirteen
+-- below are the rest of the owner's cards/ folder, every one sold, PREMIUM and
+-- rented for 10 days: the first eight at 5 HAMMERS, and the five Flower backs
+-- the owner uploaded that evening at 2 HAMMERS ("I have uploaded new card
+-- images with prefix 'Flower ' ... keep the cost of those 2 hammer validity
+-- 10 days") — so bought at a table as well as in the lobby, no hammer is a
+-- chip (CLAUDE.md §5.1).
+--
+-- THE ART is the owner's own upload to the private R2 bucket's cards/ folder,
+-- made straight to R2 — never on Google Drive, so tools/r2/drive-to-r2.tsv,
+-- the record of the Drive move, names none of them. Each asset_url is the
+-- file's LOCATION, its key written as the bucket names it with each space %20
+-- (the one escape a location carries; the capitals and "Royal Owl with
+-- fox.jpg"'s lower-case f are the owner's file names), which a phone opens
+-- through POST /api/assets/sign. Every file is a 1024×1024 JPEG product shot:
+-- the card on a dark ground at a different size and place in each, so every
+-- row carries the CARD'S rectangle in its picture (crop_x, crop_y, crop_w,
+-- crop_h, fractions of the picture), measured by hand — no ground shows at
+-- any edge with the game's card corner (PlayingCard.cornerShare, 0.058 of the
+-- height) — and exactly the card's 5:7 in pixels, so a client draws the crop
+-- stretched to its card.
+--
+--   Brutal Demon        sort_order 10   crop 0.2035 0.0805 0.6007 0.8410
+--   Demon Hell          sort_order 20   crop 0.2203 0.1167 0.5594 0.7831
+--   Dragon Hunter       sort_order 30   crop 0.2073 0.0880 0.5844 0.8182
+--   Royal Lion          sort_order 40   crop 0.2065 0.0948 0.5851 0.8192
+--   Royal Majestic Fox  sort_order 50   crop 0.2371 0.1336 0.5248 0.7347
+--   Royal Owl with Fox  sort_order 60   crop 0.1985 0.0776 0.6021 0.8429
+--   Royal Tiger         sort_order 70   crop 0.2291 0.1262 0.5417 0.7584
+--   Royal White Tiger   sort_order 80   crop 0.2224 0.1108 0.5533 0.7746
+--   Flower 1            sort_order 90   crop 0.2209 0.0994 0.5729 0.8021   2 hammers
+--   Flower 2            sort_order 100  crop 0.2308 0.1124 0.5383 0.7537   2 hammers
+--   Flower 3            sort_order 110  crop 0.2295 0.1261 0.5411 0.7575   2 hammers
+--   Flower 4            sort_order 120  crop 0.2393 0.1365 0.5214 0.7299   2 hammers
+--   Flower 5            sort_order 130  crop 0.2346 0.1279 0.5289 0.7404   2 hammers
+--
+-- (Flower 1 and Flower 4 are white-bordered cards: their crops keep the white
+-- border whole round the game's card corner.)
+--
+-- Idempotent like everything in this file: ON CONFLICT on the natural key
+-- (asset_url) DO NOTHING, so a boot adds the rows a database lacks and never
+-- rewrites one the owner has since re-priced, renamed, reordered or retired.
+-- Editing a row a database already has is an UPDATE run there:
+--
+--   UPDATE cards_background SET currency = 'DIAMOND', cost = 2 WHERE name = 'Royal Tiger';
+--   UPDATE cards_background SET duration_days = 30 WHERE name = 'Demon Hell';
+--   UPDATE cards_background SET is_listed = FALSE WHERE name = 'Brutal Demon';  -- off the shelf, kept by its owners
+--   UPDATE cards_background SET is_active = FALSE WHERE name = 'Brutal Demon';  -- retired: sold to nobody
+--
+-- A new card back is a file uploaded to the bucket's cards/ folder and a row
+-- appended here (or INSERTed by hand), measured the same way; it reaches every
+-- database at its next boot. A file replaced in the bucket needs a NEW key — a
+-- phone keeps a file under its location for ever (CLAUDE.md §8.4).
+
+INSERT INTO cards_background (name, asset_url, asset_format, crop_x, crop_y, crop_w, crop_h, currency, type, cost,
+                              duration_days, duration_hours, is_active, is_listed, sort_order, created_at, updated_at)
+SELECT name, asset_url, 'IMAGE', crop_x::double precision, crop_y::double precision, crop_w::double precision, crop_h::double precision,
+       currency, type, cost, duration_days, duration_hours, TRUE, TRUE, sort_order,
+       (EXTRACT(EPOCH FROM now()) * 1000)::bigint,
+       (EXTRACT(EPOCH FROM now()) * 1000)::bigint
+  FROM (VALUES
+    ('Brutal Demon',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/cards/Brutal%20Demon.jpg',
+     0.2035, 0.0805, 0.6007, 0.8410, 'HAMMER', 'PREMIUM', 5::bigint, 10, 0, 10),
+    ('Demon Hell',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/cards/Demon%20Hell.jpg',
+     0.2203, 0.1167, 0.5594, 0.7831, 'HAMMER', 'PREMIUM', 5::bigint, 10, 0, 20),
+    ('Dragon Hunter',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/cards/Dragon%20Hunter.jpg',
+     0.2073, 0.0880, 0.5844, 0.8182, 'HAMMER', 'PREMIUM', 5::bigint, 10, 0, 30),
+    ('Royal Lion',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/cards/Royal%20Lion.jpg',
+     0.2065, 0.0948, 0.5851, 0.8192, 'HAMMER', 'PREMIUM', 5::bigint, 10, 0, 40),
+    ('Royal Majestic Fox',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/cards/Royal%20Majestic%20Fox.jpg',
+     0.2371, 0.1336, 0.5248, 0.7347, 'HAMMER', 'PREMIUM', 5::bigint, 10, 0, 50),
+    ('Royal Owl with Fox',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/cards/Royal%20Owl%20with%20fox.jpg',
+     0.1985, 0.0776, 0.6021, 0.8429, 'HAMMER', 'PREMIUM', 5::bigint, 10, 0, 60),
+    ('Royal Tiger',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/cards/Royal%20Tiger.jpg',
+     0.2291, 0.1262, 0.5417, 0.7584, 'HAMMER', 'PREMIUM', 5::bigint, 10, 0, 70),
+    ('Royal White Tiger',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/cards/Royal%20White%20Tiger.jpg',
+     0.2224, 0.1108, 0.5533, 0.7746, 'HAMMER', 'PREMIUM', 5::bigint, 10, 0, 80),
+    ('Flower 1',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/cards/Flower%201.jpg',
+     0.2209, 0.0994, 0.5729, 0.8021, 'HAMMER', 'PREMIUM', 2::bigint, 10, 0, 90),
+    ('Flower 2',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/cards/Flower%202.jpg',
+     0.2308, 0.1124, 0.5383, 0.7537, 'HAMMER', 'PREMIUM', 2::bigint, 10, 0, 100),
+    ('Flower 3',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/cards/Flower%203.jpg',
+     0.2295, 0.1261, 0.5411, 0.7575, 'HAMMER', 'PREMIUM', 2::bigint, 10, 0, 110),
+    ('Flower 4',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/cards/Flower%204.jpg',
+     0.2393, 0.1365, 0.5214, 0.7299, 'HAMMER', 'PREMIUM', 2::bigint, 10, 0, 120),
+    ('Flower 5',
+     'https://a91cb23b3b93a35dd9ea50db7b855e18.r2.cloudflarestorage.com/king-teenpatti/cards/Flower%205.jpg',
+     0.2346, 0.1279, 0.5289, 0.7404, 'HAMMER', 'PREMIUM', 2::bigint, 10, 0, 130)
+  ) AS seed(name, asset_url, crop_x, crop_y, crop_w, crop_h, currency, type, cost, duration_days, duration_hours, sort_order)
+    ON CONFLICT (asset_url) DO NOTHING;
 
 
 -- ================================================================== THE TABLES

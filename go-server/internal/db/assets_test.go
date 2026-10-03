@@ -44,9 +44,32 @@ var assetColumns = []struct{ table, column string }{
 	{"profile_pictures", "asset_url"},
 	{"table_pictures", "day_asset_url"},
 	{"table_pictures", "night_asset_url"},
+	{"cards_background", "asset_url"},
 	{"emojis", "asset_url"},
 	{"badges", "asset_url"},
 	{"player_levels", "asset_url"},
+}
+
+// ownersCards are the keys of the card backs the seed names (owner, 3 Oct
+// 2026), as a location writes them (each space %20). The owner uploaded them
+// straight into the bucket's cards/ folder — they were never on Google Drive,
+// so the move's record (tools/r2/drive-to-r2.tsv) names none of them, and is
+// not a record of them. (Royal Fox, cards/Royal%20Fox.jpg, is the app's
+// bundled default and no row.)
+var ownersCards = map[string]bool{
+	"cards/Brutal%20Demon.jpg":           true,
+	"cards/Demon%20Hell.jpg":             true,
+	"cards/Dragon%20Hunter.jpg":          true,
+	"cards/Royal%20Lion.jpg":             true,
+	"cards/Royal%20Majestic%20Fox.jpg":   true,
+	"cards/Royal%20Owl%20with%20fox.jpg": true,
+	"cards/Royal%20Tiger.jpg":            true,
+	"cards/Royal%20White%20Tiger.jpg":    true,
+	"cards/Flower%201.jpg":               true,
+	"cards/Flower%202.jpg":               true,
+	"cards/Flower%203.jpg":               true,
+	"cards/Flower%204.jpg":               true,
+	"cards/Flower%205.jpg":               true,
 }
 
 // assetURLs is every URL those columns hold, column by column.
@@ -73,7 +96,9 @@ func assetURLs(t *testing.T, f *fixture) map[string][]string {
 // A fresh database names no Google Drive file and no file of this server's:
 // every piece of the catalogue's art is a location in the R2 bucket, a key
 // tools/r2/migrate_drive_assets.py uploaded (the six levels this server used
-// to serve from public/levels/ included).
+// to serve from public/levels/ included) — or, for a card back (3 Oct 2026),
+// one of the owner's own uploads to the bucket's cards/ folder, which the
+// move never touched.
 func TestEveryCatalogueFileIsInTheR2Bucket(t *testing.T) {
 	f := newFixture(t)
 	uploaded := map[string]bool{}
@@ -83,10 +108,18 @@ func TestEveryCatalogueFileIsInTheR2Bucket(t *testing.T) {
 	if len(uploaded) != 130 {
 		t.Fatalf("the move's record names %d files, want 130", len(uploaded))
 	}
-	inBucket := map[string]bool{}
+	inBucket, cards := map[string]bool{}, map[string]bool{}
 	for column, urls := range assetURLs(t, f) {
 		for _, u := range urls {
 			switch {
+			case column == "cards_background.asset_url":
+				// The owner's own uploads: a location in the bucket, never one
+				// the move made.
+				key := strings.TrimPrefix(u, seededAssets)
+				if !strings.HasPrefix(u, seededAssets) || !ownersCards[key] || uploaded[key] {
+					t.Errorf("%s names %s, not one of the owner's card backs in the bucket", column, u)
+				}
+				cards[key] = true
 			case strings.HasPrefix(u, seededAssets):
 				key := strings.TrimPrefix(u, seededAssets)
 				if !uploaded[key] {
@@ -101,6 +134,9 @@ func TestEveryCatalogueFileIsInTheR2Bucket(t *testing.T) {
 	if len(inBucket) != len(uploaded) {
 		t.Errorf("the seed names %d of the %d files the move uploaded", len(inBucket), len(uploaded))
 	}
+	if len(cards) != len(ownersCards) {
+		t.Errorf("the seed names %d of the owner's %d card backs", len(cards), len(ownersCards))
+	}
 }
 
 // A database seeded while the art was on Google Drive — production's — is
@@ -112,7 +148,7 @@ func TestEveryCatalogueFileIsInTheR2Bucket(t *testing.T) {
 func TestABootMovesADriveEraCatalogueOntoItsR2Locations(t *testing.T) {
 	f := newFixture(t)
 	fresh := assetURLs(t, f)
-	tables := []string{"profile_pictures", "table_pictures", "emojis", "badges", "player_levels"}
+	tables := []string{"profile_pictures", "table_pictures", "cards_background", "emojis", "badges", "player_levels"}
 	counts := func() map[string]int64 {
 		out := map[string]int64{}
 		for _, table := range tables {
@@ -151,6 +187,12 @@ func TestABootMovesADriveEraCatalogueOntoItsR2Locations(t *testing.T) {
 		t.Fatal(err)
 	}
 	for column, urls := range assetURLs(t, f) {
+		if column == "cards_background.asset_url" {
+			// The owner's own uploads to R2 (3 Oct 2026), never on Drive: no
+			// move made them, so none is undone, and the boots below leave
+			// them exactly as they are.
+			continue
+		}
 		for _, u := range urls {
 			if strings.HasPrefix(u, seededAssets) {
 				t.Fatalf("the Drive-era database still names %s in %s", u, column)
@@ -205,9 +247,18 @@ func TestStoredNamesWhatTheCatalogueStoresAndNothingElse(t *testing.T) {
 	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE emojis SET is_active = FALSE, is_listed = FALSE WHERE name = 'Knife'`); err != nil {
 		t.Fatal(err)
 	}
+	// A retired card back still counts: whoever chose it keeps it on their
+	// cards, and everybody at their table draws it.
+	if _, err := f.d.Pool.Exec(f.ctx, `UPDATE cards_background SET is_active = FALSE, is_listed = FALSE WHERE name = 'Demon Hell'`); err != nil {
+		t.Fatal(err)
+	}
 	asked := []string{
 		seededAssets + "profile_pictures/bear.png",
 		seededAssets + "table_pictures/thank-you-night.json",
+		seededAssets + "cards/Brutal%20Demon.jpg",
+		seededAssets + "cards/Demon%20Hell.jpg",
+		seededAssets + "cards/Royal%20Fox.jpg",  // the bundled default: in the bucket, named by no row
+		seededAssets + "cards/Brutal Demon.jpg", // not the location the row stores
 		seededAssets + "emojis/knife.json",
 		seededAssets + "badges/royal-ace.json",
 		seededAssets + "levels/02-rookie.json",
@@ -225,7 +276,7 @@ func TestStoredNamesWhatTheCatalogueStoresAndNothingElse(t *testing.T) {
 		got = append(got, strings.TrimPrefix(u, seededAssets))
 	}
 	sort.Strings(got)
-	want := []string{"badges/royal-ace.json", "emojis/knife.json", "levels/02-rookie.json",
+	want := []string{"badges/royal-ace.json", "cards/Brutal%20Demon.jpg", "cards/Demon%20Hell.jpg", "emojis/knife.json", "levels/02-rookie.json",
 		"profile_pictures/bear.png", "table_pictures/thank-you-night.json"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("Stored = %v, want %v", got, want)

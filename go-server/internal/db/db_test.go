@@ -290,6 +290,65 @@ func TestMigrationsAreVersionedOrderedAndSplitByKind(t *testing.T) {
 		t.Errorf("%s should seed the table pictures, after the profile pictures and before the table catalogue", migrations[1].File)
 	}
 
+	// The card backs (owner, 3 Oct 2026): three more tables in the baseline,
+	// the table pictures' twins, right after them and before the emojis —
+	// cards_background, then the two that name a player and a card back —
+	// declared whole (nothing altered: no database has them yet, so no
+	// guarded block), and nothing on users, which ops/DEPLOY.md §7 may have
+	// handed to the superuser. The art is a raster and its card's rectangle
+	// four optional fractions, all or none, inside the picture.
+	if !inOrder(baseline, "CREATE TABLE IF NOT EXISTS user_table_choice", "CREATE TABLE IF NOT EXISTS cards_background",
+		"CREATE TABLE IF NOT EXISTS user_cards_background", "CREATE TABLE IF NOT EXISTS user_cards_background_choice",
+		"CREATE TABLE IF NOT EXISTS emojis") {
+		t.Error("the baseline must create cards_background, user_cards_background and user_cards_background_choice in that order, after the table pictures and before the emojis")
+	}
+	cards := squash(createTableBody(t, baseline, "cards_background"))
+	for _, want := range []string{
+		"asset_url TEXT NOT NULL UNIQUE", "asset_format TEXT NOT NULL DEFAULT 'IMAGE' CHECK (asset_format IN ('IMAGE'))",
+		"crop_x DOUBLE PRECISION,", "crop_y DOUBLE PRECISION,", "crop_w DOUBLE PRECISION,", "crop_h DOUBLE PRECISION,",
+		"CHECK (currency IN ('COIN', 'DIAMOND', 'HAMMER'))", "CHECK (type IN ('FREE', 'PREMIUM'))",
+		"duration_days INTEGER NOT NULL DEFAULT 0", "duration_hours INTEGER NOT NULL DEFAULT 0",
+		"is_active BOOLEAN NOT NULL DEFAULT TRUE", "is_listed BOOLEAN NOT NULL DEFAULT TRUE",
+		"CONSTRAINT free_card_background_cost_check", "CONSTRAINT card_background_crop_check",
+		"crop_x + crop_w <= 1 AND crop_y + crop_h <= 1",
+	} {
+		if !strings.Contains(cards, want) {
+			t.Errorf("CREATE TABLE cards_background must declare %q:\n%s", want, cards)
+		}
+	}
+	for table, wants := range map[string][]string{
+		"user_cards_background": {"user_id TEXT NOT NULL REFERENCES users (id) ON DELETE CASCADE",
+			"card_background_id BIGINT NOT NULL REFERENCES cards_background (id) ON DELETE CASCADE",
+			"expires_at BIGINT NOT NULL DEFAULT 0", "purchases INTEGER NOT NULL DEFAULT 1 CHECK (purchases > 0)",
+			"PRIMARY KEY (user_id, card_background_id)"},
+		"user_cards_background_choice": {"user_id TEXT PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE",
+			"card_background_id BIGINT NOT NULL REFERENCES cards_background (id) ON DELETE CASCADE"},
+	} {
+		body := squash(createTableBody(t, baseline, table))
+		for _, want := range wants {
+			if !strings.Contains(body, want) {
+				t.Errorf("CREATE TABLE %s must declare %q:\n%s", table, want, body)
+			}
+		}
+	}
+	for _, table := range []string{"cards_background", "user_cards_background", "user_cards_background_choice"} {
+		if strings.Contains(baseline, "ALTER TABLE "+table+" ") {
+			t.Errorf("%s must be declared in full, never altered", table)
+		}
+	}
+	// Their rows: the owner's eight, after the table pictures and before the
+	// table catalogue, never anybody's ownership or choice, and added only
+	// where the location is missing, so an owner's UPDATE survives every boot.
+	if !inOrder(seed, "INSERT INTO table_pictures", "INSERT INTO cards_background", "INSERT INTO table_engines") {
+		t.Errorf("%s should seed the card backs after the table pictures and before the table catalogue", migrations[1].File)
+	}
+	if strings.Contains(seed, "INTO user_cards_background") {
+		t.Errorf("%s must seed nobody's card back", migrations[1].File)
+	}
+	if insert := seed[strings.Index(seed, "INSERT INTO cards_background"):]; !strings.Contains(insert[:strings.Index(insert, ";")+1], "ON CONFLICT (asset_url) DO NOTHING;") {
+		t.Errorf("%s must add the card backs ON CONFLICT (asset_url) DO NOTHING", migrations[1].File)
+	}
+
 	// The emoji store (owner, 26 Sep 2026): two more tables in the baseline,
 	// after the table pictures and before the ledger, and NO rows in the seed —
 	// the owner supplies the art and the rows are added then. Nothing of it
@@ -736,7 +795,10 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	// reward_program_rewards, the login streaks' and calendars'
 	// configuration, and user_reward_claims, every reward granted), and
 	// user_reward_progress (1 Oct 2026: each player's standing in a program's
-	// period) — forty-four, and no game state (the baseline's header).
+	// period), and the card backs' three (3 Oct 2026: cards_background, the
+	// catalogue, user_cards_background, who has bought which, and
+	// user_cards_background_choice, which each player has chosen) —
+	// forty-seven, and no game state (the baseline's header).
 	rows, err := f.d.Pool.Query(f.ctx, `SELECT table_name FROM information_schema.tables
          WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`, f.d.Schema)
 	if err != nil {
@@ -754,11 +816,11 @@ func TestBootstrapCreatesEveryTableAndSetsSearchPathPerConnection(t *testing.T) 
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"app_versions", "badge_purchases", "badges", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends",
+	want := []string{"app_versions", "badge_purchases", "badges", "cards_background", "chip_ledger", "diamond_purchases", "emojis", "friend_requests", "friendships", "hammer_purchases", "hammer_spends",
 		"lucky_draw_slots", "lucky_draws", "missile_purchases", "missile_spends",
 		"player_levels", "player_reports", "player_stats", "player_variation_stats", "player_xp", "player_xp_claims", "player_xp_missions",
 		"profile_pictures", "reward_program_rewards", "reward_programs", "stats_flushes", "table_categories", "table_configs", "table_engines", "table_pictures", "table_settings",
-		"user_badges", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_reward_claims", "user_reward_progress", "user_sessions", "user_table_choice", "user_table_pictures", "users",
+		"user_badges", "user_cards_background", "user_cards_background_choice", "user_emojis", "user_lucky_draws", "user_milestones", "user_profile_pictures", "user_reward_claims", "user_reward_progress", "user_sessions", "user_table_choice", "user_table_pictures", "users",
 		"welcome_rewards", "xp_settings", "xp_sources"}
 	if strings.Join(tables, ",") != strings.Join(want, ",") {
 		t.Fatalf("schema %s has tables\n %v\nwant\n %v", f.d.Schema, tables, want)
@@ -798,11 +860,14 @@ func TestBootstrapIsIdempotent(t *testing.T) {
 		t.Fatalf("expected exactly one append-only trigger, found %d", triggers)
 	}
 	// The seeds ran twice and wrote each row once: 46 pictures (45 of
-	// V1.0.1__seed.sql and V1.0.2__seed-festive-capybara.sql's Festive Capybara), two engines and
-	// seven categories, one settings row, the twelve default tables and seven
-	// private templates, all active.
+	// V1.0.1__seed.sql and V1.0.2__seed-festive-capybara.sql's Festive Capybara), the eight card
+	// backs, two engines and seven categories, one settings row, the twelve
+	// default tables and seven private templates, all active.
 	if n := f.scalar(`SELECT COUNT(*) FROM profile_pictures`); n != 46 {
 		t.Fatalf("profile_pictures holds %d rows after a second boot, want 46", n)
+	}
+	if n := f.scalar(`SELECT COUNT(*) FROM cards_background`); n != 8 {
+		t.Fatalf("cards_background holds %d rows after a second boot, want 8", n)
 	}
 	if n := f.scalar(`SELECT COUNT(*) FROM table_engines WHERE is_active`); n != 2 {
 		t.Fatalf("table_engines holds %d active rows after a second boot, want 2", n)

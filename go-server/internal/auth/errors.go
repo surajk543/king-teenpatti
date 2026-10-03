@@ -52,7 +52,7 @@ const (
 
 // REST-only error codes routes.js returns as plain JSON (not AuthErrors).
 const (
-	CodeSeated              = "seated"                // 409: a name change, a Lucky Draw spin, account deletion or a chip-priced picture while at a table
+	CodeSeated              = "seated"                // 409: a name change, a Lucky Draw spin, account deletion or a chip-priced picture or card back while at a table
 	CodeStoreUnavailable    = "store_unavailable"     // 503: no Google Play credentials configured
 	CodeInvalidPurchase     = "invalid_purchase"      // 400: productId or purchaseToken missing
 	CodeUnknownProduct      = "unknown_product"       // 400: a product id the catalogue does not hold
@@ -66,6 +66,10 @@ const (
 	CodeUnknownPack         = "unknown_pack"          // 400: a missile pack the catalogue does not hold
 	CodeInvalidRequestID    = "invalid_request_id"    // 400: a missile trade's requestId empty or over 64 characters
 	CodeNotEnoughDiamonds   = "not_enough_diamonds"   // 409: the diamonds a missile pack costs are not there
+	// The card backs (owner, 3 Oct 2026; Go only): their one code of their
+	// own. Every other card-back refusal is a picture code — picture_retired,
+	// picture_locked, picture_free, picture_chips — or seated.
+	CodeUnknownCardBackground = "unknown_card_background" // 400: no such card back in its catalogue, or an id that is not one
 	// The Lucky Draw (owner, 24 Sep 2026; Go only).
 	CodeLuckyDrawUnavailable = "lucky_draw_unavailable" // 503: no active draw with that code, or none of its slots can be won
 	CodeLuckyDrawNotReady    = "lucky_draw_not_ready"   // 409: the player's last spin has not recharged; readyAt says when it will

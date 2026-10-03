@@ -14,9 +14,10 @@ type Assets struct {
 func NewAssets(d *DB) *Assets { return &Assets{db: d} }
 
 // Stored is the subset of urls that some catalogue row names: a profile
-// picture's asset_url, a table picture's day or night file, an emoji's, a
-// badge's or a level's asset_url. Retired and unlisted rows count — a player
-// may still wear a retired picture or hold an unlisted badge, and everybody at
+// picture's asset_url, a table picture's day or night file, a card back's
+// (owner, 3 Oct 2026), an emoji's, a badge's or a level's asset_url. Retired
+// and unlisted rows count — a player may still wear a retired picture, keep a
+// retired card back on their cards or hold an unlisted badge, and everybody at
 // their table has to draw it.
 func (a *Assets) Stored(ctx context.Context, urls []string) (map[string]bool, error) {
 	out := map[string]bool{}
@@ -27,6 +28,7 @@ func (a *Assets) Stored(ctx context.Context, urls []string) (map[string]bool, er
 		`SELECT u FROM unnest($1::text[]) AS u
 		  WHERE EXISTS (SELECT 1 FROM profile_pictures p WHERE p.asset_url = u)
 		     OR EXISTS (SELECT 1 FROM table_pictures t WHERE t.day_asset_url = u OR t.night_asset_url = u)
+		     OR EXISTS (SELECT 1 FROM cards_background c WHERE c.asset_url = u)
 		     OR EXISTS (SELECT 1 FROM emojis e WHERE e.asset_url = u)
 		     OR EXISTS (SELECT 1 FROM badges b WHERE b.asset_url = u)
 		     OR EXISTS (SELECT 1 FROM player_levels l WHERE l.asset_url = u)`, urls)

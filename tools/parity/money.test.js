@@ -50,6 +50,10 @@ const RETIRED_REWARD_REASONS = ['milestone_reward', 'timed_bonus', 'daily_bonus'
 const REASONS = new Set([
   'welcome_bonus', 'hand_win', 'hand_loss', 'hand_packed', 'hand_left', ...RETIRED_REWARD_REASONS,
   'lucky_draw', 'picture_purchase', 'table_picture_purchase', 'emoji_purchase', 'test_fixture',
+  // A chip-priced card back (owner, 3 Oct 2026): a chip sink, under the
+  // purchase's own key cardbg:<user>:<card>:<n>. The seeded ones cost hammers
+  // and write no row; an owner may price one in chips.
+  'card_background_purchase',
   // The winning tax a hand's winner pays at a table that taxes its winners
   // (owner, 26 Sep 2026): a chip sink, beside that hand's hand_win row.
   'table_tax',
@@ -125,6 +129,12 @@ test('every ledger row has a known reason, a balance that follows the running to
     if (row.reason === 'emoji_purchase') {
       assert.ok(row.delta < 0, 'buying an emoji only ever takes chips');
       assert.ok(row.action_id?.startsWith(`emoji:${row.user_id}:`), 'an emoji purchase carries its own action id');
+    }
+    // And a chip-priced card back (3 Oct 2026): action_id
+    // cardbg:<user>:<card>:<n>, n counting that pair's purchases.
+    if (row.reason === 'card_background_purchase') {
+      assert.ok(row.delta < 0, 'buying a card back only ever takes chips');
+      assert.ok(row.action_id?.startsWith(`cardbg:${row.user_id}:`), 'a card back purchase carries its own action id');
     }
     // A Teen Patti win pays; a poker win may be a split that returns exactly
     // the stake (delta 0), or a 3-Card Poker push — never a loss.
@@ -296,14 +306,19 @@ test('PostgreSQL holds no game state at all: money, audit, accounts and table co
   // are the login streaks' and calendar rewards' configuration, and
   // user_reward_claims every day of them granted — an audit, as the Lucky
   // Draw's spins are — and user_reward_progress (1 Oct 2026) where each
-  // player stands in a program's period.
+  // player stands in a program's period. cards_background,
+  // user_cards_background and user_cards_background_choice (3 Oct 2026) are
+  // the card-back catalogue, who has bought which and which each player has
+  // chosen — the table pictures' three again: a seat carries a copy of its
+  // player's card back in its Redis snapshot, and no table reads them to play
+  // a hand.
   assert.deepEqual(tables, [
-    'app_versions', 'badge_purchases', 'badges', 'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships',
+    'app_versions', 'badge_purchases', 'badges', 'cards_background', 'chip_ledger', 'diamond_purchases', 'emojis', 'friend_requests', 'friendships',
     'hammer_purchases', 'hammer_spends', 'lucky_draw_slots', 'lucky_draws', 'missile_purchases', 'missile_spends',
     'player_levels', 'player_reports', 'player_stats', 'player_variation_stats', 'player_xp', 'player_xp_claims', 'player_xp_missions', 'profile_pictures',
     'reward_program_rewards', 'reward_programs',
     'stats_flushes', 'table_categories', 'table_configs', 'table_engines', 'table_pictures', 'table_settings',
-    'user_badges', 'user_emojis', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures', 'user_reward_claims', 'user_reward_progress', 'user_sessions', 'user_table_choice',
+    'user_badges', 'user_cards_background', 'user_cards_background_choice', 'user_emojis', 'user_lucky_draws', 'user_milestones', 'user_profile_pictures', 'user_reward_claims', 'user_reward_progress', 'user_sessions', 'user_table_choice',
     'user_table_pictures', 'users', 'welcome_rewards', 'xp_settings', 'xp_sources',
   ], `the schema must hold money, audit, accounts, the picture catalogues and table configuration only, got ${tables.join(', ')}`);
   // Configuration, by construction: no column of the four — nor of the level

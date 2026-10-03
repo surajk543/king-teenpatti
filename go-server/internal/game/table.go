@@ -187,6 +187,11 @@ type NewPlayer struct {
 	// Level is the player's level and its art (SeatLevel), read with their
 	// account when they sat down; nil where not known. Shown on their pod.
 	Level *SeatLevel
+	// CardBackground is the card back the player has chosen, from their
+	// account (owner, 3 Oct 2026; cardbackground.go), or nil for the default
+	// back. The seat keeps a copy of a valid one and everybody at the table
+	// sees it on that player's cards.
+	CardBackground *CardBackground
 }
 
 // ActRequest is the client's move (socket game:action → table.act payload).
@@ -284,6 +289,11 @@ type seat struct {
 	// level is the player's level on their pod (SeatLevel): NewPlayer.Level
 	// when they sat down, refreshed from every hand-end settle.
 	level *SeatLevel
+
+	// cardBackground is the card back this player has chosen, or nil — the
+	// default back (cardbackground.go): NewPlayer.CardBackground when they
+	// sat down, changed by SetCardBackground. Never shared with a caller.
+	cardBackground *CardBackground
 }
 
 // contribution is hand.contributions[userId] — owned by the HAND, not the
@@ -1178,6 +1188,7 @@ func (s *seat) info() *SeatInfo {
 		KickPending:           s.kickPending,
 		TaxBps:                s.taxBps,
 		Level:                 s.level.clone(),
+		CardBackground:        s.cardBackground.clone(),
 	}
 }
 
@@ -1223,6 +1234,9 @@ func (t *Table) addPlayer(p NewPlayer) (*SeatInfo, error) {
 		joinedAt:     t.clock.Now(),
 		taxBps:       p.TaxBps,
 		level:        p.Level.clone(),
+		// The card back everyone at the table sees on this player's cards:
+		// a copy of a valid one, else the default (forSeat).
+		cardBackground: p.CardBackground.forSeat(),
 	}
 	t.seats[seatIndex] = s
 	t.refreshPlayerCount()
@@ -3631,6 +3645,7 @@ func (t *Table) snapshot() *Snapshot {
 			JoinedAt:              Millis(s.joinedAt),
 			TaxBps:                s.taxBps,
 			Level:                 s.level.clone(),
+			CardBackground:        s.cardBackground.clone(),
 		}
 		if s.unfundedUntil != nil {
 			snap.UnfundedUntil = Int64Ptr(Millis(*s.unfundedUntil))
@@ -3941,6 +3956,9 @@ func (t *Table) serializeFor(viewerID string) *TableView {
 			Picking: s.picking && len(s.picked) == 0,
 			// Public too: the player's level on their pod (29 Sep 2026).
 			Level: s.level.clone(),
+			// And the card back they have chosen, which everyone at the table
+			// sees on their face-down cards (3 Oct 2026); absent when none.
+			CardBackground: s.cardBackground.clone(),
 		}
 		if s.avatarURL != nil {
 			entry.AvatarURL = StrPtr(*s.avatarURL)

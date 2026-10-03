@@ -7,8 +7,10 @@
 //
 // The art — the profile pictures, table pictures, emojis, badges and level
 // art the seed names — lives in a PRIVATE Cloudflare R2 bucket, moved there
-// from Google Drive by tools/r2/migrate_drive_assets.py. The database stores
-// each file's LOCATION, its R2 URL, path-style on the account's S3 endpoint:
+// from Google Drive by tools/r2/migrate_drive_assets.py; the card backs (3 Oct
+// 2026) were uploaded by the owner straight into its cards/ folder, under
+// their own names, spaces and capitals included. The database stores each
+// file's LOCATION, its R2 URL, path-style on the account's S3 endpoint:
 //
 //	https://<account>.r2.cloudflarestorage.com/<bucket>/<key>
 //
@@ -57,11 +59,22 @@ type Config struct {
 var (
 	accountPattern = regexp.MustCompile(`^[a-z0-9]{1,64}$`)
 	bucketPattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
-	// keyPattern is the keys this bucket's locations use: folders and file
-	// names of lower-case letters, digits, '-', '_' and '.', no '..'. A key
-	// of any other shape is not signed.
-	keyPattern = regexp.MustCompile(`^[a-z0-9_-]+(/[a-z0-9_.-]+)+$`)
+	// keyPattern is the keys this bucket's locations use, as a LOCATION
+	// writes them: a folder of lower-case letters, digits, '-' and '_', any
+	// segments after it of those and '.', and a file name that may also hold
+	// upper-case letters and spaces — the owner's card backs keep the names
+	// they were uploaded under (3 Oct 2026: "cards/Royal Owl with fox.jpg").
+	// A space is written %20, the one escape a location carries, and only
+	// between two other characters: no raw space, no space at either end of
+	// the name, no other %-escape (%2F, %2e, %25 …), no empty segment; and
+	// Key refuses '..' anywhere. A key of any other shape is not signed.
+	// Every key the old rule took — lower case, no spaces — is still taken.
+	keyPattern = regexp.MustCompile(`^[a-z0-9_-]+(?:/[a-z0-9_.-]+)*/[A-Za-z0-9_.-]+(?:(?:%20)+[A-Za-z0-9_.-]+)*$`)
 )
+
+// locationSpace is how a location writes a space in a key: the one escape
+// keyPattern allows.
+const locationSpace = "%20"
 
 // Signer signs the locations of one bucket. Safe for concurrent use: it holds
 // nothing that changes.
@@ -103,21 +116,29 @@ func New(cfg Config, now func() time.Time) (*Signer, error) {
 }
 
 // Location is the URL the database stores for the object at key — what the
-// seed writes and what Sign signs.
+// seed writes and what Sign signs — with each space of the key written %20
+// (owner, 3 Oct 2026: a card back's key is its file's own name, "cards/Brutal
+// Demon.jpg"), so Location(Key(u)) is u.
 func (s *Signer) Location(key string) string {
-	return s.prefix + strings.TrimPrefix(key, "/")
+	return s.prefix + strings.ReplaceAll(strings.TrimPrefix(key, "/"), " ", locationSpace)
 }
 
 // Key is the object key of a location in this bucket, and whether u is one: a
 // URL of Location's form whose key has keyPattern's shape, with no query or
 // fragment. Another host, another bucket, a relative path, a URL already
-// signed or "" is not.
+// signed or "" is not. The key comes back DECODED — "cards/Brutal Demon.jpg"
+// for ".../cards/Brutal%20Demon.jpg" — which is the object's name in the
+// bucket and what presignGET encodes, once, into the signed path.
 func (s *Signer) Key(u string) (string, bool) {
 	if s == nil || !strings.HasPrefix(u, s.prefix) {
 		return "", false
 	}
-	key := u[len(s.prefix):]
-	if !keyPattern.MatchString(key) || strings.Contains(key, "..") {
+	raw := u[len(s.prefix):]
+	if !keyPattern.MatchString(raw) {
+		return "", false
+	}
+	key := strings.ReplaceAll(raw, locationSpace, " ")
+	if strings.Contains(key, "..") {
 		return "", false
 	}
 	return key, true
